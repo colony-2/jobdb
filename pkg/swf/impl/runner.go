@@ -34,7 +34,7 @@ func (r *runner) DoTask(taskType string, data swf.TaskData) (swf.TaskData, error
 		return chapterToTaskData(chap), nil
 	}
 
-	if !errors.Is(core.ErrNotFound, err) {
+	if !errors.Is(err, core.ErrNotFound) {
 		return nil, fmt.Errorf("failed to get chapter %d: %w", r.storyCounter, err)
 	}
 
@@ -100,7 +100,9 @@ func (r *runner) getChapter(ordinal int64) (story.Chapter, error) {
 	return r.engine.strata.Chapter(context.TODO(), story.Key{AnthologyID: r.engine.tenantId, StoryID: string(r.jobId)}, ordinal)
 }
 
-func (r *runner) Run(ctx context.Context) {
+func (r *runner) Run(ctx context.Context, lease *pgwf.Lease) {
+	_ = lease.WithKeepAlive(r.engine.udb)
+
 	chap, err := r.getChapter(0)
 	if err != nil {
 		fmt.Println(err)
@@ -131,4 +133,10 @@ func (r *runner) Run(ctx context.Context) {
 	if err != nil {
 		fmt.Println(err)
 	}
+
+	err = lease.Complete(ctx, r.engine.udb)
+	if err != nil {
+		fmt.Println(err)
+	}
+
 }

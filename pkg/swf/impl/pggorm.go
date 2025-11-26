@@ -1,8 +1,9 @@
 package impl
 
 import (
-	"gorm.io/datatypes"
 	"time"
+
+	"gorm.io/datatypes"
 )
 
 type Job struct {

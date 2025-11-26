@@ -210,9 +210,12 @@ func (s *swfEngineImpl) Run(ctx context.Context) {
 		for {
 			lease, err := pgwf.GetWork(ctx, s.udb, pgwf.WorkerID(s.workerId), caps)
 			if err == nil {
-				b.Reset()
-				go s.runSomething(context.Background(), lease)
-				continue // let's try again without a backoff.
+				if lease != nil {
+					b.Reset()
+					go s.runSomething(context.Background(), lease)
+					continue // let's try again without a backoff.
+				}
+				// no work right now; fall through to backoff
 			}
 			select {
 			case <-ctx.Done():
@@ -240,7 +243,7 @@ func (s *swfEngineImpl) runSomething(ctx context.Context, lease *swf.Lease) {
 		engine:       s,
 		lease:        lease,
 	}
-	runner.Run(ctx)
+	runner.Run(ctx, lease)
 }
 
 var _ swf.SWFEngine = &swfEngineImpl{}

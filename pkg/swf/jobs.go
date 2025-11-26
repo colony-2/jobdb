@@ -55,11 +55,12 @@ type jobRunApi interface {
 }
 
 type EngineBuilder struct {
-	workers     map[string]WorkSet
-	tenantId    string
-	maxActive   int
-	strataURI   string
-	postgresDSN string
+	workers      map[string]WorkSet
+	tenantId     string
+	maxActive    int
+	strataURI    string
+	strataAPIKey string
+	postgresDSN  string
 }
 
 type WorkSet struct {
@@ -88,6 +89,11 @@ func (e *EngineBuilder) WithMaxActive(maxActive int) *EngineBuilder {
 
 func (e *EngineBuilder) WithStrata(uri string) *EngineBuilder {
 	e.strataURI = uri
+	return e
+}
+
+func (e *EngineBuilder) WithStrataAPIKey(key string) *EngineBuilder {
+	e.strataAPIKey = key
 	return e
 }
 
@@ -128,6 +134,10 @@ func (b *EngineBuilder) Build(builder Builder) (SWFEngine, error) {
 		return nil, fmt.Errorf("strata URI is required")
 	}
 
+	if b.strataAPIKey == "" {
+		return nil, fmt.Errorf("strata API key is required")
+	}
+
 	if b.postgresDSN == "" {
 		return nil, fmt.Errorf("postgres DSN is required")
 	}
@@ -143,6 +153,7 @@ func (b *EngineBuilder) Build(builder Builder) (SWFEngine, error) {
 	log.Printf("Building engine with workers: %+v", b.workers)
 	sclient, err := strataclient.New(strataclient.Config{
 		BaseURL: b.strataURI,
+		APIKey:  b.strataAPIKey,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create strata client: %w", err)

@@ -32,7 +32,7 @@ Goal: prove the simplest end-to-end flow works with two engines sharing a job wo
    - Kick off a job via `e1.StartJob` with `JobType` = `pipe.Name()`, `SingletonKey` empty, and initial `JobData` containing integer `1`.
    - Poll for completion by:
      - Checking pgwf job status for the job ID reaching “done”/no outstanding leases, and
-     - Fetching the Strata story chapters to ensure four task chapters exist and the final value equals `(((1+1)*2)+1)*2 = 8`.
+   - Fetching the Strata story chapters to ensure four task chapters exist (ordinals 1–4) plus the final job output (ordinal 5). With `t1` = add 1 and `t2` = double, starting from 1 should yield 2, 4, 5, 10, and a final 10 at ordinal 5.
 5) **Assertions**
    - The job reaches a terminal state without retries or cancellations.
    - Exactly four task chapters exist in Strata with ordinals 1–4 and bodies matching the expected intermediate values.
