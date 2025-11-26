@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime"
+	"time"
 
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
 	"github.com/colony-2/strata/strata-go/pkg/client/core"
@@ -29,11 +30,27 @@ func (r *runner) GetJobId() swf.JobId {
 func (r *runner) DoTask(taskType string, data swf.TaskData) (swf.TaskData, error) {
 	ordinal := r.storyCounter
 	r.storyCounter++
+	ctx := context.TODO()
 
-	chap, err := r.engine.strata.Chapter(context.TODO(), story.Key{AnthologyID: r.engine.tenantId, StoryID: string(r.jobId)}, ordinal)
+	inputHash, err := computeInputHash(ctx, data)
+	if err != nil {
+		return nil, fmt.Errorf("compute input hash: %w", err)
+	}
+
+	chap, err := r.engine.strata.Chapter(ctx, story.Key{AnthologyID: r.engine.tenantId, StoryID: string(r.jobId)}, ordinal)
 
 	if err == nil {
-		return chapterToTaskData(chap), nil
+		env, decErr := decodeChapterEnvelope(chap.Body())
+		if decErr != nil {
+			return nil, fmt.Errorf("%w: decode cached chapter: %v", swf.ErrWorkflowNotDeterministic, decErr)
+		}
+		if env.Meta.InputHash == "" {
+			return nil, fmt.Errorf("%w: ordinal %d task %s missing input hash", swf.ErrMissingInputHash, ordinal, taskType)
+		}
+		if env.Meta.InputHash != inputHash {
+			return nil, fmt.Errorf("%w: ordinal %d task %s", swf.ErrWorkflowNotDeterministic, ordinal, taskType)
+		}
+		return envelopeToTaskData(env, chap.Artifacts())
 	}
 
 	if !errors.Is(err, core.ErrNotFound) {
@@ -74,7 +91,7 @@ func (r *runner) DoTask(taskType string, data swf.TaskData) (swf.TaskData, error
 	if err != nil {
 		return nil, err
 	}
-	chap, err = taskDataToChapter(output, ordinal)
+	chap, err = taskDataToChapter(output, ordinal, taskType, r.engine.workerId, payloadKindApp, inputHash, time.Now().UTC())
 
 	if err != nil {
 		return nil, err
@@ -120,7 +137,12 @@ func (r *runner) Run(ctx context.Context, lease *pgwf.Lease) {
 		r.logger.Error("failed to get initial chapter", "error", err)
 		return
 	}
-	output, err := r.worker.JobWorker.Run(r, chapterToTaskData(chap))
+	inputData, err := chapterToTaskData(chap)
+	if err != nil {
+		r.logger.Error("failed to decode initial chapter", "error", err)
+		return
+	}
+	output, err := r.worker.JobWorker.Run(r, inputData)
 
 	if err != nil {
 		r.logger.Error("job worker run failed", "error", err)
@@ -130,7 +152,13 @@ func (r *runner) Run(ctx context.Context, lease *pgwf.Lease) {
 	ordinal := r.storyCounter
 	r.storyCounter++
 
-	chap, err = taskDataToChapter(output, ordinal)
+	inputHash, err := computeInputHash(ctx, inputData)
+	if err != nil {
+		r.logger.Error("failed to hash job input", "error", err)
+		return
+	}
+
+	chap, err = taskDataToChapter(output, ordinal, r.worker.JobWorker.Name(), r.engine.workerId, payloadKindApp, inputHash, time.Now().UTC())
 
 	if err != nil {
 		r.logger.Error("failed to build chapter", "error", err)

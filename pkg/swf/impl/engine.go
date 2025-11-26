@@ -31,37 +31,52 @@ type swfEngineImpl struct {
 	logger          *slog.Logger
 }
 
-func taskDataToChapter(jobData swf.TaskData, ordinal int64) (story.Chapter, error) {
+func taskDataToChapter(jobData swf.TaskData, ordinal int64, taskType string, workerId string, payloadKind string, inputHash string, createdAt time.Time) (story.Chapter, error) {
+	if jobData == nil {
+		return nil, fmt.Errorf("task data is required")
+	}
 
-	var chapBuilder *story.ChapterBuilder
+	data, err := jobData.GetData()
+	if err != nil {
+		return nil, err
+	}
+	bytes, err := data.ToBytes()
+	if err != nil {
+		return nil, err
+	}
 
-	if jobData != nil {
-		data, err := jobData.GetData()
-		if err != nil {
-			return nil, err
-		}
-		bytes, err := data.ToBytes()
-		if err != nil {
-			return nil, err
-		}
+	if inputHash == "" {
+		return nil, fmt.Errorf("input hash is required")
+	}
+	meta := chapterMeta{
+		Version:   envelopeVersion,
+		Ordinal:   ordinal,
+		TaskType:  taskType,
+		WorkerID:  workerId,
+		CreatedAt: createdAt,
+		InputHash: inputHash,
+	}
 
-		chapBuilder = story.NewChapter().WithOrdinal(ordinal).WithBytes(bytes)
-		artifacts, err := jobData.GetArtifacts()
-		if err != nil {
-			return nil, err
-		}
-		// loop over artifacts and add them to the story
-		for _, v := range artifacts {
-			chapBuilder.AddArtifact(v)
-		}
+	payload := json.RawMessage(bytes)
+	envBytes, err := buildChapterEnvelope(meta, payloadKind, payload)
+	if err != nil {
+		return nil, err
+	}
 
+	chapBuilder := story.NewChapter().WithOrdinal(ordinal).WithBytes(envBytes)
+	artifacts, err := jobData.GetArtifacts()
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range artifacts {
+		chapBuilder.AddArtifact(v)
 	}
 
 	return chapBuilder, nil
 }
 
-func taskDataToCreatOptions(jobData swf.TaskData, ordinal int64) (story.CreateOptions, error) {
-	chap, err := taskDataToChapter(jobData, ordinal)
+func taskDataToCreatOptions(jobData swf.TaskData, ordinal int64, taskType string, workerId string, payloadKind string, inputHash string, createdAt time.Time) (story.CreateOptions, error) {
+	chap, err := taskDataToChapter(jobData, ordinal, taskType, workerId, payloadKind, inputHash, createdAt)
 	if err != nil {
 		return story.CreateOptions{}, err
 	}
@@ -80,7 +95,12 @@ func (s *swfEngineImpl) StartJob(ctx context.Context, job swf.StartJob) (swf.Job
 		StoryID:     string(jobId),
 	}
 	taskData := swf.TaskData(job.Data)
-	co, err := taskDataToCreatOptions(taskData, 0)
+	inputHash, err := computeInputHash(ctx, taskData)
+	if err != nil {
+		return "", err
+	}
+	now := time.Now().UTC()
+	co, err := taskDataToCreatOptions(taskData, 0, job.JobType, s.workerId, payloadKindApp, inputHash, now)
 	if err != nil {
 		return "", err
 	}
@@ -111,7 +131,12 @@ func (s *swfEngineImpl) RestartJob(ctx context.Context, job swf.RestartJob) (swf
 		StoryID:     string(jobId),
 	}
 
-	createOptions, err := taskDataToCreatOptions(job.Data, job.LastStepToKeep+1)
+	inputHash, err := computeInputHash(ctx, job.Data)
+	if err != nil {
+		return "", err
+	}
+	now := time.Now().UTC()
+	createOptions, err := taskDataToCreatOptions(job.Data, job.LastStepToKeep+1, job.JobType, s.workerId, payloadKindApp, inputHash, now)
 	if err != nil {
 		return "", err
 	}
@@ -136,7 +161,7 @@ func (s *swfEngineImpl) CancelJob(ctx context.Context, job swf.CancelJob) error 
 type taskWait struct {
 	InputStep  int64  `json:"in"`
 	OutputStep int64  `json:"out"`
-	Next       string `json:"nex	t"`
+	Next       string `json:"next"`
 }
 
 func (s *swfEngineImpl) FindTasksWaitingForCapability(ctx context.Context, jobType string, taskType string) ([]swf.TaskHandle, error) {
@@ -159,6 +184,7 @@ func (s *swfEngineImpl) FindTasksWaitingForCapability(ctx context.Context, jobTy
 			outputOrdinal: tw.OutputStep,
 			engine:        s,
 			nextNeed:      pgwf.Capability(tw.Next),
+			taskType:      taskType,
 		}
 		handles = append(handles, &th)
 	}

@@ -179,9 +179,20 @@ func waitForChapterValue(t *testing.T, client *strataclient.Client, key story.Ke
 
 func decodeNumber(t *testing.T, body []byte) int {
 	t.Helper()
-	var payload map[string]int
-	if err := json.Unmarshal(body, &payload); err != nil {
+	var env struct {
+		PayloadKind string          `json:"payload_kind"`
+		Payload     json.RawMessage `json:"payload"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil {
 		t.Fatalf("failed to decode chapter body: %v", err)
+	}
+	if env.PayloadKind != "App" {
+		t.Fatalf("unexpected payload kind %q", env.PayloadKind)
+	}
+
+	var payload map[string]int
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
 	}
 	return payload["n"]
 }

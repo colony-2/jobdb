@@ -2,6 +2,7 @@ package impl
 
 import (
 	"context"
+	"time"
 
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
 	"github.com/colony-2/strata/strata-go/pkg/client/story"
@@ -15,6 +16,7 @@ type taskHandleImpl struct {
 	inputChapter  story.Chapter
 	engine        *swfEngineImpl
 	nextNeed      pgwf.Capability
+	taskType      string
 }
 
 func (h *taskHandleImpl) chapter() (story.Chapter, error) {
@@ -34,7 +36,7 @@ func (h *taskHandleImpl) Data() (swf.TaskData, error) {
 	if err != nil {
 		return nil, err
 	}
-	return chapterToTaskData(c), nil
+	return chapterToTaskData(c)
 }
 
 func (h *taskHandleImpl) JobId() swf.JobId {
@@ -43,7 +45,16 @@ func (h *taskHandleImpl) JobId() swf.JobId {
 
 func (h *taskHandleImpl) Finish(ctx context.Context, taskData swf.TaskData) error {
 	// write the story.
-	chap, err := taskDataToChapter(taskData, h.outputOrdinal)
+	inputTD, err := chapterToTaskData(h.inputChapter)
+	if err != nil {
+		return err
+	}
+	inputHash, err := computeInputHash(ctx, inputTD)
+	if err != nil {
+		return err
+	}
+
+	chap, err := taskDataToChapter(taskData, h.outputOrdinal, h.taskType, h.engine.workerId, payloadKindApp, inputHash, time.Now().UTC())
 	if err != nil {
 		return err
 	}
@@ -64,17 +75,16 @@ func (h *taskHandleImpl) Finish(ctx context.Context, taskData swf.TaskData) erro
 
 var _ swf.TaskHandle = &taskHandleImpl{}
 
-func chapterToTaskData(chapter story.Chapter) swf.TaskData {
+func chapterToTaskData(chapter story.Chapter) (swf.TaskData, error) {
 	artifacts := make([]swf.Artifact, 0, len(chapter.Artifacts()))
 	for _, a := range chapter.Artifacts() {
 		artifacts = append(artifacts, a)
 	}
 
-	data := swf.NewBytesData(chapter.Body())
-	task := swf.SimpleTaskData{
-		Data:      data,
-		Artifacts: artifacts,
+	env, err := decodeChapterEnvelope(chapter.Body())
+	if err != nil {
+		return nil, err
 	}
-	return &task
 
+	return envelopeToTaskData(env, artifacts)
 }
