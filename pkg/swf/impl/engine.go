@@ -177,15 +177,15 @@ var Builder swf.Builder = func(tenantId string, db *gorm.DB, strataClient *strat
 
 	// create a map of capabilities to workers (each task maps to the workset of the parent job. this way we avoid string splitting on each job to find things.
 	capMap := make(map[pgwf.Capability]*swf.WorkSet)
-	for _, w := range workers {
-		wp := &w
+	for i := range workers {
+		w := &workers[i]
 		for _, c := range w.Capabilities {
-			capMap[c] = wp
+			capMap[c] = w
 		}
-		capMap[pgwf.Capability(w.JobWorker.Name())] = wp
+		capMap[pgwf.Capability(w.JobWorker.Name())] = w
 	}
 
-	workerId := fmt.Sprintf("%s:%i - %s", host, os.Getppid(), ksuid.New().String())
+	workerId := fmt.Sprintf("%s:%d-%s", host, os.Getppid(), ksuid.New().String())
 	f := swfEngineImpl{
 		tenantId: tenantId,
 		strata:   strataClient,
@@ -225,17 +225,18 @@ func (s *swfEngineImpl) Run(ctx context.Context) {
 
 // runs inside goroutine for a specific lease.
 func (s *swfEngineImpl) runSomething(ctx context.Context, lease *swf.Lease) {
-	cap := pgwf.Capability("")
-	workSet, ok := s.workers[cap]
+	capability := lease.NextNeed()
+	workSet, ok := s.workers[capability]
 	if !ok {
 		// this should never happen. we don't want to crash so we'll just let the lease expire
-		log.Println("no workset found for capability %s. this shouldn't happen", cap)
+		log.Printf("no workset found for capability %s. this shouldn't happen", capability)
+		return
 	}
 
 	runner := runner{
 		jobId:        lease.JobID(),
 		worker:       workSet,
-		storyCounter: 0,
+		storyCounter: 1,
 		engine:       s,
 		lease:        lease,
 	}

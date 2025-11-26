@@ -101,7 +101,7 @@ func (e *EngineBuilder) PlusWorkers(jobWorker JobWorker, taskWorkers ...TaskWork
 	}
 
 	tasks := make(map[string]TaskWorker)
-	capabilities := make([]pgwf.Capability, len(taskWorkers))
+	capabilities := make([]pgwf.Capability, 0, len(taskWorkers))
 	for _, tw := range taskWorkers {
 
 		if _, ok := tasks[tw.Name()]; ok {
@@ -154,8 +154,10 @@ func (b *EngineBuilder) Build(builder Builder) (SWFEngine, error) {
 	}
 
 	ws := make([]WorkSet, len(b.workers))
+	i := 0
 	for _, v := range b.workers {
-		ws = append(ws, v)
+		ws[i] = v
+		i++
 	}
 	return builder(b.tenantId, db, sclient, ws)
 }

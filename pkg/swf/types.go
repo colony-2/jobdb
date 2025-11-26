@@ -26,7 +26,7 @@ func NewMapData(deserialized map[string]interface{}) Data {
 func (d Data) deserializeIfNeeded() error {
 	if d.deserialized == nil {
 		deserialized := make(map[string]interface{})
-		err := json.Unmarshal(d.serialized, d.deserialized)
+		err := json.Unmarshal(d.serialized, &deserialized)
 		if err != nil {
 			return err
 		}
@@ -145,7 +145,6 @@ type TaskData interface {
 	GetData() (Data, error)
 	GetArtifacts() ([]Artifact, error)
 }
-
 
 type TaskWorker interface {
 	Name() string

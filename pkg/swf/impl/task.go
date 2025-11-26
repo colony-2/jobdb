@@ -46,7 +46,10 @@ func (h *taskHandleImpl) Finish(ctx context.Context, taskData swf.TaskData) erro
 	if err != nil {
 		return err
 	}
-	err = h.engine.strata.SaveChapter(context.TODO(), story.Key{}, chap)
+	err = h.engine.strata.SaveChapter(context.TODO(), story.Key{
+		AnthologyID: h.engine.tenantId,
+		StoryID:     h.job.JobID,
+	}, chap)
 	if err != nil {
 		return err
 	}

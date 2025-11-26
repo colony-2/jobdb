@@ -25,8 +25,10 @@ func (r *runner) GetJobId() swf.JobId {
 }
 
 func (r *runner) DoTask(taskType string, data swf.TaskData) (swf.TaskData, error) {
+	ordinal := r.storyCounter
 	r.storyCounter++
-	chap, err := r.engine.strata.Chapter(context.TODO(), story.Key{AnthologyID: r.engine.tenantId, StoryID: string(r.jobId)}, r.storyCounter)
+
+	chap, err := r.engine.strata.Chapter(context.TODO(), story.Key{AnthologyID: r.engine.tenantId, StoryID: string(r.jobId)}, ordinal)
 
 	if err == nil {
 		return chapterToTaskData(chap), nil
@@ -41,10 +43,10 @@ func (r *runner) DoTask(taskType string, data swf.TaskData) (swf.TaskData, error
 	if !capabilityExistsLocally {
 		// suspend and run remote task.
 		err = r.lease.Reschedule(context.TODO(), r.engine.udb, pgwf.JobDependencies{
-			NextNeed: pgwf.Capability(taskType),
+			NextNeed: pgwf.Capability(r.worker.JobWorker.Name() + ":" + taskType),
 			WaitFor:  nil,
 		}, taskWait{
-			Step: r.storyCounter,
+			Step: ordinal,
 			Next: r.worker.JobWorker.Name(),
 		})
 
@@ -64,14 +66,14 @@ func (r *runner) DoTask(taskType string, data swf.TaskData) (swf.TaskData, error
 	if err != nil {
 		return nil, err
 	}
-	chap, err = taskDataToChapter(output, r.storyCounter)
+	chap, err = taskDataToChapter(output, ordinal)
 
 	if err != nil {
 		return nil, err
 	}
 
 	err = r.engine.strata.SaveChapter(context.TODO(), story.Key{
-		AnthologyID: r.engine.workerId,
+		AnthologyID: r.engine.tenantId,
 		StoryID:     string(r.GetJobId()),
 	}, chap)
 
@@ -111,7 +113,10 @@ func (r *runner) Run(ctx context.Context) {
 		return
 	}
 
-	chap, err = taskDataToChapter(output, r.storyCounter)
+	ordinal := r.storyCounter
+	r.storyCounter++
+
+	chap, err = taskDataToChapter(output, ordinal)
 
 	if err != nil {
 		fmt.Println(err)
@@ -119,7 +124,7 @@ func (r *runner) Run(ctx context.Context) {
 	}
 
 	err = r.engine.strata.SaveChapter(context.TODO(), story.Key{
-		AnthologyID: r.engine.workerId,
+		AnthologyID: r.engine.tenantId,
 		StoryID:     string(r.GetJobId()),
 	}, chap)
 
