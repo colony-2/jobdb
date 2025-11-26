@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"net/http"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -49,11 +51,14 @@ func TestBasicWorkflowIntegration(t *testing.T) {
 	waitForStrataReady(t, baseURL)
 
 	tenantID := "test-tenant"
+	logCapture := newCaptureHandler()
+	logger := slog.New(logCapture)
 
 	engine1, err := swf.NewEngineBuilder(tenantID).
 		WithPostgresDSN(postgresDSN).
 		WithStrata(baseURL).
 		WithStrataAPIKey(strata.APIKey).
+		WithLogger(logger).
 		PlusWorkers(pipeJob{}, addOneTask{}).
 		Build(impl.Builder)
 	if err != nil {
@@ -64,6 +69,7 @@ func TestBasicWorkflowIntegration(t *testing.T) {
 		WithPostgresDSN(postgresDSN).
 		WithStrata(baseURL).
 		WithStrataAPIKey(strata.APIKey).
+		WithLogger(logger).
 		PlusWorkers(pipeJob{}, doubleTask{}).
 		Build(impl.Builder)
 	if err != nil {
@@ -100,6 +106,10 @@ func TestBasicWorkflowIntegration(t *testing.T) {
 		if got != expected {
 			t.Fatalf("ordinal %d: want %d, got %d", ordinal, expected, got)
 		}
+	}
+
+	if errs := logCapture.Errors(); errs > 0 {
+		t.Fatalf("saw %d error log(s) during run", errs)
 	}
 }
 
@@ -187,6 +197,9 @@ func (pipeJob) Name() string { return pipeJobName }
 func (pipeJob) Run(ctx swf.JobContext, data swf.JobData) (swf.JobData, error) {
 	current := taskNumber(data)
 	payload := &swf.SimpleTaskData{Data: swf.NewMapData(map[string]interface{}{"n": current})}
+	if ctx.Logger() != nil {
+		ctx.Logger().Info("starting job", "current", current)
+	}
 
 	steps := []string{addOneTaskName, doubleTaskName, userInputTaskName, addOneTaskName, doubleTaskName}
 	var err error
@@ -195,6 +208,9 @@ func (pipeJob) Run(ctx swf.JobContext, data swf.JobData) (swf.JobData, error) {
 		out, err = ctx.DoTask(step, out)
 		if err != nil {
 			return nil, err
+		}
+		if ctx.Logger() != nil {
+			ctx.Logger().Info("completed task", "task", step, "value", taskNumber(out))
 		}
 	}
 	return out, nil
@@ -206,8 +222,11 @@ type addOneTask struct{}
 
 func (addOneTask) Name() string { return addOneTaskName }
 
-func (addOneTask) Run(_ swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
+func (addOneTask) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
 	n := taskNumber(input)
+	if ctx.Logger != nil {
+		ctx.Logger.Info("t1 add", "input", n)
+	}
 	return &swf.SimpleTaskData{Data: swf.NewMapData(map[string]interface{}{"n": n + 1})}, nil
 }
 
@@ -217,8 +236,11 @@ type doubleTask struct{}
 
 func (doubleTask) Name() string { return doubleTaskName }
 
-func (doubleTask) Run(_ swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
+func (doubleTask) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
 	n := taskNumber(input)
+	if ctx.Logger != nil {
+		ctx.Logger.Info("t2 double", "input", n)
+	}
 	return &swf.SimpleTaskData{Data: swf.NewMapData(map[string]interface{}{"n": n * 2})}, nil
 }
 
@@ -272,4 +294,44 @@ func taskNumber(td swf.TaskData) int {
 		return 0
 	}
 	return payload["n"]
+}
+
+type captureHandler struct {
+	mu      sync.Mutex
+	records []slog.Record
+}
+
+func newCaptureHandler() *captureHandler {
+	return &captureHandler{records: make([]slog.Record, 0)}
+}
+
+func (h *captureHandler) Enabled(context.Context, slog.Level) bool {
+	return true
+}
+
+func (h *captureHandler) Handle(ctx context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.records = append(h.records, r.Clone())
+	return nil
+}
+
+func (h *captureHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return h
+}
+
+func (h *captureHandler) WithGroup(name string) slog.Handler {
+	return h
+}
+
+func (h *captureHandler) Errors() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	count := 0
+	for _, r := range h.records {
+		if r.Level >= slog.LevelError {
+			count++
+		}
+	}
+	return count
 }

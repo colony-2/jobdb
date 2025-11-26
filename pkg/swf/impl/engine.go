@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
@@ -28,6 +28,7 @@ type swfEngineImpl struct {
 	workerId        string
 	runners         map[string]runner
 	activeWorkLimit int
+	logger          *slog.Logger
 }
 
 func taskDataToChapter(jobData swf.TaskData, ordinal int64) (story.Chapter, error) {
@@ -167,7 +168,7 @@ func (s *swfEngineImpl) FindTasksWaitingForCapability(ctx context.Context, jobTy
 
 var _ swf.SWFEngine = &swfEngineImpl{}
 
-var Builder swf.Builder = func(tenantId string, db *gorm.DB, strataClient *strataclient.Client, workers []swf.WorkSet) (swf.SWFEngine, error) {
+var Builder swf.Builder = func(tenantId string, db *gorm.DB, strataClient *strataclient.Client, workers []swf.WorkSet, logger *slog.Logger) (swf.SWFEngine, error) {
 	underlying, err := db.DB()
 	if err != nil {
 		return nil, err
@@ -188,6 +189,9 @@ var Builder swf.Builder = func(tenantId string, db *gorm.DB, strataClient *strat
 	}
 
 	workerId := fmt.Sprintf("%s:%d-%s", host, os.Getppid(), ksuid.New().String())
+	if logger == nil {
+		logger = slog.Default()
+	}
 	f := swfEngineImpl{
 		tenantId: tenantId,
 		strata:   strataClient,
@@ -195,6 +199,7 @@ var Builder swf.Builder = func(tenantId string, db *gorm.DB, strataClient *strat
 		workers:  capMap,
 		workerId: workerId,
 		udb:      underlying,
+		logger:   logger,
 	}
 
 	return &f, nil
@@ -219,6 +224,9 @@ func (s *swfEngineImpl) Run(ctx context.Context) {
 				}
 				// no work right now; fall through to backoff
 			}
+			if err != nil {
+				s.logger.Error("get work failed", "error", err)
+			}
 			select {
 			case <-ctx.Done():
 				return
@@ -234,7 +242,7 @@ func (s *swfEngineImpl) runSomething(ctx context.Context, lease *swf.Lease) {
 	workSet, ok := s.workers[capability]
 	if !ok {
 		// this should never happen. we don't want to crash so we'll just let the lease expire
-		log.Printf("no workset found for capability %s. this shouldn't happen", capability)
+		s.logger.Error("no workset found for capability", "capability", capability)
 		return
 	}
 
@@ -244,6 +252,7 @@ func (s *swfEngineImpl) runSomething(ctx context.Context, lease *swf.Lease) {
 		storyCounter: 1,
 		engine:       s,
 		lease:        lease,
+		logger:       s.logger.With("jobId", lease.JobID(), "capability", capability),
 	}
 	runner.Run(ctx, lease)
 }

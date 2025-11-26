@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"runtime"
 
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
@@ -18,6 +19,7 @@ type runner struct {
 	storyCounter int64
 	engine       *swfEngineImpl
 	lease        *pgwf.Lease
+	logger       *slog.Logger
 }
 
 func (r *runner) GetJobId() swf.JobId {
@@ -64,8 +66,9 @@ func (r *runner) DoTask(taskType string, data swf.TaskData) (swf.TaskData, error
 	}
 
 	output, err := worker.Run(swf.TaskContext{
-		JobId: r.GetJobId(),
-		Step:  r.storyCounter,
+		JobId:  r.GetJobId(),
+		Step:   r.storyCounter,
+		Logger: r.logger.With("task", taskType, "step", r.storyCounter),
 	}, data)
 
 	if err != nil {
@@ -105,18 +108,22 @@ func (r *runner) getChapter(ordinal int64) (story.Chapter, error) {
 	return r.engine.strata.Chapter(context.TODO(), story.Key{AnthologyID: r.engine.tenantId, StoryID: string(r.jobId)}, ordinal)
 }
 
+func (r *runner) Logger() *slog.Logger {
+	return r.logger
+}
+
 func (r *runner) Run(ctx context.Context, lease *pgwf.Lease) {
 	_ = lease.WithKeepAlive(r.engine.udb)
 
 	chap, err := r.getChapter(0)
 	if err != nil {
-		fmt.Println(err)
+		r.logger.Error("failed to get initial chapter", "error", err)
 		return
 	}
 	output, err := r.worker.JobWorker.Run(r, chapterToTaskData(chap))
 
 	if err != nil {
-		fmt.Println(err)
+		r.logger.Error("job worker run failed", "error", err)
 		return
 	}
 
@@ -126,7 +133,7 @@ func (r *runner) Run(ctx context.Context, lease *pgwf.Lease) {
 	chap, err = taskDataToChapter(output, ordinal)
 
 	if err != nil {
-		fmt.Println(err)
+		r.logger.Error("failed to build chapter", "error", err)
 		return
 	}
 
@@ -136,12 +143,12 @@ func (r *runner) Run(ctx context.Context, lease *pgwf.Lease) {
 	}, chap)
 
 	if err != nil {
-		fmt.Println(err)
+		r.logger.Error("failed to save chapter", "error", err)
 	}
 
 	err = lease.Complete(ctx, r.engine.udb)
 	if err != nil {
-		fmt.Println(err)
+		r.logger.Error("failed to complete lease", "error", err)
 	}
 
 }

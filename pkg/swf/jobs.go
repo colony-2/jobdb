@@ -3,7 +3,7 @@ package swf
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"regexp"
 
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
@@ -39,6 +39,7 @@ type JobData TaskData
 type JobContext interface {
 	//jobRunApi
 	GetJobId() JobId
+	Logger() *slog.Logger
 	//RunChildJobSync(ctx context.Context, childJob StartJob) (JobId, error)
 	DoTask(taskType string, data TaskData) (TaskData, error)
 }
@@ -61,6 +62,7 @@ type EngineBuilder struct {
 	strataURI    string
 	strataAPIKey string
 	postgresDSN  string
+	logger       *slog.Logger
 }
 
 type WorkSet struct {
@@ -74,6 +76,7 @@ func NewEngineBuilder(tenantId string) *EngineBuilder {
 		workers:   make(map[string]WorkSet),
 		tenantId:  tenantId,
 		maxActive: 4,
+		logger:    slog.Default(),
 	}
 }
 
@@ -94,6 +97,13 @@ func (e *EngineBuilder) WithStrata(uri string) *EngineBuilder {
 
 func (e *EngineBuilder) WithStrataAPIKey(key string) *EngineBuilder {
 	e.strataAPIKey = key
+	return e
+}
+
+func (e *EngineBuilder) WithLogger(logger *slog.Logger) *EngineBuilder {
+	if logger != nil {
+		e.logger = logger
+	}
 	return e
 }
 
@@ -150,7 +160,7 @@ func (b *EngineBuilder) Build(builder Builder) (SWFEngine, error) {
 		return nil, fmt.Errorf("tenant ID is required")
 	}
 
-	log.Printf("Building engine with workers: %+v", b.workers)
+	b.logger.Info("building engine", "workers", b.workers)
 	sclient, err := strataclient.New(strataclient.Config{
 		BaseURL: b.strataURI,
 		APIKey:  b.strataAPIKey,
@@ -170,7 +180,7 @@ func (b *EngineBuilder) Build(builder Builder) (SWFEngine, error) {
 		ws[i] = v
 		i++
 	}
-	return builder(b.tenantId, db, sclient, ws)
+	return builder(b.tenantId, db, sclient, ws, b.logger)
 }
 
-type Builder func(tenantId string, db *gorm.DB, strataClient *strataclient.Client, workers []WorkSet) (SWFEngine, error)
+type Builder func(tenantId string, db *gorm.DB, strataClient *strataclient.Client, workers []WorkSet, logger *slog.Logger) (SWFEngine, error)

@@ -2,6 +2,7 @@ package swf
 
 import (
 	"context"
+	"log/slog"
 )
 
 type taskRunApi interface {
@@ -9,8 +10,9 @@ type taskRunApi interface {
 }
 
 type TaskContext struct {
-	JobId JobId
-	Step  int64
+	JobId  JobId
+	Step   int64
+	Logger *slog.Logger
 }
 
 type Worker interface {
