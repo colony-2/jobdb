@@ -3,6 +3,7 @@ package swf
 import (
 	"context"
 	"log/slog"
+	"time"
 )
 
 type taskRunApi interface {
@@ -13,6 +14,13 @@ type TaskContext struct {
 	JobId  JobId
 	Step   int64
 	Logger *slog.Logger
+}
+
+// AwaitDuration pauses task execution for the specified duration.
+// The engine may override this in the future to reschedule work.
+func (TaskContext) AwaitDuration(waitFor Duration) error {
+	time.Sleep(waitFor.ToDuration())
+	return nil
 }
 
 type Worker interface {

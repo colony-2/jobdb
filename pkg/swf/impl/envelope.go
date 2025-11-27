@@ -20,12 +20,19 @@ const (
 )
 
 type chapterMeta struct {
-	Version   int       `json:"version"`
-	Ordinal   int64     `json:"ordinal"`
-	TaskType  string    `json:"task_type"`
-	WorkerID  string    `json:"worker_id"`
-	CreatedAt time.Time `json:"created_at"`
-	InputHash string    `json:"input_hash"`
+	Version       int                 `json:"version"`
+	Ordinal       int64               `json:"ordinal"`
+	TaskType      string              `json:"task_type"`
+	WorkerID      string              `json:"worker_id"`
+	CreatedAt     time.Time           `json:"created_at"`
+	InputHash     string              `json:"input_hash"`
+	Attempt       int                 `json:"attempt,omitempty"`
+	MaxAttempts   int                 `json:"max_attempts,omitempty"`
+	NextAttemptAt *time.Time          `json:"next_attempt_at,omitempty"`
+	BackoffMillis int64               `json:"backoff_ms,omitempty"`
+	Retryable     *bool               `json:"retryable,omitempty"`
+	InputRef      *swf.InputReference `json:"input_ref,omitempty"`
+	RunPolicy     *swf.RunPolicy      `json:"run_policy,omitempty"`
 }
 
 type chapterEnvelope struct {
@@ -101,21 +108,25 @@ func computeInputHash(ctx context.Context, taskData swf.TaskData) (string, error
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
-func errorPayloadFromError(err error) (json.RawMessage, string, error) {
+func errorPayloadFromError(err error, inputRef *swf.InputReference) (json.RawMessage, string, error) {
 	var sysErr systemError
 	if errors.As(err, &sysErr) {
-		raw, tdErr := json.Marshal(sysErr.Payload())
+		payload := sysErr.Payload()
+		payload.InputRef = inputRef
+		raw, tdErr := json.Marshal(payload)
 		return json.RawMessage(raw), payloadKindSystemError, tdErr
 	}
 
 	var appErr swf.AppError
 	if errors.As(err, &appErr) {
-		raw, tdErr := json.Marshal(appErr.Payload)
+		payload := appErr.Payload
+		payload.InputRef = inputRef
+		raw, tdErr := json.Marshal(payload)
 		return json.RawMessage(raw), payloadKindAppError, tdErr
 	}
 
 	// Treat every other error (including panics converted to error) as an app error.
-	appErr = swf.AppError{Payload: swf.AppErrorPayload{Message: err.Error(), Level: "error"}}
+	appErr = swf.AppError{Payload: swf.AppErrorPayload{Message: err.Error(), Level: "error", InputRef: inputRef}}
 	raw, tdErr := json.Marshal(appErr.Payload)
 	return json.RawMessage(raw), payloadKindAppError, tdErr
 }
@@ -151,14 +162,14 @@ func envelopeToTaskData(env chapterEnvelope, artifacts []swf.Artifact) (swf.Task
 		if err := json.Unmarshal(env.Payload, &p); err != nil {
 			return td, err
 		}
-		return nil, swf.AppError{Payload: p}
+		return td, swf.AppError{Payload: p}
 	case payloadKindSystemError:
 		// Rehydrate a cached system-level error.
 		var p swf.SystemErrorPayload
 		if err := json.Unmarshal(env.Payload, &p); err != nil {
 			return td, err
 		}
-		return nil, systemError{payload: p}
+		return td, systemError{payload: p}
 	default:
 		return td, fmt.Errorf("unsupported payload kind %q", env.PayloadKind)
 	}

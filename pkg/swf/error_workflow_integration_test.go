@@ -75,7 +75,7 @@ func TestTaskErrorsAreEnvelopedAndReturned(t *testing.T) {
 				t.Fatalf("decode env: %v", err)
 			}
 			if env.PayloadKind != tt.expectedKind {
-				t.Fatalf("expected chapter payload kind %s, got %s", tt.expectedKind, env.PayloadKind)
+				t.Fatalf("expected chapter payload kind %s, got %s body=%s", tt.expectedKind, env.PayloadKind, string(chap.Body()))
 			}
 
 			td, gotErr := waitForJobResult(t, engine, postgresDSN, jobID, tt.expectAppError, tt.expectSysError)
@@ -175,7 +175,7 @@ type singleTaskJob struct{ taskType string }
 
 func (singleTaskJob) Name() string { return "single_task_job" }
 func (j singleTaskJob) Run(ctx swf.JobContext, input swf.JobData) (swf.JobData, error) {
-	_, err := ctx.DoTask(j.taskType, input)
+	_, err := ctx.DoTask(swf.RunPolicy{}, j.taskType, input)
 	if err != nil {
 		return nil, err
 	}

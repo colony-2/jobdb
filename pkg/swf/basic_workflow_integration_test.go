@@ -216,7 +216,7 @@ func (pipeJob) Run(ctx swf.JobContext, data swf.JobData) (swf.JobData, error) {
 	var err error
 	var out swf.TaskData = payload
 	for _, step := range steps {
-		out, err = ctx.DoTask(step, out)
+		out, err = ctx.DoTask(swf.RunPolicy{}, step, out)
 		if err != nil {
 			return nil, err
 		}

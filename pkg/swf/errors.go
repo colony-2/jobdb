@@ -8,6 +8,12 @@ var (
 	ErrJobNotComplete           = errors.New("job not complete")
 )
 
+// NonRetryableError marks an error as not eligible for retries.
+// Implementors should return true when retries should stop immediately.
+type NonRetryableError interface {
+	NonRetryable() bool
+}
+
 // systemErrorMarker is implemented by internal system error types.
 type systemErrorMarker interface {
 	error
@@ -18,15 +24,17 @@ type AppErrorPayload struct {
 	Message    string                 `json:"message"`
 	Level      string                 `json:"level,omitempty"`
 	Attrs      map[string]interface{} `json:"attrs,omitempty"`
+	InputRef   *InputReference        `json:"input_ref,omitempty"`
 	Stacktrace []string               `json:"stacktrace,omitempty"`
 }
 
 type SystemErrorPayload struct {
-	Message    string   `json:"message"`
-	Component  string   `json:"component,omitempty"`
-	Code       string   `json:"code,omitempty"`
-	Retryable  bool     `json:"retryable,omitempty"`
-	Stacktrace []string `json:"stacktrace,omitempty"`
+	Message    string          `json:"message"`
+	Component  string          `json:"component,omitempty"`
+	Code       string          `json:"code,omitempty"`
+	Retryable  bool            `json:"retryable,omitempty"`
+	InputRef   *InputReference `json:"input_ref,omitempty"`
+	Stacktrace []string        `json:"stacktrace,omitempty"`
 }
 
 // AppError represents user-land/task errors; wraps AppErrorPayload.

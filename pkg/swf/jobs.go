@@ -16,6 +16,7 @@ type StartJob struct {
 	JobType      string
 	SingletonKey string
 	Data         JobData
+	RunPolicy    RunPolicy
 }
 
 type RestartJob struct {
@@ -41,7 +42,8 @@ type JobContext interface {
 	GetJobId() JobId
 	Logger() *slog.Logger
 	//RunChildJobSync(ctx context.Context, childJob StartJob) (JobId, error)
-	DoTask(taskType string, data TaskData) (TaskData, error)
+	DoTask(policy RunPolicy, taskType string, data TaskData) (TaskData, error)
+	AwaitDuration(waitFor Duration) error
 }
 
 type JobWorker interface {

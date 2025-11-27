@@ -31,7 +31,17 @@ type swfEngineImpl struct {
 	logger          *slog.Logger
 }
 
-func taskDataToChapter(jobData swf.TaskData, ordinal int64, taskType string, workerId string, payloadKind string, inputHash string, createdAt time.Time) (story.Chapter, error) {
+type chapterMetadata struct {
+	Attempt       int
+	MaxAttempts   int
+	NextAttemptAt *time.Time
+	BackoffMillis int64
+	Retryable     *bool
+	InputRef      *swf.InputReference
+	RunPolicy     *swf.RunPolicy
+}
+
+func taskDataToChapter(jobData swf.TaskData, ordinal int64, taskType string, workerId string, payloadKind string, inputHash string, createdAt time.Time, meta chapterMetadata) (story.Chapter, error) {
 	if jobData == nil {
 		return nil, fmt.Errorf("task data is required")
 	}
@@ -48,11 +58,11 @@ func taskDataToChapter(jobData swf.TaskData, ordinal int64, taskType string, wor
 	if err != nil {
 		return nil, err
 	}
-	return payloadToChapter(json.RawMessage(bytes), artifacts, ordinal, taskType, workerId, payloadKind, inputHash, createdAt)
+	return payloadToChapter(json.RawMessage(bytes), artifacts, ordinal, taskType, workerId, payloadKind, inputHash, createdAt, meta)
 }
 
-func taskDataToCreatOptions(jobData swf.TaskData, ordinal int64, taskType string, workerId string, payloadKind string, inputHash string, createdAt time.Time) (story.CreateOptions, error) {
-	chap, err := taskDataToChapter(jobData, ordinal, taskType, workerId, payloadKind, inputHash, createdAt)
+func taskDataToCreatOptions(jobData swf.TaskData, ordinal int64, taskType string, workerId string, payloadKind string, inputHash string, createdAt time.Time, meta chapterMetadata) (story.CreateOptions, error) {
+	chap, err := taskDataToChapter(jobData, ordinal, taskType, workerId, payloadKind, inputHash, createdAt, meta)
 	if err != nil {
 		return story.CreateOptions{}, err
 	}
@@ -76,7 +86,13 @@ func (s *swfEngineImpl) StartJob(ctx context.Context, job swf.StartJob) (swf.Job
 		return "", err
 	}
 	now := time.Now().UTC()
-	co, err := taskDataToCreatOptions(taskData, 0, job.JobType, s.workerId, payloadKindApp, inputHash, now)
+	jobPolicy := job.RunPolicy
+	jobPolicy.Retry = normalizeRetryPolicy(jobPolicy.Retry)
+	co, err := taskDataToCreatOptions(taskData, 0, job.JobType, s.workerId, payloadKindApp, inputHash, now, chapterMetadata{
+		Attempt:     1,
+		MaxAttempts: int(jobPolicy.Retry.MaximumAttempts),
+		RunPolicy:   &jobPolicy,
+	})
 	if err != nil {
 		return "", err
 	}
@@ -112,7 +128,13 @@ func (s *swfEngineImpl) RestartJob(ctx context.Context, job swf.RestartJob) (swf
 		return "", err
 	}
 	now := time.Now().UTC()
-	createOptions, err := taskDataToCreatOptions(job.Data, job.LastStepToKeep+1, job.JobType, s.workerId, payloadKindApp, inputHash, now)
+	jobPolicy := job.RunPolicy
+	jobPolicy.Retry = normalizeRetryPolicy(jobPolicy.Retry)
+	createOptions, err := taskDataToCreatOptions(job.Data, job.LastStepToKeep+1, job.JobType, s.workerId, payloadKindApp, inputHash, now, chapterMetadata{
+		Attempt:     1,
+		MaxAttempts: int(jobPolicy.Retry.MaximumAttempts),
+		RunPolicy:   &jobPolicy,
+	})
 	if err != nil {
 		return "", err
 	}
@@ -135,7 +157,7 @@ func (s *swfEngineImpl) CancelJob(ctx context.Context, job swf.CancelJob) error 
 }
 
 // payloadToChapter builds a chapter from raw payload JSON and artifacts, bypassing TaskData.
-func payloadToChapter(payload json.RawMessage, artifacts []swf.Artifact, ordinal int64, taskType string, workerId string, payloadKind string, inputHash string, createdAt time.Time) (story.Chapter, error) {
+func payloadToChapter(payload json.RawMessage, artifacts []swf.Artifact, ordinal int64, taskType string, workerId string, payloadKind string, inputHash string, createdAt time.Time, metaOpts chapterMetadata) (story.Chapter, error) {
 	if payload == nil {
 		return nil, fmt.Errorf("payload is required")
 	}
@@ -149,6 +171,27 @@ func payloadToChapter(payload json.RawMessage, artifacts []swf.Artifact, ordinal
 		WorkerID:  workerId,
 		CreatedAt: createdAt,
 		InputHash: inputHash,
+	}
+	if metaOpts.Attempt > 0 {
+		meta.Attempt = metaOpts.Attempt
+	}
+	if metaOpts.MaxAttempts > 0 {
+		meta.MaxAttempts = metaOpts.MaxAttempts
+	}
+	if metaOpts.NextAttemptAt != nil {
+		meta.NextAttemptAt = metaOpts.NextAttemptAt
+	}
+	if metaOpts.BackoffMillis > 0 {
+		meta.BackoffMillis = metaOpts.BackoffMillis
+	}
+	if metaOpts.Retryable != nil {
+		meta.Retryable = metaOpts.Retryable
+	}
+	if metaOpts.InputRef != nil {
+		meta.InputRef = metaOpts.InputRef
+	}
+	if metaOpts.RunPolicy != nil {
+		meta.RunPolicy = metaOpts.RunPolicy
 	}
 
 	envBytes, err := buildChapterEnvelope(meta, payloadKind, payload)

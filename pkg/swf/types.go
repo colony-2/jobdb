@@ -122,6 +122,18 @@ type RetryPolicy struct {
 	NonRetryableErrorTypes []string `yaml:"non_retryable_error_types,omitempty"`
 }
 
+// RunPolicy bundles runtime directives for jobs/tasks.
+// Future extensions may add fields like affinity or max duration.
+type RunPolicy struct {
+	Retry RetryPolicy `yaml:"retry,omitempty"`
+}
+
+// InputReference points to an input chapter for error payloads/metadata.
+type InputReference struct {
+	Ordinal int64  `json:"ordinal"`
+	Hash    string `json:"hash,omitempty"`
+}
+
 type Lease = pgwf.Lease
 type Artifact = strata.Artifact
 type Dependencies = pgwf.JobDependencies
