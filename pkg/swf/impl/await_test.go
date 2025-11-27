@@ -40,9 +40,10 @@ func TestAwaitUntilRecycle(t *testing.T) {
 	}
 
 	engine := swfEngineImpl{
-		tenantId: "test-tenant",
-		udb:      db,
-		logger:   slog.Default(),
+		tenantId:       "test-tenant",
+		udb:            db,
+		logger:         slog.Default(),
+		awaitThreshold: 50 * time.Millisecond,
 	}
 
 	jobID := pgwf.JobID("job-" + ksuid.New().String())
@@ -61,14 +62,20 @@ func TestAwaitUntilRecycle(t *testing.T) {
 		t.Fatalf("expected lease")
 	}
 
-	wakeAt := time.Now().Add(inlineAwaitMax + time.Second)
+	engine.startAwaitRecycler(ctx)
+
+	wakeAt := time.Now().Add(2 * time.Second)
 	ch := engine.AwaitUntil(lease.JobID(), lease.NextNeed(), lease, 1, 1, wakeAt)
 	if ch == nil {
 		t.Fatalf("await channel is nil")
 	}
-	sig := <-ch
-	if sig != awaitSignalRecycle {
-		t.Fatalf("expected recycle signal, got %v", sig)
+	select {
+	case sig := <-ch:
+		if sig != awaitSignalRecycle {
+			t.Fatalf("expected recycle signal, got %v", sig)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("did not receive recycle signal")
 	}
 
 	var available time.Time

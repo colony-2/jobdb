@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"time"
 
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
 	strataclient "github.com/colony-2/strata/strata-go/pkg/client"
@@ -67,6 +68,7 @@ type EngineBuilder struct {
 	strataAPIKey string
 	postgresDSN  string
 	logger       *slog.Logger
+	awaitRecycle time.Duration
 }
 
 type WorkSet struct {
@@ -77,10 +79,11 @@ type WorkSet struct {
 
 func NewEngineBuilder(tenantId string) *EngineBuilder {
 	return &EngineBuilder{
-		workers:   make(map[string]WorkSet),
-		tenantId:  tenantId,
-		maxActive: 4,
-		logger:    slog.Default(),
+		workers:      make(map[string]WorkSet),
+		tenantId:     tenantId,
+		maxActive:    4,
+		logger:       slog.Default(),
+		awaitRecycle: 5 * time.Minute,
 	}
 }
 
@@ -107,6 +110,14 @@ func (e *EngineBuilder) WithStrataAPIKey(key string) *EngineBuilder {
 func (e *EngineBuilder) WithLogger(logger *slog.Logger) *EngineBuilder {
 	if logger != nil {
 		e.logger = logger
+	}
+	return e
+}
+
+// WithAwaitRecycleThreshold configures how far in the future a wait must be before recycling the runner.
+func (e *EngineBuilder) WithAwaitRecycleThreshold(d time.Duration) *EngineBuilder {
+	if d > 0 {
+		e.awaitRecycle = d
 	}
 	return e
 }
@@ -184,7 +195,17 @@ func (b *EngineBuilder) Build(builder Builder) (SWFEngine, error) {
 		ws[i] = v
 		i++
 	}
-	return builder(b.tenantId, db, sclient, ws, b.logger)
+	engine, err := builder(b.tenantId, db, sclient, ws, b.logger)
+	if err != nil {
+		return nil, err
+	}
+	type awaitConfigurator interface {
+		SetAwaitThreshold(time.Duration)
+	}
+	if cfg, ok := engine.(awaitConfigurator); ok && b.awaitRecycle > 0 {
+		cfg.SetAwaitThreshold(b.awaitRecycle)
+	}
+	return engine, nil
 }
 
 type Builder func(tenantId string, db *gorm.DB, strataClient *strataclient.Client, workers []WorkSet, logger *slog.Logger) (SWFEngine, error)

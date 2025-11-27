@@ -27,11 +27,15 @@ const (
 	awaitSignalRecycle
 )
 
-const inlineAwaitMax = 2 * time.Second
-
 type awaitState struct {
-	ch    chan awaitSignal
-	timer *time.Timer
+	ch         chan awaitSignal
+	timer      *time.Timer
+	wakeAt     time.Time
+	lease      *pgwf.Lease
+	capability pgwf.Capability
+	ordinal    int64
+	attempt    int
+	recycled   bool
 }
 
 type jobPayload struct {
@@ -51,6 +55,8 @@ type swfEngineImpl struct {
 	logger          *slog.Logger
 	awaitMu         sync.Mutex
 	awaits          map[pgwf.JobID]*awaitState
+	awaitThreshold  time.Duration
+	awaitRecycler   sync.Once
 }
 
 type chapterMetadata struct {
@@ -174,6 +180,12 @@ func (s *swfEngineImpl) CancelJob(ctx context.Context, job swf.CancelJob) error 
 	return pgwf.CancelJob(ctx, s.udb, pgwf.JobID(job.JobId), pgwf.WorkerID(s.workerId), job.Reason)
 }
 
+func (s *swfEngineImpl) SetAwaitThreshold(d time.Duration) {
+	if d > 0 {
+		s.awaitThreshold = d
+	}
+}
+
 func (s *swfEngineImpl) resetAwaitState(jobID pgwf.JobID) {
 	s.awaitMu.Lock()
 	defer s.awaitMu.Unlock()
@@ -210,32 +222,20 @@ func (s *swfEngineImpl) awaitState(jobID pgwf.JobID) *awaitState {
 	return state
 }
 
-func (s *swfEngineImpl) setAwaitTimer(jobID pgwf.JobID, t *time.Timer) {
+func (s *swfEngineImpl) sendAwait(jobID pgwf.JobID, sig awaitSignal) {
 	s.awaitMu.Lock()
-	defer s.awaitMu.Unlock()
-	if s.awaits == nil {
-		s.awaits = make(map[pgwf.JobID]*awaitState)
-	}
 	state, ok := s.awaits[jobID]
 	if !ok {
-		state = &awaitState{ch: make(chan awaitSignal, 1)}
-		s.awaits[jobID] = state
+		s.awaitMu.Unlock()
+		return
 	}
-	if state.timer != nil {
-		if !state.timer.Stop() {
-			select {
-			case <-state.timer.C:
-			default:
-			}
-		}
+	if sig == awaitSignalRecycle {
+		state.recycled = true
 	}
-	state.timer = t
-}
-
-func (s *swfEngineImpl) sendAwait(jobID pgwf.JobID, sig awaitSignal) {
-	state := s.awaitState(jobID)
+	ch := state.ch
+	s.awaitMu.Unlock()
 	select {
-	case state.ch <- sig:
+	case ch <- sig:
 	default:
 	}
 }
@@ -246,48 +246,115 @@ func (s *swfEngineImpl) AwaitUntil(jobID pgwf.JobID, capability pgwf.Capability,
 		return nil
 	}
 
-	s.resetAwaitState(jobID)
 	state := s.awaitState(jobID)
-
-	now := time.Now().UTC()
-	if !wakeAt.After(now) {
-		s.sendAwait(jobID, awaitSignalWake)
-		return state.ch
+	s.awaitMu.Lock()
+	if state.timer != nil {
+		if !state.timer.Stop() {
+			select {
+			case <-state.timer.C:
+			default:
+			}
+		}
 	}
-
+	state.wakeAt = wakeAt
+	state.lease = lease
+	state.capability = capability
+	state.ordinal = ordinal
+	state.attempt = attempt
+	state.recycled = false
 	waitFor := time.Until(wakeAt)
-	if waitFor <= inlineAwaitMax {
-		timer := time.NewTimer(waitFor)
-		s.setAwaitTimer(jobID, timer)
-		go func() {
-			<-timer.C
-			s.sendAwait(jobID, awaitSignalWake)
-		}()
-		return state.ch
+	if waitFor < 0 {
+		waitFor = 0
 	}
+	state.timer = time.AfterFunc(waitFor, func() {
+		s.awaitMu.Lock()
+		st, ok := s.awaits[jobID]
+		alreadyRecycle := ok && st.recycled
+		s.awaitMu.Unlock()
+		if ok && !alreadyRecycle {
+			s.sendAwait(jobID, awaitSignalWake)
+		}
+	})
+	ch := state.ch
+	s.awaitMu.Unlock()
+	return ch
+}
 
-	payload := lease.Payload()
+func (s *swfEngineImpl) startAwaitRecycler(ctx context.Context) {
+	s.awaitRecycler.Do(func() {
+		go s.awaitRecycleLoop(ctx)
+	})
+}
+
+func (s *swfEngineImpl) awaitRecycleLoop(ctx context.Context) {
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.recycleLongWaits()
+		}
+	}
+}
+
+func (s *swfEngineImpl) recycleLongWaits() {
+	now := time.Now()
+	threshold := s.awaitThreshold
+	if threshold <= 0 {
+		threshold = 5 * time.Minute
+	}
+	type pending struct {
+		jobID pgwf.JobID
+		st    *awaitState
+	}
+	var items []pending
+
+	s.awaitMu.Lock()
+	for jobID, st := range s.awaits {
+		if st == nil || st.recycled || st.wakeAt.IsZero() || st.lease == nil {
+			continue
+		}
+		if st.wakeAt.Sub(now) > threshold {
+			items = append(items, pending{jobID: jobID, st: st})
+		}
+	}
+	s.awaitMu.Unlock()
+
+	for _, item := range items {
+		s.recycleAwait(item.jobID, item.st)
+	}
+}
+
+func (s *swfEngineImpl) recycleAwait(jobID pgwf.JobID, st *awaitState) {
+	if st == nil || st.lease == nil {
+		return
+	}
+	payload := st.lease.Payload()
 	if len(payload) == 0 {
 		payload = json.RawMessage(`{}`)
 	}
-
 	deps := pgwf.JobDependencies{
-		NextNeed:    capability,
-		AvailableAt: wakeAt,
+		NextNeed:    st.capability,
+		AvailableAt: st.wakeAt,
 	}
-	if err := lease.Reschedule(context.TODO(), s.udb, deps, payload); err != nil {
-		s.logger.Error("await reschedule failed", "jobId", jobID, "ordinal", ordinal, "attempt", attempt, "error", err)
-		timer := time.NewTimer(waitFor)
-		s.setAwaitTimer(jobID, timer)
-		go func() {
-			<-timer.C
-			s.sendAwait(jobID, awaitSignalWake)
-		}()
-		return state.ch
+	if err := st.lease.Reschedule(context.TODO(), s.udb, deps, payload); err != nil {
+		s.logger.Warn("await recycle reschedule failed", "jobId", jobID, "ordinal", st.ordinal, "attempt", st.attempt, "error", err)
+		return
 	}
-
+	s.awaitMu.Lock()
+	if st.timer != nil {
+		if !st.timer.Stop() {
+			select {
+			case <-st.timer.C:
+			default:
+			}
+		}
+	}
+	st.recycled = true
+	s.awaitMu.Unlock()
 	s.sendAwait(jobID, awaitSignalRecycle)
-	return state.ch
 }
 
 // payloadToChapter builds a chapter from raw payload JSON and artifacts, bypassing TaskData.
@@ -458,19 +525,21 @@ var Builder swf.Builder = func(tenantId string, db *gorm.DB, strataClient *strat
 		logger = slog.Default()
 	}
 	f := swfEngineImpl{
-		tenantId: tenantId,
-		strata:   strataClient,
-		db:       db,
-		workers:  capMap,
-		workerId: workerId,
-		udb:      underlying,
-		logger:   logger,
+		tenantId:       tenantId,
+		strata:         strataClient,
+		db:             db,
+		workers:        capMap,
+		workerId:       workerId,
+		udb:            underlying,
+		logger:         logger,
+		awaitThreshold: 5 * time.Minute,
 	}
 
 	return &f, nil
 }
 
 func (s *swfEngineImpl) Run(ctx context.Context) {
+	s.startAwaitRecycler(ctx)
 	caps := make([]pgwf.Capability, 0, len(s.workers))
 	for k, v := range s.workers {
 		caps = append(caps, v.Capabilities...)
