@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -18,13 +17,14 @@ import (
 
 func TestTaskErrorsAreEnvelopedAndReturned(t *testing.T) {
 	tests := []struct {
-		name         string
-		taskErr      error
-		expectedKind string
-		expectedErr  interface{}
+		name           string
+		taskErr        error
+		expectedKind   string
+		expectAppError bool
+		expectSysError bool
 	}{
-		{name: "app error", taskErr: swf.AppError{Payload: swf.AppErrorPayload{Message: "task app fail"}}, expectedKind: "AppError", expectedErr: &swf.AppError{}},
-		{name: "system error", taskErr: swf.SystemError{Payload: swf.SystemErrorPayload{Message: "task system fail"}}, expectedKind: "SystemError", expectedErr: &swf.SystemError{}},
+		{name: "app error", taskErr: swf.AppError{Payload: swf.AppErrorPayload{Message: "task app fail"}}, expectedKind: "AppError", expectAppError: true},
+		{name: "system error", taskErr: impl.NewSystemErrorForTest(swf.SystemErrorPayload{Message: "task system fail"}), expectedKind: "SystemError", expectSysError: true},
 	}
 
 	for _, tt := range tests {
@@ -78,7 +78,7 @@ func TestTaskErrorsAreEnvelopedAndReturned(t *testing.T) {
 				t.Fatalf("expected chapter payload kind %s, got %s", tt.expectedKind, env.PayloadKind)
 			}
 
-			td, gotErr := waitForJobResult(t, engine, postgresDSN, jobID, tt.expectedErr)
+			td, gotErr := waitForJobResult(t, engine, postgresDSN, jobID, tt.expectAppError, tt.expectSysError)
 			if gotErr == nil {
 				t.Fatalf("expected error, got nil")
 			}
@@ -91,13 +91,14 @@ func TestTaskErrorsAreEnvelopedAndReturned(t *testing.T) {
 
 func TestJobErrorsAreEnvelopedAndReturned(t *testing.T) {
 	tests := []struct {
-		name         string
-		jobErr       error
-		expectedKind string
-		expectedErr  interface{}
+		name           string
+		jobErr         error
+		expectedKind   string
+		expectAppError bool
+		expectSysError bool
 	}{
-		{name: "job app error", jobErr: swf.AppError{Payload: swf.AppErrorPayload{Message: "job app fail"}}, expectedKind: "AppError", expectedErr: &swf.AppError{}},
-		{name: "job system error", jobErr: swf.SystemError{Payload: swf.SystemErrorPayload{Message: "job system fail"}}, expectedKind: "SystemError", expectedErr: &swf.SystemError{}},
+		{name: "job app error", jobErr: swf.AppError{Payload: swf.AppErrorPayload{Message: "job app fail"}}, expectedKind: "AppError", expectAppError: true},
+		{name: "job system error", jobErr: impl.NewSystemErrorForTest(swf.SystemErrorPayload{Message: "job system fail"}), expectedKind: "SystemError", expectSysError: true},
 	}
 
 	for _, tt := range tests {
@@ -117,7 +118,7 @@ func TestJobErrorsAreEnvelopedAndReturned(t *testing.T) {
 
 			jobWorker := errorJobWorker{err: tt.jobErr}
 
-			engine, err := swf.NewEngineBuilder("tenant-job-"+tt.name).
+			engine, err := swf.NewEngineBuilder("tenant-job-" + tt.name).
 				WithPostgresDSN(postgresDSN).
 				WithStrata(baseURL).
 				WithStrataAPIKey(strata.APIKey).
@@ -150,7 +151,7 @@ func TestJobErrorsAreEnvelopedAndReturned(t *testing.T) {
 				t.Fatalf("expected chapter payload kind %s, got %s", tt.expectedKind, env.PayloadKind)
 			}
 
-			td, gotErr := waitForJobResult(t, engine, postgresDSN, jobID, tt.expectedErr)
+			td, gotErr := waitForJobResult(t, engine, postgresDSN, jobID, tt.expectAppError, tt.expectSysError)
 			if gotErr == nil {
 				t.Fatalf("expected error, got nil")
 			}
@@ -224,39 +225,24 @@ func waitForChapter(t *testing.T, client *strataclient.Client, key story.Key, or
 	return nil
 }
 
-func waitForJobResult(t *testing.T, engine swf.SWFEngine, dsn string, jobId swf.JobId, expectedErr interface{}) (swf.TaskData, error) {
+func waitForJobResult(t *testing.T, engine swf.SWFEngine, dsn string, jobId swf.JobId, expectAppError, expectSysError bool) (swf.TaskData, error) {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		td, err := engine.GetJobResult(context.Background(), jobId)
 		if err == nil {
-			if expectedErr == nil {
-				return td, nil
-			}
 			t.Logf("job result succeeded unexpectedly: %+v", td)
 			return td, nil
 		}
 		if err != nil {
-			if expectedErr == nil {
+			if expectAppError && swf.IsAppError(err) {
 				return td, err
 			}
-			switch expectedErr.(type) {
-			case *swf.AppError:
-				var ae swf.AppError
-				if errors.As(err, &ae) {
-					return td, err
-				}
-				t.Logf("job result error not AppError yet: %v", err)
-			case *swf.SystemError:
-				var se swf.SystemError
-				if errors.As(err, &se) {
-					return td, err
-				}
-				t.Logf("job result error not SystemError yet: %v", err)
-			default:
-				// Log active/archive state to help diagnose stuck jobs.
-				logJobState(t, dsn, jobId)
+			if expectSysError && swf.IsSystemError(err) {
+				return td, err
 			}
+			// Log active/archive state to help diagnose stuck jobs.
+			logJobState(t, dsn, jobId)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}

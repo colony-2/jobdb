@@ -8,6 +8,12 @@ var (
 	ErrJobNotComplete           = errors.New("job not complete")
 )
 
+// systemErrorMarker is implemented by internal system error types.
+type systemErrorMarker interface {
+	error
+	systemErrorMarker()
+}
+
 type AppErrorPayload struct {
 	Message    string                 `json:"message"`
 	Level      string                 `json:"level,omitempty"`
@@ -32,11 +38,14 @@ func (e AppError) Error() string {
 	return e.Payload.Message
 }
 
-// SystemError represents infrastructure/transport errors; wraps SystemErrorPayload.
-type SystemError struct {
-	Payload SystemErrorPayload
+// IsAppError reports whether err is a wrapped AppError.
+func IsAppError(err error) bool {
+	var ae AppError
+	return errors.As(err, &ae)
 }
 
-func (e SystemError) Error() string {
-	return e.Payload.Message
+// IsSystemError reports whether err represents an internal/system failure.
+func IsSystemError(err error) bool {
+	var se systemErrorMarker
+	return errors.As(err, &se)
 }

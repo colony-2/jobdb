@@ -17,7 +17,6 @@ const (
 	payloadKindApp         = "App"
 	payloadKindAppError    = "AppError"
 	payloadKindSystemError = "SystemError"
-	payloadKindMissing     = "SystemError" // fallback kind for unexpected nils
 )
 
 type chapterMeta struct {
@@ -103,25 +102,29 @@ func computeInputHash(ctx context.Context, taskData swf.TaskData) (string, error
 }
 
 func errorPayloadFromError(err error) (json.RawMessage, string, error) {
+	var sysErr systemError
+	if errors.As(err, &sysErr) {
+		raw, tdErr := json.Marshal(sysErr.Payload())
+		return json.RawMessage(raw), payloadKindSystemError, tdErr
+	}
+
 	var appErr swf.AppError
 	if errors.As(err, &appErr) {
 		raw, tdErr := json.Marshal(appErr.Payload)
 		return json.RawMessage(raw), payloadKindAppError, tdErr
 	}
-	var sysErr swf.SystemError
-	if errors.As(err, &sysErr) {
-		raw, tdErr := json.Marshal(sysErr.Payload)
-		return json.RawMessage(raw), payloadKindSystemError, tdErr
-	}
-	// default to system error envelope with message from err
-	raw, tdErr := json.Marshal(swf.SystemErrorPayload{Message: err.Error()})
-	return json.RawMessage(raw), payloadKindSystemError, tdErr
+
+	// Treat every other error (including panics converted to error) as an app error.
+	appErr = swf.AppError{Payload: swf.AppErrorPayload{Message: err.Error(), Level: "error"}}
+	raw, tdErr := json.Marshal(appErr.Payload)
+	return json.RawMessage(raw), payloadKindAppError, tdErr
 }
 
 func artifactHash(ctx context.Context, art swf.Artifact) (string, error) {
 	return art.Sha256(ctx)
 }
 
+// envelopeToTaskData returns the cached task output or the rehydrated error encoded in the envelope.
 func envelopeToTaskData(env chapterEnvelope, artifacts []swf.Artifact) (swf.TaskData, error) {
 	copiedArtifacts := make([]swf.Artifact, 0, len(artifacts))
 	for _, a := range artifacts {
@@ -143,17 +146,19 @@ func envelopeToTaskData(env chapterEnvelope, artifacts []swf.Artifact) (swf.Task
 	case payloadKindApp:
 		return td, nil
 	case payloadKindAppError:
+		// Rehydrate a cached application-level error.
 		var p swf.AppErrorPayload
 		if err := json.Unmarshal(env.Payload, &p); err != nil {
 			return td, err
 		}
-		return td, swf.AppError{Payload: p}
+		return nil, swf.AppError{Payload: p}
 	case payloadKindSystemError:
+		// Rehydrate a cached system-level error.
 		var p swf.SystemErrorPayload
 		if err := json.Unmarshal(env.Payload, &p); err != nil {
 			return td, err
 		}
-		return td, swf.SystemError{Payload: p}
+		return nil, systemError{payload: p}
 	default:
 		return td, fmt.Errorf("unsupported payload kind %q", env.PayloadKind)
 	}

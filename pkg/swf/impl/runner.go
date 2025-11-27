@@ -28,6 +28,10 @@ func (r *runner) GetJobId() swf.JobId {
 	return swf.JobId(r.jobId)
 }
 
+func panicToAppError(rec interface{}) error {
+	return swf.AppError{Payload: swf.AppErrorPayload{Message: fmt.Sprintf("panic: %v", rec), Level: "error"}}
+}
+
 func (r *runner) DoTask(taskType string, data swf.TaskData) (swf.TaskData, error) {
 	ordinal := r.storyCounter
 	r.storyCounter++
@@ -52,7 +56,11 @@ func (r *runner) DoTask(taskType string, data swf.TaskData) (swf.TaskData, error
 			return nil, fmt.Errorf("%w: ordinal %d task %s", swf.ErrWorkflowNotDeterministic, ordinal, taskType)
 		}
 		td, payloadErr := envelopeToTaskData(env, chap.Artifacts())
-		return td, payloadErr
+		if payloadErr != nil {
+			// Cached invocation failed previously; surface the rehydrated error.
+			return nil, payloadErr
+		}
+		return td, nil
 	}
 
 	if !errors.Is(err, core.ErrNotFound) {
@@ -84,19 +92,28 @@ func (r *runner) DoTask(taskType string, data swf.TaskData) (swf.TaskData, error
 		return nil, nil
 	}
 
-	output, err := worker.Run(swf.TaskContext{
-		JobId:  r.GetJobId(),
-		Step:   r.storyCounter,
-		Logger: r.logger.With("task", taskType, "step", r.storyCounter),
-	}, data)
+	var output swf.TaskData
+	var taskErr error
+	func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				taskErr = panicToAppError(rec)
+			}
+		}()
+		output, taskErr = worker.Run(swf.TaskContext{
+			JobId:  r.GetJobId(),
+			Step:   r.storyCounter,
+			Logger: r.logger.With("task", taskType, "step", r.storyCounter),
+		}, data)
+	}()
 
 	payloadKind := payloadKindApp
-	originalErr := err
+	originalErr := taskErr
 	var payload json.RawMessage
 	artifacts := []swf.Artifact{}
-	if err != nil {
+	if taskErr != nil {
 		var tdErr error
-		payload, payloadKind, tdErr = errorPayloadFromError(err)
+		payload, payloadKind, tdErr = errorPayloadFromError(taskErr)
 		if tdErr != nil {
 			return nil, tdErr
 		}
@@ -168,7 +185,16 @@ func (r *runner) Run(ctx context.Context, lease *pgwf.Lease) {
 		r.logger.Error("failed to decode initial chapter", "error", err)
 		return
 	}
-	output, jobErr := r.worker.JobWorker.Run(r, inputData)
+	var output swf.JobData
+	var jobErr error
+	func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				jobErr = panicToAppError(rec)
+			}
+		}()
+		output, jobErr = r.worker.JobWorker.Run(r, inputData)
+	}()
 	originalErr := jobErr
 	if jobErr != nil {
 		r.logger.Error("job worker run failed", "error", jobErr)
@@ -187,35 +213,16 @@ func (r *runner) Run(ctx context.Context, lease *pgwf.Lease) {
 	var payload json.RawMessage
 	artifacts := []swf.Artifact{}
 	if originalErr != nil {
-		var appErr swf.AppError
-		if errors.As(originalErr, &appErr) {
-			raw, mErr := json.Marshal(appErr.Payload)
-			if mErr != nil {
-				r.logger.Error("failed to marshal app error payload", "error", mErr)
-				return
-			}
-			payload = json.RawMessage(raw)
-			payloadKind = payloadKindAppError
-		} else {
-			var sysErr swf.SystemError
-			if errors.As(originalErr, &sysErr) {
-				raw, mErr := json.Marshal(sysErr.Payload)
-				if mErr != nil {
-					r.logger.Error("failed to marshal system error payload", "error", mErr)
-					return
-				}
-				payload = json.RawMessage(raw)
-				payloadKind = payloadKindSystemError
-			} else {
-				raw, _ := json.Marshal(swf.SystemErrorPayload{Message: originalErr.Error()})
-				payload = json.RawMessage(raw)
-				payloadKind = payloadKindSystemError
-			}
+		var tdErr error
+		payload, payloadKind, tdErr = errorPayloadFromError(originalErr)
+		if tdErr != nil {
+			r.logger.Error("failed to marshal error payload", "error", tdErr)
+			return
 		}
 	} else {
 		if output == nil {
 			raw, _ := json.Marshal(swf.SystemErrorPayload{Message: "missing job output"})
-			payload = json.RawMessage(raw)
+			payload = raw
 			payloadKind = payloadKindSystemError
 		} else {
 			dataBytes, err := output.GetData()
@@ -228,7 +235,7 @@ func (r *runner) Run(ctx context.Context, lease *pgwf.Lease) {
 				r.logger.Error("failed to marshal job output", "error", err)
 				return
 			}
-			payload = json.RawMessage(raw)
+			payload = raw
 			artifacts, err = output.GetArtifacts()
 			if err != nil {
 				r.logger.Error("failed to get job output artifacts", "error", err)

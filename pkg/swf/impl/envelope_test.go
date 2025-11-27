@@ -51,8 +51,8 @@ func TestTaskAppErrorEnvelopeRoundTrip(t *testing.T) {
 	}
 
 	td, payloadErr := envelopeToTaskData(env, chap.Artifacts())
-	if td == nil {
-		t.Fatalf("expected task data")
+	if td != nil {
+		t.Fatalf("expected nil task data on error payload")
 	}
 	var gotAppErr swf.AppError
 	if !errors.As(payloadErr, &gotAppErr) {
@@ -71,7 +71,7 @@ func TestTaskSystemErrorEnvelopeRoundTrip(t *testing.T) {
 		t.Fatalf("hash input: %v", err)
 	}
 
-	sysErr := swf.SystemError{Payload: swf.SystemErrorPayload{Message: "infra fail", Component: "strata"}}
+	sysErr := systemError{payload: swf.SystemErrorPayload{Message: "infra fail", Component: "strata"}}
 	payload, kind, err := errorPayloadFromError(sysErr)
 	if err != nil {
 		t.Fatalf("taskDataFromError: %v", err)
@@ -99,20 +99,20 @@ func TestTaskSystemErrorEnvelopeRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(env.Payload, &payloadBody); err != nil {
 		t.Fatalf("unmarshal payload: %v", err)
 	}
-	if payloadBody.Message != sysErr.Payload.Message {
+	if payloadBody.Message != sysErr.Payload().Message {
 		t.Fatalf("payload message mismatch: %s", payloadBody.Message)
 	}
 
 	td, payloadErr := envelopeToTaskData(env, chap.Artifacts())
-	if td == nil {
-		t.Fatalf("expected task data")
+	if td != nil {
+		t.Fatalf("expected nil task data on error payload")
 	}
-	var gotSysErr swf.SystemError
+	var gotSysErr systemError
 	if !errors.As(payloadErr, &gotSysErr) {
-		t.Fatalf("expected SystemError, got %v", payloadErr)
+		t.Fatalf("expected systemError, got %v", payloadErr)
 	}
-	if gotSysErr.Payload.Message != sysErr.Payload.Message {
-		t.Fatalf("system error message mismatch: %s", gotSysErr.Payload.Message)
+	if gotSysErr.Payload().Message != sysErr.Payload().Message {
+		t.Fatalf("system error message mismatch: %s", gotSysErr.Payload().Message)
 	}
 }
 
@@ -150,8 +150,8 @@ func TestJobAppErrorEnvelopeRoundTrip(t *testing.T) {
 	}
 
 	td, payloadErr := envelopeToTaskData(env, chap.Artifacts())
-	if td == nil {
-		t.Fatalf("expected task data")
+	if td != nil {
+		t.Fatalf("expected nil task data on error payload")
 	}
 	var gotAppErr swf.AppError
 	if !errors.As(payloadErr, &gotAppErr) {
@@ -167,7 +167,7 @@ func TestJobSystemErrorEnvelopeRoundTrip(t *testing.T) {
 		t.Fatalf("hash input: %v", err)
 	}
 
-	sysErr := swf.SystemError{Payload: swf.SystemErrorPayload{Message: "job infra fail", Component: "pgwf"}}
+	sysErr := systemError{payload: swf.SystemErrorPayload{Message: "job infra fail", Component: "pgwf"}}
 	payload, kind, err := errorPayloadFromError(sysErr)
 	if err != nil {
 		t.Fatalf("taskDataFromError: %v", err)
@@ -193,11 +193,11 @@ func TestJobSystemErrorEnvelopeRoundTrip(t *testing.T) {
 	}
 
 	td, payloadErr := envelopeToTaskData(env, chap.Artifacts())
-	if td == nil {
-		t.Fatalf("expected task data")
+	if td != nil {
+		t.Fatalf("expected nil task data on error payload")
 	}
-	var gotSysErr swf.SystemError
+	var gotSysErr systemError
 	if !errors.As(payloadErr, &gotSysErr) {
-		t.Fatalf("expected SystemError, got %v", payloadErr)
+		t.Fatalf("expected systemError, got %v", payloadErr)
 	}
 }
