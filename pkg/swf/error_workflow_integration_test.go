@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"testing"
 	"time"
 
@@ -12,7 +11,6 @@ import (
 	"github.com/colony-2/strata/strata-go/pkg/client/story"
 	"github.com/colony-2/swf-go/pkg/swf"
 	"github.com/colony-2/swf-go/pkg/swf/impl"
-	"github.com/fergusstrange/embedded-postgres"
 )
 
 func TestTaskErrorsAreEnvelopedAndReturned(t *testing.T) {
@@ -189,19 +187,6 @@ func (w errorJobWorker) Run(_ swf.JobContext, _ swf.JobData) (swf.JobData, error
 	return nil, w.err
 }
 
-func startEmbeddedPostgres(t *testing.T) (string, func()) {
-	t.Helper()
-	pgPort := uint32(20000 + (time.Now().UnixNano() % 1000))
-	postgres := embeddedpostgres.NewDatabase(
-		embeddedpostgres.DefaultConfig().Port(pgPort),
-	)
-	if err := postgres.Start(); err != nil {
-		t.Fatalf("failed to start embedded postgres: %v", err)
-	}
-	stop := func() { _ = postgres.Stop() }
-	return fmt.Sprintf("postgres://postgres:postgres@localhost:%d/postgres?sslmode=disable", pgPort), stop
-}
-
 func mustStrataClient(t *testing.T, baseURL, apiKey string) *strataclient.Client {
 	t.Helper()
 	client, err := strataclient.New(strataclient.Config{BaseURL: baseURL, APIKey: apiKey})
@@ -241,6 +226,7 @@ func waitForJobResult(t *testing.T, engine swf.SWFEngine, dsn string, jobId swf.
 			if expectSysError && swf.IsSystemError(err) {
 				return td, err
 			}
+			t.Logf("job result not ready: %v", err)
 			// Log active/archive state to help diagnose stuck jobs.
 			logJobState(t, dsn, jobId)
 		}

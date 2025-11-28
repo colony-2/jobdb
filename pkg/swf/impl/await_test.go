@@ -3,32 +3,23 @@ package impl
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"log/slog"
-	"math/rand"
 	"testing"
 	"time"
 
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
-	"github.com/fergusstrange/embedded-postgres"
 	"github.com/segmentio/ksuid"
 )
 
 // TestAwaitUntilRecycle ensures long awaits recycle the runner and schedule wake time.
 func TestAwaitUntilRecycle(t *testing.T) {
 	ctx := context.Background()
-	pgPort := uint32(15432 + rand.Intn(1000))
-	postgres := embeddedpostgres.NewDatabase(
-		embeddedpostgres.DefaultConfig().Port(pgPort),
-	)
-	if err := postgres.Start(); err != nil {
+	dsn, stopPG, err := StartEmbeddedPostgres()
+	if err != nil {
 		t.Fatalf("failed to start embedded postgres: %v", err)
 	}
-	defer func() {
-		_ = postgres.Stop()
-	}()
+	defer stopPG()
 
-	dsn := fmt.Sprintf("postgres://postgres:postgres@localhost:%d/postgres?sslmode=disable", pgPort)
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
@@ -71,7 +62,7 @@ func TestAwaitUntilRecycle(t *testing.T) {
 	}
 	select {
 	case sig := <-ch:
-		if sig != awaitSignalRecycle {
+		if sig.Kind != awaitSignalKindRecycle {
 			t.Fatalf("expected recycle signal, got %v", sig)
 		}
 	case <-time.After(2 * time.Second):

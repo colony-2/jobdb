@@ -54,6 +54,9 @@ func (d Data) Set(key string, value any) error {
 
 	// clear serialized since it is out of sync.
 	d.serialized = nil
+	if d.deserialized == nil {
+		d.deserialized = make(map[string]interface{})
+	}
 	d.deserialized[key] = value
 	return nil
 }

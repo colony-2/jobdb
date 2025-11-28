@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/colony-2/pgwf-go/installer"
 	"github.com/colony-2/strata/strata-go/pkg/daemon"
+	"github.com/fergusstrange/embedded-postgres"
 )
 
 // InstallPGWF installs the pgwf schema into the provided Postgres instance.
@@ -70,4 +72,36 @@ func StartEmbeddedStrata() (*EmbeddedStrataHandle, error) {
 			os.RemoveAll(blobDir)
 		},
 	}, nil
+}
+
+// StartEmbeddedPostgres spins up an embedded Postgres with isolated runtime/data/cache and returns DSN and stop func.
+func StartEmbeddedPostgres() (string, func(), error) {
+	pgPort := uint32(20000 + (time.Now().UnixNano() % 1000))
+	tmpDir, err := os.MkdirTemp("", "pgwf-embedded-*")
+	if err != nil {
+		return "", nil, fmt.Errorf("temp dir: %w", err)
+	}
+	runtimePath := filepath.Join(tmpDir, "runtime")
+	dataPath := filepath.Join(tmpDir, "data")
+	cachePath := filepath.Join(tmpDir, "cache")
+	_ = os.MkdirAll(runtimePath, 0o755)
+	_ = os.MkdirAll(dataPath, 0o755)
+	_ = os.MkdirAll(cachePath, 0o755)
+
+	postgres := embeddedpostgres.NewDatabase(
+		embeddedpostgres.DefaultConfig().
+			Port(pgPort).
+			RuntimePath(runtimePath).
+			DataPath(dataPath).
+			CachePath(cachePath),
+	)
+	if err := postgres.Start(); err != nil {
+		return "", nil, err
+	}
+	stop := func() {
+		_ = postgres.Stop()
+		_ = os.RemoveAll(tmpDir)
+	}
+	dsn := fmt.Sprintf("postgres://postgres:postgres@localhost:%d/postgres?sslmode=disable", pgPort)
+	return dsn, stop, nil
 }

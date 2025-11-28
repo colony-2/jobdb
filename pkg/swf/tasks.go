@@ -2,6 +2,7 @@ package swf
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 )
@@ -15,7 +16,8 @@ type TaskContext struct {
 	Step   int64
 	Logger *slog.Logger
 	// await is set by the runner so AwaitDuration can be engine-directed.
-	await func(wakeAt time.Time) error
+	await      func(wakeAt time.Time) error
+	spawnAsync func(jobType string, data TaskData) (*Future, error)
 }
 
 // AwaitDuration pauses task execution for the specified duration.
@@ -34,13 +36,22 @@ func (tc TaskContext) AwaitDuration(waitFor Duration) error {
 	return nil
 }
 
+// SpawnAsync launches a child job asynchronously.
+func (tc TaskContext) SpawnAsync(jobType string, data TaskData) (*Future, error) {
+	if tc.spawnAsync == nil {
+		return nil, fmt.Errorf("async spawning not supported in this context")
+	}
+	return tc.spawnAsync(jobType, data)
+}
+
 // NewTaskContext builds a task context with an optional await handler.
-func NewTaskContext(jobId JobId, step int64, logger *slog.Logger, await func(time.Time) error) TaskContext {
+func NewTaskContext(jobId JobId, step int64, logger *slog.Logger, await func(time.Time) error, spawn func(string, TaskData) (*Future, error)) TaskContext {
 	return TaskContext{
-		JobId:  jobId,
-		Step:   step,
-		Logger: logger,
-		await:  await,
+		JobId:      jobId,
+		Step:       step,
+		Logger:     logger,
+		await:      await,
+		spawnAsync: spawn,
 	}
 }
 

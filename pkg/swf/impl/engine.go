@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -20,27 +21,50 @@ import (
 	"gorm.io/gorm"
 )
 
-type awaitSignal int
+type awaitSignalKind int
 
 const (
-	awaitSignalWake awaitSignal = iota
-	awaitSignalRecycle
+	awaitSignalKindWake awaitSignalKind = iota
+	awaitSignalKindRecycle
 )
 
+type awaitSignal struct {
+	Kind       awaitSignalKind
+	ChildJobID pgwf.JobID
+}
+
+type asyncNotificationPayload struct {
+	ParentJobID  pgwf.JobID `json:"parent_job_id"`
+	AwaitOrdinal int64      `json:"await_ordinal"`
+	ChildJobID   pgwf.JobID `json:"child_job_id"`
+}
+
 type awaitState struct {
-	ch         chan awaitSignal
-	timer      *time.Timer
-	wakeAt     time.Time
-	lease      *pgwf.Lease
-	capability pgwf.Capability
-	ordinal    int64
-	attempt    int
-	recycled   bool
+	ch                chan awaitSignal
+	timer             *time.Timer
+	wakeAt            time.Time
+	lease             *pgwf.Lease
+	capability        pgwf.Capability
+	ordinal           int64
+	attempt           int
+	recycled          bool
+	childJobID        pgwf.JobID
+	notificationJobID pgwf.JobID
+	started           time.Time
 }
 
 type jobPayload struct {
-	RunPolicy swf.RunPolicy `json:"run_policy,omitempty"`
-	TaskWait  *taskWait     `json:"task_wait,omitempty"`
+	RunPolicy   swf.RunPolicy             `json:"run_policy,omitempty"`
+	TaskWait    *taskWait                 `json:"task_wait,omitempty"`
+	AsyncNotify *asyncNotificationPayload `json:"async_notify,omitempty"`
+}
+
+func notificationCapability(workerId string) pgwf.Capability {
+	return pgwf.Capability(fmt.Sprintf("NOTIFICATION-%s", workerId))
+}
+
+func (s *swfEngineImpl) isNotificationCapability(cap pgwf.Capability) bool {
+	return cap == notificationCapability(s.workerId)
 }
 
 type swfEngineImpl struct {
@@ -229,7 +253,7 @@ func (s *swfEngineImpl) sendAwait(jobID pgwf.JobID, sig awaitSignal) {
 		s.awaitMu.Unlock()
 		return
 	}
-	if sig == awaitSignalRecycle {
+	if sig.Kind == awaitSignalKindRecycle {
 		state.recycled = true
 	}
 	ch := state.ch
@@ -262,6 +286,9 @@ func (s *swfEngineImpl) AwaitUntil(jobID pgwf.JobID, capability pgwf.Capability,
 	state.ordinal = ordinal
 	state.attempt = attempt
 	state.recycled = false
+	state.childJobID = ""
+	state.notificationJobID = ""
+	state.started = time.Now()
 	waitFor := time.Until(wakeAt)
 	if waitFor < 0 {
 		waitFor = 0
@@ -272,9 +299,39 @@ func (s *swfEngineImpl) AwaitUntil(jobID pgwf.JobID, capability pgwf.Capability,
 		alreadyRecycle := ok && st.recycled
 		s.awaitMu.Unlock()
 		if ok && !alreadyRecycle {
-			s.sendAwait(jobID, awaitSignalWake)
+			s.sendAwait(jobID, awaitSignal{Kind: awaitSignalKindWake})
 		}
 	})
+	ch := state.ch
+	s.awaitMu.Unlock()
+	return ch
+}
+
+// AwaitChild registers a child-job await using the same await channel.
+func (s *swfEngineImpl) AwaitChild(jobID pgwf.JobID, capability pgwf.Capability, lease *pgwf.Lease, ordinal int64, childJobID pgwf.JobID, notificationJobID pgwf.JobID) <-chan awaitSignal {
+	if lease == nil || capability == "" {
+		return nil
+	}
+	state := s.awaitState(jobID)
+	s.awaitMu.Lock()
+	if state.timer != nil {
+		if !state.timer.Stop() {
+			select {
+			case <-state.timer.C:
+			default:
+			}
+		}
+		state.timer = nil
+	}
+	state.wakeAt = time.Time{}
+	state.lease = lease
+	state.capability = capability
+	state.ordinal = ordinal
+	state.attempt = 0
+	state.childJobID = childJobID
+	state.notificationJobID = notificationJobID
+	state.recycled = false
+	state.started = time.Now()
 	ch := state.ch
 	s.awaitMu.Unlock()
 	return ch
@@ -313,7 +370,16 @@ func (s *swfEngineImpl) recycleLongWaits() {
 
 	s.awaitMu.Lock()
 	for jobID, st := range s.awaits {
-		if st == nil || st.recycled || st.wakeAt.IsZero() || st.lease == nil {
+		if st == nil || st.recycled || st.lease == nil {
+			continue
+		}
+		if st.childJobID != "" {
+			if !st.started.IsZero() && now.Sub(st.started) > threshold {
+				items = append(items, pending{jobID: jobID, st: st})
+			}
+			continue
+		}
+		if st.wakeAt.IsZero() {
 			continue
 		}
 		if st.wakeAt.Sub(now) > threshold {
@@ -336,8 +402,12 @@ func (s *swfEngineImpl) recycleAwait(jobID pgwf.JobID, st *awaitState) {
 		payload = json.RawMessage(`{}`)
 	}
 	deps := pgwf.JobDependencies{
-		NextNeed:    st.capability,
-		AvailableAt: st.wakeAt,
+		NextNeed: st.capability,
+	}
+	if st.childJobID != "" {
+		deps.WaitFor = []pgwf.JobID{st.childJobID}
+	} else {
+		deps.AvailableAt = st.wakeAt
 	}
 	if err := st.lease.Reschedule(context.TODO(), s.udb, deps, payload); err != nil {
 		s.logger.Warn("await recycle reschedule failed", "jobId", jobID, "ordinal", st.ordinal, "attempt", st.attempt, "error", err)
@@ -354,7 +424,7 @@ func (s *swfEngineImpl) recycleAwait(jobID pgwf.JobID, st *awaitState) {
 	}
 	st.recycled = true
 	s.awaitMu.Unlock()
-	s.sendAwait(jobID, awaitSignalRecycle)
+	s.sendAwait(jobID, awaitSignal{Kind: awaitSignalKindRecycle, ChildJobID: st.childJobID})
 }
 
 // payloadToChapter builds a chapter from raw payload JSON and artifacts, bypassing TaskData.
@@ -457,6 +527,103 @@ func (s *swfEngineImpl) GetJobResult(ctx context.Context, jobId swf.JobId) (swf.
 	return td, nil
 }
 
+func (s *swfEngineImpl) jobResultIfComplete(ctx context.Context, jobId swf.JobId) (swf.TaskData, bool, error) {
+	var archived int64
+	if err := s.db.WithContext(ctx).
+		Table("pgwf.jobs_archive").
+		Where("job_id = ?", string(jobId)).
+		Count(&archived).Error; err != nil {
+		return nil, false, err
+	}
+	if archived == 0 {
+		return nil, false, nil
+	}
+	td, err := s.GetJobResult(ctx, jobId)
+	return td, err == nil, err
+}
+
+func (s *swfEngineImpl) ensureNotificationJob(ctx context.Context, notificationJobID pgwf.JobID, childJobID pgwf.JobID, parentJobID pgwf.JobID, awaitOrdinal int64) error {
+	deps := pgwf.JobDependencies{
+		NextNeed: notificationCapability(s.workerId),
+		WaitFor:  []pgwf.JobID{childJobID},
+	}
+	payload := jobPayload{
+		AsyncNotify: &asyncNotificationPayload{
+			ParentJobID:  parentJobID,
+			AwaitOrdinal: awaitOrdinal,
+			ChildJobID:   childJobID,
+		},
+	}
+	if err := pgwf.RescheduleUnheldJob(ctx, s.udb, notificationJobID, pgwf.WorkerID(s.workerId), deps, payload); err == nil {
+		return nil
+	} else if errors.Is(err, pgwf.ErrJobNotFound) {
+		if err := pgwf.SubmitJob(ctx, s.udb, notificationJobID, deps, payload, pgwf.WorkerID(s.workerId), "", time.Time{}); err == nil || errors.Is(err, pgwf.ErrDependencyViolation) {
+			return nil
+		}
+	}
+	// If the job is leased or otherwise not ready, defer; an existing notification job will eventually fire.
+	return nil
+}
+
+func (s *swfEngineImpl) ensureChildAndNotificationJobs(ctx context.Context, childJobID pgwf.JobID, notificationJobID pgwf.JobID, jobType string, runPolicy swf.RunPolicy, parentJobID swf.JobId, awaitOrdinal int64) error {
+	var archived int64
+	if err := s.db.WithContext(ctx).
+		Table("pgwf.jobs_archive").
+		Where("job_id = ?", string(childJobID)).
+		Count(&archived).Error; err != nil {
+		return err
+	}
+	if archived > 0 {
+		return nil
+	}
+
+	var existing Job
+	if err := s.db.WithContext(ctx).Where("job_id = ?", string(childJobID)).First(&existing).Error; err == nil {
+		return s.ensureNotificationJob(ctx, notificationJobID, childJobID, pgwf.JobID(parentJobID), awaitOrdinal)
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+
+	runPolicy.Retry = normalizeRetryPolicy(runPolicy.Retry)
+
+	tx, err := s.udb.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	childDeps := pgwf.JobDependencies{NextNeed: pgwf.Capability(jobType)}
+	if err := pgwf.SubmitJob(ctx, tx, childJobID, childDeps, jobPayload{RunPolicy: runPolicy}, pgwf.WorkerID(s.workerId), "", time.Time{}); err != nil {
+		return err
+	}
+
+	notifyDeps := pgwf.JobDependencies{
+		NextNeed: notificationCapability(s.workerId),
+		WaitFor:  []pgwf.JobID{childJobID},
+	}
+	notifyPayload := jobPayload{
+		AsyncNotify: &asyncNotificationPayload{
+			ParentJobID:  pgwf.JobID(parentJobID),
+			AwaitOrdinal: awaitOrdinal,
+			ChildJobID:   childJobID,
+		},
+	}
+	if err := pgwf.SubmitJob(ctx, tx, notificationJobID, notifyDeps, notifyPayload, pgwf.WorkerID(s.workerId), "", time.Time{}); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
 type taskWait struct {
 	InputStep  int64  `json:"in"`
 	OutputStep int64  `json:"out"`
@@ -545,6 +712,7 @@ func (s *swfEngineImpl) Run(ctx context.Context) {
 		caps = append(caps, v.Capabilities...)
 		caps = append(caps, pgwf.Capability(k))
 	}
+	caps = append(caps, notificationCapability(s.workerId))
 	go func() {
 		b := backoff.NewExponentialBackOff()
 		b.MaxInterval = time.Second * 30
@@ -573,6 +741,10 @@ func (s *swfEngineImpl) Run(ctx context.Context) {
 // runs inside goroutine for a specific lease.
 func (s *swfEngineImpl) runSomething(ctx context.Context, lease *swf.Lease) {
 	capability := lease.NextNeed()
+	if s.isNotificationCapability(capability) {
+		s.handleNotification(ctx, lease)
+		return
+	}
 	workSet, ok := s.workers[capability]
 	if !ok {
 		// this should never happen. we don't want to crash so we'll just let the lease expire
@@ -600,6 +772,20 @@ func (s *swfEngineImpl) runSomething(ctx context.Context, lease *swf.Lease) {
 		capability:   capability,
 	}
 	runner.Run(ctx, lease)
+}
+
+func (s *swfEngineImpl) handleNotification(ctx context.Context, lease *swf.Lease) {
+	payload := jobPayload{}
+	if raw := lease.Payload(); len(raw) > 0 {
+		_ = json.Unmarshal(raw, &payload)
+	}
+	notify := payload.AsyncNotify
+	if notify != nil {
+		s.sendAwait(notify.ParentJobID, awaitSignal{Kind: awaitSignalKindWake, ChildJobID: notify.ChildJobID})
+	}
+	if err := lease.Complete(ctx, s.udb); err != nil {
+		s.logger.Warn("notification completion failed", "jobId", lease.JobID(), "error", err)
+	}
 }
 
 var _ swf.SWFEngine = &swfEngineImpl{}

@@ -17,6 +17,7 @@ const (
 	payloadKindApp         = "App"
 	payloadKindAppError    = "AppError"
 	payloadKindSystemError = "SystemError"
+	payloadKindAppChildJob = "AppChildJob"
 )
 
 type chapterMeta struct {
@@ -109,9 +110,9 @@ func computeInputHash(ctx context.Context, taskData swf.TaskData) (string, error
 }
 
 func errorPayloadFromError(err error, inputRef *swf.InputReference) (json.RawMessage, string, error) {
-	var sysErr systemError
+	var sysErr swf.SystemError
 	if errors.As(err, &sysErr) {
-		payload := sysErr.Payload()
+		payload := sysErr.Payload
 		payload.InputRef = inputRef
 		raw, tdErr := json.Marshal(payload)
 		return json.RawMessage(raw), payloadKindSystemError, tdErr
@@ -156,6 +157,9 @@ func envelopeToTaskData(env chapterEnvelope, artifacts []swf.Artifact) (swf.Task
 	switch env.PayloadKind {
 	case payloadKindApp:
 		return td, nil
+	case payloadKindAppChildJob:
+		// Spawn metadata; treat as successful payload.
+		return td, nil
 	case payloadKindAppError:
 		// Rehydrate a cached application-level error.
 		var p swf.AppErrorPayload
@@ -169,7 +173,7 @@ func envelopeToTaskData(env chapterEnvelope, artifacts []swf.Artifact) (swf.Task
 		if err := json.Unmarshal(env.Payload, &p); err != nil {
 			return td, err
 		}
-		return td, systemError{payload: p}
+		return td, swf.SystemError{Payload: p}
 	default:
 		return td, fmt.Errorf("unsupported payload kind %q", env.PayloadKind)
 	}

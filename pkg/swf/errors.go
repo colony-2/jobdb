@@ -37,6 +37,22 @@ type SystemErrorPayload struct {
 	Stacktrace []string        `json:"stacktrace,omitempty"`
 }
 
+// SystemError represents infrastructure/transport failures.
+type SystemError struct {
+	Payload SystemErrorPayload
+}
+
+func (e SystemError) Error() string {
+	return e.Payload.Message
+}
+
+func (SystemError) systemErrorMarker() {}
+
+// NewSystemError constructs a system error with the provided payload.
+func NewSystemError(payload SystemErrorPayload) error {
+	return SystemError{Payload: payload}
+}
+
 // AppError represents user-land/task errors; wraps AppErrorPayload.
 type AppError struct {
 	Payload AppErrorPayload

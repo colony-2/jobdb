@@ -74,7 +74,7 @@ func TestTaskSystemErrorEnvelopeRoundTrip(t *testing.T) {
 		t.Fatalf("hash input: %v", err)
 	}
 
-	sysErr := systemError{payload: swf.SystemErrorPayload{Message: "infra fail", Component: "strata"}}
+	sysErr := swf.SystemError{Payload: swf.SystemErrorPayload{Message: "infra fail", Component: "strata"}}
 	payload, kind, err := errorPayloadFromError(sysErr, nil)
 	if err != nil {
 		t.Fatalf("taskDataFromError: %v", err)
@@ -102,7 +102,7 @@ func TestTaskSystemErrorEnvelopeRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(env.Payload, &payloadBody); err != nil {
 		t.Fatalf("unmarshal payload: %v", err)
 	}
-	if payloadBody.Message != sysErr.Payload().Message {
+	if payloadBody.Message != sysErr.Payload.Message {
 		t.Fatalf("payload message mismatch: %s", payloadBody.Message)
 	}
 
@@ -113,12 +113,12 @@ func TestTaskSystemErrorEnvelopeRoundTrip(t *testing.T) {
 	if envTD, ok := td.(*swf.EnvelopedTaskData); !ok || envTD.Kind != payloadKindSystemError {
 		t.Fatalf("expected enveloped task data with kind %s, got %T %+v", payloadKindSystemError, td, td)
 	}
-	var gotSysErr systemError
+	var gotSysErr swf.SystemError
 	if !errors.As(payloadErr, &gotSysErr) {
 		t.Fatalf("expected systemError, got %v", payloadErr)
 	}
-	if gotSysErr.Payload().Message != sysErr.Payload().Message {
-		t.Fatalf("system error message mismatch: %s", gotSysErr.Payload().Message)
+	if gotSysErr.Payload.Message != sysErr.Payload.Message {
+		t.Fatalf("system error message mismatch: %s", gotSysErr.Payload.Message)
 	}
 }
 
@@ -176,7 +176,7 @@ func TestJobSystemErrorEnvelopeRoundTrip(t *testing.T) {
 		t.Fatalf("hash input: %v", err)
 	}
 
-	sysErr := systemError{payload: swf.SystemErrorPayload{Message: "job infra fail", Component: "pgwf"}}
+	sysErr := swf.SystemError{Payload: swf.SystemErrorPayload{Message: "job infra fail", Component: "pgwf"}}
 	payload, kind, err := errorPayloadFromError(sysErr, nil)
 	if err != nil {
 		t.Fatalf("taskDataFromError: %v", err)
@@ -208,7 +208,7 @@ func TestJobSystemErrorEnvelopeRoundTrip(t *testing.T) {
 	if envTD, ok := td.(*swf.EnvelopedTaskData); !ok || envTD.Kind != payloadKindSystemError {
 		t.Fatalf("expected enveloped task data with kind %s, got %T %+v", payloadKindSystemError, td, td)
 	}
-	var gotSysErr systemError
+	var gotSysErr swf.SystemError
 	if !errors.As(payloadErr, &gotSysErr) {
 		t.Fatalf("expected systemError, got %v", payloadErr)
 	}

@@ -31,6 +31,17 @@ func (r *runner) GetJobId() swf.JobId {
 	return swf.JobId(r.jobId)
 }
 
+func notificationJobID(child swf.JobId) pgwf.JobID {
+	return pgwf.JobID(fmt.Sprintf("%s-notify", child))
+}
+
+type asyncChildSpawn struct {
+	ChildJobID        string `json:"child_job_id"`
+	JobType           string `json:"job_type"`
+	InputHash         string `json:"input_hash,omitempty"`
+	NotificationJobID string `json:"notification_job_id,omitempty"`
+}
+
 func panicToAppError(rec interface{}) error {
 	return swf.AppError{Payload: swf.AppErrorPayload{Message: fmt.Sprintf("panic: %v", rec), Level: "error"}}
 }
@@ -55,7 +66,7 @@ func (r *runner) awaitUntil(wakeAt time.Time, ordinal int64, attempt int) error 
 
 	select {
 	case sig := <-ch:
-		if sig == awaitSignalRecycle {
+		if sig.Kind == awaitSignalKindRecycle {
 			prematureCloseOut()
 		}
 	case <-ctx.Done():
@@ -63,6 +74,44 @@ func (r *runner) awaitUntil(wakeAt time.Time, ordinal int64, attempt int) error 
 		return ctx.Err()
 	}
 	return nil
+}
+
+func (r *runner) awaitChild(ctx context.Context, childJobID swf.JobId, ordinal int64, notificationJobID pgwf.JobID) (swf.TaskData, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for {
+		if td, done, err := r.engine.jobResultIfComplete(ctx, childJobID); err != nil {
+			return nil, err
+		} else if done {
+			return td, nil
+		}
+
+		if err := r.engine.ensureNotificationJob(ctx, notificationJobID, pgwf.JobID(childJobID), r.jobId, ordinal); err != nil {
+			return nil, err
+		}
+
+		ch := r.engine.AwaitChild(r.jobId, r.capability, r.lease, ordinal, pgwf.JobID(childJobID), notificationJobID)
+		if ch == nil {
+			prematureCloseOut()
+			return nil, nil
+		}
+
+		select {
+		case <-ch:
+		default:
+		}
+
+		select {
+		case sig := <-ch:
+			if sig.Kind == awaitSignalKindRecycle {
+				prematureCloseOut()
+			}
+		case <-ctx.Done():
+			prematureCloseOut()
+			return nil, ctx.Err()
+		}
+	}
 }
 
 func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData) (swf.TaskData, error) {
@@ -171,6 +220,9 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 					func(wakeAt time.Time) error {
 						return r.awaitUntil(wakeAt, ordinal, attempt)
 					},
+					func(jobType string, td swf.TaskData) (*swf.Future, error) {
+						return r.SpawnAsync(jobType, td)
+					},
 				),
 				data,
 			)
@@ -263,6 +315,95 @@ func (r *runner) AwaitDuration(waitFor swf.Duration) error {
 		return nil
 	}
 	return r.awaitUntil(time.Now().Add(wait), r.storyCounter, 0)
+}
+
+func (r *runner) SpawnAsync(jobType string, data swf.TaskData) (*swf.Future, error) {
+	if jobType == "" {
+		return nil, fmt.Errorf("job type is required")
+	}
+	ctx := r.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ordinal := r.storyCounter
+	r.storyCounter++
+
+	childJobID := swf.JobId(fmt.Sprintf("%s-%d", r.jobId, ordinal))
+	notifyJobID := notificationJobID(childJobID)
+
+	inputHash, err := computeInputHash(ctx, data)
+	if err != nil {
+		return nil, fmt.Errorf("compute child input hash: %w", err)
+	}
+
+	key := story.Key{AnthologyID: r.engine.tenantId, StoryID: string(r.jobId)}
+	if cached, err := r.engine.strata.Chapter(ctx, key, ordinal); err == nil {
+		if env, decErr := decodeChapterEnvelope(cached.Body()); decErr == nil && env.PayloadKind == payloadKindAppChildJob {
+			var existing asyncChildSpawn
+			if unmarshalErr := json.Unmarshal(env.Payload, &existing); unmarshalErr == nil {
+				if existing.ChildJobID != "" {
+					childJobID = swf.JobId(existing.ChildJobID)
+				}
+				if existing.NotificationJobID != "" {
+					notifyJobID = pgwf.JobID(existing.NotificationJobID)
+				}
+				if existing.InputHash != "" && existing.InputHash != inputHash {
+					return nil, fmt.Errorf("%w: async child input mismatch at ordinal %d", swf.ErrWorkflowNotDeterministic, ordinal)
+				}
+				if existing.JobType != "" && existing.JobType != jobType {
+					return nil, fmt.Errorf("%w: async child job type mismatch at ordinal %d", swf.ErrWorkflowNotDeterministic, ordinal)
+				}
+			}
+		}
+	} else if !errors.Is(err, core.ErrNotFound) {
+		return nil, err
+	} else {
+		// record the spawn metadata before submitting the child job
+		spawn := asyncChildSpawn{
+			ChildJobID:        string(childJobID),
+			JobType:           jobType,
+			InputHash:         inputHash,
+			NotificationJobID: string(notifyJobID),
+		}
+		raw, err := json.Marshal(spawn)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		chap, err := payloadToChapter(json.RawMessage(raw), nil, ordinal, jobType, r.engine.workerId, payloadKindAppChildJob, inputHash, now, chapterMetadata{})
+		if err != nil {
+			return nil, err
+		}
+		if err := r.engine.strata.SaveChapter(context.TODO(), key, chap); err != nil {
+			return nil, err
+		}
+	}
+
+	// ensure the child story exists
+	childKey := story.Key{AnthologyID: r.engine.tenantId, StoryID: string(childJobID)}
+	if _, err := r.engine.strata.Chapter(ctx, childKey, 0); err != nil {
+		if !errors.Is(err, core.ErrNotFound) {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		co, err := taskDataToCreatOptions(data, 0, jobType, r.engine.workerId, payloadKindApp, inputHash, now, chapterMetadata{Attempt: 1})
+		if err != nil {
+			return nil, err
+		}
+		if _, err := r.engine.strata.CreateStory(ctx, childKey, co); err != nil {
+			return nil, err
+		}
+	}
+
+	runPolicy := r.jobPolicy
+	runPolicy.Retry = normalizeRetryPolicy(runPolicy.Retry)
+	if err := r.engine.ensureChildAndNotificationJobs(ctx, pgwf.JobID(childJobID), notifyJobID, jobType, runPolicy, swf.JobId(r.jobId), ordinal); err != nil {
+		return nil, err
+	}
+
+	return swf.NewFuture(childJobID, func(waitCtx context.Context) (swf.TaskData, error) {
+		return r.awaitChild(waitCtx, childJobID, ordinal, notifyJobID)
+	}), nil
 }
 
 func (r *runner) Run(ctx context.Context, lease *pgwf.Lease) {
