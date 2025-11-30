@@ -10,20 +10,27 @@ import (
 	"github.com/invopop/jsonschema"
 )
 
-type Data struct {
+type dataImpl struct {
 	serialized   []byte
 	deserialized map[string]interface{}
 }
 
+type Data interface {
+	ToBytes() ([]byte, error)
+	ToMap() (map[string]interface{}, error)
+	Set(key string, value any) error
+	Get(key string) (value any, exists bool, err error)
+}
+
 func NewBytesData(serialized []byte) Data {
-	return Data{serialized: serialized}
+	return &dataImpl{serialized: serialized}
 }
 
 func NewMapData(deserialized map[string]interface{}) Data {
-	return Data{deserialized: deserialized}
+	return &dataImpl{deserialized: deserialized}
 }
 
-func (d Data) deserializeIfNeeded() error {
+func (d *dataImpl) deserializeIfNeeded() error {
 	if d.deserialized == nil {
 		deserialized := make(map[string]interface{})
 		err := json.Unmarshal(d.serialized, &deserialized)
@@ -35,7 +42,7 @@ func (d Data) deserializeIfNeeded() error {
 	return nil
 }
 
-func (d Data) ToBytes() ([]byte, error) {
+func (d *dataImpl) ToBytes() ([]byte, error) {
 	if d.serialized == nil {
 		serialized, err := json.Marshal(d.deserialized)
 		if err != nil {
@@ -46,7 +53,7 @@ func (d Data) ToBytes() ([]byte, error) {
 	return d.serialized, nil
 }
 
-func (d Data) ToMap() (map[string]interface{}, error) {
+func (d *dataImpl) ToMap() (map[string]interface{}, error) {
 	err := d.deserializeIfNeeded()
 	if err != nil {
 		return nil, err
@@ -54,7 +61,7 @@ func (d Data) ToMap() (map[string]interface{}, error) {
 	return d.deserialized, nil
 }
 
-func (d Data) Set(key string, value any) error {
+func (d *dataImpl) Set(key string, value any) error {
 	err := d.deserializeIfNeeded()
 	if err != nil {
 		return err
@@ -69,7 +76,7 @@ func (d Data) Set(key string, value any) error {
 	return nil
 }
 
-func (d Data) Get(key string) (value any, exists bool, err error) {
+func (d *dataImpl) Get(key string) (value any, exists bool, err error) {
 	err = d.deserializeIfNeeded()
 	if err != nil {
 		return nil, false, err

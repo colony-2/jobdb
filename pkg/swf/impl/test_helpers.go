@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"time"
@@ -79,7 +80,7 @@ func StartEmbeddedStrata() (*EmbeddedStrataHandle, error) {
 
 // StartEmbeddedPostgres spins up an embedded Postgres with isolated runtime/data/cache and returns DSN and stop func.
 func StartEmbeddedPostgres() (string, func(), error) {
-	pgPort := uint32(20000 + (time.Now().UnixNano() % 1000))
+	pgPort := uint32(20000 + rand.Intn(1000))
 	tmpDir, err := os.MkdirTemp("", "pgwf-embedded-*")
 	if err != nil {
 		return "", nil, fmt.Errorf("temp dir: %w", err)
@@ -95,8 +96,7 @@ func StartEmbeddedPostgres() (string, func(), error) {
 		embeddedpostgres.DefaultConfig().
 			Port(pgPort).
 			RuntimePath(runtimePath).
-			DataPath(dataPath).
-			CachePath(cachePath),
+			DataPath(dataPath),
 	)
 	if err := postgres.Start(); err != nil {
 		return "", nil, err
@@ -114,7 +114,6 @@ func StartEmbeddedEngine(ctx context.Context, job swf.JobWorker, tasks ...swf.Ta
 	if err != nil {
 		return nil, err
 	}
-	defer stopPG()
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -149,8 +148,8 @@ func StartEmbeddedEngine(ctx context.Context, job swf.JobWorker, tasks ...swf.Ta
 	}
 	full := &EmbeddedEngine{
 		SWFEngine:      engine,
-		stopPG:         s.Shutdown,
-		strataShutdown: nil,
+		stopPG:         stopPG,
+		strataShutdown: s.Shutdown,
 	}
 
 	return full, nil
