@@ -62,9 +62,7 @@ func TestBasicWorkflowIntegration(t *testing.T) {
 	go engine2.Run(ctx)
 	go userInputWatcher(ctx, t, engine1)
 
-	initial := &swf.SimpleTaskData{
-		Data: swf.NewMapData(map[string]interface{}{"n": 1}),
-	}
+	initial := swf.NewTaskDataOrPanic(map[string]interface{}{"n": 1})
 	jobID, err := engine1.StartJob(ctx, swf.StartJob{
 		JobType: pipeJobName,
 		Data:    initial,
@@ -105,14 +103,14 @@ func (pipeJob) Name() string { return pipeJobName }
 
 func (pipeJob) Run(ctx swf.JobContext, data swf.JobData) (swf.JobData, error) {
 	current := taskNumber(data)
-	payload := &swf.SimpleTaskData{Data: swf.NewMapData(map[string]interface{}{"n": current})}
+	payload := swf.NewTaskDataOrPanic(map[string]interface{}{"n": current})
 	if ctx.Logger() != nil {
 		ctx.Logger().Info("starting job", "current", current)
 	}
 
 	steps := []string{addOneTaskName, doubleTaskName, userInputTaskName, addOneTaskName, doubleTaskName}
 	var err error
-	var out swf.TaskData = payload
+	var out = payload
 	for _, step := range steps {
 		out, err = ctx.DoTask(swf.RunPolicy{}, step, out)
 		if err != nil {
@@ -136,7 +134,7 @@ func (addOneTask) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskData, er
 	if ctx.Logger != nil {
 		ctx.Logger.Info("t1 add", "input", n)
 	}
-	return &swf.SimpleTaskData{Data: swf.NewMapData(map[string]interface{}{"n": n + 1})}, nil
+	return swf.NewTaskDataOrPanic(map[string]interface{}{"n": n + 1}), nil
 }
 
 const doubleTaskName = "t2"
@@ -150,7 +148,7 @@ func (doubleTask) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskData, er
 	if ctx.Logger != nil {
 		ctx.Logger.Info("t2 double", "input", n)
 	}
-	return &swf.SimpleTaskData{Data: swf.NewMapData(map[string]interface{}{"n": n * 2})}, nil
+	return swf.NewTaskDataOrPanic(map[string]interface{}{"n": n * 2}), nil
 }
 
 const userInputTaskName = "userInput"
@@ -180,7 +178,7 @@ func userInputWatcher(ctx context.Context, t *testing.T, engine swf.SWFEngine) {
 				t.Fatalf("watcher failed to get data: %v", err)
 			}
 			n := taskNumber(data)
-			output := &swf.SimpleTaskData{Data: swf.NewMapData(map[string]interface{}{"n": n + 3})}
+			output := swf.NewTaskDataOrPanic(map[string]interface{}{"n": n + 3})
 			if err := h.Finish(ctx, output); err != nil {
 				t.Fatalf("watcher failed to finish task: %v", err)
 			}
@@ -194,12 +192,8 @@ func taskNumber(td swf.TaskData) int {
 	if err != nil {
 		return 0
 	}
-	bytes, err := data.ToBytes()
-	if err != nil {
-		return 0
-	}
 	var payload map[string]int
-	if err := json.Unmarshal(bytes, &payload); err != nil {
+	if err := json.Unmarshal(data, &payload); err != nil {
 		return 0
 	}
 	return payload["n"]

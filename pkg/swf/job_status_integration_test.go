@@ -45,7 +45,7 @@ func TestJobsEventuallyComplete(t *testing.T) {
 	for _, n := range jobInputs {
 		id, err := engine.StartJob(ctx, swf.StartJob{
 			JobType: statusJobName,
-			Data:    &swf.SimpleTaskData{Data: swf.NewMapData(map[string]interface{}{"n": n})},
+			Data:    swf.NewTaskDataOrPanic(map[string]interface{}{"n": n}),
 		})
 		if err != nil {
 			t.Fatalf("failed to start job: %v", err)

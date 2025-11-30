@@ -78,10 +78,6 @@ func computeInputHash(ctx context.Context, taskData swf.TaskData) (string, error
 	if err != nil {
 		return "", err
 	}
-	dataBytes, err := data.ToBytes()
-	if err != nil {
-		return "", err
-	}
 
 	artifacts, err := taskData.GetArtifacts()
 	if err != nil {
@@ -103,7 +99,7 @@ func computeInputHash(ctx context.Context, taskData swf.TaskData) (string, error
 	sort.Strings(artifactParts)
 
 	h := sha256.New()
-	_, _ = h.Write(dataBytes)
+	_, _ = h.Write(data)
 	for _, part := range artifactParts {
 		_, _ = h.Write([]byte(part))
 	}
@@ -157,7 +153,7 @@ func envelopeToTaskData(env chapterEnvelope, artifacts []swf.Artifact) (swf.Task
 
 	td := &swf.EnvelopedTaskData{
 		SimpleTaskData: swf.SimpleTaskData{
-			Data:      swf.NewBytesData(payload),
+			Data:      swf.Data(payload),
 			Artifacts: copiedArtifacts,
 		},
 		Kind: env.PayloadKind,

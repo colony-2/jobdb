@@ -12,7 +12,7 @@ import (
 
 func TestTaskAppErrorEnvelopeRoundTrip(t *testing.T) {
 	ctx := context.Background()
-	input := &swf.SimpleTaskData{Data: swf.NewMapData(map[string]interface{}{"n": 1})}
+	input := swf.NewTaskDataOrPanic(map[string]interface{}{"n": 1})
 	inputHash, err := computeInputHash(ctx, input)
 	if err != nil {
 		t.Fatalf("hash input: %v", err)
@@ -68,7 +68,7 @@ func TestTaskAppErrorEnvelopeRoundTrip(t *testing.T) {
 
 func TestTaskSystemErrorEnvelopeRoundTrip(t *testing.T) {
 	ctx := context.Background()
-	input := &swf.SimpleTaskData{Data: swf.NewMapData(map[string]interface{}{"n": 2})}
+	input := swf.NewTaskDataOrPanic(map[string]interface{}{"n": 2})
 	inputHash, err := computeInputHash(ctx, input)
 	if err != nil {
 		t.Fatalf("hash input: %v", err)
@@ -124,7 +124,7 @@ func TestTaskSystemErrorEnvelopeRoundTrip(t *testing.T) {
 
 func TestJobAppErrorEnvelopeRoundTrip(t *testing.T) {
 	ctx := context.Background()
-	input := &swf.SimpleTaskData{Data: swf.NewMapData(map[string]interface{}{"n": 3})}
+	input := swf.NewTaskDataOrPanic(map[string]interface{}{"n": 3})
 	inputHash, err := computeInputHash(ctx, input)
 	if err != nil {
 		t.Fatalf("hash input: %v", err)
@@ -170,7 +170,7 @@ func TestJobAppErrorEnvelopeRoundTrip(t *testing.T) {
 
 func TestJobSystemErrorEnvelopeRoundTrip(t *testing.T) {
 	ctx := context.Background()
-	input := &swf.SimpleTaskData{Data: swf.NewMapData(map[string]interface{}{"n": 4})}
+	input := swf.NewTaskDataOrPanic(map[string]interface{}{"n": 4})
 	inputHash, err := computeInputHash(ctx, input)
 	if err != nil {
 		t.Fatalf("hash input: %v", err)

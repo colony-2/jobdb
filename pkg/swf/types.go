@@ -15,79 +15,7 @@ type dataImpl struct {
 	deserialized map[string]interface{}
 }
 
-type Data interface {
-	ToBytes() ([]byte, error)
-	ToMap() (map[string]interface{}, error)
-	Set(key string, value any) error
-	Get(key string) (value any, exists bool, err error)
-}
-
-func NewBytesData(serialized []byte) Data {
-	return &dataImpl{serialized: serialized}
-}
-
-func NewMapData(deserialized map[string]interface{}) Data {
-	return &dataImpl{deserialized: deserialized}
-}
-
-func (d *dataImpl) deserializeIfNeeded() error {
-	if d.deserialized == nil {
-		deserialized := make(map[string]interface{})
-		err := json.Unmarshal(d.serialized, &deserialized)
-		if err != nil {
-			return err
-		}
-		d.deserialized = deserialized
-	}
-	return nil
-}
-
-func (d *dataImpl) ToBytes() ([]byte, error) {
-	if d.serialized == nil {
-		serialized, err := json.Marshal(d.deserialized)
-		if err != nil {
-			return nil, err
-		}
-		d.serialized = serialized
-	}
-	return d.serialized, nil
-}
-
-func (d *dataImpl) ToMap() (map[string]interface{}, error) {
-	err := d.deserializeIfNeeded()
-	if err != nil {
-		return nil, err
-	}
-	return d.deserialized, nil
-}
-
-func (d *dataImpl) Set(key string, value any) error {
-	err := d.deserializeIfNeeded()
-	if err != nil {
-		return err
-	}
-
-	// clear serialized since it is out of sync.
-	d.serialized = nil
-	if d.deserialized == nil {
-		d.deserialized = make(map[string]interface{})
-	}
-	d.deserialized[key] = value
-	return nil
-}
-
-func (d *dataImpl) Get(key string) (value any, exists bool, err error) {
-	err = d.deserializeIfNeeded()
-	if err != nil {
-		return nil, false, err
-	}
-	val, ok := d.deserialized[key]
-	if !ok {
-		return nil, false, nil
-	}
-	return val, true, nil
-
-}
+type Data = json.RawMessage
 
 // Duration wraps time.Duration to provide custom YAML marshaling/unmarshaling
 // It serializes to/from human-readable strings like "1s", "500ms", "2m"
@@ -184,6 +112,30 @@ type SimpleTaskData struct {
 	Artifacts []Artifact
 }
 
+func (s *SimpleTaskData) GetDataOrPanic() Data {
+	data, err := s.GetData()
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
+
+func NewTaskData(data any, artifacts ...Artifact) (TaskData, error) {
+	bytes, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
+	return &SimpleTaskData{Data: bytes, Artifacts: artifacts}, nil
+}
+
+func NewTaskDataOrPanic(data any, artifacts ...Artifact) TaskData {
+	td, err := NewTaskData(data, artifacts...)
+	if err != nil {
+		panic(err)
+	}
+	return td
+}
+
 // EnvelopedTaskData preserves payload kind metadata for round-tripping through envelopes.
 type EnvelopedTaskData struct {
 	SimpleTaskData
@@ -200,6 +152,7 @@ func (s *SimpleTaskData) GetArtifacts() ([]Artifact, error) {
 
 type TaskData interface {
 	GetData() (Data, error)
+	GetDataOrPanic() Data
 	GetArtifacts() ([]Artifact, error)
 }
 

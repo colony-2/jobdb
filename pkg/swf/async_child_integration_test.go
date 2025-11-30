@@ -46,7 +46,7 @@ func TestAsyncChildWorkflow(t *testing.T) {
 	go engine.Run(ctx)
 
 	inputVal := 7
-	input := &swf.SimpleTaskData{Data: swf.NewMapData(map[string]interface{}{"n": inputVal})}
+	input := swf.NewTaskDataOrPanic(map[string]interface{}{"n": inputVal})
 	parentJobID, err := engine.StartJob(ctx, swf.StartJob{
 		JobType: parentWorker.Name(),
 		Data:    input,

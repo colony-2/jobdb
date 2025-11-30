@@ -57,7 +57,7 @@ func TestTaskErrorsAreEnvelopedAndReturned(t *testing.T) {
 
 			jobID, err := engine.StartJob(ctx, swf.StartJob{
 				JobType: jobWorker.Name(),
-				Data:    &swf.SimpleTaskData{Data: swf.NewMapData(map[string]interface{}{"n": 1})},
+				Data:    swf.NewTaskDataOrPanic(map[string]interface{}{"n": 1}),
 			})
 			if err != nil {
 				t.Fatalf("failed to start job: %v", err)
@@ -130,7 +130,7 @@ func TestJobErrorsAreEnvelopedAndReturned(t *testing.T) {
 
 			jobID, err := engine.StartJob(ctx, swf.StartJob{
 				JobType: jobWorker.Name(),
-				Data:    &swf.SimpleTaskData{Data: swf.NewMapData(map[string]interface{}{"n": 1})},
+				Data:    swf.NewTaskDataOrPanic(map[string]interface{}{"n": 1}),
 			})
 			if err != nil {
 				t.Fatalf("failed to start job: %v", err)

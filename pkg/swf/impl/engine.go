@@ -116,15 +116,11 @@ func taskDataToChapter(jobData swf.TaskData, ordinal int64, taskType string, wor
 	if err != nil {
 		return nil, err
 	}
-	bytes, err := data.ToBytes()
-	if err != nil {
-		return nil, err
-	}
 	artifacts, err := jobData.GetArtifacts()
 	if err != nil {
 		return nil, err
 	}
-	return payloadToChapter(json.RawMessage(bytes), artifacts, ordinal, taskType, workerId, payloadKind, inputHash, createdAt, meta)
+	return payloadToChapter(data, artifacts, ordinal, taskType, workerId, payloadKind, inputHash, createdAt, meta)
 }
 
 func taskDataToCreatOptions(jobData swf.TaskData, ordinal int64, taskType string, workerId string, payloadKind string, inputHash string, createdAt time.Time, meta chapterMetadata) (story.CreateOptions, error) {

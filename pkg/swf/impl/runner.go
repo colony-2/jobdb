@@ -381,11 +381,7 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 			if err != nil {
 				return nil, err
 			}
-			raw, err := dataBytes.ToBytes()
-			if err != nil {
-				return nil, err
-			}
-			payload = json.RawMessage(raw)
+			payload = dataBytes
 			artifacts, err = output.GetArtifacts()
 			if err != nil {
 				return nil, err
@@ -739,12 +735,7 @@ func (r *runner) Run(ctx context.Context, lease *pgwf.Lease) {
 					r.logger.Error("failed to get job output data", "error", err)
 					return
 				}
-				raw, err := dataBytes.ToBytes()
-				if err != nil {
-					r.logger.Error("failed to marshal job output", "error", err)
-					return
-				}
-				payload = raw
+				payload = dataBytes
 				artifacts, err = output.GetArtifacts()
 				if err != nil {
 					r.logger.Error("failed to get job output artifacts", "error", err)
