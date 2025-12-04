@@ -73,6 +73,8 @@ type swfEngineImpl struct {
 	db              *gorm.DB
 	udb             *sql.DB
 	workers         map[pgwf.Capability]*swf.WorkSet
+	workersMu       sync.RWMutex
+	capabilities    []pgwf.Capability
 	workerId        string
 	runners         map[string]runner
 	activeWorkLimit int
@@ -83,13 +85,80 @@ type swfEngineImpl struct {
 	awaitRecycler   sync.Once
 }
 
+func (s *swfEngineImpl) refreshCapabilitiesLocked() {
+	seen := make(map[pgwf.Capability]struct{})
+	caps := make([]pgwf.Capability, 0, len(s.workers)+1)
+	for capKey, ws := range s.workers {
+		if _, ok := seen[capKey]; !ok {
+			caps = append(caps, capKey)
+			seen[capKey] = struct{}{}
+		}
+		for _, c := range ws.Capabilities {
+			if _, ok := seen[c]; !ok {
+				caps = append(caps, c)
+				seen[c] = struct{}{}
+			}
+		}
+	}
+	notif := notificationCapability(s.workerId)
+	if _, ok := seen[notif]; !ok {
+		caps = append(caps, notif)
+	}
+	s.capabilities = caps
+}
+
+func (s *swfEngineImpl) refreshCapabilities() {
+	s.workersMu.Lock()
+	defer s.workersMu.Unlock()
+	s.refreshCapabilitiesLocked()
+}
+
+func (s *swfEngineImpl) addWorkSetLocked(workset *swf.WorkSet) {
+	if s.workers == nil {
+		s.workers = make(map[pgwf.Capability]*swf.WorkSet)
+	}
+	for _, c := range workset.Capabilities {
+		s.workers[c] = workset
+	}
+	s.workers[pgwf.Capability(workset.JobWorker.Name())] = workset
+}
+
+func (s *swfEngineImpl) capabilitiesSnapshot() []pgwf.Capability {
+	s.workersMu.RLock()
+	defer s.workersMu.RUnlock()
+	caps := make([]pgwf.Capability, len(s.capabilities))
+	copy(caps, s.capabilities)
+	return caps
+}
+
+func (s *swfEngineImpl) workSetFor(capability pgwf.Capability) (*swf.WorkSet, bool) {
+	s.workersMu.RLock()
+	defer s.workersMu.RUnlock()
+	ws, ok := s.workers[capability]
+	return ws, ok
+}
+
 func (s *swfEngineImpl) RegisterWorkers(workset *swf.WorkSet) error {
-	_, ok := s.workers[pgwf.Capability(workset.JobWorker.Name())]
-	if ok {
-		return fmt.Errorf("worker %s already registered", workset.JobWorker.Name())
+	if workset == nil {
+		return fmt.Errorf("workset is nil")
 	}
 
-	s.workers[pgwf.Capability(workset.JobWorker.Name())] = workset
+	jobCap := pgwf.Capability(workset.JobWorker.Name())
+
+	s.workersMu.Lock()
+	defer s.workersMu.Unlock()
+
+	if _, ok := s.workers[jobCap]; ok {
+		return fmt.Errorf("worker %s already registered", workset.JobWorker.Name())
+	}
+	for _, cap := range workset.Capabilities {
+		if existing, ok := s.workers[cap]; ok {
+			return fmt.Errorf("capability %s already registered for worker %s", cap, existing.JobWorker.Name())
+		}
+	}
+
+	s.addWorkSetLocked(workset)
+	s.refreshCapabilitiesLocked()
 	return nil
 }
 
@@ -708,21 +777,19 @@ var Builder swf.Builder = func(tenantId string, db *gorm.DB, strataClient *strat
 		awaitThreshold: 5 * time.Minute,
 	}
 
+	f.refreshCapabilities()
+
 	return &f, nil
 }
 
 func (s *swfEngineImpl) Run(ctx context.Context) {
 	s.startAwaitRecycler(ctx)
-	caps := make([]pgwf.Capability, 0, len(s.workers))
-	for k, v := range s.workers {
-		caps = append(caps, v.Capabilities...)
-		caps = append(caps, pgwf.Capability(k))
-	}
-	caps = append(caps, notificationCapability(s.workerId))
+	s.refreshCapabilities()
 	go func() {
 		b := backoff.NewExponentialBackOff()
 		b.MaxInterval = time.Second * 30
 		for {
+			caps := s.capabilitiesSnapshot()
 			lease, err := pgwf.GetWork(ctx, s.udb, pgwf.WorkerID(s.workerId), caps)
 			if err == nil {
 				if lease != nil {
@@ -751,7 +818,7 @@ func (s *swfEngineImpl) runSomething(ctx context.Context, lease *swf.Lease) {
 		s.handleNotification(ctx, lease)
 		return
 	}
-	workSet, ok := s.workers[capability]
+	workSet, ok := s.workSetFor(capability)
 	if !ok {
 		// this should never happen. we don't want to crash so we'll just let the lease expire
 		s.logger.Error("no workset found for capability", "capability", capability)
