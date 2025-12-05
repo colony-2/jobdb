@@ -41,17 +41,48 @@ func TestToyEngineRunsJobInline(t *testing.T) {
 	}
 }
 
-func TestToyEngineErrorsOnMissingTaskWorker(t *testing.T) {
+func TestToyEnginePendingOnMissingTaskWorker(t *testing.T) {
 	ws := mustWorkSet(sequenceJob{steps: []string{"missing"}}, addOneTask{})
-	engine := NewToyEngine([]swf.WorkSet{ws})
+	jobID := swf.JobId("pending-missing")
+	engine := NewToyEngine([]swf.WorkSet{ws}, WithJobIDGenerator(func() (swf.JobId, error) {
+		return jobID, nil
+	}))
 
-	jobID, err := engine.StartJob(context.Background(), swf.StartJob{
-		JobType: ws.JobWorker.Name(),
-		Data:    swf.NewTaskDataOrPanic(map[string]int{"n": 1}),
-	})
-	if err != nil {
-		t.Fatalf("StartJob failed: %v", err)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, _ = engine.StartJob(context.Background(), swf.StartJob{
+			JobType: ws.JobWorker.Name(),
+			Data:    swf.NewTaskDataOrPanic(map[string]int{"n": 1}),
+			// keep deterministic ID to query status later
+		})
+	}()
+
+	// Await pending handle for missing task.
+	var handles []swf.TaskHandle
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var err error
+		handles, err = engine.FindTasksWaitingForCapability(context.Background(), ws.JobWorker.Name(), "missing")
+		if err != nil {
+			t.Fatalf("FindTasksWaitingForCapability: %v", err)
+		}
+		if len(handles) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
+	if len(handles) != 1 {
+		t.Fatalf("expected 1 pending handle, got %d", len(handles))
+	}
+
+	// Complete the pending task.
+	err := handles[0].Finish(context.Background(), swf.NewTaskDataOrPanic(map[string]int{"n": 2}))
+	if err != nil {
+		t.Fatalf("Finish failed: %v", err)
+	}
+	wg.Wait()
 
 	status, err := engine.CheckJobStatus(context.Background(), jobID)
 	if err != nil {
@@ -61,9 +92,12 @@ func TestToyEngineErrorsOnMissingTaskWorker(t *testing.T) {
 		t.Fatalf("expected status %s, got %s", swf.JobStatusCompleted, status)
 	}
 
-	_, err = engine.GetJobResult(context.Background(), jobID)
-	if err == nil {
-		t.Fatalf("expected GetJobResult to fail for missing task worker")
+	result, err := engine.GetJobResult(context.Background(), jobID)
+	if err != nil {
+		t.Fatalf("GetJobResult failed: %v", err)
+	}
+	if extractNumber(result) != 2 {
+		t.Fatalf("unexpected result payload")
 	}
 }
 
@@ -203,6 +237,55 @@ func TestListJobsToyEngine(t *testing.T) {
 	})
 }
 
+func TestPendingTaskCompletion(t *testing.T) {
+	jobWorker := simpleJobWorker{name: "pending-job", task: "needs-external"}
+	ws := mustWorkSet(jobWorker, dummyTask{name: "other"})
+
+	engine := NewToyEngine([]swf.WorkSet{ws})
+
+	input := swf.NewTaskDataOrPanic(map[string]int{"n": 1})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = engine.StartJob(context.Background(), swf.StartJob{
+			JobType: ws.JobWorker.Name(),
+			Data:    input,
+		})
+	}()
+
+	// Wait for pending handle to appear.
+	var handles []swf.TaskHandle
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var err error
+		handles, err = engine.FindTasksWaitingForCapability(context.Background(), jobWorker.name, jobWorker.task)
+		if err != nil {
+			t.Fatalf("FindTasksWaitingForCapability: %v", err)
+		}
+		if len(handles) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(handles) != 1 {
+		t.Fatalf("expected 1 pending handle, got %d", len(handles))
+	}
+
+	err := handles[0].Finish(context.Background(), swf.NewTaskDataOrPanic(map[string]int{"n": 5}))
+	if err != nil {
+		t.Fatalf("Finish failed: %v", err)
+	}
+	<-done
+
+	status, err := engine.CheckJobStatus(context.Background(), handles[0].JobId())
+	if err != nil {
+		t.Fatalf("CheckJobStatus: %v", err)
+	}
+	if status != swf.JobStatusCompleted {
+		t.Fatalf("expected completed status, got %s", status)
+	}
+}
+
 // --- Helpers and stub workers ---
 
 type sequenceJob struct {
@@ -274,4 +357,23 @@ func extractNumber(td swf.TaskData) int {
 
 func ptrString(s string) *string {
 	return &s
+}
+
+type simpleJobWorker struct {
+	name string
+	task string
+}
+
+func (j simpleJobWorker) Name() string { return j.name }
+func (j simpleJobWorker) Run(ctx swf.JobContext, input swf.JobData) (swf.JobData, error) {
+	return ctx.DoTask(swf.RunPolicy{}, j.task, input)
+}
+
+type dummyTask struct {
+	name string
+}
+
+func (d dummyTask) Name() string { return d.name }
+func (dummyTask) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
+	return input, nil
 }

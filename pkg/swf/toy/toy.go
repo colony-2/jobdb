@@ -43,6 +43,7 @@ type ToyEngine struct {
 	mu          sync.Mutex
 	workers     map[string]swf.WorkSet
 	jobRecords  map[swf.JobId]*jobRecord
+	pending     map[string][]*pendingTask
 	idGenerator JobIDGenerator
 	logger      *slog.Logger
 }
@@ -63,11 +64,25 @@ type jobRecord struct {
 	payload   []byte
 }
 
+type pendingTask struct {
+	jobID      swf.JobId
+	data       swf.TaskData
+	capability string
+	step       int64
+	done       chan pendingResult
+}
+
+type pendingResult struct {
+	data swf.TaskData
+	err  error
+}
+
 // NewToyEngine constructs a ToyEngine with the provided worksets.
 func NewToyEngine(workers []swf.WorkSet, opts ...Option) *ToyEngine {
 	engine := &ToyEngine{
 		workers:     make(map[string]swf.WorkSet),
 		jobRecords:  make(map[swf.JobId]*jobRecord),
+		pending:     make(map[string][]*pendingTask),
 		idGenerator: func() (swf.JobId, error) { return swf.JobId(ksuid.New().String()), nil },
 		logger:      slog.Default(),
 	}
@@ -194,9 +209,17 @@ func (e *ToyEngine) GetJobResult(ctx context.Context, jobId swf.JobId) (swf.Task
 	return record.result, record.err
 }
 
-// FindTasksWaitingForCapability returns no pending tasks in v1.
+// FindTasksWaitingForCapability returns pending task handles for a capability.
 func (e *ToyEngine) FindTasksWaitingForCapability(ctx context.Context, jobType string, taskType string) ([]swf.TaskHandle, error) {
-	return []swf.TaskHandle{}, nil
+	capability := jobType + ":" + taskType
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	pending := e.pending[capability]
+	handles := make([]swf.TaskHandle, 0, len(pending))
+	for _, p := range pending {
+		handles = append(handles, &pendingHandle{engine: e, task: p})
+	}
+	return handles, nil
 }
 
 func containsStore(stores []swf.JobStore, store swf.JobStore) bool {
@@ -215,6 +238,51 @@ func containsString(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+// pendingHandle exposes a pending task so callers can complete it.
+type pendingHandle struct {
+	engine *ToyEngine
+	task   *pendingTask
+}
+
+func (h *pendingHandle) JobId() swf.JobId {
+	return h.task.jobID
+}
+
+func (h *pendingHandle) Data() (swf.TaskData, error) {
+	return h.task.data, nil
+}
+
+func (h *pendingHandle) Finish(ctx context.Context, taskData swf.TaskData) error {
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
+	h.engine.mu.Lock()
+	queue := h.engine.pending[h.task.capability]
+	idx := -1
+	for i, p := range queue {
+		if p == h.task {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		h.engine.mu.Unlock()
+		return fmt.Errorf("pending task already finished")
+	}
+	// remove from queue
+	h.engine.pending[h.task.capability] = append(queue[:idx], queue[idx+1:]...)
+	h.engine.mu.Unlock()
+
+	select {
+	case h.task.done <- pendingResult{data: taskData}:
+		return nil
+	default:
+		return fmt.Errorf("pending task already resolved")
+	}
 }
 
 // ListJobs returns in-memory job summaries ordered by created_at desc then job_id desc.
@@ -507,7 +575,7 @@ func (c *toyJobContext) DoTask(_ swf.RunPolicy, taskType string, data swf.TaskDa
 
 	taskWorker, ok := c.workSet.TaskWorkers[taskType]
 	if !ok {
-		return nil, fmt.Errorf("task worker %s not registered for job %s", taskType, c.workSet.JobWorker.Name())
+		return c.awaitExternalCompletion(taskType, data)
 	}
 
 	await := func(wakeAt time.Time) error {
@@ -533,6 +601,34 @@ func (c *toyJobContext) DoTask(_ swf.RunPolicy, taskType string, data swf.TaskDa
 	}
 	c.step++
 	return output, nil
+}
+
+func (c *toyJobContext) awaitExternalCompletion(taskType string, data swf.TaskData) (swf.TaskData, error) {
+	capability := c.workSet.JobWorker.Name() + ":" + taskType
+	pending := &pendingTask{
+		jobID:      c.jobID,
+		data:       data,
+		capability: capability,
+		step:       c.step,
+		done:       make(chan pendingResult, 1),
+	}
+
+	c.engine.mu.Lock()
+	c.engine.pending[capability] = append(c.engine.pending[capability], pending)
+	c.engine.mu.Unlock()
+
+	select {
+	case res := <-pending.done:
+		if res.err != nil {
+			return nil, res.err
+		}
+		c.step++
+		return res.data, nil
+	case <-c.cancelCh:
+		c.engine.removePending(pending)
+		c.markCancelled()
+		return nil, context.Canceled
+	}
 }
 
 func (c *toyJobContext) AwaitDuration(waitFor swf.Duration) error {
@@ -564,5 +660,17 @@ func (c *toyJobContext) markCancelled() {
 	}
 	if c.record.err == nil {
 		c.record.err = context.Canceled
+	}
+}
+
+func (e *ToyEngine) removePending(task *pendingTask) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	queue := e.pending[task.capability]
+	for i, p := range queue {
+		if p == task {
+			e.pending[task.capability] = append(queue[:i], queue[i+1:]...)
+			return
+		}
 	}
 }

@@ -27,16 +27,13 @@ func startEmbeddedPostgres(t *testing.T) (string, func()) {
 	tmpDir := t.TempDir()
 	runtimePath := filepath.Join(tmpDir, "runtime")
 	dataPath := filepath.Join(tmpDir, "data")
-	cachePath := filepath.Join(tmpDir, "cache")
 	_ = os.MkdirAll(runtimePath, 0o755)
 	_ = os.MkdirAll(dataPath, 0o755)
-	_ = os.MkdirAll(cachePath, 0o755)
 	postgres := embeddedpostgres.NewDatabase(
 		embeddedpostgres.DefaultConfig().
 			Port(pgPort).
 			RuntimePath(runtimePath).
-			DataPath(dataPath).
-			CachePath(cachePath),
+			DataPath(dataPath),
 	)
 	if err := postgres.Start(); err != nil {
 		t.Fatalf("failed to start embedded postgres: %v", err)
