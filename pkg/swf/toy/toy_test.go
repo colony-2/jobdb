@@ -118,6 +118,91 @@ func TestFindTasksWaitingForCapabilityEmpty(t *testing.T) {
 	}
 }
 
+func TestListJobsToyEngine(t *testing.T) {
+	now := time.Now().UTC()
+	engine := &ToyEngine{
+		workers:    make(map[string]swf.WorkSet),
+		jobRecords: make(map[swf.JobId]*jobRecord),
+	}
+
+	engine.jobRecords["job-ready"] = &jobRecord{
+		status:    swf.JobStatusReady,
+		jobType:   "alpha",
+		createdAt: now.Add(-1 * time.Minute),
+		payload:   []byte(`{"p":1}`),
+	}
+	engine.jobRecords["job-cancelled"] = &jobRecord{
+		status:    swf.JobStatusCancelled,
+		jobType:   "alpha",
+		createdAt: now.Add(-30 * time.Second),
+		cancelled: true,
+		singleton: ptrString("sk"),
+		payload:   []byte(`{"p":2}`),
+	}
+	archivedAt := now.Add(-2 * time.Minute)
+	engine.jobRecords["job-completed"] = &jobRecord{
+		status:    swf.JobStatusCompleted,
+		jobType:   "beta",
+		createdAt: now.Add(-2 * time.Minute),
+		archived:  &archivedAt,
+	}
+
+	t.Run("completed status routes to archived store", func(t *testing.T) {
+		resp, err := engine.ListJobs(context.Background(), swf.ListJobsRequest{
+			Statuses: []swf.JobStatus{swf.JobStatusCompleted},
+		})
+		if err != nil {
+			t.Fatalf("ListJobs: %v", err)
+		}
+		if len(resp.Jobs) != 1 || resp.Jobs[0].JobID != "job-completed" {
+			t.Fatalf("expected archived job-completed, got %+v", resp.Jobs)
+		}
+	})
+
+	t.Run("filters by job type and singleton", func(t *testing.T) {
+		resp, err := engine.ListJobs(context.Background(), swf.ListJobsRequest{
+			JobTypes:      []string{"alpha"},
+			SingletonKeys: []string{"sk"},
+		})
+		if err != nil {
+			t.Fatalf("ListJobs: %v", err)
+		}
+		if len(resp.Jobs) != 1 || resp.Jobs[0].JobID != "job-cancelled" {
+			t.Fatalf("expected job-cancelled, got %+v", resp.Jobs)
+		}
+		if !resp.Jobs[0].CancelRequested {
+			t.Fatalf("expected cancel requested true")
+		}
+	})
+
+	t.Run("paginates by created_at desc", func(t *testing.T) {
+		resp, err := engine.ListJobs(context.Background(), swf.ListJobsRequest{PageSize: 2})
+		if err != nil {
+			t.Fatalf("ListJobs: %v", err)
+		}
+		if len(resp.Jobs) != 2 {
+			t.Fatalf("expected 2 jobs, got %d", len(resp.Jobs))
+		}
+		if resp.NextPageToken == "" {
+			t.Fatalf("expected next page token")
+		}
+		if resp.Jobs[0].JobID != "job-cancelled" {
+			t.Fatalf("expected newest job-cancelled first, got %s", resp.Jobs[0].JobID)
+		}
+
+		resp2, err := engine.ListJobs(context.Background(), swf.ListJobsRequest{
+			PageSize:  2,
+			PageToken: resp.NextPageToken,
+		})
+		if err != nil {
+			t.Fatalf("ListJobs page 2: %v", err)
+		}
+		if len(resp2.Jobs) != 1 || resp2.Jobs[0].JobID != "job-completed" {
+			t.Fatalf("expected final archived job, got %+v", resp2.Jobs)
+		}
+	})
+}
+
 // --- Helpers and stub workers ---
 
 type sequenceJob struct {
@@ -185,4 +270,8 @@ func extractNumber(td swf.TaskData) int {
 		return 0
 	}
 	return payload["n"]
+}
+
+func ptrString(s string) *string {
+	return &s
 }

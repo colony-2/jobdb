@@ -11,6 +11,7 @@ type SWFEngine interface {
 	jobRunApi
 	taskRunApi
 	loopWorkerApi
+	jobsListApi
 
 	RegisterWorkers(workset *WorkSet) error
 }

@@ -2,8 +2,10 @@ package toy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -55,6 +57,10 @@ type jobRecord struct {
 	started   time.Time
 	finished  time.Time
 	jobType   string
+	singleton *string
+	createdAt time.Time
+	archived  *time.Time
+	payload   []byte
 }
 
 // NewToyEngine constructs a ToyEngine with the provided worksets.
@@ -108,10 +114,18 @@ func (e *ToyEngine) StartJob(ctx context.Context, start swf.StartJob) (swf.JobId
 		}
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
+	payloadBytes, _ := start.Data.GetData()
+	var singletonPtr *string
+	if start.SingletonKey != "" {
+		singletonPtr = &start.SingletonKey
+	}
 	record := &jobRecord{
-		status:  swf.JobStatusReady,
-		cancel:  cancel,
-		jobType: start.JobType,
+		status:    swf.JobStatusReady,
+		cancel:    cancel,
+		jobType:   start.JobType,
+		singleton: singletonPtr,
+		createdAt: time.Now(),
+		payload:   payloadBytes,
 	}
 	e.setJobRecord(jobID, record)
 	e.runJob(runCtx, jobID, ws, swf.JobData(start.Data))
@@ -185,6 +199,213 @@ func (e *ToyEngine) FindTasksWaitingForCapability(ctx context.Context, jobType s
 	return []swf.TaskHandle{}, nil
 }
 
+func containsStore(stores []swf.JobStore, store swf.JobStore) bool {
+	for _, s := range stores {
+		if s == store {
+			return true
+		}
+	}
+	return false
+}
+
+func containsString(values []string, target string) bool {
+	for _, v := range values {
+		if v == target {
+			return true
+		}
+	}
+	return false
+}
+
+// ListJobs returns in-memory job summaries ordered by created_at desc then job_id desc.
+func (e *ToyEngine) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.ListJobsResponse, error) {
+	pageSize := req.PageSize
+	if pageSize <= 0 {
+		pageSize = swf.DefaultListJobsPageSize
+	} else if pageSize > swf.MaxListJobsPageSize {
+		pageSize = swf.MaxListJobsPageSize
+	}
+
+	var (
+		activeStatuses []swf.JobStatus
+		includeActive  bool
+		includeArchive bool
+	)
+	if len(req.Statuses) > 0 {
+		for _, st := range req.Statuses {
+			switch st {
+			case swf.JobStatusCompleted:
+				includeArchive = true
+			case swf.JobStatusReady, swf.JobStatusExpired, swf.JobStatusPendingJobs, swf.JobStatusAwaitingFuture, swf.JobStatusActive, swf.JobStatusCrashConcern, swf.JobStatusCancelled:
+				includeActive = true
+				activeStatuses = append(activeStatuses, st)
+			default:
+				return swf.ListJobsResponse{}, fmt.Errorf("unknown status %q", st)
+			}
+		}
+	} else {
+		if len(req.Stores) == 0 {
+			includeActive, includeArchive = true, true
+		} else {
+			for _, store := range req.Stores {
+				switch store {
+				case swf.JobStoreActive:
+					includeActive = true
+				case swf.JobStoreArchived:
+					includeArchive = true
+				default:
+					return swf.ListJobsResponse{}, fmt.Errorf("unknown store %q", store)
+				}
+			}
+		}
+	}
+
+	if !includeActive && !includeArchive {
+		return swf.ListJobsResponse{}, nil
+	}
+
+	var (
+		cursorTime time.Time
+		cursorJob  string
+		hasCursor  bool
+	)
+	if req.PageToken != "" {
+		createdAt, jobID, err := swf.DecodeListJobsPageToken(req.PageToken)
+		if err != nil {
+			return swf.ListJobsResponse{}, err
+		}
+		cursorTime = createdAt
+		cursorJob = string(jobID)
+		hasCursor = true
+	}
+
+	jobTypeAllowed := func(jt string) bool {
+		if len(req.JobTypes) == 0 {
+			return true
+		}
+		for _, expect := range req.JobTypes {
+			if jt == expect {
+				return true
+			}
+		}
+		return false
+	}
+
+	statusAllowed := func(st swf.JobStatus) bool {
+		if len(req.Statuses) == 0 {
+			return true
+		}
+		for _, expect := range req.Statuses {
+			if st == expect {
+				return true
+			}
+		}
+		return false
+	}
+
+	records := make([]swf.JobSummary, 0)
+	e.mu.Lock()
+	for id, rec := range e.jobRecords {
+		rec.mu.Lock()
+		status := rec.status
+		store := swf.JobStoreActive
+		if status == swf.JobStatusCompleted {
+			store = swf.JobStoreArchived
+		}
+
+		if status == swf.JobStatusCompleted && !includeArchive {
+			rec.mu.Unlock()
+			continue
+		}
+		if status != swf.JobStatusCompleted && !includeActive {
+			rec.mu.Unlock()
+			continue
+		}
+		if len(req.Stores) > 0 && !containsStore(req.Stores, store) {
+			rec.mu.Unlock()
+			continue
+		}
+		if !statusAllowed(status) {
+			rec.mu.Unlock()
+			continue
+		}
+		if rec.singleton != nil && len(req.SingletonKeys) > 0 && !containsString(req.SingletonKeys, *rec.singleton) {
+			rec.mu.Unlock()
+			continue
+		}
+		if len(req.SingletonKeys) > 0 && rec.singleton == nil {
+			rec.mu.Unlock()
+			continue
+		}
+		if !jobTypeAllowed(rec.jobType) {
+			rec.mu.Unlock()
+			continue
+		}
+		if req.CreatedAfter != nil && rec.createdAt.Before(*req.CreatedAfter) {
+			rec.mu.Unlock()
+			continue
+		}
+		if req.CreatedBefore != nil && rec.createdAt.After(*req.CreatedBefore) {
+			rec.mu.Unlock()
+			continue
+		}
+
+		payloadCopy := json.RawMessage(nil)
+		if len(rec.payload) > 0 {
+			payloadCopy = make([]byte, len(rec.payload))
+			copy(payloadCopy, rec.payload)
+		}
+		summary := swf.JobSummary{
+			JobID:           id,
+			Status:          status,
+			JobType:         rec.jobType,
+			SingletonKey:    rec.singleton,
+			WaitFor:         []swf.JobId{},
+			AvailableAt:     rec.createdAt,
+			ExpiresAt:       nil,
+			LeaseExpiresAt:  nil,
+			CancelRequested: rec.cancelled,
+			CreatedAt:       rec.createdAt,
+			ArchivedAt:      rec.archived,
+			Payload:         payloadCopy,
+		}
+		rec.mu.Unlock()
+		records = append(records, summary)
+	}
+	e.mu.Unlock()
+
+	sort.Slice(records, func(i, j int) bool {
+		if records[i].CreatedAt.Equal(records[j].CreatedAt) {
+			return records[i].JobID > records[j].JobID
+		}
+		return records[i].CreatedAt.After(records[j].CreatedAt)
+	})
+
+	filtered := make([]swf.JobSummary, 0, len(records))
+	for _, r := range records {
+		if hasCursor {
+			if r.CreatedAt.After(cursorTime) {
+				continue
+			}
+			if r.CreatedAt.Equal(cursorTime) && string(r.JobID) >= cursorJob {
+				continue
+			}
+		}
+		filtered = append(filtered, r)
+	}
+
+	nextToken := ""
+	if len(filtered) > pageSize {
+		last := filtered[pageSize-1]
+		if tok, err := swf.EncodeListJobsPageToken(last.CreatedAt, last.JobID); err == nil {
+			nextToken = tok
+		}
+		filtered = filtered[:pageSize]
+	}
+
+	return swf.ListJobsResponse{Jobs: filtered, NextPageToken: nextToken}, nil
+}
+
 func (e *ToyEngine) getWorkSet(jobType string) (swf.WorkSet, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -231,6 +452,10 @@ func (e *ToyEngine) runJob(ctx context.Context, jobID swf.JobId, ws swf.WorkSet,
 		record.result = result
 		record.err = err
 		record.finished = time.Now()
+		if record.status == swf.JobStatusCompleted {
+			finished := record.finished
+			record.archived = &finished
+		}
 	}()
 
 	jc := &toyJobContext{
