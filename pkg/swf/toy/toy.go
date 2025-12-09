@@ -275,6 +275,10 @@ func (h *pendingHandle) Data() (swf.TaskData, error) {
 	return h.task.data, nil
 }
 
+func (h *pendingHandle) TaskOrdinalToComplete() int64 {
+	return h.task.step
+}
+
 func (h *pendingHandle) Finish(ctx context.Context, taskData swf.TaskData) error {
 	if ctx != nil {
 		if err := ctx.Err(); err != nil {
@@ -380,6 +384,18 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.
 		return false
 	}
 
+	jobIDAllowed := func(id swf.JobId) bool {
+		if len(req.JobIDs) == 0 {
+			return true
+		}
+		for _, expect := range req.JobIDs {
+			if expect == id {
+				return true
+			}
+		}
+		return false
+	}
+
 	jobTaskAllowed := func(jobID swf.JobId, rec *jobRecord) bool {
 		if len(req.JobTasks) == 0 {
 			return true
@@ -450,6 +466,10 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.
 			rec.mu.Unlock()
 			continue
 		}
+		if !jobIDAllowed(id) {
+			rec.mu.Unlock()
+			continue
+		}
 		if rec.singleton != nil && len(req.SingletonKeys) > 0 && !containsString(req.SingletonKeys, *rec.singleton) {
 			rec.mu.Unlock()
 			continue
@@ -500,9 +520,11 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.
 		if rec.capability != "" {
 			summary.TaskWaitNext = &rec.capability
 			step := rec.step
-			summary.TaskWaitInput = &step
-			output := step + 1
-			summary.TaskWaitOutput = &output
+			if step > 0 {
+				input := step - 1
+				summary.TaskWaitInput = &input
+				summary.TaskWaitOutput = &step
+			}
 		}
 		rec.mu.Unlock()
 		records = append(records, summary)
@@ -687,6 +709,7 @@ func (c *toyJobContext) awaitExternalCompletion(taskType string, data swf.TaskDa
 		c.record.status = swf.JobStatusPendingJobs
 	}
 	c.record.capability = capability
+	c.record.step = pending.step
 	c.record.mu.Unlock()
 	c.engine.mu.Unlock()
 

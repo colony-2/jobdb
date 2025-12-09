@@ -64,6 +64,7 @@ VALUES ($1, $2, '{}'::text[], '{}'::jsonb, $3, $4, 'infinity', false, $5)
 	insertJob("job-active-A", "alpha", createdActiveA, false, &sk)
 	insertJob("job-active-B", "beta:task", createdActiveB, true, nil)
 	insertArchive("job-archived-C", "alpha:other", createdArchive, nil)
+	insertArchive("job-archived-D", "delta:other", createdArchive.Add(-time.Minute), nil)
 
 	t.Run("completed status uses archive only", func(t *testing.T) {
 		resp, err := engine.ListJobs(ctx, swf.ListJobsRequest{
@@ -72,14 +73,18 @@ VALUES ($1, $2, '{}'::text[], '{}'::jsonb, $3, $4, 'infinity', false, $5)
 		if err != nil {
 			t.Fatalf("ListJobs: %v", err)
 		}
-		if len(resp.Jobs) != 1 {
-			t.Fatalf("expected 1 archived job, got %d", len(resp.Jobs))
+		if len(resp.Jobs) != 2 {
+			t.Fatalf("expected 2 archived jobs, got %d", len(resp.Jobs))
 		}
-		if resp.Jobs[0].JobID != "job-archived-C" {
-			t.Fatalf("unexpected archived job %s", resp.Jobs[0].JobID)
+		seen := map[swf.JobId]bool{}
+		for _, j := range resp.Jobs {
+			seen[j.JobID] = true
+			if j.Payload != nil {
+				t.Fatalf("expected nil payload for archive")
+			}
 		}
-		if resp.Jobs[0].Payload != nil {
-			t.Fatalf("expected nil payload for archive")
+		if !seen["job-archived-C"] || !seen["job-archived-D"] {
+			t.Fatalf("missing archived jobs in response: %+v", resp.Jobs)
 		}
 	})
 
@@ -115,6 +120,24 @@ VALUES ($1, $2, '{}'::text[], '{}'::jsonb, $3, $4, 'infinity', false, $5)
 		}
 	})
 
+	t.Run("filters by job ids list", func(t *testing.T) {
+		resp, err := engine.ListJobs(ctx, swf.ListJobsRequest{
+			JobIDs: []swf.JobId{"job-active-A", "job-archived-D"},
+		})
+		if err != nil {
+			t.Fatalf("ListJobs: %v", err)
+		}
+		if len(resp.Jobs) != 2 {
+			t.Fatalf("expected 2 jobs, got %+v", resp.Jobs)
+		}
+		want := map[swf.JobId]bool{"job-active-A": true, "job-archived-D": true}
+		for _, j := range resp.Jobs {
+			if !want[j.JobID] {
+				t.Fatalf("unexpected job %s", j.JobID)
+			}
+		}
+	})
+
 	t.Run("paginates newest first across union", func(t *testing.T) {
 		resp, err := engine.ListJobs(ctx, swf.ListJobsRequest{
 			PageSize: 2,
@@ -139,11 +162,8 @@ VALUES ($1, $2, '{}'::text[], '{}'::jsonb, $3, $4, 'infinity', false, $5)
 		if err != nil {
 			t.Fatalf("ListJobs page 2: %v", err)
 		}
-		if len(resp2.Jobs) != 1 {
-			t.Fatalf("expected 1 job on second page, got %d", len(resp2.Jobs))
-		}
-		if resp2.Jobs[0].JobID != "job-archived-C" {
-			t.Fatalf("expected archived job on second page, got %s", resp2.Jobs[0].JobID)
+		if len(resp2.Jobs) != 2 {
+			t.Fatalf("expected 2 jobs on second page, got %d", len(resp2.Jobs))
 		}
 	})
 }

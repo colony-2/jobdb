@@ -49,6 +49,7 @@ type ListJobsRequest struct {
 	Stores        []JobStore
 	JobTypes      []string
 	JobTasks      []JobTaskFilter
+	JobIDs        []JobId
 	SingletonKeys []string
 	CreatedAfter  *time.Time
 	CreatedBefore *time.Time

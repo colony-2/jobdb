@@ -759,6 +759,12 @@ func (s *swfEngineImpl) ListJobs(ctx context.Context, req swf.ListJobsRequest) (
 	if includeActive {
 		activeConds := make([]string, 0)
 		activeArgs := make([]any, 0)
+		if len(req.JobIDs) > 0 {
+			activeConds = append(activeConds, fmt.Sprintf("job_id IN (%s)", strings.Join(makePlaceholders(len(req.JobIDs)), ",")))
+			for _, id := range req.JobIDs {
+				activeArgs = append(activeArgs, id)
+			}
+		}
 		if len(activeStatuses) > 0 {
 			activeConds = append(activeConds, fmt.Sprintf("status IN (%s)", strings.Join(makePlaceholders(len(activeStatuses)), ",")))
 			for _, st := range activeStatuses {
@@ -795,6 +801,12 @@ func (s *swfEngineImpl) ListJobs(ctx context.Context, req swf.ListJobsRequest) (
 	if includeArchive {
 		archiveConds := make([]string, 0)
 		archiveArgs := make([]any, 0)
+		if len(req.JobIDs) > 0 {
+			archiveConds = append(archiveConds, fmt.Sprintf("job_id IN (%s)", strings.Join(makePlaceholders(len(req.JobIDs)), ",")))
+			for _, id := range req.JobIDs {
+				archiveArgs = append(archiveArgs, id)
+			}
+		}
 		if clause := buildJobTypeClause(req.JobTypes, req.JobTasks, &archiveArgs); clause != "" {
 			archiveConds = append(archiveConds, clause)
 		}
@@ -847,40 +859,43 @@ func (s *swfEngineImpl) ListJobs(ctx context.Context, req swf.ListJobsRequest) (
 
 	result := make([]swf.JobSummary, 0, len(rows))
 	for _, r := range rows {
-		waitFor := make([]swf.JobId, 0, len(r.WaitFor))
-		for _, wf := range r.WaitFor {
-			waitFor = append(waitFor, swf.JobId(wf))
-		}
-			var (
-				taskWaitInput  *int64
-				taskWaitOutput *int64
-				taskWaitNext   *string
-			)
-			if tw, err := extractTaskWait(r.Payload); err == nil && tw != nil {
-				taskWaitInput = &tw.InputStep
-				taskWaitOutput = &tw.OutputStep
-				next := tw.Next
-				taskWaitNext = &next
+		waitFor := make([]swf.JobId, 0)
+		if len(r.WaitFor) > 0 {
+			for _, wf := range r.WaitFor {
+				waitFor = append(waitFor, swf.JobId(wf))
 			}
-			res := swf.JobSummary{
-				JobID:           swf.JobId(r.JobID),
-				Status:          swf.JobStatus(r.Status),
-				JobType:         swf.JobTypeFromNextNeed(r.NextNeed),
-				SingletonKey:    r.SingletonKey,
-				WaitFor:         waitFor,
-				AvailableAt:     r.AvailableAt,
-				ExpiresAt:       timePtr(r.ExpiresAt),
-				LeaseExpiresAt:  timePtr(r.LeaseExpiresAt),
-				CancelRequested: r.CancelRequested,
-				CreatedAt:       r.CreatedAt,
-				ArchivedAt:      timePtr(r.ArchivedAt),
-				Payload:         json.RawMessage(r.Payload),
-				TaskWaitInput:   taskWaitInput,
-				TaskWaitOutput:  taskWaitOutput,
-				TaskWaitNext:    taskWaitNext,
-			}
-			result = append(result, res)
+
 		}
+		var (
+			taskWaitInput  *int64
+			taskWaitOutput *int64
+			taskWaitNext   *string
+		)
+		if tw, err := extractTaskWait(r.Payload); err == nil && tw != nil {
+			taskWaitInput = &tw.InputStep
+			taskWaitOutput = &tw.OutputStep
+			next := tw.Next
+			taskWaitNext = &next
+		}
+		res := swf.JobSummary{
+			JobID:           swf.JobId(r.JobID),
+			Status:          swf.JobStatus(r.Status),
+			JobType:         swf.JobTypeFromNextNeed(r.NextNeed),
+			SingletonKey:    r.SingletonKey,
+			WaitFor:         waitFor,
+			AvailableAt:     r.AvailableAt,
+			ExpiresAt:       timePtr(r.ExpiresAt),
+			LeaseExpiresAt:  timePtr(r.LeaseExpiresAt),
+			CancelRequested: r.CancelRequested,
+			CreatedAt:       r.CreatedAt,
+			ArchivedAt:      timePtr(r.ArchivedAt),
+			Payload:         json.RawMessage(r.Payload),
+			TaskWaitInput:   taskWaitInput,
+			TaskWaitOutput:  taskWaitOutput,
+			TaskWaitNext:    taskWaitNext,
+		}
+		result = append(result, res)
+	}
 
 	return swf.ListJobsResponse{
 		Jobs:          result,

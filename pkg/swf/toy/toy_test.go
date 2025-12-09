@@ -299,6 +299,77 @@ func TestPendingTaskCompletion(t *testing.T) {
 	if len(resp.Jobs) != 1 || resp.Jobs[0].JobID != handles[0].JobId() {
 		t.Fatalf("expected job from job/task filter, got %+v", resp.Jobs)
 	}
+
+	respIDs, err := engine.ListJobs(context.Background(), swf.ListJobsRequest{
+		JobIDs: []swf.JobId{handles[0].JobId()},
+	})
+	if err != nil {
+		t.Fatalf("ListJobs with job ids: %v", err)
+	}
+	if len(respIDs.Jobs) != 1 || respIDs.Jobs[0].JobID != handles[0].JobId() {
+		t.Fatalf("expected job via id filter, got %+v", respIDs.Jobs)
+	}
+}
+
+func TestJobSummaryPendingStepMatchesHandle(t *testing.T) {
+	ws := mustWorkSet(sequenceJob{steps: []string{"add", "missing"}}, addOneTask{})
+	jobID := swf.JobId("multi-step-pending")
+	engine := NewToyEngine([]swf.WorkSet{ws}, WithJobIDGenerator(func() (swf.JobId, error) { return jobID, nil }))
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = engine.StartJob(context.Background(), swf.StartJob{
+			JobType: ws.JobWorker.Name(),
+			Data:    swf.NewTaskDataOrPanic(map[string]int{"n": 1}),
+		})
+	}()
+
+	var handles []swf.TaskHandle
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var err error
+		handles, err = engine.FindTasksWaitingForCapability(context.Background(), ws.JobWorker.Name(), "missing")
+		if err != nil {
+			t.Fatalf("FindTasksWaitingForCapability: %v", err)
+		}
+		if len(handles) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(handles) != 1 {
+		t.Fatalf("expected 1 pending handle, got %d", len(handles))
+	}
+
+	handle := handles[0]
+	expectedOutputOrdinal := handle.TaskOrdinalToComplete()
+	if expectedOutputOrdinal <= 0 {
+		t.Fatalf("TaskOrdinalToComplete should be positive, got %d", expectedOutputOrdinal)
+	}
+	expectedInputOrdinal := expectedOutputOrdinal - 1
+
+	resp, err := engine.ListJobs(context.Background(), swf.ListJobsRequest{
+		JobIDs: []swf.JobId{jobID},
+	})
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+	if len(resp.Jobs) != 1 {
+		t.Fatalf("expected 1 job in summary, got %d", len(resp.Jobs))
+	}
+	summary := resp.Jobs[0]
+	if summary.TaskWaitInput == nil || *summary.TaskWaitInput != expectedInputOrdinal {
+		t.Fatalf("TaskWaitInput mismatch, want %d got %v", expectedInputOrdinal, summary.TaskWaitInput)
+	}
+	if summary.TaskWaitOutput == nil || *summary.TaskWaitOutput != expectedOutputOrdinal {
+		t.Fatalf("TaskWaitOutput mismatch, want %d got %v", expectedOutputOrdinal, summary.TaskWaitOutput)
+	}
+
+	if err := handle.Finish(context.Background(), swf.NewTaskDataOrPanic(map[string]int{"n": 3})); err != nil {
+		t.Fatalf("Finish: %v", err)
+	}
+	<-done
 }
 
 // --- Helpers and stub workers ---
