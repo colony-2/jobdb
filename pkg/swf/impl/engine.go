@@ -88,6 +88,48 @@ type swfEngineImpl struct {
 	awaitRecycler   sync.Once
 }
 
+func (s *swfEngineImpl) dbFromCtx(ctx context.Context) *gorm.DB {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if tx, ok := swf.TxFromCtx(ctx); ok && tx != nil {
+		return tx.WithContext(ctx)
+	}
+	return s.db.WithContext(ctx)
+}
+
+func (s *swfEngineImpl) sqlTxFromCtx(ctx context.Context) *sql.Tx {
+	if ctx == nil {
+		return nil
+	}
+	if tx, ok := swf.TxFromCtx(ctx); ok && tx != nil {
+		return sqlTxFromGorm(tx)
+	}
+	return nil
+}
+
+func (s *swfEngineImpl) pgwfDB(ctx context.Context) pgwf.DB {
+	if tx := s.sqlTxFromCtx(ctx); tx != nil {
+		return tx
+	}
+	return s.udb
+}
+
+func sqlTxFromGorm(db *gorm.DB) *sql.Tx {
+	if db == nil {
+		return nil
+	}
+	if db.Statement != nil {
+		if tx, ok := db.Statement.ConnPool.(*sql.Tx); ok && tx != nil {
+			return tx
+		}
+	}
+	if tx, ok := db.ConnPool.(*sql.Tx); ok && tx != nil {
+		return tx
+	}
+	return nil
+}
+
 func (s *swfEngineImpl) refreshCapabilitiesLocked() {
 	seen := make(map[pgwf.Capability]struct{})
 	caps := make([]pgwf.Capability, 0, len(s.workers)+1)
@@ -205,6 +247,9 @@ func taskDataToCreatOptions(jobData swf.TaskData, ordinal int64, taskType string
 }
 
 func (s *swfEngineImpl) StartJob(ctx context.Context, job swf.StartJob) (swf.JobId, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	jobId := swf.JobId(ksuid.New().String())
 	key := story.Key{
 		AnthologyID: s.tenantId,
@@ -224,22 +269,28 @@ func (s *swfEngineImpl) StartJob(ctx context.Context, job swf.StartJob) (swf.Job
 	if err != nil {
 		return "", err
 	}
-	_, err = s.strata.CreateStory(context.TODO(), key, co)
+	_, err = s.strata.CreateStory(ctx, key, co)
 	if err != nil {
 		return "", err
 	}
 
-	return jobId, s.startJob(jobId, job.JobType, job.SingletonKey, jobPayload{RunPolicy: jobPolicy})
+	return jobId, s.startJob(ctx, jobId, job.JobType, job.SingletonKey, jobPayload{RunPolicy: jobPolicy})
 }
 
-func (s *swfEngineImpl) startJob(jobId swf.JobId, jobType string, singletonKey string, payload jobPayload) error {
+func (s *swfEngineImpl) startJob(ctx context.Context, jobId swf.JobId, jobType string, singletonKey string, payload jobPayload) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	dep := pgwf.JobDependencies{
 		NextNeed: pgwf.Capability(jobType),
 	}
-	return pgwf.SubmitJob(context.TODO(), s.udb, pgwf.JobID(jobId), dep, payload, pgwf.WorkerID(s.workerId), singletonKey, time.Time{})
+	return pgwf.SubmitJob(ctx, s.pgwfDB(ctx), pgwf.JobID(jobId), dep, payload, pgwf.WorkerID(s.workerId), singletonKey, time.Time{})
 }
 
 func (s *swfEngineImpl) RestartJob(ctx context.Context, job swf.RestartJob) (swf.JobId, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	jobId := swf.JobId(ksuid.New().String())
 	sourceJob := story.Key{
 		AnthologyID: s.tenantId,
@@ -270,16 +321,19 @@ func (s *swfEngineImpl) RestartJob(ctx context.Context, job swf.RestartJob) (swf
 		LastOrdinal:    job.LastStepToKeep,
 		CreateOptions:  createOptions,
 	}
-	_, err = s.strata.CloneStory(context.TODO(), sourceJob, cloneOptions)
+	_, err = s.strata.CloneStory(ctx, sourceJob, cloneOptions)
 
 	if err != nil {
 		return "", err
 	}
-	return jobId, s.startJob(jobId, job.JobType, job.SingletonKey, jobPayload{RunPolicy: jobPolicy})
+	return jobId, s.startJob(ctx, jobId, job.JobType, job.SingletonKey, jobPayload{RunPolicy: jobPolicy})
 }
 
 func (s *swfEngineImpl) CancelJob(ctx context.Context, job swf.CancelJob) error {
-	return pgwf.CancelJob(ctx, s.udb, pgwf.JobID(job.JobId), pgwf.WorkerID(s.workerId), job.Reason)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return pgwf.CancelJob(ctx, s.pgwfDB(ctx), pgwf.JobID(job.JobId), pgwf.WorkerID(s.workerId), job.Reason)
 }
 
 func (s *swfEngineImpl) SetAwaitThreshold(d time.Duration) {
@@ -556,8 +610,9 @@ func payloadToChapter(payload json.RawMessage, artifacts []swf.Artifact, ordinal
 }
 
 func (s *swfEngineImpl) CheckJobStatus(ctx context.Context, jobId swf.JobId) (swf.JobStatus, error) {
+	db := s.dbFromCtx(ctx)
 	var job Job
-	err := s.db.WithContext(ctx).First(&job, "job_id = ?", string(jobId)).Error
+	err := db.First(&job, "job_id = ?", string(jobId)).Error
 	if err == nil {
 		return swf.JobStatus(job.Status), nil
 	}
@@ -566,7 +621,7 @@ func (s *swfEngineImpl) CheckJobStatus(ctx context.Context, jobId swf.JobId) (sw
 	}
 
 	var archived archivedJob
-	err = s.db.WithContext(ctx).First(&archived, "job_id = ?", string(jobId)).Error
+	err = db.First(&archived, "job_id = ?", string(jobId)).Error
 	if err == nil {
 		return swf.JobStatusCompleted, nil
 	}
@@ -577,9 +632,10 @@ func (s *swfEngineImpl) CheckJobStatus(ctx context.Context, jobId swf.JobId) (sw
 }
 
 func (s *swfEngineImpl) GetJobResult(ctx context.Context, jobId swf.JobId) (swf.TaskData, error) {
+	db := s.dbFromCtx(ctx)
 	// Ensure job is complete (archived) before returning a result.
 	var archived int64
-	if err := s.db.WithContext(ctx).
+	if err := db.
 		Table("pgwf.jobs_archive").
 		Where("job_id = ?", string(jobId)).
 		Count(&archived).Error; err != nil {
@@ -606,8 +662,9 @@ func (s *swfEngineImpl) GetJobResult(ctx context.Context, jobId swf.JobId) (swf.
 }
 
 func (s *swfEngineImpl) jobResultIfComplete(ctx context.Context, jobId swf.JobId) (swf.TaskData, bool, error) {
+	db := s.dbFromCtx(ctx)
 	var archived int64
-	if err := s.db.WithContext(ctx).
+	if err := db.
 		Table("pgwf.jobs_archive").
 		Where("job_id = ?", string(jobId)).
 		Count(&archived).Error; err != nil {
@@ -621,6 +678,7 @@ func (s *swfEngineImpl) jobResultIfComplete(ctx context.Context, jobId swf.JobId
 }
 
 func (s *swfEngineImpl) ensureNotificationJob(ctx context.Context, notificationJobID pgwf.JobID, childJobID pgwf.JobID, parentJobID pgwf.JobID, awaitOrdinal int64) error {
+	pgdb := s.pgwfDB(ctx)
 	deps := pgwf.JobDependencies{
 		NextNeed: notificationCapability(s.workerId),
 		WaitFor:  []pgwf.JobID{childJobID},
@@ -632,10 +690,10 @@ func (s *swfEngineImpl) ensureNotificationJob(ctx context.Context, notificationJ
 			ChildJobID:   childJobID,
 		},
 	}
-	if err := pgwf.RescheduleUnheldJob(ctx, s.udb, notificationJobID, pgwf.WorkerID(s.workerId), deps, payload); err == nil {
+	if err := pgwf.RescheduleUnheldJob(ctx, pgdb, notificationJobID, pgwf.WorkerID(s.workerId), deps, payload); err == nil {
 		return nil
 	} else if errors.Is(err, pgwf.ErrJobNotFound) {
-		if err := pgwf.SubmitJob(ctx, s.udb, notificationJobID, deps, payload, pgwf.WorkerID(s.workerId), "", time.Time{}); err == nil || errors.Is(err, pgwf.ErrDependencyViolation) {
+		if err := pgwf.SubmitJob(ctx, pgdb, notificationJobID, deps, payload, pgwf.WorkerID(s.workerId), "", time.Time{}); err == nil || errors.Is(err, pgwf.ErrDependencyViolation) {
 			return nil
 		}
 	}
@@ -674,6 +732,7 @@ func timePtr(nt pq.NullTime) *time.Time {
 }
 
 func (s *swfEngineImpl) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.ListJobsResponse, error) {
+	db := s.dbFromCtx(ctx)
 	pageSize := req.PageSize
 	if pageSize <= 0 {
 		pageSize = swf.DefaultListJobsPageSize
@@ -844,7 +903,7 @@ func (s *swfEngineImpl) ListJobs(ctx context.Context, req swf.ListJobsRequest) (
 	sql := fmt.Sprintf("SELECT * FROM (%s) AS combined WHERE %s ORDER BY created_at DESC, job_id DESC LIMIT ?", unionSQL, whereClause)
 
 	rows := make([]jobListRow, 0)
-	if err := s.db.WithContext(ctx).Raw(sql, allArgs...).Scan(&rows).Error; err != nil {
+	if err := db.Raw(sql, allArgs...).Scan(&rows).Error; err != nil {
 		return swf.ListJobsResponse{}, err
 	}
 
@@ -904,8 +963,13 @@ func (s *swfEngineImpl) ListJobs(ctx context.Context, req swf.ListJobsRequest) (
 }
 
 func (s *swfEngineImpl) ensureChildAndNotificationJobs(ctx context.Context, childJobID pgwf.JobID, notificationJobID pgwf.JobID, jobType string, runPolicy swf.RunPolicy, parentJobID swf.JobId, awaitOrdinal int64) error {
+	db := s.dbFromCtx(ctx)
+	sqlTx := s.sqlTxFromCtx(ctx)
+	if sqlTx == nil {
+		sqlTx = s.sqlTxFromCtx(ctx)
+	}
 	var archived int64
-	if err := s.db.WithContext(ctx).
+	if err := db.
 		Table("pgwf.jobs_archive").
 		Where("job_id = ?", string(childJobID)).
 		Count(&archived).Error; err != nil {
@@ -916,13 +980,17 @@ func (s *swfEngineImpl) ensureChildAndNotificationJobs(ctx context.Context, chil
 	}
 
 	var existing Job
-	if err := s.db.WithContext(ctx).Where("job_id = ?", string(childJobID)).First(&existing).Error; err == nil {
+	if err := db.Where("job_id = ?", string(childJobID)).First(&existing).Error; err == nil {
 		return s.ensureNotificationJob(ctx, notificationJobID, childJobID, pgwf.JobID(parentJobID), awaitOrdinal)
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
 
 	runPolicy = normalizeRunPolicy(runPolicy)
+
+	if sqlTx != nil {
+		return s.submitChildAndNotify(ctx, sqlTx, childJobID, notificationJobID, jobType, runPolicy, parentJobID, awaitOrdinal)
+	}
 
 	tx, err := s.udb.BeginTx(ctx, nil)
 	if err != nil {
@@ -935,6 +1003,18 @@ func (s *swfEngineImpl) ensureChildAndNotificationJobs(ctx context.Context, chil
 		}
 	}()
 
+	if err := s.submitChildAndNotify(ctx, tx, childJobID, notificationJobID, jobType, runPolicy, parentJobID, awaitOrdinal); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
+func (s *swfEngineImpl) submitChildAndNotify(ctx context.Context, tx *sql.Tx, childJobID pgwf.JobID, notificationJobID pgwf.JobID, jobType string, runPolicy swf.RunPolicy, parentJobID swf.JobId, awaitOrdinal int64) error {
 	childDeps := pgwf.JobDependencies{NextNeed: pgwf.Capability(jobType)}
 	if err := pgwf.SubmitJob(ctx, tx, childJobID, childDeps, jobPayload{RunPolicy: runPolicy}, pgwf.WorkerID(s.workerId), "", time.Time{}); err != nil {
 		return err
@@ -951,15 +1031,7 @@ func (s *swfEngineImpl) ensureChildAndNotificationJobs(ctx context.Context, chil
 			ChildJobID:   childJobID,
 		},
 	}
-	if err := pgwf.SubmitJob(ctx, tx, notificationJobID, notifyDeps, notifyPayload, pgwf.WorkerID(s.workerId), "", time.Time{}); err != nil {
-		return err
-	}
-
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	committed = true
-	return nil
+	return pgwf.SubmitJob(ctx, tx, notificationJobID, notifyDeps, notifyPayload, pgwf.WorkerID(s.workerId), "", time.Time{})
 }
 
 type taskWait struct {
@@ -969,8 +1041,9 @@ type taskWait struct {
 }
 
 func (s *swfEngineImpl) FindTasksWaitingForCapability(ctx context.Context, jobType string, taskType string) ([]swf.TaskHandle, error) {
+	db := s.dbFromCtx(ctx)
 	var jobs []Job
-	err := s.db.Where(&Job{NextNeed: jobType + ":" + taskType, Status: "READY"}).Find(&jobs).Error
+	err := db.Where(&Job{NextNeed: jobType + ":" + taskType, Status: "READY"}).Find(&jobs).Error
 	if err != nil {
 		return nil, err
 	}
@@ -1019,8 +1092,9 @@ func taskTypeFromCapability(cap string) string {
 }
 
 func (s *swfEngineImpl) GetWaitingTask(ctx context.Context, id swf.JobId) (swf.TaskHandle, error) {
+	db := s.dbFromCtx(ctx)
 	var job Job
-	if err := s.db.WithContext(ctx).Where("job_id = ? AND status = ?", string(id), "READY").First(&job).Error; err != nil {
+	if err := db.Where("job_id = ? AND status = ?", string(id), "READY").First(&job).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, swf.ErrJobNotFound
 		}

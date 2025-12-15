@@ -9,6 +9,8 @@ resources:
       - name: uname
         command: uname -a
     mounts:
+      - source: ${{ env.HOME }}/.shai/.netrc
+        target: /home/devuser/.netrc
       - source: ${{ env.HOME }}/.cache/go-build
         target: /go/pkg
         mode: rw

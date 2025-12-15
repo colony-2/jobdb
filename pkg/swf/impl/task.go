@@ -49,6 +49,9 @@ func (h *taskHandleImpl) JobId() swf.JobId {
 }
 
 func (h *taskHandleImpl) Finish(ctx context.Context, taskData swf.TaskData) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	// write the story.
 	inputTD, err := chapterToTaskData(h.inputChapter)
 	if err != nil {
@@ -74,7 +77,7 @@ func (h *taskHandleImpl) Finish(ctx context.Context, taskData swf.TaskData) erro
 	_ = json.Unmarshal(h.job.Payload, &payload)
 	return pgwf.RescheduleUnheldJob(
 		ctx,
-		h.engine.udb,
+		h.engine.pgwfDB(ctx),
 		pgwf.JobID(h.job.JobID),
 		pgwf.WorkerID(h.engine.workerId), pgwf.JobDependencies{NextNeed: h.nextNeed},
 		jobPayload{RunPolicy: payload.RunPolicy})
