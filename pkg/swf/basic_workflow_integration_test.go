@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	strataclient "github.com/colony-2/strata/strata-go/pkg/client"
-	"github.com/colony-2/strata/strata-go/pkg/client/story"
+	strataclient "github.com/colony-2/strata-go/pkg/client"
+	"github.com/colony-2/strata-go/pkg/client/story"
 	"github.com/colony-2/swf-go/pkg/swf"
 	"github.com/colony-2/swf-go/pkg/swf/impl"
 	_ "github.com/lib/pq"

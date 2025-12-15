@@ -1,10 +1,11 @@
 module github.com/colony-2/swf-go
 
-go 1.24.1
+go 1.25.5
 
 require (
 	github.com/cenkalti/backoff v2.2.1+incompatible
-	github.com/colony-2/strata/strata-go v0.0.0
+	github.com/colony-2/pgwf-go v0.0.0-20251126023645-3cf5a829bccb
+	github.com/colony-2/strata-go v0.0.0-20251215181525-c51f2cd6b43e
 	github.com/fergusstrange/embedded-postgres v1.32.0
 	github.com/google/uuid v1.6.0
 	github.com/invopop/jsonschema v0.13.0
@@ -29,7 +30,6 @@ require (
 	github.com/cockroachdb/redact v1.0.8 // indirect
 	github.com/cockroachdb/sentry-go v0.6.1-cockroachdb.2 // indirect
 	github.com/colony-2/pgwf v0.0.0-20251125194837-642b26da9860 // indirect
-	github.com/colony-2/pgwf-go v0.0.0-20251126023645-3cf5a829bccb // indirect
 	github.com/go-chi/chi/v5 v5.0.10 // indirect
 	github.com/go-sql-driver/mysql v1.8.1 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
@@ -65,5 +65,3 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gorm.io/driver/mysql v1.5.6 // indirect
 )
-
-replace github.com/colony-2/strata/strata-go => ../strata-go

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/colony-2/pgwf-go/installer"
-	"github.com/colony-2/strata/strata-go/pkg/daemon"
+	"github.com/colony-2/strata-go/pkg/daemon"
 	"github.com/colony-2/swf-go/pkg/swf"
 	"github.com/fergusstrange/embedded-postgres"
 	"github.com/segmentio/ksuid"

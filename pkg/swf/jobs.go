@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
-	strataclient "github.com/colony-2/strata/strata-go/pkg/client"
+	strataclient "github.com/colony-2/strata-go/pkg/client"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )

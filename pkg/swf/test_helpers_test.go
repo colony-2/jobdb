@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	strataclient "github.com/colony-2/strata/strata-go/pkg/client"
-	"github.com/colony-2/strata/strata-go/pkg/client/core"
-	"github.com/colony-2/strata/strata-go/pkg/client/story"
+	strataclient "github.com/colony-2/strata-go/pkg/client"
+	"github.com/colony-2/strata-go/pkg/client/core"
+	"github.com/colony-2/strata-go/pkg/client/story"
 	"github.com/colony-2/swf-go/pkg/swf/impl"
 	"github.com/fergusstrange/embedded-postgres"
 )

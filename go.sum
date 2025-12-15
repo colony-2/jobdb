@@ -94,6 +94,8 @@ github.com/colony-2/pgwf v0.0.0-20251125194837-642b26da9860 h1:05jsQS4fktvtalHma
 github.com/colony-2/pgwf v0.0.0-20251125194837-642b26da9860/go.mod h1:QJKHOf9Ybwm9V+74tls15xhPVbcDLBwkZ2dcVNAkLuw=
 github.com/colony-2/pgwf-go v0.0.0-20251126023645-3cf5a829bccb h1:lPOVMV2diFM0JJGKLjVDPEoB2hj6a3zxZPtEiL3+YAU=
 github.com/colony-2/pgwf-go v0.0.0-20251126023645-3cf5a829bccb/go.mod h1:JR4SW6I7bB7uKUXJsFvcHQF6C4IMhGkLchwEoC59dpM=
+github.com/colony-2/strata-go v0.0.0-20251215181525-c51f2cd6b43e h1:LMGtkMsm5TrQ6ydZndJjka6J38p8BEthFEMAvLwvMOY=
+github.com/colony-2/strata-go v0.0.0-20251215181525-c51f2cd6b43e/go.mod h1:JV8xTWRS2RFm4I1A9Qtn246hnyNnSL0S2iO+jmeUfWs=
 github.com/coreos/etcd v3.3.10+incompatible/go.mod h1:uF7uidLiAD3TWHmW31ZFd/JWoc32PjwdhPthX9715RE=
 github.com/coreos/go-etcd v2.0.0+incompatible/go.mod h1:Jez6KQU2B/sWsbdaef3ED8NzMklzPG4d5KIOhIy30Tk=
 github.com/coreos/go-semver v0.2.0/go.mod h1:nnelYz7RCh+5ahJtPPxZlU+153eP4D4r3EedlOD2RNk=

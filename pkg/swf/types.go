@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
-	strata "github.com/colony-2/strata/strata-go/pkg/client/artifact"
+	strata "github.com/colony-2/strata-go/pkg/client/artifact"
 	"github.com/invopop/jsonschema"
 )
 

@@ -14,8 +14,8 @@ import (
 
 	"github.com/cenkalti/backoff"
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
-	strataclient "github.com/colony-2/strata/strata-go/pkg/client"
-	"github.com/colony-2/strata/strata-go/pkg/client/story"
+	strataclient "github.com/colony-2/strata-go/pkg/client"
+	"github.com/colony-2/strata-go/pkg/client/story"
 	"github.com/colony-2/swf-go/pkg/swf"
 	"github.com/google/uuid"
 	"github.com/lib/pq"

@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
-	"github.com/colony-2/strata/strata-go/pkg/client/core"
-	"github.com/colony-2/strata/strata-go/pkg/client/story"
+	"github.com/colony-2/strata-go/pkg/client/core"
+	"github.com/colony-2/strata-go/pkg/client/story"
 	"github.com/colony-2/swf-go/pkg/swf"
 )
 
