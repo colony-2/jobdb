@@ -163,7 +163,7 @@ func userInputWatcher(ctx context.Context, t *testing.T, engine swf.SWFEngine) {
 		default:
 		}
 
-		handles, err := engine.FindTasksWaitingForCapability(ctx, pipeJobName, userInputTaskName)
+		handles, err := engine.FindTasksWaitingForCapability(ctx, pipeJobName, userInputTaskName, nil)
 		if err != nil {
 			// If the database is shutting down or context will end soon, just back off.
 			select {

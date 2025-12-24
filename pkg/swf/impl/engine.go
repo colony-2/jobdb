@@ -678,15 +678,16 @@ func (s *swfEngineImpl) jobResultIfComplete(ctx context.Context, jobKey swf.JobK
 	return td, err == nil, err
 }
 
-func (s *swfEngineImpl) ensureNotificationJob(ctx context.Context, notificationJobID pgwf.JobID, childJobID pgwf.JobID, parentJobID pgwf.JobID, awaitOrdinal int64) error {
+func (s *swfEngineImpl) ensureNotificationJob(ctx context.Context, notificationJobID pgwf.JobID, childJobID pgwf.JobID, parentJobKey swf.JobKey, awaitOrdinal int64) error {
 	pgdb := s.pgwfDB(ctx)
 	deps := pgwf.JobDependencies{
 		NextNeed: notificationCapability(s.workerId),
 		WaitFor:  []pgwf.JobID{childJobID},
 	}
 	payload := jobPayload{
+		TenantId: parentJobKey.TenantId,
 		AsyncNotify: &asyncNotificationPayload{
-			ParentJobID:  parentJobID,
+			ParentJobID:  pgwf.JobID(parentJobKey.JobId),
 			AwaitOrdinal: awaitOrdinal,
 			ChildJobID:   childJobID,
 		},
@@ -997,7 +998,14 @@ func (s *swfEngineImpl) ensureChildAndNotificationJobs(ctx context.Context, chil
 
 	var existing Job
 	if err := db.Where("job_id = ?", string(childJobID)).First(&existing).Error; err == nil {
-		return s.ensureNotificationJob(ctx, notificationJobID, childJobID, pgwf.JobID(parentJobKey.JobId), awaitOrdinal)
+		// Validate that the existing child job belongs to the same tenant
+		var existingPayload jobPayload
+		if err := json.Unmarshal(existing.Payload, &existingPayload); err == nil {
+			if existingPayload.TenantId != parentJobKey.TenantId {
+				return fmt.Errorf("child job %s belongs to tenant %s, cannot be awaited by job from tenant %s", childJobID, existingPayload.TenantId, parentJobKey.TenantId)
+			}
+		}
+		return s.ensureNotificationJob(ctx, notificationJobID, childJobID, parentJobKey, awaitOrdinal)
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
@@ -1057,12 +1065,19 @@ type taskWait struct {
 	Next       string `json:"next"`
 }
 
-func (s *swfEngineImpl) FindTasksWaitingForCapability(ctx context.Context, jobType string, taskType string) ([]swf.TaskHandle, error) {
+func (s *swfEngineImpl) FindTasksWaitingForCapability(ctx context.Context, jobType string, taskType string, tenantIds []string) ([]swf.TaskHandle, error) {
 	db := s.dbFromCtx(ctx)
 	var jobs []Job
 	err := db.Where(&Job{NextNeed: jobType + ":" + taskType, Status: "READY"}).Find(&jobs).Error
 	if err != nil {
 		return nil, err
+	}
+
+	// Build a map for efficient tenant lookup if filtering is requested
+	filterByTenant := len(tenantIds) > 0
+	tenantMap := make(map[string]bool, len(tenantIds))
+	for _, tid := range tenantIds {
+		tenantMap[tid] = true
 	}
 
 	handles := make([]swf.TaskHandle, 0, len(jobs))
@@ -1071,6 +1086,14 @@ func (s *swfEngineImpl) FindTasksWaitingForCapability(ctx context.Context, jobTy
 		if err != nil {
 			return nil, err
 		}
+		var payload jobPayload
+		_ = json.Unmarshal(j.Payload, &payload)
+
+		// Filter by tenant if specified
+		if filterByTenant && !tenantMap[payload.TenantId] {
+			continue
+		}
+
 		th := taskHandleImpl{
 			job:           j,
 			inputOrdinal:  tw.InputStep,
@@ -1078,6 +1101,7 @@ func (s *swfEngineImpl) FindTasksWaitingForCapability(ctx context.Context, jobTy
 			engine:        s,
 			nextNeed:      pgwf.Capability(tw.Next),
 			taskType:      taskType,
+			tenantId:      payload.TenantId,
 		}
 		handles = append(handles, &th)
 	}

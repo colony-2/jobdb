@@ -222,13 +222,27 @@ func (e *ToyEngine) GetJobResult(ctx context.Context, jobKey swf.JobKey) (swf.Ta
 }
 
 // FindTasksWaitingForCapability returns pending task handles for a capability.
-func (e *ToyEngine) FindTasksWaitingForCapability(ctx context.Context, jobType string, taskType string) ([]swf.TaskHandle, error) {
+// If tenantIds is non-empty, only tasks from those tenants are returned.
+// If tenantIds is empty, all tasks are returned.
+func (e *ToyEngine) FindTasksWaitingForCapability(ctx context.Context, jobType string, taskType string, tenantIds []string) ([]swf.TaskHandle, error) {
 	capability := jobType + ":" + taskType
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	pending := e.pending[capability]
+
+	// Build a map for efficient tenant lookup if filtering is requested
+	filterByTenant := len(tenantIds) > 0
+	tenantMap := make(map[string]bool, len(tenantIds))
+	for _, tid := range tenantIds {
+		tenantMap[tid] = true
+	}
+
 	handles := make([]swf.TaskHandle, 0, len(pending))
 	for _, p := range pending {
+		// Filter by tenant if specified
+		if filterByTenant && !tenantMap[p.jobKey.TenantId] {
+			continue
+		}
 		handles = append(handles, &pendingHandle{engine: e, task: p})
 	}
 	return handles, nil

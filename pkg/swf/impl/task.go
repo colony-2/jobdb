@@ -83,7 +83,7 @@ func (h *taskHandleImpl) Finish(ctx context.Context, taskData swf.TaskData) erro
 		h.engine.pgwfDB(ctx),
 		pgwf.JobID(h.job.JobID),
 		pgwf.WorkerID(h.engine.workerId), pgwf.JobDependencies{NextNeed: h.nextNeed},
-		jobPayload{RunPolicy: payload.RunPolicy})
+		jobPayload{TenantId: payload.TenantId, RunPolicy: payload.RunPolicy})
 }
 
 var _ swf.TaskHandle = &taskHandleImpl{}

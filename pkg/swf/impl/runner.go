@@ -151,7 +151,7 @@ func (r *runner) awaitChild(ctx context.Context, childJobKey swf.JobKey, ordinal
 			return td, nil
 		}
 
-		if err := r.engine.ensureNotificationJob(ctx, notificationJobID, pgwf.JobID(childJobKey.JobId), r.jobId, ordinal); err != nil {
+		if err := r.engine.ensureNotificationJob(ctx, notificationJobID, pgwf.JobID(childJobKey.JobId), r.GetJobKey(), ordinal); err != nil {
 			return nil, err
 		}
 
@@ -272,6 +272,7 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 			NextNeed: pgwf.Capability(r.worker.JobWorker.Name() + ":" + taskType),
 			WaitFor:  nil,
 		}, jobPayload{
+			TenantId:  r.tenantId,
 			RunPolicy: r.jobPolicy,
 			TaskWait: &taskWait{
 				InputStep:  inputOrdinal,

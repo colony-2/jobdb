@@ -104,7 +104,7 @@ func TestToyEnginePendingOnMissingTaskWorker(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		var err error
-		handles, err = engine.FindTasksWaitingForCapability(context.Background(), ws.JobWorker.Name(), "missing")
+		handles, err = engine.FindTasksWaitingForCapability(context.Background(), ws.JobWorker.Name(), "missing", nil)
 		if err != nil {
 			t.Fatalf("FindTasksWaitingForCapability: %v", err)
 		}
@@ -184,7 +184,7 @@ func TestToyEngineCancelJob(t *testing.T) {
 
 func TestFindTasksWaitingForCapabilityEmpty(t *testing.T) {
 	engine := NewToyEngine(nil)
-	handles, err := engine.FindTasksWaitingForCapability(context.Background(), "job", "task")
+	handles, err := engine.FindTasksWaitingForCapability(context.Background(), "job", "task", nil)
 	if err != nil {
 		t.Fatalf("FindTasksWaitingForCapability returned error: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestPendingTaskCompletion(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		var err error
-		handles, err = engine.FindTasksWaitingForCapability(context.Background(), jobWorker.name, jobWorker.task)
+		handles, err = engine.FindTasksWaitingForCapability(context.Background(), jobWorker.name, jobWorker.task, nil)
 		if err != nil {
 			t.Fatalf("FindTasksWaitingForCapability: %v", err)
 		}
@@ -376,7 +376,7 @@ func TestJobSummaryPendingStepMatchesHandle(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		var err error
-		handles, err = engine.FindTasksWaitingForCapability(context.Background(), ws.JobWorker.Name(), "missing")
+		handles, err = engine.FindTasksWaitingForCapability(context.Background(), ws.JobWorker.Name(), "missing", nil)
 		if err != nil {
 			t.Fatalf("FindTasksWaitingForCapability: %v", err)
 		}
