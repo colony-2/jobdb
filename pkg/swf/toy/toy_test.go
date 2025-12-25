@@ -419,6 +419,137 @@ func TestJobSummaryPendingStepMatchesHandle(t *testing.T) {
 	<-done
 }
 
+func TestChapterConstraintEnforcement(t *testing.T) {
+	// Test that ToyEngine enforces chapter constraints similar to Strata:
+	// - Chapters must be written once
+	// - Chapters must be written in monotonic order starting at 0
+
+	t.Run("chapters are tracked in order", func(t *testing.T) {
+		ws := mustWorkSet(sequenceJob{steps: []string{"add", "double", "add"}}, addOneTask{}, doubleTask{})
+		engine := NewToyEngine([]swf.WorkSet{ws})
+
+		input := swf.NewTaskDataOrPanic(map[string]int{"n": 1})
+		jobKey, err := engine.StartJob(context.Background(), swf.StartJob{
+			TenantId: "test-tenant",
+			JobType:  ws.JobWorker.Name(),
+			Data:     input,
+		})
+		if err != nil {
+			t.Fatalf("StartJob failed: %v", err)
+		}
+
+		// Verify the job completed successfully
+		status, err := engine.CheckJobStatus(context.Background(), jobKey)
+		if err != nil {
+			t.Fatalf("CheckJobStatus failed: %v", err)
+		}
+		if status != swf.JobStatusCompleted {
+			t.Fatalf("expected status %s, got %s", swf.JobStatusCompleted, status)
+		}
+
+		// Verify chapters were written in order: 0 (job input), 1 (add), 2 (double), 3 (add)
+		engine.mu.Lock()
+		record := engine.jobRecords[jobKey]
+		engine.mu.Unlock()
+
+		if record == nil {
+			t.Fatalf("job record not found")
+		}
+
+		record.mu.Lock()
+		defer record.mu.Unlock()
+
+		expectedChapters := []int64{0, 1, 2, 3}
+		for _, ordinal := range expectedChapters {
+			if !record.chapters[ordinal] {
+				t.Errorf("expected chapter %d to be marked as written", ordinal)
+			}
+		}
+
+		// Verify no unexpected chapters were written
+		if len(record.chapters) != len(expectedChapters) {
+			t.Errorf("expected %d chapters, got %d: %v", len(expectedChapters), len(record.chapters), record.chapters)
+		}
+	})
+
+	t.Run("duplicate chapter error with non-deterministic job", func(t *testing.T) {
+		// This job worker will try to execute the same task with the same ordinal twice
+		// by manually manipulating the step counter
+		nonDeterministicJob := &nonDeterministicJobWorker{}
+		ws := mustWorkSet(nonDeterministicJob, addOneTask{})
+		engine := NewToyEngine([]swf.WorkSet{ws})
+
+		input := swf.NewTaskDataOrPanic(map[string]int{"n": 1})
+		jobKey, err := engine.StartJob(context.Background(), swf.StartJob{
+			TenantId: "test-tenant",
+			JobType:  ws.JobWorker.Name(),
+			Data:     input,
+		})
+		if err != nil {
+			t.Fatalf("StartJob failed: %v", err)
+		}
+
+		// The job should have completed with an error
+		status, err := engine.CheckJobStatus(context.Background(), jobKey)
+		if err != nil {
+			t.Fatalf("CheckJobStatus failed: %v", err)
+		}
+		if status != swf.JobStatusCompleted {
+			t.Fatalf("expected status %s, got %s", swf.JobStatusCompleted, status)
+		}
+
+		// Verify the result contains the duplicate chapter error
+		_, err = engine.GetJobResult(context.Background(), jobKey)
+		if err == nil {
+			t.Fatal("expected error from GetJobResult, got nil")
+		}
+		errMsg := err.Error()
+		if !containsSubstring(errMsg, "chapter already created") {
+			t.Fatalf("expected 'chapter already created' error, got: %v", err)
+		}
+	})
+}
+
+// nonDeterministicJobWorker simulates a job that tries to write the same chapter twice
+type nonDeterministicJobWorker struct{}
+
+func (nonDeterministicJobWorker) Name() string { return "non-deterministic" }
+
+func (j nonDeterministicJobWorker) Run(ctx swf.JobContext, data swf.JobData) (swf.JobData, error) {
+	// Execute first task normally
+	result, err := ctx.DoTask(swf.RunPolicy{}, "add", data)
+	if err != nil {
+		return nil, err
+	}
+
+	// Try to manipulate internal state to execute the same ordinal again
+	// This simulates what happens when a workflow is non-deterministic
+	if jc, ok := ctx.(*toyJobContext); ok {
+		// Save current step
+		savedStep := jc.step
+		// Reset step to previous value to try to write same chapter again
+		jc.step = savedStep - 1
+		// This should fail with "chapter already created" error
+		_, err := ctx.DoTask(swf.RunPolicy{}, "add", data)
+		if err != nil {
+			// Expected error - return it so the job completes with error
+			return nil, err
+		}
+		return nil, errors.New("expected chapter already created error but got none")
+	}
+
+	return result, nil
+}
+
+func containsSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
 // --- Helpers and stub workers ---
 
 type sequenceJob struct {

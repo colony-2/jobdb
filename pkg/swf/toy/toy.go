@@ -64,6 +64,7 @@ type jobRecord struct {
 	payload    []byte
 	capability string
 	step       int64
+	chapters   map[int64]bool // tracks which ordinals have been written
 }
 
 type pendingTask struct {
@@ -152,6 +153,7 @@ func (e *ToyEngine) StartJob(ctx context.Context, start swf.StartJob) (swf.JobKe
 		singleton: singletonPtr,
 		createdAt: time.Now(),
 		payload:   payloadBytes,
+		chapters:  make(map[int64]bool),
 	}
 	e.setJobRecord(jobKey, record)
 	e.runJob(runCtx, jobKey, ws, swf.JobData(start.Data))
@@ -608,6 +610,8 @@ func (e *ToyEngine) runJob(ctx context.Context, jobKey swf.JobKey, ws swf.WorkSe
 	record.mu.Lock()
 	record.started = time.Now()
 	record.status = swf.JobStatusActive
+	// Mark ordinal 0 (job input) as written
+	record.chapters[0] = true
 	record.mu.Unlock()
 
 	var (
@@ -686,6 +690,14 @@ func (c *toyJobContext) DoTask(_ swf.RunPolicy, taskType string, data swf.TaskDa
 	default:
 	}
 
+	// Check if this chapter (ordinal) has already been written
+	c.record.mu.Lock()
+	if c.record.chapters[c.step] {
+		c.record.mu.Unlock()
+		return nil, fmt.Errorf("chapter already created: ordinal %d", c.step)
+	}
+	c.record.mu.Unlock()
+
 	taskWorker, ok := c.workSet.TaskWorkers[taskType]
 	if !ok {
 		return c.awaitExternalCompletion(taskType, data)
@@ -712,11 +724,25 @@ func (c *toyJobContext) DoTask(_ swf.RunPolicy, taskType string, data swf.TaskDa
 	if err != nil {
 		return nil, err
 	}
+
+	// Mark this chapter as written
+	c.record.mu.Lock()
+	c.record.chapters[c.step] = true
+	c.record.mu.Unlock()
+
 	c.step++
 	return output, nil
 }
 
 func (c *toyJobContext) awaitExternalCompletion(taskType string, data swf.TaskData) (swf.TaskData, error) {
+	// Check if this chapter (ordinal) has already been written
+	c.record.mu.Lock()
+	if c.record.chapters[c.step] {
+		c.record.mu.Unlock()
+		return nil, fmt.Errorf("chapter already created: ordinal %d", c.step)
+	}
+	c.record.mu.Unlock()
+
 	capability := c.workSet.JobWorker.Name() + ":" + taskType
 	pending := &pendingTask{
 		jobKey:     c.jobKey,
@@ -747,6 +773,12 @@ func (c *toyJobContext) awaitExternalCompletion(taskType string, data swf.TaskDa
 		if res.err != nil {
 			return nil, res.err
 		}
+
+		// Mark this chapter as written
+		c.record.mu.Lock()
+		c.record.chapters[c.step] = true
+		c.record.mu.Unlock()
+
 		c.step++
 		return res.data, nil
 	case <-c.cancelCh:
@@ -774,6 +806,12 @@ func (c *toyJobContext) AwaitDuration(waitFor swf.Duration) error {
 
 func (c *toyJobContext) SpawnAsync(jobType string, data swf.TaskData) (*swf.Future, error) {
 	return nil, fmt.Errorf("SpawnAsync not supported in ToyEngine")
+}
+
+// ManipulateStepForTest is a test-only helper to manipulate the step counter
+// This allows tests to simulate non-deterministic workflows
+func (c *toyJobContext) ManipulateStepForTest(newStep int64) {
+	c.step = newStep
 }
 
 func (c *toyJobContext) markCancelled() {
