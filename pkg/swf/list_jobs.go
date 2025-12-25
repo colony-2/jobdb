@@ -15,7 +15,7 @@ type JobSummary struct {
 	Status          JobStatus
 	JobType         string
 	SingletonKey    *string
-	WaitFor         []JobKey
+	WaitFor         []string // JobIds only - all WaitFor jobs must be in same tenant
 	AvailableAt     time.Time
 	ExpiresAt       *time.Time
 	LeaseExpiresAt  *time.Time

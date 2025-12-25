@@ -708,7 +708,7 @@ type jobListRow struct {
 	Status          string         `gorm:"column:status"`
 	NextNeed        string         `gorm:"column:next_need"`
 	SingletonKey    *string        `gorm:"column:singleton_key"`
-	WaitFor         pq.StringArray `gorm:"column:wait_for"`
+	WaitFor         pq.StringArray `gorm:"column:wait_for;type:text[]"`
 	AvailableAt     time.Time      `gorm:"column:available_at"`
 	ExpiresAt       pq.NullTime    `gorm:"column:expires_at"`
 	LeaseExpiresAt  pq.NullTime    `gorm:"column:lease_expires_at"`
@@ -935,13 +935,8 @@ func (s *swfEngineImpl) ListJobs(ctx context.Context, req swf.ListJobsRequest) (
 			}
 		}
 
-		waitFor := make([]swf.JobKey, 0)
-		if len(r.WaitFor) > 0 {
-			for _, wf := range r.WaitFor {
-				waitFor = append(waitFor, swf.JobKey{TenantId: tenantId, JobId: wf})
-			}
-
-		}
+		// WaitFor jobs are always in the same tenant, so we only store JobIds
+		waitFor := []string(r.WaitFor)
 		var (
 			taskWaitInput  *int64
 			taskWaitOutput *int64

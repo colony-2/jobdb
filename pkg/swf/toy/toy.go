@@ -529,7 +529,7 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.
 			Status:          status,
 			JobType:         rec.jobType,
 			SingletonKey:    rec.singleton,
-			WaitFor:         []swf.JobKey{},
+			WaitFor:         []string{},
 			AvailableAt:     rec.createdAt,
 			ExpiresAt:       nil,
 			LeaseExpiresAt:  nil,
