@@ -880,36 +880,6 @@ func (r *runner) DoJob(ctx context.Context, lease *pgwf.Lease) {
 
 	// Main retry loop - each attempt gets a new ordinal (chapters are write-once)
 	for {
-		// CACHE-FIRST: Check if we already have a cached job result
-		// Job results are saved AFTER task execution, so we need to scan for them
-		cachedJobOrdinal := r.storyCounter
-		cachedOutput, nextAttempt, cached, terminal, err := r.checkCachedJobResult(ctx, key, cachedJobOrdinal, config.inputRef.Hash, config.retryCfg, config.totalDeadline, config.totalTimeout, config.inputRef)
-		if err != nil {
-			r.logger.Error("check cached job result failed", "error", err)
-			_ = lease.Complete(ctx, r.engine.udb)
-			return
-		}
-
-		if cached {
-			// Increment storyCounter past the cached result
-			r.storyCounter++
-			if terminal {
-				// Found terminal cached result (success or non-retryable error)
-				// No execution needed, just complete lease and return
-				_ = lease.Complete(ctx, r.engine.udb)
-				if cachedOutput == nil && err == nil {
-					r.logger.Info("job completed with cached non-retryable error")
-				}
-				return
-			}
-			// Cached retryable error - update attempt number and retry
-			attempt = nextAttempt
-			// Continue to next iteration which will check for next cached job result
-			continue
-		}
-
-		// No cached result - need to execute job worker
-
 		// Check if total timeout has been exceeded
 		if err := r.checkTotalTimeoutExceeded(config.totalDeadline, config.totalTimeout, config.inputRef); err != nil {
 			r.logger.Error("job total timeout", "error", err)
@@ -926,6 +896,14 @@ func (r *runner) DoJob(ctx context.Context, lease *pgwf.Lease) {
 		// Wait for result with deadline enforcement
 		output, jobErr := r.waitForJobResultWithDeadline(resultCh, attemptInvocationDeadline, config.totalDeadline, config.invocationTimeout, config.totalTimeout, config.inputRef)
 
+		// Check if the job was rescheduled (e.g., task needs to run on different engine)
+		// In this case, output=nil and jobErr=nil, and the job should exit without saving
+		if output == nil && jobErr == nil {
+			// Job was rescheduled - lease was already updated by DoTask
+			// Exit without saving job result
+			return
+		}
+
 		// Validate timeouts after execution
 		jobErr = r.validatePostExecutionTimeouts(jobErr, attemptInvocationDeadline, config.totalDeadline, config.invocationTimeout, config.totalTimeout, config.inputRef)
 
@@ -933,17 +911,39 @@ func (r *runner) DoJob(ctx context.Context, lease *pgwf.Lease) {
 			r.logger.Error("job worker run failed", "error", jobErr, "attempt", attempt)
 		}
 
-		// Prepare result payload from execution
+		// NOW get the ordinal for the job result (after tasks have executed)
+		jobResultOrdinal := r.storyCounter
+		r.storyCounter++
+
+		// Check if we already have a cached job result at this ordinal
+		// (e.g., if we crashed after saving the result but before completing the lease)
+		_, nextAttempt, cached, terminal, err := r.checkCachedJobResult(ctx, key, jobResultOrdinal, config.inputRef.Hash, config.retryCfg, config.totalDeadline, config.totalTimeout, config.inputRef)
+		if err != nil {
+			r.logger.Error("check cached job result failed", "error", err)
+			_ = lease.Complete(ctx, r.engine.udb)
+			return
+		}
+
+		if cached {
+			// Found cached job result - use it instead of fresh execution result
+			if terminal {
+				// Terminal result (success or non-retryable error) - complete and return
+				_ = lease.Complete(ctx, r.engine.udb)
+				return
+			}
+			// Retryable error - update attempt number and retry
+			attempt = nextAttempt
+			// Continue to next iteration for retry
+			continue
+		}
+
+		// No cached result - prepare and save the fresh execution result
 		payload, artifacts, payloadKind, err := r.prepareJobResultPayload(output, jobErr, config.inputRef)
 		if err != nil {
 			r.logger.Error(err.Error())
 			_ = lease.Complete(ctx, r.engine.udb)
 			return
 		}
-
-		// NOW get the ordinal for saving the job result (after tasks have executed)
-		jobResultOrdinal := r.storyCounter
-		r.storyCounter++
 
 		// Save the execution result at this ordinal (write-once)
 		if err := r.saveJobChapter(key, payload, artifacts, jobResultOrdinal, r.worker.JobWorker.Name(), config.inputRef.Hash, payloadKind, attempt, config.inputRef); err != nil {
