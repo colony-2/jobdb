@@ -495,7 +495,7 @@ func getLeaseForJob(t *testing.T, ctx context.Context, engine *swfEngineImpl, jo
 		return nil
 	}
 
-	lease, err := pgwf.GetWork(ctx, engine.udb, pgwf.WorkerID(engine.workerId), []pgwf.Capability{pgwf.Capability(capability)})
+	lease, err := pgwf.GetWork(ctx, engine.udb, pgwf.WorkerID(engine.workerId), []pgwf.Capability{pgwf.Capability(capability)}, nil)
 	if err != nil {
 		t.Fatalf("get work: %v", err)
 	}

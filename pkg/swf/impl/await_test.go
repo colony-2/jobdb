@@ -36,15 +36,16 @@ func TestAwaitUntilRecycle(t *testing.T) {
 		awaitThreshold: 50 * time.Millisecond,
 	}
 
+	testTenantID := pgwf.TenantID("test-tenant")
 	jobID := pgwf.JobID("job-" + ksuid.New().String())
 	workerID := pgwf.WorkerID("worker-" + ksuid.New().String())
 	nextNeed := pgwf.Capability("await:test")
 
-	if err := pgwf.SubmitJob(ctx, db, jobID, pgwf.JobDependencies{NextNeed: nextNeed}, nil, workerID, "", time.Time{}); err != nil {
+	if err := pgwf.SubmitJob(ctx, db, testTenantID, jobID, pgwf.JobDependencies{NextNeed: nextNeed}, nil, workerID, "", time.Time{}); err != nil {
 		t.Fatalf("submit job: %v", err)
 	}
 
-	lease, err := pgwf.GetWork(ctx, db, workerID, []pgwf.Capability{nextNeed})
+	lease, err := pgwf.GetWork(ctx, db, workerID, []pgwf.Capability{nextNeed}, nil)
 	if err != nil {
 		t.Fatalf("get work: %v", err)
 	}

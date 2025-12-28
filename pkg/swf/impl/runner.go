@@ -290,7 +290,6 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 				NextNeed: pgwf.Capability(r.worker.JobWorker.Name() + ":" + taskType),
 				WaitFor:  nil,
 			}, jobPayload{
-				TenantId:  r.tenantId,
 				RunPolicy: r.jobPolicy,
 				TaskWait: &taskWait{
 					InputStep:  inputOrdinal,

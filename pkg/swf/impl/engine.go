@@ -57,7 +57,6 @@ type awaitState struct {
 }
 
 type jobPayload struct {
-	TenantId    string                    `json:"tenant_id,omitempty"`
 	RunPolicy   swf.RunPolicy             `json:"run_policy,omitempty"`
 	TaskWait    *taskWait                 `json:"task_wait,omitempty"`
 	AsyncNotify *asyncNotificationPayload `json:"async_notify,omitempty"`
@@ -279,7 +278,7 @@ func (s *swfEngineImpl) StartJob(ctx context.Context, job swf.StartJob) (swf.Job
 		return swf.JobKey{}, err
 	}
 
-	return jobKey, s.startJob(ctx, jobKey, job.JobType, job.SingletonKey, jobPayload{TenantId: jobKey.TenantId, RunPolicy: jobPolicy})
+	return jobKey, s.startJob(ctx, jobKey, job.JobType, job.SingletonKey, jobPayload{RunPolicy: jobPolicy})
 }
 
 func (s *swfEngineImpl) startJob(ctx context.Context, jobKey swf.JobKey, jobType string, singletonKey string, payload jobPayload) error {
@@ -289,7 +288,8 @@ func (s *swfEngineImpl) startJob(ctx context.Context, jobKey swf.JobKey, jobType
 	dep := pgwf.JobDependencies{
 		NextNeed: pgwf.Capability(jobType),
 	}
-	return pgwf.SubmitJob(ctx, s.pgwfDB(ctx), pgwf.JobID(jobKey.JobId), dep, payload, pgwf.WorkerID(s.workerId), singletonKey, time.Time{})
+	tenantID := pgwf.TenantID(jobKey.TenantId)
+	return pgwf.SubmitJob(ctx, s.pgwfDB(ctx), tenantID, pgwf.JobID(jobKey.JobId), dep, payload, pgwf.WorkerID(s.workerId), singletonKey, time.Time{})
 }
 
 func (s *swfEngineImpl) RestartJob(ctx context.Context, job swf.RestartJob) (swf.JobKey, error) {
@@ -327,14 +327,15 @@ func (s *swfEngineImpl) RestartJob(ctx context.Context, job swf.RestartJob) (swf
 	if err != nil {
 		return swf.JobKey{}, err
 	}
-	return jobKey, s.startJob(ctx, jobKey, job.JobType, job.SingletonKey, jobPayload{TenantId: jobKey.TenantId, RunPolicy: jobPolicy})
+	return jobKey, s.startJob(ctx, jobKey, job.JobType, job.SingletonKey, jobPayload{RunPolicy: jobPolicy})
 }
 
 func (s *swfEngineImpl) CancelJob(ctx context.Context, job swf.CancelJob) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return pgwf.CancelJob(ctx, s.pgwfDB(ctx), pgwf.JobID(job.JobKey.JobId), pgwf.WorkerID(s.workerId), job.Reason)
+	tenantID := pgwf.TenantID(job.JobKey.TenantId)
+	return pgwf.CancelJob(ctx, s.pgwfDB(ctx), tenantID, pgwf.JobID(job.JobKey.JobId), pgwf.WorkerID(s.workerId), job.Reason)
 }
 
 func (s *swfEngineImpl) SetAwaitThreshold(d time.Duration) {
@@ -680,22 +681,22 @@ func (s *swfEngineImpl) jobResultIfComplete(ctx context.Context, jobKey swf.JobK
 
 func (s *swfEngineImpl) ensureNotificationJob(ctx context.Context, notificationJobID pgwf.JobID, childJobID pgwf.JobID, parentJobKey swf.JobKey, awaitOrdinal int64) error {
 	pgdb := s.pgwfDB(ctx)
+	tenantID := pgwf.TenantID(parentJobKey.TenantId)
 	deps := pgwf.JobDependencies{
 		NextNeed: notificationCapability(s.workerId),
 		WaitFor:  []pgwf.JobID{childJobID},
 	}
 	payload := jobPayload{
-		TenantId: parentJobKey.TenantId,
 		AsyncNotify: &asyncNotificationPayload{
 			ParentJobID:  pgwf.JobID(parentJobKey.JobId),
 			AwaitOrdinal: awaitOrdinal,
 			ChildJobID:   childJobID,
 		},
 	}
-	if err := pgwf.RescheduleUnheldJob(ctx, pgdb, notificationJobID, pgwf.WorkerID(s.workerId), deps, payload); err == nil {
+	if err := pgwf.RescheduleUnheldJob(ctx, pgdb, tenantID, notificationJobID, pgwf.WorkerID(s.workerId), deps, payload); err == nil {
 		return nil
 	} else if errors.Is(err, pgwf.ErrJobNotFound) {
-		if err := pgwf.SubmitJob(ctx, pgdb, notificationJobID, deps, payload, pgwf.WorkerID(s.workerId), "", time.Time{}); err == nil || errors.Is(err, pgwf.ErrDependencyViolation) {
+		if err := pgwf.SubmitJob(ctx, pgdb, tenantID, notificationJobID, deps, payload, pgwf.WorkerID(s.workerId), "", time.Time{}); err == nil || errors.Is(err, pgwf.ErrDependencyViolation) {
 			return nil
 		}
 	}
@@ -704,6 +705,7 @@ func (s *swfEngineImpl) ensureNotificationJob(ctx context.Context, notificationJ
 }
 
 type jobListRow struct {
+	TenantID        string         `gorm:"column:tenant_id"`
 	JobID           string         `gorm:"column:job_id"`
 	Status          string         `gorm:"column:status"`
 	NextNeed        string         `gorm:"column:next_need"`
@@ -820,6 +822,12 @@ func (s *swfEngineImpl) ListJobs(ctx context.Context, req swf.ListJobsRequest) (
 	if includeActive {
 		activeConds := make([]string, 0)
 		activeArgs := make([]any, 0)
+		if len(req.TenantIds) > 0 {
+			activeConds = append(activeConds, fmt.Sprintf("tenant_id IN (%s)", strings.Join(makePlaceholders(len(req.TenantIds)), ",")))
+			for _, tid := range req.TenantIds {
+				activeArgs = append(activeArgs, tid)
+			}
+		}
 		if len(req.JobKeys) > 0 {
 			activeConds = append(activeConds, fmt.Sprintf("job_id IN (%s)", strings.Join(makePlaceholders(len(req.JobKeys)), ",")))
 			for _, key := range req.JobKeys {
@@ -850,7 +858,7 @@ func (s *swfEngineImpl) ListJobs(ctx context.Context, req swf.ListJobsRequest) (
 			activeArgs = append(activeArgs, *req.CreatedBefore)
 		}
 
-		activeSQL := "SELECT job_id, status, next_need, singleton_key, wait_for, available_at, expires_at, lease_expires_at, cancel_requested, created_at, NULL::timestamptz AS archived_at, payload FROM pgwf.jobs_with_status"
+		activeSQL := "SELECT tenant_id, job_id, status, next_need, singleton_key, wait_for, available_at, expires_at, lease_expires_at, cancel_requested, created_at, NULL::timestamptz AS archived_at, payload FROM pgwf.jobs_with_status"
 		if len(activeConds) > 0 {
 			activeSQL += " WHERE " + strings.Join(activeConds, " AND ")
 		}
@@ -862,6 +870,12 @@ func (s *swfEngineImpl) ListJobs(ctx context.Context, req swf.ListJobsRequest) (
 	if includeArchive {
 		archiveConds := make([]string, 0)
 		archiveArgs := make([]any, 0)
+		if len(req.TenantIds) > 0 {
+			archiveConds = append(archiveConds, fmt.Sprintf("tenant_id IN (%s)", strings.Join(makePlaceholders(len(req.TenantIds)), ",")))
+			for _, tid := range req.TenantIds {
+				archiveArgs = append(archiveArgs, tid)
+			}
+		}
 		if len(req.JobKeys) > 0 {
 			archiveConds = append(archiveConds, fmt.Sprintf("job_id IN (%s)", strings.Join(makePlaceholders(len(req.JobKeys)), ",")))
 			for _, key := range req.JobKeys {
@@ -885,7 +899,7 @@ func (s *swfEngineImpl) ListJobs(ctx context.Context, req swf.ListJobsRequest) (
 			archiveConds = append(archiveConds, "created_at <= ?")
 			archiveArgs = append(archiveArgs, *req.CreatedBefore)
 		}
-		archiveSQL := "SELECT job_id, 'COMPLETED' AS status, next_need, singleton_key, wait_for, created_at AS available_at, expires_at, NULL::timestamptz AS lease_expires_at, cancel_requested, created_at, archived_at, NULL::jsonb AS payload FROM pgwf.jobs_archive"
+		archiveSQL := "SELECT tenant_id, job_id, 'COMPLETED' AS status, next_need, singleton_key, wait_for, created_at AS available_at, expires_at, NULL::timestamptz AS lease_expires_at, cancel_requested, created_at, archived_at, NULL::jsonb AS payload FROM pgwf.jobs_archive"
 		if len(archiveConds) > 0 {
 			archiveSQL += " WHERE " + strings.Join(archiveConds, " AND ")
 		}
@@ -913,12 +927,7 @@ func (s *swfEngineImpl) ListJobs(ctx context.Context, req swf.ListJobsRequest) (
 	if len(rows) > pageSize {
 		last := rows[pageSize-1]
 		rows = rows[:pageSize]
-		// Extract tenantId from last row's payload
-		var lastPayload jobPayload
-		if len(last.Payload) > 0 {
-			json.Unmarshal(last.Payload, &lastPayload)
-		}
-		lastJobKey := swf.JobKey{TenantId: lastPayload.TenantId, JobId: last.JobID}
+		lastJobKey := swf.JobKey{TenantId: last.TenantID, JobId: last.JobID}
 		if tok, err := swf.EncodeListJobsPageToken(last.CreatedAt, lastJobKey); err == nil {
 			nextToken = tok
 		}
@@ -926,14 +935,7 @@ func (s *swfEngineImpl) ListJobs(ctx context.Context, req swf.ListJobsRequest) (
 
 	result := make([]swf.JobSummary, 0, len(rows))
 	for _, r := range rows {
-		// Extract tenantId from payload
-		var payload jobPayload
-		tenantId := ""
-		if len(r.Payload) > 0 {
-			if err := json.Unmarshal(r.Payload, &payload); err == nil {
-				tenantId = payload.TenantId
-			}
-		}
+		tenantId := r.TenantID
 
 		// WaitFor jobs are always in the same tenant, so we only store JobIds
 		waitFor := []string(r.WaitFor)
@@ -994,11 +996,8 @@ func (s *swfEngineImpl) ensureChildAndNotificationJobs(ctx context.Context, chil
 	var existing Job
 	if err := db.Where("job_id = ?", string(childJobID)).First(&existing).Error; err == nil {
 		// Validate that the existing child job belongs to the same tenant
-		var existingPayload jobPayload
-		if err := json.Unmarshal(existing.Payload, &existingPayload); err == nil {
-			if existingPayload.TenantId != parentJobKey.TenantId {
-				return fmt.Errorf("child job %s belongs to tenant %s, cannot be awaited by job from tenant %s", childJobID, existingPayload.TenantId, parentJobKey.TenantId)
-			}
+		if existing.TenantID != parentJobKey.TenantId {
+			return fmt.Errorf("child job %s belongs to tenant %s, cannot be awaited by job from tenant %s", childJobID, existing.TenantID, parentJobKey.TenantId)
 		}
 		return s.ensureNotificationJob(ctx, notificationJobID, childJobID, parentJobKey, awaitOrdinal)
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -1034,8 +1033,9 @@ func (s *swfEngineImpl) ensureChildAndNotificationJobs(ctx context.Context, chil
 }
 
 func (s *swfEngineImpl) submitChildAndNotify(ctx context.Context, tx *sql.Tx, childJobID pgwf.JobID, notificationJobID pgwf.JobID, jobType string, runPolicy swf.RunPolicy, parentJobKey swf.JobKey, awaitOrdinal int64) error {
+	tenantID := pgwf.TenantID(parentJobKey.TenantId)
 	childDeps := pgwf.JobDependencies{NextNeed: pgwf.Capability(jobType)}
-	if err := pgwf.SubmitJob(ctx, tx, childJobID, childDeps, jobPayload{TenantId: parentJobKey.TenantId, RunPolicy: runPolicy}, pgwf.WorkerID(s.workerId), "", time.Time{}); err != nil {
+	if err := pgwf.SubmitJob(ctx, tx, tenantID, childJobID, childDeps, jobPayload{RunPolicy: runPolicy}, pgwf.WorkerID(s.workerId), "", time.Time{}); err != nil {
 		return err
 	}
 
@@ -1044,14 +1044,13 @@ func (s *swfEngineImpl) submitChildAndNotify(ctx context.Context, tx *sql.Tx, ch
 		WaitFor:  []pgwf.JobID{childJobID},
 	}
 	notifyPayload := jobPayload{
-		TenantId: parentJobKey.TenantId,
 		AsyncNotify: &asyncNotificationPayload{
 			ParentJobID:  pgwf.JobID(parentJobKey.JobId),
 			AwaitOrdinal: awaitOrdinal,
 			ChildJobID:   childJobID,
 		},
 	}
-	return pgwf.SubmitJob(ctx, tx, notificationJobID, notifyDeps, notifyPayload, pgwf.WorkerID(s.workerId), "", time.Time{})
+	return pgwf.SubmitJob(ctx, tx, tenantID, notificationJobID, notifyDeps, notifyPayload, pgwf.WorkerID(s.workerId), "", time.Time{})
 }
 
 type taskWait struct {
@@ -1063,16 +1062,13 @@ type taskWait struct {
 func (s *swfEngineImpl) FindTasksWaitingForCapability(ctx context.Context, jobType string, taskType string, tenantIds []string) ([]swf.TaskHandle, error) {
 	db := s.dbFromCtx(ctx)
 	var jobs []Job
-	err := db.Where(&Job{NextNeed: jobType + ":" + taskType, Status: "READY"}).Find(&jobs).Error
+	query := db.Where("next_need = ? AND status = ?", jobType+":"+taskType, "READY")
+	if len(tenantIds) > 0 {
+		query = query.Where("tenant_id IN ?", tenantIds)
+	}
+	err := query.Find(&jobs).Error
 	if err != nil {
 		return nil, err
-	}
-
-	// Build a map for efficient tenant lookup if filtering is requested
-	filterByTenant := len(tenantIds) > 0
-	tenantMap := make(map[string]bool, len(tenantIds))
-	for _, tid := range tenantIds {
-		tenantMap[tid] = true
 	}
 
 	handles := make([]swf.TaskHandle, 0, len(jobs))
@@ -1080,13 +1076,6 @@ func (s *swfEngineImpl) FindTasksWaitingForCapability(ctx context.Context, jobTy
 		tw, err := extractTaskWait(j.Payload)
 		if err != nil {
 			return nil, err
-		}
-		var payload jobPayload
-		_ = json.Unmarshal(j.Payload, &payload)
-
-		// Filter by tenant if specified
-		if filterByTenant && !tenantMap[payload.TenantId] {
-			continue
 		}
 
 		th := taskHandleImpl{
@@ -1096,7 +1085,7 @@ func (s *swfEngineImpl) FindTasksWaitingForCapability(ctx context.Context, jobTy
 			engine:        s,
 			nextNeed:      pgwf.Capability(tw.Next),
 			taskType:      taskType,
-			tenantId:      payload.TenantId,
+			tenantId:      j.TenantID,
 		}
 		handles = append(handles, &th)
 	}
@@ -1202,7 +1191,7 @@ func (s *swfEngineImpl) Run(ctx context.Context) {
 		b.MaxInterval = time.Second * 30
 		for {
 			caps := s.capabilitiesSnapshot()
-			lease, err := pgwf.GetWork(ctx, s.udb, pgwf.WorkerID(s.workerId), caps)
+			lease, err := pgwf.GetWork(ctx, s.udb, pgwf.WorkerID(s.workerId), caps, nil)
 			if err == nil {
 				if lease != nil {
 					b.Reset()
@@ -1248,7 +1237,7 @@ func (s *swfEngineImpl) runSomething(ctx context.Context, lease *swf.Lease) {
 	s.resetAwaitState(lease.JobID())
 	runner := runner{
 		jobId:        lease.JobID(),
-		tenantId:     payload.TenantId,
+		tenantId:     string(lease.TenantID()),
 		worker:       workSet,
 		storyCounter: 1,
 		engine:       s,

@@ -43,8 +43,8 @@ func TestListJobsRoutesByStatusAndOrdersWithUnion(t *testing.T) {
 
 	insertJob := func(id, nextNeed string, created time.Time, cancel bool, singleton *string) {
 		_, err := db.ExecContext(ctx, `
-INSERT INTO pgwf.jobs (job_id, next_need, wait_for, payload, singleton_key, available_at, expires_at, lease_expires_at, created_at, cancel_requested)
-VALUES ($1, $2, '{}'::text[], '{}'::jsonb, $3, $4, 'infinity', '-infinity', $4, $5)
+INSERT INTO pgwf.jobs (tenant_id, job_id, next_need, wait_for, payload, singleton_key, available_at, expires_at, lease_expires_at, created_at, cancel_requested)
+VALUES ('test-tenant', $1, $2, '{}'::text[], '{}'::jsonb, $3, $4, 'infinity', '-infinity', $4, $5)
 `, id, nextNeed, singleton, created, cancel)
 		if err != nil {
 			t.Fatalf("insert job %s: %v", id, err)
@@ -52,8 +52,8 @@ VALUES ($1, $2, '{}'::text[], '{}'::jsonb, $3, $4, 'infinity', '-infinity', $4, 
 	}
 	insertArchive := func(id, nextNeed string, created time.Time, singleton *string) {
 		_, err := db.ExecContext(ctx, `
-INSERT INTO pgwf.jobs_archive (job_id, next_need, wait_for, payload, singleton_key, created_at, expires_at, cancel_requested, archived_at)
-VALUES ($1, $2, '{}'::text[], '{}'::jsonb, $3, $4, 'infinity', false, $5)
+INSERT INTO pgwf.jobs_archive (tenant_id, job_id, next_need, wait_for, payload, singleton_key, created_at, expires_at, cancel_requested, archived_at)
+VALUES ('test-tenant', $1, $2, '{}'::text[], '{}'::jsonb, $3, $4, 'infinity', false, $5)
 `, id, nextNeed, singleton, created, created)
 		if err != nil {
 			t.Fatalf("insert archived job %s: %v", id, err)

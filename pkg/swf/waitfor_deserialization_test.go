@@ -46,16 +46,16 @@ func TestWaitForDeserialization(t *testing.T) {
 
 	// Insert child jobs
 	_, err = db.ExecContext(ctx, `
-INSERT INTO pgwf.jobs (job_id, next_need, wait_for, payload, singleton_key, available_at, expires_at, lease_expires_at, created_at, cancel_requested)
-VALUES ($1, $2, '{}'::text[], '{"TenantId":"tenant-1"}'::jsonb, NULL, $3, 'infinity', '-infinity', $3, false)
+INSERT INTO pgwf.jobs (tenant_id, job_id, next_need, wait_for, payload, singleton_key, available_at, expires_at, lease_expires_at, created_at, cancel_requested)
+VALUES ('tenant-1', $1, $2, '{}'::text[], '{}'::jsonb, NULL, $3, 'infinity', '-infinity', $3, false)
 `, childJobID1, "child-task", now.Add(-2*time.Minute))
 	if err != nil {
 		t.Fatalf("insert child job 1: %v", err)
 	}
 
 	_, err = db.ExecContext(ctx, `
-INSERT INTO pgwf.jobs (job_id, next_need, wait_for, payload, singleton_key, available_at, expires_at, lease_expires_at, created_at, cancel_requested)
-VALUES ($1, $2, '{}'::text[], '{"TenantId":"tenant-1"}'::jsonb, NULL, $3, 'infinity', '-infinity', $3, false)
+INSERT INTO pgwf.jobs (tenant_id, job_id, next_need, wait_for, payload, singleton_key, available_at, expires_at, lease_expires_at, created_at, cancel_requested)
+VALUES ('tenant-1', $1, $2, '{}'::text[], '{}'::jsonb, NULL, $3, 'infinity', '-infinity', $3, false)
 `, childJobID2, "child-task", now.Add(-2*time.Minute))
 	if err != nil {
 		t.Fatalf("insert child job 2: %v", err)
@@ -63,8 +63,8 @@ VALUES ($1, $2, '{}'::text[], '{"TenantId":"tenant-1"}'::jsonb, NULL, $3, 'infin
 
 	// Insert parent job waiting for child jobs
 	_, err = db.ExecContext(ctx, `
-INSERT INTO pgwf.jobs (job_id, next_need, wait_for, payload, singleton_key, available_at, expires_at, lease_expires_at, created_at, cancel_requested)
-VALUES ($1, $2, $3, '{"TenantId":"tenant-1"}'::jsonb, NULL, $4, 'infinity', '-infinity', $4, false)
+INSERT INTO pgwf.jobs (tenant_id, job_id, next_need, wait_for, payload, singleton_key, available_at, expires_at, lease_expires_at, created_at, cancel_requested)
+VALUES ('tenant-1', $1, $2, $3, '{}'::jsonb, NULL, $4, 'infinity', '-infinity', $4, false)
 `, parentJobID, "parent-task", pq.Array([]string{childJobID1, childJobID2}), now.Add(-1*time.Minute))
 	if err != nil {
 		t.Fatalf("insert parent job: %v", err)

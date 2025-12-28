@@ -59,7 +59,8 @@ func TestCheckJobStatusUsesContextTransaction(t *testing.T) {
 
 	jobKey := swf.JobKey{TenantId: "tenant-tx", JobId: "job-" + ksuid.New().String()}
 	deps := pgwf.JobDependencies{NextNeed: pgwf.Capability("demo")}
-	if err := pgwf.SubmitJob(ctx, sqlTx, pgwf.JobID(jobKey.JobId), deps, jobPayload{TenantId: jobKey.TenantId}, pgwf.WorkerID(engine.workerId), "", time.Time{}); err != nil {
+	tenantID := pgwf.TenantID(jobKey.TenantId)
+	if err := pgwf.SubmitJob(ctx, sqlTx, tenantID, pgwf.JobID(jobKey.JobId), deps, jobPayload{}, pgwf.WorkerID(engine.workerId), "", time.Time{}); err != nil {
 		t.Fatalf("submit job in tx: %v", err)
 	}
 

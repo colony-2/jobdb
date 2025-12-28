@@ -8,6 +8,7 @@ import (
 )
 
 type Job struct {
+	TenantID               string         `gorm:"column:tenant_id;primaryKey"`
 	JobID                  string         `gorm:"column:job_id;primaryKey"`
 	NextNeed               string         `gorm:"column:next_need;not null"`
 	WaitFor                datatypes.JSON `gorm:"column:wait_for;type:text[];not null;default:'{}'"`
@@ -32,7 +33,8 @@ func (Job) TableName() string {
 }
 
 type archivedJob struct {
-	JobID string `gorm:"column:job_id;primaryKey"`
+	TenantID string `gorm:"column:tenant_id;primaryKey"`
+	JobID    string `gorm:"column:job_id;primaryKey"`
 }
 
 func (archivedJob) TableName() string {

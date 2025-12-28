@@ -78,12 +78,14 @@ func (h *taskHandleImpl) Finish(ctx context.Context, taskData swf.TaskData) erro
 	}
 	var payload jobPayload
 	_ = json.Unmarshal(h.job.Payload, &payload)
+	tenantID := pgwf.TenantID(h.job.TenantID)
 	return pgwf.RescheduleUnheldJob(
 		ctx,
 		h.engine.pgwfDB(ctx),
+		tenantID,
 		pgwf.JobID(h.job.JobID),
 		pgwf.WorkerID(h.engine.workerId), pgwf.JobDependencies{NextNeed: h.nextNeed},
-		jobPayload{TenantId: payload.TenantId, RunPolicy: payload.RunPolicy})
+		jobPayload{RunPolicy: payload.RunPolicy})
 }
 
 var _ swf.TaskHandle = &taskHandleImpl{}
