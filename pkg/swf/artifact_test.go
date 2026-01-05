@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -554,4 +555,114 @@ func TestArtifact_BytesAndOpen(t *testing.T) {
 	data2, err := io.ReadAll(rc)
 	require.NoError(t, err)
 	assert.Equal(t, testData, data2)
+}
+
+func TestArtifact_ContentType(t *testing.T) {
+	art := swf.NewArtifactFromBytes("test.bin", []byte("data"))
+	assert.Equal(t, "application/octet-stream", art.ContentType())
+}
+
+func TestArtifact_WriteTo(t *testing.T) {
+	ctx := context.Background()
+	testData := []byte("write to test data")
+
+	t.Run("bytes artifact", func(t *testing.T) {
+		art := swf.NewArtifactFromBytes("test.txt", testData)
+		var buf bytes.Buffer
+		err := art.WriteTo(ctx, &buf)
+		require.NoError(t, err)
+		assert.Equal(t, testData, buf.Bytes())
+	})
+
+	t.Run("file artifact", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "writeto-test-*.txt")
+		require.NoError(t, err)
+		path := tmpFile.Name()
+		tmpFile.Write(testData)
+		tmpFile.Close()
+		defer os.Remove(path)
+
+		art, err := swf.NewArtifactFromFileNoCleanup("test.txt", path)
+		require.NoError(t, err)
+
+		var buf bytes.Buffer
+		err = art.WriteTo(ctx, &buf)
+		require.NoError(t, err)
+		assert.Equal(t, testData, buf.Bytes())
+	})
+}
+
+func TestArtifact_SaveToFile(t *testing.T) {
+	ctx := context.Background()
+	testData := []byte("save to file test data")
+
+	t.Run("bytes artifact", func(t *testing.T) {
+		art := swf.NewArtifactFromBytes("test.txt", testData)
+
+		tmpPath := filepath.Join(os.TempDir(), "save-test-bytes.txt")
+		defer os.Remove(tmpPath)
+
+		err := art.SaveToFile(ctx, tmpPath)
+		require.NoError(t, err)
+
+		saved, err := os.ReadFile(tmpPath)
+		require.NoError(t, err)
+		assert.Equal(t, testData, saved)
+	})
+
+	t.Run("file artifact", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "saveto-src-*.txt")
+		require.NoError(t, err)
+		srcPath := tmpFile.Name()
+		tmpFile.Write(testData)
+		tmpFile.Close()
+		defer os.Remove(srcPath)
+
+		art, err := swf.NewArtifactFromFileNoCleanup("test.txt", srcPath)
+		require.NoError(t, err)
+
+		dstPath := filepath.Join(os.TempDir(), "save-test-file.txt")
+		defer os.Remove(dstPath)
+
+		err = art.SaveToFile(ctx, dstPath)
+		require.NoError(t, err)
+
+		saved, err := os.ReadFile(dstPath)
+		require.NoError(t, err)
+		assert.Equal(t, testData, saved)
+	})
+
+	t.Run("file artifact same path", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "saveto-same-*.txt")
+		require.NoError(t, err)
+		path := tmpFile.Name()
+		tmpFile.Write(testData)
+		tmpFile.Close()
+		defer os.Remove(path)
+
+		art, err := swf.NewArtifactFromFileNoCleanup("test.txt", path)
+		require.NoError(t, err)
+
+		// Saving to same path should be no-op
+		err = art.SaveToFile(ctx, path)
+		require.NoError(t, err)
+
+		saved, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, testData, saved)
+	})
+
+	t.Run("reader artifact", func(t *testing.T) {
+		art := swf.NewArtifactFromReader("test.txt", bytes.NewReader(testData), int64(len(testData)))
+
+		tmpPath := filepath.Join(os.TempDir(), "save-test-reader.txt")
+		defer os.Remove(tmpPath)
+
+		err := art.SaveToFile(ctx, tmpPath)
+		require.NoError(t, err)
+
+		saved, err := os.ReadFile(tmpPath)
+		require.NoError(t, err)
+		assert.Equal(t, testData, saved)
+	})
 }

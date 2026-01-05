@@ -22,9 +22,8 @@ type Artifact interface {
 	// Name returns the artifact name (e.g., "output.tar.gz")
 	Name() string
 
-	// Open returns a ReadCloser to stream the artifact contents.
-	// Multiple calls to Open() may return independent readers.
-	Open() (io.ReadCloser, error)
+	// ContentType returns the MIME content type of the artifact
+	ContentType() string
 
 	// Size returns the artifact size in bytes, or -1 if unknown.
 	Size() int64
@@ -32,9 +31,20 @@ type Artifact interface {
 	// Sha256 returns the SHA256 hash of the artifact contents.
 	Sha256(ctx context.Context) (string, error)
 
+	// WriteTo writes the artifact contents to the provided writer.
+	WriteTo(ctx context.Context, w io.Writer) error
+
+	// SaveToFile saves the artifact contents to a file at the specified path.
+	SaveToFile(ctx context.Context, path string) error
+
 	// Bytes reads and returns the entire artifact contents as a byte slice.
-	// For large artifacts, prefer using Open() to stream the data.
+	// For large artifacts, prefer using Open() or WriteTo() to stream the data.
 	Bytes(ctx context.Context) ([]byte, error)
+
+	// Open returns a ReadCloser to stream the artifact contents.
+	// Multiple calls to Open() may return independent readers.
+	// This is a convenience method not in strata.Artifact.
+	Open() (io.ReadCloser, error)
 
 	// Cleanup is called by SWF after the artifact has been fully consumed
 	// and is no longer needed. Implementations should clean up any temporary
@@ -168,9 +178,10 @@ type bytesArtifact struct {
 	hash atomic.Pointer[string]
 }
 
-func (a *bytesArtifact) ID() string   { return "" }
-func (a *bytesArtifact) Name() string { return a.name }
-func (a *bytesArtifact) Size() int64  { return int64(len(a.data)) }
+func (a *bytesArtifact) ID() string          { return "" }
+func (a *bytesArtifact) Name() string        { return a.name }
+func (a *bytesArtifact) ContentType() string { return "application/octet-stream" }
+func (a *bytesArtifact) Size() int64         { return int64(len(a.data)) }
 func (a *bytesArtifact) Open() (io.ReadCloser, error) {
 	return io.NopCloser(bytes.NewReader(a.data)), nil
 }
@@ -184,6 +195,13 @@ func (a *bytesArtifact) Sha256(ctx context.Context) (string, error) {
 	}
 	a.hash.Store(&h)
 	return h, nil
+}
+func (a *bytesArtifact) WriteTo(ctx context.Context, w io.Writer) error {
+	_, err := w.Write(a.data)
+	return err
+}
+func (a *bytesArtifact) SaveToFile(ctx context.Context, path string) error {
+	return os.WriteFile(path, a.data, 0644)
 }
 func (a *bytesArtifact) Bytes(ctx context.Context) ([]byte, error) {
 	// Return a copy to prevent mutation
@@ -202,9 +220,10 @@ type readerArtifact struct {
 	hash   atomic.Pointer[string]
 }
 
-func (a *readerArtifact) ID() string   { return "" }
-func (a *readerArtifact) Name() string { return a.name }
-func (a *readerArtifact) Size() int64  { return a.size }
+func (a *readerArtifact) ID() string          { return "" }
+func (a *readerArtifact) Name() string        { return a.name }
+func (a *readerArtifact) ContentType() string { return "application/octet-stream" }
+func (a *readerArtifact) Size() int64         { return a.size }
 func (a *readerArtifact) Open() (io.ReadCloser, error) {
 	var r io.Reader
 	a.once.Do(func() { r = a.reader })
@@ -223,6 +242,31 @@ func (a *readerArtifact) Sha256(ctx context.Context) (string, error) {
 	// For reader artifacts, we can't compute hash without consuming
 	// Return empty hash
 	return "", nil
+}
+func (a *readerArtifact) WriteTo(ctx context.Context, w io.Writer) error {
+	rc, err := a.Open()
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+	_, err = io.Copy(w, rc)
+	return err
+}
+func (a *readerArtifact) SaveToFile(ctx context.Context, path string) error {
+	rc, err := a.Open()
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, err = io.Copy(f, rc)
+	return err
 }
 func (a *readerArtifact) Bytes(ctx context.Context) ([]byte, error) {
 	rc, err := a.Open()
@@ -244,9 +288,10 @@ type fileArtifact struct {
 	hash      atomic.Pointer[string]
 }
 
-func (a *fileArtifact) ID() string   { return "" }
-func (a *fileArtifact) Name() string { return a.name }
-func (a *fileArtifact) Size() int64  { return a.size }
+func (a *fileArtifact) ID() string          { return "" }
+func (a *fileArtifact) Name() string        { return a.name }
+func (a *fileArtifact) ContentType() string { return "application/octet-stream" }
+func (a *fileArtifact) Size() int64         { return a.size }
 func (a *fileArtifact) Open() (io.ReadCloser, error) {
 	return os.Open(a.path)
 }
@@ -265,6 +310,36 @@ func (a *fileArtifact) Sha256(ctx context.Context) (string, error) {
 	}
 	a.hash.Store(&h)
 	return h, nil
+}
+func (a *fileArtifact) WriteTo(ctx context.Context, w io.Writer) error {
+	f, err := os.Open(a.path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = io.Copy(w, f)
+	return err
+}
+func (a *fileArtifact) SaveToFile(ctx context.Context, path string) error {
+	// If same path, no-op
+	if a.path == path {
+		return nil
+	}
+	// Copy file
+	src, err := os.Open(a.path)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	dst, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+
+	_, err = io.Copy(dst, src)
+	return err
 }
 func (a *fileArtifact) Bytes(ctx context.Context) ([]byte, error) {
 	return os.ReadFile(a.path)
@@ -289,9 +364,10 @@ type customArtifact struct {
 	hash    atomic.Pointer[string]
 }
 
-func (a *customArtifact) ID() string   { return "" }
-func (a *customArtifact) Name() string { return a.name }
-func (a *customArtifact) Size() int64  { return a.size }
+func (a *customArtifact) ID() string          { return "" }
+func (a *customArtifact) Name() string        { return a.name }
+func (a *customArtifact) ContentType() string { return "application/octet-stream" }
+func (a *customArtifact) Size() int64         { return a.size }
 func (a *customArtifact) Open() (io.ReadCloser, error) {
 	rc, size, err := a.opener()
 	if err != nil {
@@ -315,6 +391,31 @@ func (a *customArtifact) Sha256(ctx context.Context) (string, error) {
 	}
 	a.hash.Store(&h)
 	return h, nil
+}
+func (a *customArtifact) WriteTo(ctx context.Context, w io.Writer) error {
+	rc, _, err := a.opener()
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+	_, err = io.Copy(w, rc)
+	return err
+}
+func (a *customArtifact) SaveToFile(ctx context.Context, path string) error {
+	rc, _, err := a.opener()
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, err = io.Copy(f, rc)
+	return err
 }
 func (a *customArtifact) Bytes(ctx context.Context) ([]byte, error) {
 	rc, _, err := a.opener()
@@ -347,9 +448,8 @@ func (a *strataArtifactAdapter) Name() string {
 	return a.art.Name()
 }
 
-func (a *strataArtifactAdapter) Open() (io.ReadCloser, error) {
-	_, rc, err := a.art.ToInput(context.Background())
-	return rc, err
+func (a *strataArtifactAdapter) ContentType() string {
+	return a.art.ContentType()
 }
 
 func (a *strataArtifactAdapter) Size() int64 {
@@ -360,8 +460,21 @@ func (a *strataArtifactAdapter) Sha256(ctx context.Context) (string, error) {
 	return a.art.Sha256(ctx)
 }
 
+func (a *strataArtifactAdapter) WriteTo(ctx context.Context, w io.Writer) error {
+	return a.art.WriteTo(ctx, w)
+}
+
+func (a *strataArtifactAdapter) SaveToFile(ctx context.Context, path string) error {
+	return a.art.SaveToFile(ctx, path)
+}
+
 func (a *strataArtifactAdapter) Bytes(ctx context.Context) ([]byte, error) {
 	return a.art.Bytes(ctx)
+}
+
+func (a *strataArtifactAdapter) Open() (io.ReadCloser, error) {
+	_, rc, err := a.art.ToInput(context.Background())
+	return rc, err
 }
 
 func (a *strataArtifactAdapter) Cleanup() error {
@@ -386,7 +499,7 @@ func (a *swfToStrataAdapter) Name() string {
 }
 
 func (a *swfToStrataAdapter) ContentType() string {
-	return "application/octet-stream"
+	return a.art.ContentType()
 }
 
 func (a *swfToStrataAdapter) SizeBytes() int64 {
@@ -398,39 +511,15 @@ func (a *swfToStrataAdapter) Sha256(ctx context.Context) (string, error) {
 }
 
 func (a *swfToStrataAdapter) WriteTo(ctx context.Context, w io.Writer) error {
-	rc, err := a.art.Open()
-	if err != nil {
-		return err
-	}
-	defer rc.Close()
-	_, err = io.Copy(w, rc)
-	return err
+	return a.art.WriteTo(ctx, w)
 }
 
 func (a *swfToStrataAdapter) SaveToFile(ctx context.Context, path string) error {
-	rc, err := a.art.Open()
-	if err != nil {
-		return err
-	}
-	defer rc.Close()
-
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	_, err = io.Copy(f, rc)
-	return err
+	return a.art.SaveToFile(ctx, path)
 }
 
 func (a *swfToStrataAdapter) Bytes(ctx context.Context) ([]byte, error) {
-	rc, err := a.art.Open()
-	if err != nil {
-		return nil, err
-	}
-	defer rc.Close()
-	return io.ReadAll(rc)
+	return a.art.Bytes(ctx)
 }
 
 func (a *swfToStrataAdapter) ToInput(ctx context.Context) (strata.Descriptor, io.ReadCloser, error) {
@@ -441,7 +530,7 @@ func (a *swfToStrataAdapter) ToInput(ctx context.Context) (strata.Descriptor, io
 
 	desc := strata.Descriptor{
 		Name:        a.art.Name(),
-		ContentType: "application/octet-stream",
+		ContentType: a.art.ContentType(),
 		SizeBytes:   a.art.Size(),
 	}
 
