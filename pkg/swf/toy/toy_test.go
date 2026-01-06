@@ -228,7 +228,8 @@ func TestListJobsToyEngine(t *testing.T) {
 
 	t.Run("completed status routes to archived store", func(t *testing.T) {
 		resp, err := engine.ListJobs(context.Background(), swf.ListJobsRequest{
-			Statuses: []swf.JobStatus{swf.JobStatusCompleted},
+			TenantIds: []string{"test-tenant"},
+			Statuses:  []swf.JobStatus{swf.JobStatusCompleted},
 		})
 		if err != nil {
 			t.Fatalf("ListJobs: %v", err)
@@ -240,6 +241,7 @@ func TestListJobsToyEngine(t *testing.T) {
 
 	t.Run("filters by job type and singleton", func(t *testing.T) {
 		resp, err := engine.ListJobs(context.Background(), swf.ListJobsRequest{
+			TenantIds:     []string{"test-tenant"},
 			JobTypes:      []string{"alpha"},
 			SingletonKeys: []string{"sk"},
 		})
@@ -255,7 +257,10 @@ func TestListJobsToyEngine(t *testing.T) {
 	})
 
 	t.Run("paginates by created_at desc", func(t *testing.T) {
-		resp, err := engine.ListJobs(context.Background(), swf.ListJobsRequest{PageSize: 2})
+		resp, err := engine.ListJobs(context.Background(), swf.ListJobsRequest{
+			TenantIds: []string{"test-tenant"},
+			PageSize:  2,
+		})
 		if err != nil {
 			t.Fatalf("ListJobs: %v", err)
 		}
@@ -270,6 +275,7 @@ func TestListJobsToyEngine(t *testing.T) {
 		}
 
 		resp2, err := engine.ListJobs(context.Background(), swf.ListJobsRequest{
+			TenantIds: []string{"test-tenant"},
 			PageSize:  2,
 			PageToken: resp.NextPageToken,
 		})
@@ -337,7 +343,8 @@ func TestPendingTaskCompletion(t *testing.T) {
 	}
 
 	resp, err := engine.ListJobs(context.Background(), swf.ListJobsRequest{
-		JobTasks: []swf.JobTaskFilter{{JobType: jobWorker.name, TaskType: jobWorker.task}},
+		TenantIds: []string{"test-tenant"},
+		JobTasks:  []swf.JobTaskFilter{{JobType: jobWorker.name, TaskType: jobWorker.task}},
 	})
 	if err != nil {
 		t.Fatalf("ListJobs with job/task filter: %v", err)
@@ -347,7 +354,8 @@ func TestPendingTaskCompletion(t *testing.T) {
 	}
 
 	respIDs, err := engine.ListJobs(context.Background(), swf.ListJobsRequest{
-		JobKeys: []swf.JobKey{handles[0].JobKey()},
+		TenantIds: []string{"test-tenant"},
+		JobKeys:   []swf.JobKey{handles[0].JobKey()},
 	})
 	if err != nil {
 		t.Fatalf("ListJobs with job ids: %v", err)
@@ -397,7 +405,8 @@ func TestJobSummaryPendingStepMatchesHandle(t *testing.T) {
 	expectedInputOrdinal := expectedOutputOrdinal - 1
 
 	resp, err := engine.ListJobs(context.Background(), swf.ListJobsRequest{
-		JobKeys: []swf.JobKey{jobKey},
+		TenantIds: []string{"test-tenant"},
+		JobKeys:   []swf.JobKey{jobKey},
 	})
 	if err != nil {
 		t.Fatalf("ListJobs: %v", err)

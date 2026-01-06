@@ -773,6 +773,11 @@ func (s *swfEngineImpl) ensureNotificationJob(ctx context.Context, notificationJ
 }
 
 func (s *swfEngineImpl) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.ListJobsResponse, error) {
+	// Validate that TenantIds is provided - pgwf requires it
+	if len(req.TenantIds) == 0 {
+		return swf.ListJobsResponse{}, fmt.Errorf("tenant_ids is required for ListJobs")
+	}
+
 	patterns := buildJobTypePatterns(req.JobTypes, req.JobTasks)
 
 	tenantIDs := make([]string, len(req.TenantIds))

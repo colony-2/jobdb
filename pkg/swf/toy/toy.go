@@ -338,6 +338,11 @@ func (h *pendingHandle) Finish(ctx context.Context, taskData swf.TaskData) error
 
 // ListJobs returns in-memory job summaries ordered by created_at desc then job_id desc.
 func (e *ToyEngine) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.ListJobsResponse, error) {
+	// Validate that TenantIds is provided - matches real engine behavior
+	if len(req.TenantIds) == 0 {
+		return swf.ListJobsResponse{}, fmt.Errorf("tenant_ids is required for ListJobs")
+	}
+
 	pageSize := req.PageSize
 	if pageSize <= 0 {
 		pageSize = swf.DefaultListJobsPageSize
@@ -410,6 +415,15 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.
 		return false
 	}
 
+	tenantAllowed := func(tenantId string) bool {
+		for _, tid := range req.TenantIds {
+			if tid == tenantId {
+				return true
+			}
+		}
+		return false
+	}
+
 	jobKeyAllowed := func(key swf.JobKey) bool {
 		if len(req.JobKeys) == 0 {
 			return true
@@ -474,6 +488,12 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.
 		store := swf.JobStoreActive
 		if status == swf.JobStatusCompleted {
 			store = swf.JobStoreArchived
+		}
+
+		// Filter by tenant - must match one of the requested tenants
+		if !tenantAllowed(key.TenantId) {
+			rec.mu.Unlock()
+			continue
 		}
 
 		if status == swf.JobStatusCompleted && !includeArchive {
