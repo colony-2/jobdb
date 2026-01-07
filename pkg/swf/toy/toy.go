@@ -311,6 +311,27 @@ func (h *pendingHandle) Finish(ctx context.Context, taskData swf.TaskData) error
 			return err
 		}
 	}
+
+	// Materialize artifacts from external task completion
+	artifacts, err := taskData.GetArtifacts()
+	if err != nil {
+		return err
+	}
+	materializedArtifacts, err := materializeArtifacts(context.TODO(), artifacts, h.engine.logger)
+	if err != nil {
+		return fmt.Errorf("failed to materialize artifacts: %w", err)
+	}
+
+	// Create new TaskData with materialized artifacts
+	dataBytes, err := taskData.GetData()
+	if err != nil {
+		return err
+	}
+	materializedTaskData := &swf.SimpleTaskData{
+		Data:      dataBytes,
+		Artifacts: materializedArtifacts,
+	}
+
 	h.engine.mu.Lock()
 	queue := h.engine.pending[h.task.capability]
 	idx := -1
@@ -329,7 +350,7 @@ func (h *pendingHandle) Finish(ctx context.Context, taskData swf.TaskData) error
 	h.engine.mu.Unlock()
 
 	select {
-	case h.task.done <- pendingResult{data: taskData}:
+	case h.task.done <- pendingResult{data: materializedTaskData}:
 		return nil
 	default:
 		return fmt.Errorf("pending task already resolved")
@@ -635,14 +656,55 @@ func (e *ToyEngine) runJob(ctx context.Context, jobKey swf.JobKey, ws swf.WorkSe
 	record.mu.Unlock()
 
 	var (
-		result swf.JobData
-		err    error
+		result              swf.JobData
+		err                 error
+		materializedJobData swf.JobData
 	)
+
+	// Materialize job input artifacts at the start
+	jobArtifacts, artifactsErr := data.GetArtifacts()
+	if artifactsErr != nil {
+		err = artifactsErr
+		record.mu.Lock()
+		record.status = swf.JobStatusCompleted
+		record.err = err
+		record.finished = time.Now()
+		record.mu.Unlock()
+		return
+	}
+
+	materializedArtifacts, artifactsErr := materializeArtifacts(context.TODO(), jobArtifacts, e.logger)
+	if artifactsErr != nil {
+		err = artifactsErr
+		record.mu.Lock()
+		record.status = swf.JobStatusCompleted
+		record.err = err
+		record.finished = time.Now()
+		record.mu.Unlock()
+		return
+	}
+
+	// Create materialized job data
+	jobBytes, _ := data.GetData()
+	materializedJobData = &swf.SimpleTaskData{
+		Data:      jobBytes,
+		Artifacts: materializedArtifacts,
+	}
 
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic: %v", r)
 		}
+
+		// Cleanup job input artifacts
+		cleanupArtifacts(context.TODO(), materializedArtifacts, e.logger)
+
+		// Cleanup job result artifacts if present
+		if result != nil {
+			resultArtifacts, _ := result.GetArtifacts()
+			cleanupArtifacts(context.TODO(), resultArtifacts, e.logger)
+		}
+
 		record.mu.Lock()
 		defer record.mu.Unlock()
 		if record.cancelled {
@@ -672,7 +734,7 @@ func (e *ToyEngine) runJob(ctx context.Context, jobKey swf.JobKey, ws swf.WorkSe
 		cancelCh: ctx.Done(),
 		record:   record,
 	}
-	result, err = ws.JobWorker.Run(jc, data)
+	result, err = ws.JobWorker.Run(jc, materializedJobData)
 }
 
 func (e *ToyEngine) getJobRecord(key swf.JobKey) *jobRecord {
@@ -718,9 +780,29 @@ func (c *toyJobContext) DoTask(_ swf.RunPolicy, taskType string, data swf.TaskDa
 	}
 	c.record.mu.Unlock()
 
+	// Materialize input artifacts to in-memory copies
+	inputArtifacts, err := data.GetArtifacts()
+	if err != nil {
+		return nil, err
+	}
+	materializedInput, err := materializeArtifacts(context.TODO(), inputArtifacts, c.Logger())
+	if err != nil {
+		return nil, fmt.Errorf("failed to materialize input artifacts: %w", err)
+	}
+
+	// Create new TaskData with materialized artifacts
+	inputBytes, err := data.GetData()
+	if err != nil {
+		return nil, err
+	}
+	materializedData := &swf.SimpleTaskData{
+		Data:      inputBytes,
+		Artifacts: materializedInput,
+	}
+
 	taskWorker, ok := c.workSet.TaskWorkers[taskType]
 	if !ok {
-		return c.awaitExternalCompletion(taskType, data)
+		return c.awaitExternalCompletion(taskType, materializedData)
 	}
 
 	await := func(wakeAt time.Time) error {
@@ -740,9 +822,33 @@ func (c *toyJobContext) DoTask(_ swf.RunPolicy, taskType string, data swf.TaskDa
 	}
 
 	tc := swf.NewTaskContext(c.jobKey, c.step, c.Logger(), await, nil)
-	output, err := taskWorker.Run(tc, data)
+	output, err := taskWorker.Run(tc, materializedData)
+
+	// Cleanup materialized input artifacts after task completes
+	cleanupArtifacts(context.TODO(), materializedInput, c.Logger())
+
 	if err != nil {
 		return nil, err
+	}
+
+	// Materialize output artifacts to in-memory copies
+	outputArtifacts, err := output.GetArtifacts()
+	if err != nil {
+		return nil, err
+	}
+	materializedOutput, err := materializeArtifacts(context.TODO(), outputArtifacts, c.Logger())
+	if err != nil {
+		return nil, fmt.Errorf("failed to materialize output artifacts: %w", err)
+	}
+
+	// Create new TaskData with materialized output artifacts
+	outputBytes, err := output.GetData()
+	if err != nil {
+		return nil, err
+	}
+	materializedOutputData := &swf.SimpleTaskData{
+		Data:      outputBytes,
+		Artifacts: materializedOutput,
 	}
 
 	// Mark this chapter as written
@@ -751,7 +857,7 @@ func (c *toyJobContext) DoTask(_ swf.RunPolicy, taskType string, data swf.TaskDa
 	c.record.mu.Unlock()
 
 	c.step++
-	return output, nil
+	return materializedOutputData, nil
 }
 
 func (c *toyJobContext) awaitExternalCompletion(taskType string, data swf.TaskData) (swf.TaskData, error) {
@@ -794,13 +900,33 @@ func (c *toyJobContext) awaitExternalCompletion(taskType string, data swf.TaskDa
 			return nil, res.err
 		}
 
+		// Materialize output artifacts from external completion
+		outputArtifacts, err := res.data.GetArtifacts()
+		if err != nil {
+			return nil, err
+		}
+		materializedOutput, err := materializeArtifacts(context.TODO(), outputArtifacts, c.Logger())
+		if err != nil {
+			return nil, fmt.Errorf("failed to materialize output artifacts: %w", err)
+		}
+
+		// Create new TaskData with materialized output artifacts
+		outputBytes, err := res.data.GetData()
+		if err != nil {
+			return nil, err
+		}
+		materializedOutputData := &swf.SimpleTaskData{
+			Data:      outputBytes,
+			Artifacts: materializedOutput,
+		}
+
 		// Mark this chapter as written
 		c.record.mu.Lock()
 		c.record.chapters[c.step] = true
 		c.record.mu.Unlock()
 
 		c.step++
-		return res.data, nil
+		return materializedOutputData, nil
 	case <-c.cancelCh:
 		c.engine.removePending(pending)
 		c.markCancelled()
@@ -854,6 +980,49 @@ func (e *ToyEngine) removePending(task *pendingTask) {
 		if p == task {
 			e.pending[task.capability] = append(queue[:i], queue[i+1:]...)
 			return
+		}
+	}
+}
+
+// materializeArtifacts converts artifacts to in-memory copies and cleans up originals.
+// This ensures the toy engine has stable artifact data independent of external resources
+// and properly exercises cleanup paths to help catch bugs early.
+func materializeArtifacts(ctx context.Context, artifacts []swf.Artifact, logger *slog.Logger) ([]swf.Artifact, error) {
+	if len(artifacts) == 0 {
+		return artifacts, nil
+	}
+
+	materialized := make([]swf.Artifact, 0, len(artifacts))
+	for _, art := range artifacts {
+		// Read artifact bytes
+		data, err := art.Bytes(ctx)
+		if err != nil {
+			// Cleanup artifacts processed so far
+			cleanupArtifacts(ctx, materialized, logger)
+			// Cleanup remaining original artifacts
+			cleanupArtifacts(ctx, artifacts, logger)
+			return nil, err
+		}
+
+		// Create in-memory copy
+		memArt := swf.NewArtifactFromBytes(art.Name(), data)
+		materialized = append(materialized, memArt)
+	}
+
+	// Cleanup original artifacts now that we have materialized copies
+	cleanupArtifacts(ctx, artifacts, logger)
+
+	return materialized, nil
+}
+
+// cleanupArtifacts calls Cleanup() on each artifact and logs any errors.
+// Cleanup errors do not fail the workflow.
+func cleanupArtifacts(ctx context.Context, artifacts []swf.Artifact, logger *slog.Logger) {
+	for _, art := range artifacts {
+		if err := art.Cleanup(); err != nil {
+			logger.Warn("artifact cleanup failed", "name", art.Name(), "error", err)
+		} else {
+			logger.Debug("artifact cleaned up", "name", art.Name())
 		}
 	}
 }

@@ -1,9 +1,12 @@
 package toy
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -649,4 +652,279 @@ type dummyTask struct {
 func (d dummyTask) Name() string { return d.name }
 func (dummyTask) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
 	return input, nil
+}
+
+// Test artifact cleanup behavior
+func TestToyEngineArtifactCleanup(t *testing.T) {
+	t.Run("cleans up job input artifacts", func(t *testing.T) {
+		cleanupCalled := false
+		art := swf.NewArtifact("test.txt", func() (io.ReadCloser, int64, error) {
+			return io.NopCloser(bytes.NewReader([]byte("test data"))), 9, nil
+		}, func() error {
+			cleanupCalled = true
+			return nil
+		})
+
+		ws := mustWorkSet(simplePassThroughJob{}, dummyTask{name: "pass"})
+		engine := NewToyEngine([]swf.WorkSet{ws})
+
+		input := &swf.SimpleTaskData{
+			Data:      []byte(`{"key":"value"}`),
+			Artifacts: []swf.Artifact{art},
+		}
+
+		jobKey, err := engine.StartJob(context.Background(), swf.StartJob{
+			TenantId: "test-tenant",
+			JobType:  ws.JobWorker.Name(),
+			Data:     input,
+		})
+		if err != nil {
+			t.Fatalf("StartJob failed: %v", err)
+		}
+
+		status, _ := engine.CheckJobStatus(context.Background(), jobKey)
+		if status != swf.JobStatusCompleted {
+			t.Fatalf("expected job to complete, got status %s", status)
+		}
+
+		if !cleanupCalled {
+			t.Errorf("expected artifact cleanup to be called")
+		}
+	})
+
+	t.Run("cleans up task output artifacts", func(t *testing.T) {
+		cleanupCalled := false
+		art := swf.NewArtifact("output.txt", func() (io.ReadCloser, int64, error) {
+			return io.NopCloser(bytes.NewReader([]byte("output data"))), 11, nil
+		}, func() error {
+			cleanupCalled = true
+			return nil
+		})
+
+		taskWithArtifact := artifactProducingTask{artifact: art}
+		ws := mustWorkSet(simpleJobWorker{name: "artifact-job", task: "produce"}, taskWithArtifact)
+		engine := NewToyEngine([]swf.WorkSet{ws})
+
+		input := swf.NewTaskDataOrPanic(map[string]string{"key": "value"})
+		jobKey, err := engine.StartJob(context.Background(), swf.StartJob{
+			TenantId: "test-tenant",
+			JobType:  ws.JobWorker.Name(),
+			Data:     input,
+		})
+		if err != nil {
+			t.Fatalf("StartJob failed: %v", err)
+		}
+
+		status, _ := engine.CheckJobStatus(context.Background(), jobKey)
+		if status != swf.JobStatusCompleted {
+			t.Fatalf("expected job to complete, got status %s", status)
+		}
+
+		if !cleanupCalled {
+			t.Errorf("expected task output artifact cleanup to be called")
+		}
+	})
+
+	t.Run("materializes artifacts to memory", func(t *testing.T) {
+		// Create a temporary file artifact
+		tempFile, err := os.CreateTemp("", "test-*.txt")
+		if err != nil {
+			t.Fatalf("failed to create temp file: %v", err)
+		}
+		tempPath := tempFile.Name()
+		testData := []byte("file content")
+		tempFile.Write(testData)
+		tempFile.Close()
+
+		art, err := swf.NewArtifactFromFile("file.txt", tempPath)
+		if err != nil {
+			t.Fatalf("failed to create artifact: %v", err)
+		}
+
+		// Job that reads artifact and verifies it's in memory
+		verifyJob := &artifactVerifyJob{expectedData: testData}
+		ws := mustWorkSet(verifyJob)
+		engine := NewToyEngine([]swf.WorkSet{ws})
+
+		input := &swf.SimpleTaskData{
+			Data:      []byte(`{}`),
+			Artifacts: []swf.Artifact{art},
+		}
+
+		jobKey, err := engine.StartJob(context.Background(), swf.StartJob{
+			TenantId: "test-tenant",
+			JobType:  ws.JobWorker.Name(),
+			Data:     input,
+		})
+		if err != nil {
+			t.Fatalf("StartJob failed: %v", err)
+		}
+
+		status, _ := engine.CheckJobStatus(context.Background(), jobKey)
+		if status != swf.JobStatusCompleted {
+			t.Fatalf("expected job to complete, got status %s", status)
+		}
+
+		result, err := engine.GetJobResult(context.Background(), jobKey)
+		if err != nil {
+			t.Fatalf("GetJobResult failed: %v", err)
+		}
+
+		var resultData map[string]bool
+		resultBytes, _ := result.GetData()
+		json.Unmarshal(resultBytes, &resultData)
+		if !resultData["verified"] {
+			t.Errorf("artifact was not properly materialized to memory")
+		}
+
+		// Verify original file was cleaned up
+		if _, err := os.Stat(tempPath); !os.IsNotExist(err) {
+			t.Errorf("expected temp file to be cleaned up, but it still exists")
+		}
+	})
+
+	t.Run("cleans up artifacts on job failure", func(t *testing.T) {
+		cleanupCalled := false
+		art := swf.NewArtifact("test.txt", func() (io.ReadCloser, int64, error) {
+			return io.NopCloser(bytes.NewReader([]byte("test data"))), 9, nil
+		}, func() error {
+			cleanupCalled = true
+			return nil
+		})
+
+		ws := mustWorkSet(failingJob{}, dummyTask{name: "dummy"})
+		engine := NewToyEngine([]swf.WorkSet{ws})
+
+		input := &swf.SimpleTaskData{
+			Data:      []byte(`{}`),
+			Artifacts: []swf.Artifact{art},
+		}
+
+		jobKey, err := engine.StartJob(context.Background(), swf.StartJob{
+			TenantId: "test-tenant",
+			JobType:  ws.JobWorker.Name(),
+			Data:     input,
+		})
+		if err != nil {
+			t.Fatalf("StartJob failed: %v", err)
+		}
+
+		status, _ := engine.CheckJobStatus(context.Background(), jobKey)
+		if status != swf.JobStatusCompleted {
+			t.Fatalf("expected job to complete (with error), got status %s", status)
+		}
+
+		if !cleanupCalled {
+			t.Errorf("expected artifact cleanup to be called even on failure")
+		}
+	})
+
+	t.Run("cleans up external task completion artifacts", func(t *testing.T) {
+		cleanupCalled := false
+		art := swf.NewArtifact("external.txt", func() (io.ReadCloser, int64, error) {
+			return io.NopCloser(bytes.NewReader([]byte("external data"))), 13, nil
+		}, func() error {
+			cleanupCalled = true
+			return nil
+		})
+
+		jobWorker := simpleJobWorker{name: "external-job", task: "external-task"}
+		ws := mustWorkSet(jobWorker, dummyTask{name: "other"})
+		engine := NewToyEngine([]swf.WorkSet{ws})
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_, _ = engine.StartJob(context.Background(), swf.StartJob{
+				TenantId: "test-tenant",
+				JobType:  ws.JobWorker.Name(),
+				Data:     swf.NewTaskDataOrPanic(map[string]int{"n": 1}),
+			})
+		}()
+
+		// Wait for pending task
+		var handles []swf.TaskHandle
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			var err error
+			handles, err = engine.FindTasksWaitingForCapability(context.Background(), jobWorker.name, jobWorker.task, nil)
+			if err != nil {
+				t.Fatalf("FindTasksWaitingForCapability: %v", err)
+			}
+			if len(handles) > 0 {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if len(handles) != 1 {
+			t.Fatalf("expected 1 pending handle, got %d", len(handles))
+		}
+
+		// Complete with artifact
+		completionData := &swf.SimpleTaskData{
+			Data:      []byte(`{"result":"done"}`),
+			Artifacts: []swf.Artifact{art},
+		}
+		err := handles[0].Finish(context.Background(), completionData)
+		if err != nil {
+			t.Fatalf("Finish failed: %v", err)
+		}
+
+		<-done
+
+		if !cleanupCalled {
+			t.Errorf("expected external task artifact cleanup to be called")
+		}
+	})
+}
+
+// Helper job workers for artifact tests
+type simplePassThroughJob struct{}
+
+func (simplePassThroughJob) Name() string { return "pass-through" }
+func (simplePassThroughJob) Run(ctx swf.JobContext, input swf.JobData) (swf.JobData, error) {
+	return input, nil
+}
+
+type artifactProducingTask struct {
+	artifact swf.Artifact
+}
+
+func (artifactProducingTask) Name() string { return "produce" }
+func (t artifactProducingTask) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
+	return &swf.SimpleTaskData{
+		Data:      []byte(`{"produced":true}`),
+		Artifacts: []swf.Artifact{t.artifact},
+	}, nil
+}
+
+type artifactVerifyJob struct {
+	expectedData []byte
+}
+
+func (artifactVerifyJob) Name() string { return "verify" }
+func (j *artifactVerifyJob) Run(ctx swf.JobContext, input swf.JobData) (swf.JobData, error) {
+	artifacts, err := input.GetArtifacts()
+	if err != nil {
+		return nil, err
+	}
+	if len(artifacts) != 1 {
+		return swf.NewTaskDataOrPanic(map[string]bool{"verified": false}), nil
+	}
+
+	// Verify artifact is in memory (bytesArtifact type)
+	data, err := artifacts[0].Bytes(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	verified := bytes.Equal(data, j.expectedData)
+	return swf.NewTaskDataOrPanic(map[string]bool{"verified": verified}), nil
+}
+
+type failingJob struct{}
+
+func (failingJob) Name() string { return "failing" }
+func (failingJob) Run(ctx swf.JobContext, input swf.JobData) (swf.JobData, error) {
+	return nil, errors.New("intentional failure")
 }
