@@ -1,40 +1,23 @@
 type: shai-sandbox
 version: 1
-image: debian-dev:dev
-user: devuser
-workspace: /src
+image: ghcr.io/colony-2/shai-mega
 resources:
-  default:
-    calls:
-      - name: uname
-        command: uname -a
+  shai-default-allow:
     mounts:
       - source: ${{ env.HOME }}/.shai/.netrc
-        target: /home/devuser/.netrc
-      - source: ${{ env.HOME }}/.cache/go-build
-        target: /go/pkg
-        mode: rw
-      - source: ${{ env.HOME }}/.cache/go-mod
-        target: /go/mod
-        mode: rw
+        target: /home/shai/.netrc
       - source: ${{ env.HOME }}/.codex
-        target: /home/devuser/.codex
+        target: /home/${{ conf.TARGET_USER }}/.codex
         mode: rw
       - source: ${{ env.HOME }}/.claude
-        target: /home/devuser/.claude
+        target: /home/${{ conf.TARGET_USER }}/.claude
         mode: rw
       - source: ${{ env.HOME }}/.claude.json
-        target: /home/devuser/.claude.json
+        target: /home/${{ conf.TARGET_USER }}/.claude.json
         mode: rw
       - source: ${{ env.HOME }}/.claude.json.backup
-        target: /home/devuser/.claude.json.backup
+        target: /home/${{ conf.TARGET_USER }}/.claude.json.backup
         mode: rw
-      - source: /src/strata-go
-        target: /strata-go
-        mode: ro
-      - source: /src/pgwf
-        target: /pgwf
-        mode: ro
     http:
       - openai.com
       - api.openai.com
@@ -111,4 +94,4 @@ resources:
 apply:
   - path: ./
     resources:
-      - default
+      - shai-default-allow

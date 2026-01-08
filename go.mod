@@ -4,7 +4,7 @@ go 1.25.5
 
 require (
 	github.com/cenkalti/backoff v2.2.1+incompatible
-	github.com/colony-2/pgwf-go v0.0.0-20251228002930-8c744fb3535e
+	github.com/colony-2/pgwf-go v0.0.0-20251229214321-85af9695067d
 	github.com/colony-2/strata-go v0.0.0-20251215181525-c51f2cd6b43e
 	github.com/fergusstrange/embedded-postgres v1.32.0
 	github.com/google/uuid v1.6.0
@@ -64,5 +64,3 @@ require (
 	google.golang.org/protobuf v1.31.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/colony-2/pgwf-go => ../pgwf/pgwf-go
