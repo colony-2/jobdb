@@ -84,7 +84,7 @@ type RunPolicy struct {
 
 func DefaultRunPolicy() RunPolicy {
 	return RunPolicy{
-		InvocationTimeout: AsDuration(30 * time.Second),
+		InvocationTimeout: AsDuration(10 * time.Minute),
 		TotalTimeout:      AsDuration(30 * time.Minute),
 		Retry: RetryPolicy{
 			InitialInterval:        Duration(100 * time.Millisecond),
