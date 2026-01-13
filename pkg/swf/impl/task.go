@@ -20,10 +20,19 @@ type taskHandleImpl struct {
 	engine        *swfEngineImpl
 	nextNeed      pgwf.Capability
 	taskType      string
+	createdAt     time.Time
 }
 
 func (h *taskHandleImpl) TaskOrdinalToComplete() int64 {
 	return h.outputOrdinal
+}
+
+func (h *taskHandleImpl) TaskType() string {
+	return h.taskType
+}
+
+func (h *taskHandleImpl) CreatedAt() time.Time {
+	return h.createdAt
 }
 
 func (h *taskHandleImpl) chapter() (story.Chapter, error) {

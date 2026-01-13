@@ -69,6 +69,8 @@ type TaskHandle interface {
 	Data() (TaskData, error)
 	Finish(ctx context.Context, taskData TaskData) error
 	TaskOrdinalToComplete() int64
+	TaskType() string
+	CreatedAt() time.Time
 }
 
 type TaskCompletion struct {

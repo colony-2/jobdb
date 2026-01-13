@@ -305,6 +305,28 @@ func (h *pendingHandle) TaskOrdinalToComplete() int64 {
 	return h.task.step
 }
 
+func (h *pendingHandle) TaskType() string {
+	// capability is in format "jobType:taskType"
+	for i := len(h.task.capability) - 1; i >= 0; i-- {
+		if h.task.capability[i] == ':' {
+			return h.task.capability[i+1:]
+		}
+	}
+	return ""
+}
+
+func (h *pendingHandle) CreatedAt() time.Time {
+	h.engine.mu.Lock()
+	record, ok := h.engine.jobRecords[h.task.jobKey]
+	h.engine.mu.Unlock()
+	if !ok {
+		return time.Time{}
+	}
+	record.mu.Lock()
+	defer record.mu.Unlock()
+	return record.createdAt
+}
+
 func (h *pendingHandle) Finish(ctx context.Context, taskData swf.TaskData) error {
 	if ctx != nil {
 		if err := ctx.Err(); err != nil {

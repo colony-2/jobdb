@@ -987,6 +987,7 @@ func (s *swfEngineImpl) FindTasksWaitingForCapability(ctx context.Context, jobTy
 			engine:        s,
 			nextNeed:      pgwf.Capability(tw.Next),
 			taskType:      taskType,
+			createdAt:     j.CreatedAt,
 		}
 		handles = append(handles, &th)
 	}
@@ -1046,6 +1047,7 @@ func (s *swfEngineImpl) GetWaitingTask(ctx context.Context, key swf.JobKey) (swf
 		engine:        s,
 		nextNeed:      pgwf.Capability(tw.Next),
 		taskType:      taskTypeFromCapability(tw.Next),
+		createdAt:     job.CreatedAt,
 	}
 	return th, nil
 }
