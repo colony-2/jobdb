@@ -319,6 +319,7 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 					InputStep:  inputOrdinal,
 					OutputStep: ordinal,
 					Next:       r.worker.JobWorker.Name(),
+					InputHash:  inputHash,
 				},
 			})
 

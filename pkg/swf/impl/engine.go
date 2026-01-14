@@ -949,6 +949,7 @@ type taskWait struct {
 	InputStep  int64  `json:"in"`
 	OutputStep int64  `json:"out"`
 	Next       string `json:"next"`
+	InputHash  string `json:"input_hash,omitempty"`
 }
 
 func (s *swfEngineImpl) FindTasksWaitingForCapability(ctx context.Context, jobType string, taskType string, tenantIds []string) ([]swf.TaskHandle, error) {

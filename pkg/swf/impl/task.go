@@ -80,7 +80,9 @@ func (h *taskHandleImpl) Finish(ctx context.Context, taskData swf.TaskData) erro
 
 	// Compute input hash from input chapter
 	var inputHash string
-	if h.inputChapter != nil {
+	if tw, err := extractTaskWaitFromRaw(h.payload); err == nil && tw.InputHash != "" {
+		inputHash = tw.InputHash
+	} else if h.inputChapter != nil {
 		inputTD, err := chapterToTaskData(h.inputChapter)
 		if err != nil {
 			return err
