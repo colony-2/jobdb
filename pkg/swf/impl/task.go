@@ -89,6 +89,18 @@ func (h *taskHandleImpl) Finish(ctx context.Context, taskData swf.TaskData) erro
 		if err != nil {
 			return err
 		}
+
+		// Debug logging for external task input hash computation
+		inputData, _ := inputTD.GetData()
+		inputArtifacts, _ := inputTD.GetArtifacts()
+		h.engine.logger.Debug("computed external task input hash",
+			"taskType", h.taskType,
+			"jobId", h.jobID,
+			"inputOrdinal", h.inputOrdinal,
+			"outputOrdinal", h.outputOrdinal,
+			"inputHash", inputHash,
+			"dataLength", len(inputData),
+			"artifactCount", len(inputArtifacts))
 	}
 
 	// Extract metadata from payload and input chapter

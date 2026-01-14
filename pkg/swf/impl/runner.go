@@ -197,6 +197,15 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 		return nil, fmt.Errorf("compute input hash: %w", err)
 	}
 
+	// Debug logging for task input hash computation
+	inputData, _ := data.GetData()
+	inputArtifacts, _ := data.GetArtifacts()
+	r.logger.Debug("computed task input hash",
+		"taskType", taskType,
+		"inputHash", inputHash,
+		"dataLength", len(inputData),
+		"artifactCount", len(inputArtifacts))
+
 	basePolicy := r.jobPolicy
 	effectivePolicy := normalizeRunPolicy(mergeRunPolicy(policy, basePolicy))
 	retryCfg := effectivePolicy.Retry
@@ -232,10 +241,23 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 			if decErr != nil {
 				return nil, fmt.Errorf("%w: decode cached chapter: %v", swf.ErrWorkflowNotDeterministic, decErr)
 			}
+
+			r.logger.Debug("checking cached task result",
+				"taskType", taskType,
+				"ordinal", ordinal,
+				"cachedInputHash", env.Meta.InputHash,
+				"computedInputHash", inputHash,
+				"hashMatch", env.Meta.InputHash == inputHash)
+
 			if env.Meta.InputHash == "" {
 				return nil, fmt.Errorf("%w: ordinal %d task %s missing input hash", swf.ErrMissingInputHash, ordinal, taskType)
 			}
 			if env.Meta.InputHash != inputHash {
+				r.logger.Error("task input hash mismatch",
+					"taskType", taskType,
+					"ordinal", ordinal,
+					"cachedInputHash", env.Meta.InputHash,
+					"computedInputHash", inputHash)
 				return nil, fmt.Errorf("%w: ordinal %d task %s", swf.ErrWorkflowNotDeterministic, ordinal, taskType)
 			}
 			if !totalDeadline.IsZero() && time.Now().After(totalDeadline) {
@@ -555,6 +577,16 @@ func (r *runner) spawnAsyncWithDeadlines(jobType string, data swf.TaskData, invo
 		return nil, fmt.Errorf("compute child input hash: %w", err)
 	}
 
+	// Debug logging for async child input hash computation
+	childInputData, _ := data.GetData()
+	childInputArtifacts, _ := data.GetArtifacts()
+	r.logger.Debug("computed async child input hash",
+		"childJobType", jobType,
+		"ordinal", ordinal,
+		"inputHash", inputHash,
+		"dataLength", len(childInputData),
+		"artifactCount", len(childInputArtifacts))
+
 	key := r.GetJobKey().ToStoryKey()
 	if cached, err := r.engine.strata.Chapter(ctx, key, ordinal); err == nil {
 		if env, decErr := decodeChapterEnvelope(cached.Body()); decErr == nil && env.PayloadKind == payloadKindAppChildJob {
@@ -566,7 +598,20 @@ func (r *runner) spawnAsyncWithDeadlines(jobType string, data swf.TaskData, invo
 				if existing.NotificationJobID != "" {
 					notifyJobID = pgwf.JobID(existing.NotificationJobID)
 				}
+
+				r.logger.Debug("checking cached async child spawn",
+					"childJobType", jobType,
+					"ordinal", ordinal,
+					"cachedInputHash", existing.InputHash,
+					"computedInputHash", inputHash,
+					"hashMatch", existing.InputHash == inputHash)
+
 				if existing.InputHash != "" && existing.InputHash != inputHash {
+					r.logger.Error("async child input hash mismatch",
+						"childJobType", jobType,
+						"ordinal", ordinal,
+						"cachedInputHash", existing.InputHash,
+						"computedInputHash", inputHash)
 					return nil, fmt.Errorf("%w: async child input mismatch at ordinal %d", swf.ErrWorkflowNotDeterministic, ordinal)
 				}
 				if existing.JobType != "" && existing.JobType != jobType {
@@ -665,6 +710,15 @@ func (r *runner) setupJobExecutionConfig(ctx context.Context, inputData swf.Task
 	if err != nil {
 		return jobExecutionConfig{}, fmt.Errorf("failed to hash job input: %w", err)
 	}
+
+	// Debug logging for job input hash computation
+	jobInputData, _ := inputData.GetData()
+	jobInputArtifacts, _ := inputData.GetArtifacts()
+	r.logger.Debug("computed job input hash",
+		"inputHash", inputHash,
+		"dataLength", len(jobInputData),
+		"artifactCount", len(jobInputArtifacts))
+
 	inputRef := &swf.InputReference{Ordinal: 0, Hash: inputHash}
 	totalDeadline := r.jobTotalDeadline(env0, totalTimeout)
 
@@ -796,7 +850,18 @@ func (r *runner) checkCachedJobResult(ctx context.Context, key story.Key, ordina
 	if decErr != nil {
 		return nil, 0, false, false, fmt.Errorf("%w: decode cached chapter: %v", swf.ErrWorkflowNotDeterministic, decErr)
 	}
+
+	r.logger.Debug("checking cached job result",
+		"ordinal", ordinal,
+		"cachedInputHash", env.Meta.InputHash,
+		"computedInputHash", inputHash,
+		"hashMatch", env.Meta.InputHash == inputHash)
+
 	if env.Meta.InputHash != "" && env.Meta.InputHash != inputHash {
+		r.logger.Error("job result input hash mismatch",
+			"ordinal", ordinal,
+			"cachedInputHash", env.Meta.InputHash,
+			"computedInputHash", inputHash)
 		return nil, 0, false, false, fmt.Errorf("%w: ordinal %d job result input hash mismatch", swf.ErrWorkflowNotDeterministic, ordinal)
 	}
 	if !totalDeadline.IsZero() && time.Now().After(totalDeadline) {

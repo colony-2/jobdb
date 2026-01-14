@@ -103,7 +103,9 @@ func computeInputHash(ctx context.Context, taskData swf.TaskData) (string, error
 	for _, part := range artifactParts {
 		_, _ = h.Write([]byte(part))
 	}
-	return fmt.Sprintf("%x", h.Sum(nil)), nil
+	computedHash := fmt.Sprintf("%x", h.Sum(nil))
+
+	return computedHash, nil
 }
 
 func errorPayloadFromError(err error, inputRef *swf.InputReference) (json.RawMessage, string, error) {
