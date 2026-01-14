@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"time"
 
@@ -85,6 +86,7 @@ func computeInputHash(ctx context.Context, taskData swf.TaskData) (string, error
 	}
 
 	artifactParts := make([]string, 0, len(artifacts))
+	artifactDetails := make([]map[string]string, 0, len(artifacts))
 	for _, art := range artifacts {
 		hash, err := artifactHash(ctx, art)
 		if err != nil {
@@ -95,6 +97,11 @@ func computeInputHash(ctx context.Context, taskData swf.TaskData) (string, error
 			uri = art.Name()
 		}
 		artifactParts = append(artifactParts, fmt.Sprintf("%s|%s|%s", uri, hash, art.Name()))
+		artifactDetails = append(artifactDetails, map[string]string{
+			"name": art.Name(),
+			"id":   uri,
+			"hash": hash,
+		})
 	}
 	sort.Strings(artifactParts)
 
@@ -104,6 +111,14 @@ func computeInputHash(ctx context.Context, taskData swf.TaskData) (string, error
 		_, _ = h.Write([]byte(part))
 	}
 	computedHash := fmt.Sprintf("%x", h.Sum(nil))
+
+	// Debug logging: print the actual data being hashed
+	slog.Default().Debug("computeInputHash: data being hashed",
+		"hash", computedHash,
+		"data", string(data),
+		"dataLength", len(data),
+		"artifacts", artifactDetails,
+		"artifactCount", len(artifacts))
 
 	return computedHash, nil
 }
