@@ -116,6 +116,101 @@ func TestTaskRestartUsesCache(t *testing.T) {
 	}
 }
 
+// TestExternalTaskCompletionUsesStoredInputHash verifies external completion uses the stored input hash
+// instead of recomputing from the previous chapter.
+func TestExternalTaskCompletionUsesStoredInputHash(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	taskType := "external-task"
+	jobWorker := &externalTaskJobWorker{
+		name:     "external-task-job",
+		taskType: taskType,
+	}
+	jobWorker.workset = initWorkset(jobWorker)
+
+	embedded, err := StartEmbeddedEngine(ctx, jobWorker)
+	if err != nil {
+		t.Fatalf("start embedded engine: %v", err)
+	}
+	defer embedded.Shutdown()
+
+	engine := embedded.SWFEngine.(*swfEngineImpl)
+
+	input := swf.NewTaskDataOrPanic(map[string]string{"form": "hello"})
+	jobKey, err := engine.StartJob(ctx, swf.StartJob{
+		TenantId: "test-tenant",
+		JobType:  jobWorker.Name(),
+		Data:     input,
+	})
+	if err != nil {
+		t.Fatalf("start job: %v", err)
+	}
+
+	lease := getLeaseForJob(t, ctx, engine, jobKey)
+	if lease == nil {
+		t.Fatalf("no lease available")
+	}
+
+	r := &runner{
+		jobId:        lease.JobID(),
+		tenantId:     jobKey.TenantId,
+		worker:       jobWorker.workset,
+		storyCounter: 1,
+		engine:       engine,
+		lease:        lease,
+		logger:       engine.logger,
+		jobPolicy:    normalizeRunPolicy(swf.RunPolicy{}),
+		capability:   lease.NextNeed(),
+		ctx:          ctx,
+	}
+	r.DoJob(ctx, lease)
+
+	handles, err := engine.FindTasksWaitingForCapability(ctx, jobWorker.Name(), taskType, []string{jobKey.TenantId})
+	if err != nil {
+		t.Fatalf("find waiting tasks: %v", err)
+	}
+	if len(handles) != 1 {
+		t.Fatalf("expected 1 waiting task, got %d", len(handles))
+	}
+
+	finishData := swf.NewTaskDataOrPanic(map[string]string{"result": "done"})
+	if err := handles[0].Finish(ctx, finishData); err != nil {
+		t.Fatalf("finish task: %v", err)
+	}
+
+	lease2 := getLeaseForJob(t, ctx, engine, jobKey)
+	if lease2 == nil {
+		t.Fatalf("no lease available after task completion")
+	}
+	r2 := &runner{
+		jobId:        lease2.JobID(),
+		tenantId:     jobKey.TenantId,
+		worker:       jobWorker.workset,
+		storyCounter: 1,
+		engine:       engine,
+		lease:        lease2,
+		logger:       engine.logger,
+		jobPolicy:    normalizeRunPolicy(swf.RunPolicy{}),
+		capability:   lease2.NextNeed(),
+		ctx:          ctx,
+	}
+	r2.DoJob(ctx, lease2)
+
+	result, err := engine.GetJobResult(ctx, jobKey)
+	if err != nil {
+		t.Fatalf("get job result: %v", err)
+	}
+	data, _ := result.GetData()
+	var resultMap map[string]interface{}
+	if err := json.Unmarshal(data, &resultMap); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if resultMap["result"] != "done" {
+		t.Fatalf("unexpected result: %v", resultMap)
+	}
+}
+
 // TestTaskRetryWithFailures verifies task retry logic works correctly
 func TestTaskRetryWithFailures(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -600,6 +695,33 @@ func (w *taskCallingJobWorkerSimple) Run(ctx swf.JobContext, data swf.JobData) (
 	}
 
 	return result, nil
+}
+
+type externalTaskJobWorker struct {
+	name     string
+	taskType string
+	workset  *swf.WorkSet
+}
+
+func (w *externalTaskJobWorker) Name() string { return w.name }
+
+func (w *externalTaskJobWorker) Run(ctx swf.JobContext, data swf.JobData) (swf.JobData, error) {
+	raw, err := data.GetData()
+	if err != nil {
+		return nil, err
+	}
+	var input map[string]interface{}
+	if err := json.Unmarshal(raw, &input); err != nil {
+		return nil, err
+	}
+	taskInput := map[string]interface{}{
+		"form": input["form"],
+		"context": map[string]interface{}{
+			"request_id": "req-1",
+		},
+	}
+	taskData := swf.NewTaskDataOrPanic(taskInput)
+	return ctx.DoTask(swf.RunPolicy{}, w.taskType, taskData)
 }
 
 type multiTaskJobWorker struct {

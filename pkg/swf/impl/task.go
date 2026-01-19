@@ -79,31 +79,11 @@ func (h *taskHandleImpl) Finish(ctx context.Context, taskData swf.TaskData) erro
 	}
 
 	// Compute input hash from input chapter
-	var inputHash string
-	if tw, err := extractTaskWaitFromRaw(h.payload); err == nil && tw.InputHash != "" {
-		inputHash = tw.InputHash
-	} else if h.inputChapter != nil {
-		inputTD, err := chapterToTaskData(h.inputChapter)
-		if err != nil {
-			return err
-		}
-		inputHash, err = computeInputHash(ctx, inputTD)
-		if err != nil {
-			return err
-		}
-
-		// Debug logging for external task input hash computation
-		inputData, _ := inputTD.GetData()
-		inputArtifacts, _ := inputTD.GetArtifacts()
-		h.engine.logger.Debug("computed external task input hash",
-			"taskType", h.taskType,
-			"jobId", h.jobID,
-			"inputOrdinal", h.inputOrdinal,
-			"outputOrdinal", h.outputOrdinal,
-			"inputHash", inputHash,
-			"dataLength", len(inputData),
-			"artifactCount", len(inputArtifacts))
+	tw, err := extractTaskWaitFromRaw(h.payload)
+	if err != nil || tw.InputHash == "" {
+		return fmt.Errorf("input hash not found in payload")
 	}
+	inputHash := tw.InputHash
 
 	// Extract metadata from payload and input chapter
 	var payload jobPayload
@@ -144,7 +124,7 @@ func (h *taskHandleImpl) Finish(ctx context.Context, taskData swf.TaskData) erro
 		return err
 	}
 	jobKey := h.JobKey()
-	err = h.engine.strata.SaveChapter(context.TODO(), jobKey.ToStoryKey(), chap)
+	err = h.engine.strata.SaveChapter(ctx, jobKey.ToStoryKey(), chap)
 	if err != nil {
 		return err
 	}

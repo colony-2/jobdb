@@ -1047,7 +1047,7 @@ func (s *swfEngineImpl) GetWaitingTask(ctx context.Context, key swf.JobKey) (swf
 		outputOrdinal: tw.OutputStep,
 		engine:        s,
 		nextNeed:      pgwf.Capability(tw.Next),
-		taskType:      taskTypeFromCapability(tw.Next),
+		taskType:      job.NextNeed,
 		createdAt:     job.CreatedAt,
 	}
 	return th, nil

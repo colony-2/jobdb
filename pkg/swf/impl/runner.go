@@ -318,7 +318,7 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 				TaskWait: &taskWait{
 					InputStep:  inputOrdinal,
 					OutputStep: ordinal,
-					Next:       r.worker.JobWorker.Name(),
+					Next:       r.worker.JobWorker.Name(), // use only the job type for next need as we can't determine here what the next need is.
 					InputHash:  inputHash,
 				},
 			})
@@ -328,7 +328,7 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 			}
 
 			prematureCloseOut()
-			return nil, nil
+			panic("unreachable")
 		}
 
 		// Execute task
