@@ -417,6 +417,8 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 		originalErr := taskErr
 		var payload json.RawMessage
 		artifacts := []swf.Artifact{}
+		var dataBytes swf.Data
+		var outputArtifactDigests []string
 		if taskErr != nil {
 			var tdErr error
 			payload, payloadKind, tdErr = errorPayloadFromError(taskErr, inputRef)
@@ -434,12 +436,16 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 			}
 		} else {
 			// success
-			dataBytes, err := output.GetData()
+			dataBytes, err = output.GetData()
 			if err != nil {
 				return nil, err
 			}
 			payload = dataBytes
 			artifacts, err = output.GetArtifacts()
+			if err != nil {
+				return nil, err
+			}
+			outputArtifactDigests, err = validateOutputArtifacts(ctx, artifacts)
 			if err != nil {
 				return nil, err
 			}
@@ -475,6 +481,14 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 			return nil, err
 		}
 
+		returnedOutput := output
+		if originalErr == nil {
+			returnedOutput, err = wrapOutputArtifactsWithFallback(output, dataBytes, artifacts, outputArtifactDigests, key, ordinal, r.engine.strata, r.logger)
+			if err != nil {
+				return nil, err
+			}
+		}
+
 		// Cleanup output artifacts after successful save
 		cleanupArtifacts(context.TODO(), artifacts, r.logger)
 
@@ -482,7 +496,7 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 			// Success - cleanup input artifacts and return
 			inputArtifacts, _ := data.GetArtifacts()
 			cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
-			return output, nil
+			return returnedOutput, nil
 		}
 
 		// Error - check if should retry

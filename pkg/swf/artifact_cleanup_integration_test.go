@@ -1,7 +1,9 @@
 package swf_test
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -192,6 +194,63 @@ func TestArtifactCleanupAfterUpload(t *testing.T) {
 		_, err = os.Stat(testFile)
 		assert.True(t, os.IsNotExist(err), "file should be cleaned up even after job error")
 	})
+
+	t.Run("task output artifact falls back after cleanup", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		postgresDSN, stopPG := startEmbeddedPostgres(t)
+		defer stopPG()
+		if err := installPGWF(ctx, postgresDSN); err != nil {
+			t.Fatalf("failed to install pgwf schema: %v", err)
+		}
+
+		baseURL, strata := startStrata(t)
+		defer strata.Shutdown()
+		waitForStrataReady(t, baseURL)
+
+		tempDir := t.TempDir()
+		testFile := filepath.Join(tempDir, "fallback-output.bin")
+		testData := []byte("fallback-read-data")
+
+		jobWorker := &fallbackArtifactJob{
+			taskName: "fallback-produce",
+			expected: testData,
+		}
+		taskWorker := &fallbackArtifactTask{
+			filePath: testFile,
+			name:     "fallback-output.bin",
+			payload:  testData,
+		}
+
+		engine, err := swf.NewEngineBuilder().
+			WithPostgresDSN(postgresDSN).
+			WithStrata(baseURL).
+			WithStrataAPIKey(strata.APIKey).
+			PlusWorkers(jobWorker, taskWorker).
+			Build(impl.Builder)
+		require.NoError(t, err)
+
+		go engine.Run(ctx)
+
+		jobKey, err := engine.StartJob(ctx, swf.StartJob{
+			TenantId: "test-tenant",
+			JobType:  jobWorker.Name(),
+			Data:     swf.NewTaskDataOrPanic(map[string]string{"key": "value"}),
+		})
+		require.NoError(t, err)
+
+		require.Eventually(t, func() bool {
+			status, _ := engine.CheckJobStatus(ctx, jobKey)
+			return status == swf.JobStatusCompleted
+		}, 30*time.Second, 200*time.Millisecond)
+
+		_, err = engine.GetJobResult(ctx, jobKey)
+		require.NoError(t, err)
+
+		_, err = os.Stat(testFile)
+		assert.True(t, os.IsNotExist(err), "file should be cleaned up after DoTask returns")
+	})
 }
 
 // artifactProducerJob calls a task that produces an artifact as output
@@ -217,6 +276,57 @@ func (t *artifactProducingTask) Run(ctx swf.TaskContext, input swf.TaskData) (sw
 	return &swf.SimpleTaskData{
 		Data:      []byte(`{"produced":true}`),
 		Artifacts: []swf.Artifact{t.artifact},
+	}, nil
+}
+
+type fallbackArtifactJob struct {
+	taskName string
+	expected []byte
+}
+
+func (j *fallbackArtifactJob) Name() string { return "artifact-fallback-job" }
+
+func (j *fallbackArtifactJob) Run(ctx swf.JobContext, input swf.JobData) (swf.JobData, error) {
+	out, err := ctx.DoTask(swf.RunPolicy{}, j.taskName, input)
+	if err != nil {
+		return nil, err
+	}
+	artifacts, err := out.GetArtifacts()
+	if err != nil {
+		return nil, err
+	}
+	if len(artifacts) != 1 {
+		return nil, fmt.Errorf("expected 1 artifact, got %d", len(artifacts))
+	}
+	data, err := artifacts[0].Bytes(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("read artifact: %w", err)
+	}
+	if !bytes.Equal(data, j.expected) {
+		return nil, fmt.Errorf("artifact data mismatch")
+	}
+	return out, nil
+}
+
+type fallbackArtifactTask struct {
+	filePath string
+	name     string
+	payload  []byte
+}
+
+func (t *fallbackArtifactTask) Name() string { return "fallback-produce" }
+
+func (t *fallbackArtifactTask) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
+	if err := os.WriteFile(t.filePath, t.payload, 0644); err != nil {
+		return nil, err
+	}
+	artifact, err := swf.NewArtifactFromFile(t.name, t.filePath)
+	if err != nil {
+		return nil, err
+	}
+	return &swf.SimpleTaskData{
+		Data:      []byte(`{"produced":true}`),
+		Artifacts: []swf.Artifact{artifact},
 	}, nil
 }
 
