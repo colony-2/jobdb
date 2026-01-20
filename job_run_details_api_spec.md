@@ -1,0 +1,180 @@
+x# Job Run Details API (Draft)
+
+## Goals
+- Provide a read-only API to fetch execution details for a single job by ID.
+- Return job start details, task executions (with retries/attempts), and job result (if available).
+- Expose task inputs/outputs and artifacts using data already stored in Strata chapters + pgwf status.
+- Present structured error/timeout info without leaking internal envelope formats.
+
+## Non-Goals
+- No mutation (cancel/retry/restart) or live log streaming.
+- No artifact bytes inlined; only metadata + identifiers for follow-on fetch.
+- No recomputation or rehydration beyond data already stored in chapters.
+- No pagination in v1 (entire job timeline returned).
+
+## Data Sources
+- Strata story chapters for the job:
+  - Chapter envelope `meta` (attempts, timestamps, input hashes, input payloads).
+  - Chapter artifacts (outputs).
+  - Chapter payload kind + payload body (app output or error payload).
+- pgwf job status for active vs archived (running vs complete).
+
+## API Shape (Go)
+```go
+type GetJobRunRequest struct {
+    JobKey               swf.JobKey
+    IncludeInputs        bool // default true; include task/job input payloads when available
+    IncludeOutputs       bool // default true
+    IncludeArtifacts     bool // default true
+    IncludeAttemptInputs bool // default false; if true, resolve input refs to include artifacts
+}
+
+type GetJobRunResponse struct {
+    Job   JobRunSummary
+    Start JobStart
+    Tasks []TaskRun
+    JobAttempts []JobAttempt // empty when no job attempt chapters yet
+    Result *JobAttempt        // last job attempt if job is complete; nil otherwise
+}
+
+type JobRunSummary struct {
+    JobKey     swf.JobKey
+    JobType    string
+    Status     swf.JobStatus
+    CreatedAt  time.Time
+    ArchivedAt *time.Time
+    Runtime    *JobRuntime
+}
+
+type JobRuntime struct {
+    Ready          bool
+    Leased         bool
+    LeaseOwner     *string // worker id if known
+    LeaseExpiresAt *time.Time
+    NextNeed       *string   // pgwf next_need/capability
+    AvailableAt    *time.Time
+    WaitFor        []swf.JobId
+}
+
+type JobStart struct {
+    Ordinal   int64
+    WorkerID  string
+    CreatedAt time.Time
+    Input     *TaskIO
+}
+
+type TaskRun struct {
+    TaskRunID string // stable id: "<task_type>:<first_ordinal>"
+    TaskType  string
+    Attempts  []TaskAttempt
+}
+
+type TaskAttempt struct {
+    Ordinal       int64
+    Attempt       int
+    WorkerID      string
+    CreatedAt     time.Time
+    InputHash     string
+    InputRef      *swf.InputReference
+    RunPolicy     *swf.RunPolicy
+    Retryable     *bool
+    MaxAttempts   *int
+    NextAttemptAt *time.Time
+    BackoffMillis *int64
+    Input         *TaskIO
+    Output        *TaskIO
+    Outcome       TaskOutcome
+}
+
+type JobAttempt struct {
+    Ordinal   int64
+    Attempt   int
+    WorkerID  string
+    CreatedAt time.Time
+    InputRef  *swf.InputReference
+    Output    *TaskIO
+    Outcome   TaskOutcome
+}
+
+type TaskIO struct {
+    Data      json.RawMessage
+    Artifacts []ArtifactInfo
+}
+
+type ArtifactInfo struct {
+    ID          string
+    Name        string
+    ContentType string
+    SizeBytes   int64
+    Sha256      string
+}
+
+type TaskOutcome struct {
+    Status      string // "SUCCEEDED" | "FAILED"
+    PayloadKind string // "App" | "AppChildJob" | "AppError" | "SystemError" | "Timeout"
+    Error       *TaskError
+}
+
+type TaskError struct {
+    Kind      string                 // "APP" | "SYSTEM" | "TIMEOUT"
+    Message   string
+    Level     string                 // app errors
+    Attrs     map[string]interface{} // app errors
+    Component string                 // system/timeouts
+    Code      string                 // system/timeouts
+    Retryable *bool                  // system/timeouts
+    Scope     string                 // timeout only
+    After     *swf.Duration          // timeout only
+    InputRef  *swf.InputReference
+    Stacktrace []string
+}
+
+// New interface exposed by SWFEngine (non-exported to mirror existing patterns).
+type jobRunApi interface {
+    GetJobRun(ctx context.Context, req GetJobRunRequest) (GetJobRunResponse, error)
+}
+```
+
+## Response Semantics
+- `Start` is derived from chapter ordinal `0` (the initial job input chapter).
+  - `JobRunSummary.JobType` is `Start`'s `meta.task_type` (same as job worker name).
+  - `Start.Input` is the chapter payload + artifacts (job input).
+- `Runtime` is populated only when the job is not archived/completed, sourced from pgwf job state.
+  - `Leased` is true when the job has an active lease (now < lease_expires_at).
+  - `LeaseOwner` is the current worker id if present in pgwf.
+  - `Ready` is true when the job is eligible to be leased now (status READY and available_at <= now).
+  - `NextNeed` is the capability currently needed (from pgwf next_need).
+  - `WaitFor` is the current dependency list when the job is waiting on other jobs.
+  - `AvailableAt` surfaces the next scheduled time when waiting on a timer.
+- `Tasks` are derived from chapters with `meta.task_type != JobRunSummary.JobType`.
+  - Each chapter is a task attempt; retries are separate chapters with incremented `meta.attempt`.
+  - `TaskRunID` is built from the first attempt’s ordinal to keep it stable and unique.
+  - Attempts are grouped by scan order: a new `TaskRun` begins when `meta.attempt == 1`.
+- `JobAttempts` are derived from chapters with `meta.task_type == JobRunSummary.JobType` and `ordinal > 0`.
+  - These represent job worker attempts (retries) and are separate from task runs.
+- `Result` is the last `JobAttempt` only if pgwf reports the job archived/completed; otherwise `nil`.
+- `Input` payloads for task attempts:
+  - If `meta.input` is populated (task input storage enabled), use it directly.
+  - Otherwise, return `nil` and rely on `InputRef` to point at the input chapter.
+  - If `IncludeAttemptInputs` is true, resolve `InputRef` and return its payload/artifacts.
+- `Output` payloads are always the chapter payload. Artifacts are the chapter artifacts.
+
+## Error/Outcome Mapping
+- `payload_kind` maps to `TaskOutcome`:
+  - `App`, `AppChildJob` -> `Status=SUCCEEDED`, `Error=nil`.
+  - `AppError` -> `Status=FAILED`, `Error.Kind="APP"` with fields from `swf.AppErrorPayload`.
+  - `SystemError` -> `Status=FAILED`, `Error.Kind="SYSTEM"` with fields from `swf.SystemErrorPayload`.
+  - `Timeout` -> `Status=FAILED`, `Error.Kind="TIMEOUT"` with fields from `swf.TimeoutPayload`.
+- Unknown `payload_kind` values are surfaced as `Status=FAILED`, `Error.Kind="SYSTEM"`, `Code="unknown_payload_kind"`.
+
+## Implementation Notes
+- Chapters are fetched in ordinal order from Strata; no additional persistence is required.
+- Artifact metadata is sourced from the chapter’s attached artifacts (ID, name, size, content type, sha256).
+- When `IncludeArtifacts=false`, omit artifact arrays entirely to keep responses small.
+- When a chapter’s payload is invalid JSON, return `ErrWorkflowNotDeterministic` (same as internal reads).
+
+## Testing Plan
+- Job with retries: `JobAttempts` shows multiple attempts with error payloads + final success.
+- Task retry: a single `TaskRun` with `Attempts` containing `attempt=1..n`.
+- Task input storage disabled: `TaskAttempt.Input` is nil; `InputRef` still set.
+- Running job: `Result` is nil, but `Tasks` includes completed attempts so far.
