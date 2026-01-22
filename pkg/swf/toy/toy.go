@@ -1316,6 +1316,10 @@ func (c *toyJobContext) AwaitDuration(waitFor swf.Duration) error {
 	}
 }
 
+func (c *toyJobContext) AwaitJobs(jobIds ...string) error {
+	return fmt.Errorf("AwaitJobs not supported in ToyEngine")
+}
+
 func (c *toyJobContext) SpawnAsync(jobType string, data swf.TaskData) (*swf.Future, error) {
 	return nil, fmt.Errorf("SpawnAsync not supported in ToyEngine")
 }

@@ -577,6 +577,45 @@ func (r *runner) AwaitDuration(waitFor swf.Duration) error {
 	return r.awaitUntil(time.Now().Add(wait), r.storyCounter, 0, kind, r.currentInputRef, r.currentInvocationDeadline, r.currentTotalDeadline, r.currentInvocationLimit, r.currentTotalLimit)
 }
 
+func (r *runner) AwaitJobs(jobIds ...string) error {
+	if len(jobIds) == 0 {
+		return fmt.Errorf("at least one jobId is required")
+	}
+	if r.engine == nil || r.engine.udb == nil {
+		return fmt.Errorf("engine is not available")
+	}
+	if r.lease == nil {
+		return fmt.Errorf("lease is not available")
+	}
+	capability := r.capability
+	if capability == "" {
+		capability = r.lease.NextNeed()
+	}
+	if capability == "" {
+		return fmt.Errorf("capability is required")
+	}
+	waitFor := make([]pgwf.JobID, 0, len(jobIds))
+	for _, id := range jobIds {
+		if id == "" {
+			return fmt.Errorf("jobId cannot be empty")
+		}
+		waitFor = append(waitFor, pgwf.JobID(id))
+	}
+	payload := r.lease.Payload()
+	if len(payload) == 0 {
+		payload = json.RawMessage(`{}`)
+	}
+	deps := pgwf.JobDependencies{
+		NextNeed: capability,
+		WaitFor:  waitFor,
+	}
+	if err := r.lease.Reschedule(context.TODO(), r.engine.udb, deps, payload); err != nil {
+		return err
+	}
+	prematureCloseOut()
+	return nil
+}
+
 func (r *runner) SpawnAsync(jobType string, data swf.TaskData) (*swf.Future, error) {
 	return r.spawnAsyncWithDeadlines(jobType, data, r.currentInvocationDeadline, r.currentTotalDeadline, r.currentInvocationLimit, r.currentTotalLimit, r.currentInputRef)
 }

@@ -57,6 +57,7 @@ type JobContext interface {
 	//RunChildJobSync(ctx context.Context, childJob StartJob) (JobKey, error)
 	DoTask(policy RunPolicy, taskType string, data TaskData) (TaskData, error)
 	AwaitDuration(waitFor Duration) error
+	AwaitJobs(jobIds ...string) error
 	SpawnAsync(jobType string, data TaskData) (*Future, error)
 }
 
