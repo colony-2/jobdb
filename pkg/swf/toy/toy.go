@@ -64,6 +64,7 @@ type jobRecord struct {
 	payload    []byte
 	capability string
 	step       int64
+	waitFor    []string
 	chapters   map[int64]*toyChapter
 }
 
@@ -881,7 +882,7 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.
 			Status:          status,
 			JobType:         rec.jobType,
 			SingletonKey:    rec.singleton,
-			WaitFor:         []string{},
+			WaitFor:         append([]string(nil), rec.waitFor...),
 			AvailableAt:     rec.createdAt,
 			ExpiresAt:       nil,
 			LeaseExpiresAt:  nil,
@@ -1317,7 +1318,62 @@ func (c *toyJobContext) AwaitDuration(waitFor swf.Duration) error {
 }
 
 func (c *toyJobContext) AwaitJobs(jobIds ...string) error {
-	return fmt.Errorf("AwaitJobs not supported in ToyEngine")
+	if len(jobIds) == 0 {
+		return fmt.Errorf("at least one jobId is required")
+	}
+	waitKeys := make([]swf.JobKey, 0, len(jobIds))
+	for _, id := range jobIds {
+		if id == "" {
+			return fmt.Errorf("jobId cannot be empty")
+		}
+		key := swf.JobKey{TenantId: c.jobKey.TenantId, JobId: id}
+		if rec := c.engine.getJobRecord(key); rec == nil {
+			return fmt.Errorf("job %s not found", key)
+		}
+		waitKeys = append(waitKeys, key)
+	}
+
+	c.record.mu.Lock()
+	if c.record.status != swf.JobStatusCancelled {
+		c.record.status = swf.JobStatusPendingJobs
+	}
+	c.record.waitFor = append([]string(nil), jobIds...)
+	c.record.mu.Unlock()
+
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-c.cancelCh:
+			c.markCancelled()
+			return context.Canceled
+		case <-ticker.C:
+		}
+
+		allDone := true
+		for _, key := range waitKeys {
+			rec := c.engine.getJobRecord(key)
+			if rec == nil {
+				return fmt.Errorf("job %s not found", key)
+			}
+			rec.mu.Lock()
+			status := rec.status
+			rec.mu.Unlock()
+			if status != swf.JobStatusCompleted && status != swf.JobStatusCancelled {
+				allDone = false
+				break
+			}
+		}
+		if allDone {
+			c.record.mu.Lock()
+			if !c.record.cancelled {
+				c.record.status = swf.JobStatusActive
+			}
+			c.record.waitFor = nil
+			c.record.mu.Unlock()
+			return nil
+		}
+	}
 }
 
 func (c *toyJobContext) SpawnAsync(jobType string, data swf.TaskData) (*swf.Future, error) {

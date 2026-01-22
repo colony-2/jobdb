@@ -144,6 +144,118 @@ func TestToyEnginePendingOnMissingTaskWorker(t *testing.T) {
 	}
 }
 
+func TestToyEngineAwaitJobs(t *testing.T) {
+	tenantID := "test-tenant"
+	childJobID := "child-job"
+	parentJobID := "parent-job"
+
+	childStarted := make(chan struct{})
+	releaseChild := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-releaseChild:
+		default:
+			close(releaseChild)
+		}
+	})
+
+	childWorker := blockingJobWorker{name: "child-worker", started: childStarted, release: releaseChild}
+	parentWorker := awaitJobsParentWorker{name: "parent-worker", waitFor: []string{childJobID}}
+	childWS := mustWorkSet(childWorker)
+	parentWS := mustWorkSet(parentWorker)
+	engine := NewToyEngine([]swf.WorkSet{childWS, parentWS})
+
+	childDone := make(chan error, 1)
+	go func() {
+		_, err := engine.StartJob(context.Background(), swf.StartJob{
+			TenantId: tenantID,
+			JobType:  childWorker.Name(),
+			JobID:    childJobID,
+			Data:     swf.NewTaskDataOrPanic(map[string]int{"n": 1}),
+		})
+		childDone <- err
+	}()
+
+	select {
+	case <-childStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("child job did not start")
+	}
+
+	parentDone := make(chan error, 1)
+	go func() {
+		_, err := engine.StartJob(context.Background(), swf.StartJob{
+			TenantId: tenantID,
+			JobType:  parentWorker.Name(),
+			JobID:    parentJobID,
+			Data:     swf.NewTaskDataOrPanic(map[string]int{"n": 2}),
+		})
+		parentDone <- err
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		status, err := engine.CheckJobStatus(context.Background(), swf.JobKey{TenantId: tenantID, JobId: parentJobID})
+		if err == nil && status == swf.JobStatusPendingJobs {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	status, err := engine.CheckJobStatus(context.Background(), swf.JobKey{TenantId: tenantID, JobId: parentJobID})
+	if err != nil {
+		t.Fatalf("CheckJobStatus failed: %v", err)
+	}
+	if status != swf.JobStatusPendingJobs {
+		t.Fatalf("expected parent status %s, got %s", swf.JobStatusPendingJobs, status)
+	}
+
+	resp, err := engine.ListJobs(context.Background(), swf.ListJobsRequest{TenantIds: []string{tenantID}})
+	if err != nil {
+		t.Fatalf("ListJobs failed: %v", err)
+	}
+	found := false
+	for _, job := range resp.Jobs {
+		if job.JobKey.JobId == parentJobID {
+			found = true
+			if len(job.WaitFor) != 1 || job.WaitFor[0] != childJobID {
+				t.Fatalf("expected wait_for %s, got %v", childJobID, job.WaitFor)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("parent job not found in ListJobs response")
+	}
+
+	close(releaseChild)
+
+	select {
+	case err := <-childDone:
+		if err != nil {
+			t.Fatalf("child job error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("child job did not finish")
+	}
+
+	select {
+	case err := <-parentDone:
+		if err != nil {
+			t.Fatalf("parent job error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("parent job did not finish")
+	}
+
+	finalStatus, err := engine.CheckJobStatus(context.Background(), swf.JobKey{TenantId: tenantID, JobId: parentJobID})
+	if err != nil {
+		t.Fatalf("CheckJobStatus failed: %v", err)
+	}
+	if finalStatus != swf.JobStatusCompleted {
+		t.Fatalf("expected parent status %s, got %s", swf.JobStatusCompleted, finalStatus)
+	}
+}
+
 func TestToyEngineCancelJob(t *testing.T) {
 	ws := mustWorkSet(sequenceJob{steps: []string{"slow"}}, slowTask{sleep: 500 * time.Millisecond})
 	jobKey := swf.JobKey{TenantId: "test-tenant", JobId: "cancel-me"}
@@ -942,6 +1054,34 @@ type simpleJobWorker struct {
 func (j simpleJobWorker) Name() string { return j.name }
 func (j simpleJobWorker) Run(ctx swf.JobContext, input swf.JobData) (swf.JobData, error) {
 	return ctx.DoTask(swf.RunPolicy{}, j.task, input)
+}
+
+type blockingJobWorker struct {
+	name    string
+	started chan<- struct{}
+	release <-chan struct{}
+}
+
+func (b blockingJobWorker) Name() string { return b.name }
+func (b blockingJobWorker) Run(ctx swf.JobContext, input swf.JobData) (swf.JobData, error) {
+	if b.started != nil {
+		close(b.started)
+	}
+	<-b.release
+	return input, nil
+}
+
+type awaitJobsParentWorker struct {
+	name    string
+	waitFor []string
+}
+
+func (a awaitJobsParentWorker) Name() string { return a.name }
+func (a awaitJobsParentWorker) Run(ctx swf.JobContext, input swf.JobData) (swf.JobData, error) {
+	if err := ctx.AwaitJobs(a.waitFor...); err != nil {
+		return nil, err
+	}
+	return input, nil
 }
 
 type dummyTask struct {
