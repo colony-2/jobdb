@@ -259,7 +259,34 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 					"ordinal", ordinal,
 					"cachedInputHash", env.Meta.InputHash,
 					"computedInputHash", inputHash)
-				return nil, fmt.Errorf("%w: ordinal %d task %s", swf.ErrWorkflowNotDeterministic, ordinal, taskType)
+				artifacts := convertStrataArtifacts(chap.Artifacts(), key.StoryID, ordinal)
+				cachedOutput, cachedOutputErr := envelopeToTaskData(env, artifacts)
+				meta := swf.TaskDeterminismMeta{
+					Ordinal:       env.Meta.Ordinal,
+					TaskType:      env.Meta.TaskType,
+					WorkerID:      env.Meta.WorkerID,
+					CreatedAt:     env.Meta.CreatedAt,
+					Attempt:       env.Meta.Attempt,
+					MaxAttempts:   env.Meta.MaxAttempts,
+					NextAttemptAt: env.Meta.NextAttemptAt,
+					BackoffMillis: env.Meta.BackoffMillis,
+					Retryable:     env.Meta.Retryable,
+					InputHash:     env.Meta.InputHash,
+					InputRef:      env.Meta.InputRef,
+					RunPolicy:     env.Meta.RunPolicy,
+					InputPayload:  env.Meta.Input,
+					Version:       env.Meta.Version,
+				}
+				return nil, swf.TaskInputMismatchError{
+					TaskType:          taskType,
+					Ordinal:           ordinal,
+					CachedInputHash:   env.Meta.InputHash,
+					ComputedInputHash: inputHash,
+					CachedInput:       env.Meta.Input,
+					CachedOutput:      cachedOutput,
+					CachedOutputErr:   cachedOutputErr,
+					Meta:              meta,
+				}
 			}
 			if !totalDeadline.IsZero() && time.Now().After(totalDeadline) {
 				return nil, swf.NewTimeoutError("task", totalTimeout, swf.TimeoutScopeTotal, inputRef, false)
