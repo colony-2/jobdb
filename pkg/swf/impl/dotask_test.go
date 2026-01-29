@@ -2,6 +2,7 @@ package impl
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/pgwf-go/pkg/pgwf"
 	"github.com/colony-2/swf-go/pkg/swf"
 )
 
@@ -848,10 +850,10 @@ func (w *taskCallingJobWorkerWithCounter) Run(ctx swf.JobContext, data swf.JobDa
 }
 
 type taskCallingJobWorkerSimple struct {
-	name        string
-	taskType    string
-	taskPolicy  swf.RunPolicy
-	workset     *swf.WorkSet
+	name       string
+	taskType   string
+	taskPolicy swf.RunPolicy
+	workset    *swf.WorkSet
 }
 
 func (w *taskCallingJobWorkerSimple) Name() string { return w.name }
@@ -891,6 +893,276 @@ func (w *externalTaskJobWorker) Run(ctx swf.JobContext, data swf.JobData) (swf.J
 	}
 	taskData := swf.NewTaskDataOrPanic(taskInput)
 	return ctx.DoTask(swf.RunPolicy{}, w.taskType, taskData)
+}
+
+func TestDoTaskRescheduleSetsAlternateNeedFromInvocationTimeout(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name                 string
+		policy               swf.RunPolicy
+		expectAlternateNeed  bool
+		expectedAfterSeconds int64
+	}{
+		{
+			name:                 "invocation-timeout-set",
+			policy:               swf.RunPolicy{InvocationTimeout: swf.AsDuration(2 * time.Second)},
+			expectAlternateNeed:  true,
+			expectedAfterSeconds: 2,
+		},
+		{
+			name:                "no-invocation-timeout",
+			policy:              swf.RunPolicy{}, // nil invocation timeout
+			expectAlternateNeed: false,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			jobWorker := &missingTaskJobWorker{
+				name:     "alt-job-" + tc.name,
+				taskType: "missing-task",
+				policy:   tc.policy,
+			}
+			ws := initWorkset(jobWorker)
+			jobWorker.workset = ws
+
+			embedded, err := StartEmbeddedEngine(ctx, jobWorker)
+			if err != nil {
+				t.Fatalf("start embedded engine: %v", err)
+			}
+			defer embedded.Shutdown()
+
+			engine := embedded.SWFEngine.(*swfEngineImpl)
+
+			jobKey, err := engine.StartJob(ctx, swf.StartJob{
+				TenantId: "tenant-alt",
+				JobType:  jobWorker.Name(),
+				Data:     swf.NewTaskDataOrPanic(map[string]string{"hello": "world"}),
+				RunPolicy: swf.RunPolicy{
+					InvocationTimeout: tc.policy.InvocationTimeout,
+				},
+			})
+			if err != nil {
+				t.Fatalf("start job: %v", err)
+			}
+
+			lease := getLeaseForJob(t, ctx, engine, jobKey)
+			if lease == nil {
+				t.Fatalf("expected lease for job")
+			}
+
+			r := &runner{
+				jobId:        lease.JobID(),
+				tenantId:     jobKey.TenantId,
+				worker:       ws,
+				storyCounter: 1,
+				engine:       engine,
+				lease:        lease,
+				logger:       engine.logger,
+				jobPolicy:    normalizeRunPolicy(tc.policy),
+				capability:   lease.NextNeed(),
+				ctx:          ctx,
+			}
+
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				r.DoJob(ctx, lease)
+			}()
+
+			select {
+			case <-done:
+			case <-ctx.Done():
+				t.Fatalf("runner did not finish: %v", ctx.Err())
+			}
+
+			var altNeed sql.NullString
+			var altAfter sql.NullInt64
+			row := engine.udb.QueryRowContext(ctx,
+				`SELECT alternate_next_need, alternate_after_seconds FROM pgwf.jobs WHERE job_id = $1`,
+				lease.JobID())
+			if err := row.Scan(&altNeed, &altAfter); err != nil {
+				t.Fatalf("query alternate fields: %v", err)
+			}
+
+			if tc.expectAlternateNeed {
+				if !altNeed.Valid {
+					t.Fatalf("alternate_next_need missing")
+				}
+				if altNeed.String != jobWorker.name {
+					t.Fatalf("alternate_next_need mismatch, got %s want %s", altNeed.String, jobWorker.name)
+				}
+				if !altAfter.Valid || altAfter.Int64 != tc.expectedAfterSeconds {
+					t.Fatalf("alternate_after_seconds got %d want %d", altAfter.Int64, tc.expectedAfterSeconds)
+				}
+			} else {
+				if altNeed.Valid || altAfter.Valid {
+					t.Fatalf("expected no alternate fields, got need=%v after=%v", altNeed, altAfter)
+				}
+			}
+		})
+	}
+}
+
+type missingTaskJobWorker struct {
+	name     string
+	taskType string
+	policy   swf.RunPolicy
+	workset  *swf.WorkSet
+}
+
+func (w *missingTaskJobWorker) Name() string { return w.name }
+
+func (w *missingTaskJobWorker) Run(ctx swf.JobContext, data swf.JobData) (swf.JobData, error) {
+	_, err := ctx.DoTask(w.policy, w.taskType, data)
+	return nil, err
+}
+
+// Test that when the first attempt reschedules to a missing task worker, pgwf pivots
+// to the alternate need (job worker) after the invocation timeout, and on replay
+// with a now-present task worker the runner records the invocation timeout payload.
+func TestAlternateNeedReplayRecordsInvocationTimeout(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	invocation := swf.AsDuration(1 * time.Second)
+
+	jobWorker := &missingTaskJobWorker{
+		name:     "alt-timeout-job",
+		taskType: "slow-task",
+		policy: swf.RunPolicy{
+			InvocationTimeout: invocation,
+		},
+	}
+	ws := initWorkset(jobWorker)
+	jobWorker.workset = ws
+
+	embedded, err := StartEmbeddedEngine(ctx, jobWorker)
+	if err != nil {
+		t.Fatalf("start embedded engine: %v", err)
+	}
+	defer embedded.Shutdown()
+	engine := embedded.SWFEngine.(*swfEngineImpl)
+
+	jobKey, err := engine.StartJob(ctx, swf.StartJob{
+		TenantId: "tenant-alt-timeout",
+		JobType:  jobWorker.Name(),
+		Data:     swf.NewTaskDataOrPanic(map[string]string{"hello": "world"}),
+		RunPolicy: swf.RunPolicy{
+			InvocationTimeout: invocation,
+		},
+	})
+	if err != nil {
+		t.Fatalf("start job: %v", err)
+	}
+
+	// First lease: job worker runs, reschedules to missing task and Goexits.
+	lease1 := getLeaseForJob(t, ctx, engine, jobKey)
+	if lease1 == nil {
+		t.Fatalf("expected first lease")
+	}
+	firstDone := make(chan struct{})
+	go func() {
+		defer close(firstDone)
+		r := &runner{
+			jobId:        lease1.JobID(),
+			tenantId:     jobKey.TenantId,
+			worker:       ws,
+			storyCounter: 1,
+			engine:       engine,
+			lease:        lease1,
+			logger:       engine.logger,
+			jobPolicy:    normalizeRunPolicy(jobWorker.policy),
+			capability:   lease1.NextNeed(),
+			ctx:          ctx,
+		}
+		r.DoJob(ctx, lease1)
+	}()
+
+	<-firstDone
+
+	// Wait past alternate-after (rounded up in pgwf to integer seconds).
+	time.Sleep(2500 * time.Millisecond)
+
+	// Before second lease, register a slow task worker to trigger invocation timeout on replay.
+	slowTask := &slowTaskWorker{name: jobWorker.taskType, sleep: 1500 * time.Millisecond}
+	ws.TaskWorkers[slowTask.Name()] = slowTask
+
+	// Second lease should come via alternate need (job worker capability).
+	var lease2 *pgwf.Lease
+	for i := 0; i < 15; i++ {
+		lease2, err = pgwf.GetWork(ctx, engine.udb, pgwf.WorkerID(engine.workerId), []pgwf.Capability{pgwf.Capability(jobWorker.Name())}, nil)
+		if err != nil {
+			t.Fatalf("get work attempt %d: %v", i, err)
+		}
+		if lease2 != nil {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if lease2 == nil {
+		t.Fatalf("expected second lease via alternate need")
+	}
+	if lease2.NextNeed() != pgwf.Capability(jobWorker.Name()) {
+		t.Fatalf("expected alternate lease to job worker, got %s", lease2.NextNeed())
+	}
+
+	// Run again; DoTask will now find worker, sleep past invocation timeout, and record timeout payload.
+	r2 := &runner{
+		jobId:        lease2.JobID(),
+		tenantId:     jobKey.TenantId,
+		worker:       ws,
+		storyCounter: 1,
+		engine:       engine,
+		lease:        lease2,
+		logger:       engine.logger,
+		jobPolicy:    normalizeRunPolicy(jobWorker.policy),
+		capability:   lease2.NextNeed(),
+		ctx:          ctx,
+	}
+	r2.DoJob(ctx, lease2)
+
+	// Verify task chapter recorded an invocation timeout.
+	chap, err := engine.strata.Chapter(ctx, jobKey.ToStoryKey(), 1)
+	if err != nil {
+		t.Fatalf("fetch task chapter: %v", err)
+	}
+	env, err := decodeChapterEnvelope(chap.Body())
+	if err != nil {
+		t.Fatalf("decode envelope: %v", err)
+	}
+	if env.PayloadKind != payloadKindTimeout {
+		t.Fatalf("expected timeout payload kind, got %s", env.PayloadKind)
+	}
+	var tp swf.TimeoutPayload
+	if err := json.Unmarshal(env.Payload, &tp); err != nil {
+		t.Fatalf("unmarshal timeout payload: %v", err)
+	}
+	if tp.Scope != swf.TimeoutScopeInvocation {
+		t.Fatalf("expected invocation timeout, got %s", tp.Scope)
+	}
+	if !tp.Retryable {
+		t.Fatalf("invocation timeout should be retryable")
+	}
+}
+
+type slowTaskWorker struct {
+	name  string
+	sleep time.Duration
+}
+
+func (w *slowTaskWorker) Name() string { return w.name }
+
+func (w *slowTaskWorker) Run(ctx swf.TaskContext, data swf.TaskData) (swf.TaskData, error) {
+	time.Sleep(w.sleep)
+	return data, nil
 }
 
 type multiTaskJobWorker struct {

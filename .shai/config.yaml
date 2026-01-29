@@ -3,6 +3,8 @@ version: 1
 image: ghcr.io/colony-2/shai-mega
 resources:
   shai-default-allow:
+    vars:
+      - source: GEMINI_API_KEY
     mounts:
       - source: ${{ env.HOME }}/.shai/.netrc
         target: /home/shai/.netrc

@@ -311,10 +311,18 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 				inputOrdinal = 0
 			}
 
-			err = r.lease.Reschedule(context.TODO(), r.engine.udb, pgwf.JobDependencies{
+			deps := pgwf.JobDependencies{
 				NextNeed: pgwf.Capability(r.worker.JobWorker.Name() + ":" + taskType),
 				WaitFor:  nil,
-			}, jobPayload{
+			}
+			if invocationTimeout > 0 {
+				deps.Alternate = &pgwf.AlternateNext{
+					Need:  pgwf.Capability(r.worker.JobWorker.Name()),
+					After: invocationTimeout,
+				}
+			}
+
+			err = r.lease.Reschedule(context.TODO(), r.engine.udb, deps, jobPayload{
 				RunPolicy: r.jobPolicy,
 				TaskWait: &taskWait{
 					InputStep:  inputOrdinal,
