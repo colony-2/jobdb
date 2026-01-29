@@ -305,25 +305,58 @@ func (s *swfEngineImpl) RestartJob(ctx context.Context, job swf.RestartJob) (swf
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if job.LastStepToKeep < 0 {
+		return swf.JobKey{}, fmt.Errorf("LastStepToKeep must be >= 0 for restart")
+	}
 	jobKey := swf.JobKey{
-		TenantId: job.TenantId,
-		JobId:    ksuid.New().String(),
+		TenantId: job.PriorJobKey.TenantId,
+		JobId:    job.JobID,
+	}
+	if jobKey.JobId == "" {
+		jobKey.JobId = ksuid.New().String()
 	}
 	sourceJob := job.PriorJobKey.ToStoryKey()
 	targetJob := jobKey.ToStoryKey()
 
-	inputHash, err := computeInputHash(ctx, job.Data)
+	// Load initial chapter to recover job type, run policy, and input hash.
+	chap0, err := s.strata.Chapter(ctx, sourceJob, 0)
 	if err != nil {
-		return swf.JobKey{}, err
+		return swf.JobKey{}, fmt.Errorf("load source initial chapter: %w", err)
 	}
-	now := time.Now().UTC()
-	jobPolicy := job.RunPolicy
-	jobPolicy = normalizeRunPolicy(jobPolicy)
-	createOptions, err := taskDataToCreatOptions(job.Data, job.LastStepToKeep+1, job.JobType, s.workerId, payloadKindApp, inputHash, now, chapterMetadata{
-		Attempt: 1,
-	})
+	env0, err := decodeChapterEnvelope(chap0.Body())
 	if err != nil {
-		return swf.JobKey{}, err
+		return swf.JobKey{}, fmt.Errorf("decode source initial chapter: %w", err)
+	}
+	jobType := env0.Meta.TaskType
+
+	runPolicy := env0.Meta.RunPolicy
+	jobPolicy := swf.RunPolicy{}
+	if runPolicy != nil {
+		jobPolicy = normalizeRunPolicy(*runPolicy)
+	}
+
+	createOptions := story.CreateOptions{RequestID: uuid.New().String()}
+	if job.ExtraTaskOutput != nil {
+		// Hash based on provided input or empty input.
+		hashInput := job.ExtraTaskInput
+		if hashInput == nil {
+			hashInput = swf.NewTaskDataOrPanic(map[string]any{})
+		}
+		inputHash, err := computeInputHash(ctx, hashInput)
+		if err != nil {
+			return swf.JobKey{}, err
+		}
+		inputRef := &swf.InputReference{Ordinal: job.LastStepToKeep, Hash: inputHash}
+		meta := chapterMetadata{
+			Attempt:  1,
+			InputRef: inputRef,
+		}
+
+		// Store provided output as the next chapter after LastStepToKeep.
+		createOptions, err = taskDataToCreatOptions(job.ExtraTaskOutput, job.LastStepToKeep+1, jobType, s.workerId, payloadKindApp, inputHash, time.Now().UTC(), meta)
+		if err != nil {
+			return swf.JobKey{}, err
+		}
 	}
 
 	cloneOptions := story.CloneOptions{
@@ -336,9 +369,7 @@ func (s *swfEngineImpl) RestartJob(ctx context.Context, job swf.RestartJob) (swf
 	if err != nil {
 		return swf.JobKey{}, err
 	}
-	artifacts, _ := job.Data.GetArtifacts()
-	assignArtifactKeys(artifacts, jobKey.JobId, job.LastStepToKeep+1)
-	return jobKey, s.startJob(ctx, jobKey, job.JobType, job.SingletonKey, jobPayload{RunPolicy: jobPolicy})
+	return jobKey, s.startJob(ctx, jobKey, jobType, "", jobPayload{RunPolicy: jobPolicy})
 }
 
 func (s *swfEngineImpl) CancelJob(ctx context.Context, job swf.CancelJob) error {

@@ -52,6 +52,86 @@ func TestToyEngineCustomJobID(t *testing.T) {
 	}
 }
 
+func TestToyEngineRestartReexecutesWhenNoExtraOutput(t *testing.T) {
+	ws := mustWorkSet(sequenceJob{steps: []string{"add", "double"}}, addOneTask{}, doubleTask{})
+	engine := NewToyEngine([]swf.WorkSet{ws})
+
+	input := swf.NewTaskDataOrPanic(map[string]int{"n": 1})
+	origKey, err := engine.StartJob(context.Background(), swf.StartJob{
+		TenantId: "tenant-restart",
+		JobType:  ws.JobWorker.Name(),
+		Data:     input,
+	})
+	if err != nil {
+		t.Fatalf("StartJob failed: %v", err)
+	}
+
+	restartKey, err := engine.RestartJob(context.Background(), swf.RestartJob{
+		PriorJobKey:    origKey,
+		LastStepToKeep: 0,
+	})
+	if err != nil {
+		t.Fatalf("RestartJob failed: %v", err)
+	}
+
+	status, err := engine.CheckJobStatus(context.Background(), restartKey)
+	if err != nil {
+		t.Fatalf("CheckJobStatus failed: %v", err)
+	}
+	if status != swf.JobStatusCompleted {
+		t.Fatalf("expected completed status, got %s", status)
+	}
+
+	result, err := engine.GetJobResult(context.Background(), restartKey)
+	if err != nil {
+		t.Fatalf("GetJobResult failed: %v", err)
+	}
+	if got := extractNumber(result); got != 4 {
+		t.Fatalf("unexpected restart result value, want 4 got %d", got)
+	}
+}
+
+func TestToyEngineRestartWithExtraOutputSkipsExecution(t *testing.T) {
+	ws := mustWorkSet(sequenceJob{steps: []string{"add", "double"}}, addOneTask{}, doubleTask{})
+	engine := NewToyEngine([]swf.WorkSet{ws})
+
+	input := swf.NewTaskDataOrPanic(map[string]int{"n": 1})
+	origKey, err := engine.StartJob(context.Background(), swf.StartJob{
+		TenantId: "tenant-restart-extra",
+		JobType:  ws.JobWorker.Name(),
+		Data:     input,
+	})
+	if err != nil {
+		t.Fatalf("StartJob failed: %v", err)
+	}
+
+	extraOut := swf.NewTaskDataOrPanic(map[string]int{"n": 10})
+	restartKey, err := engine.RestartJob(context.Background(), swf.RestartJob{
+		PriorJobKey:     origKey,
+		LastStepToKeep:  0,
+		ExtraTaskOutput: extraOut,
+	})
+	if err != nil {
+		t.Fatalf("RestartJob failed: %v", err)
+	}
+
+	status, err := engine.CheckJobStatus(context.Background(), restartKey)
+	if err != nil {
+		t.Fatalf("CheckJobStatus failed: %v", err)
+	}
+	if status != swf.JobStatusCompleted {
+		t.Fatalf("expected completed status, got %s", status)
+	}
+
+	result, err := engine.GetJobResult(context.Background(), restartKey)
+	if err != nil {
+		t.Fatalf("GetJobResult failed: %v", err)
+	}
+	if got := extractNumber(result); got != 10 {
+		t.Fatalf("unexpected restart result value, want 10 got %d", got)
+	}
+}
+
 func TestToyEngineRunsJobInline(t *testing.T) {
 	ws := mustWorkSet(sequenceJob{steps: []string{"add", "double"}}, addOneTask{}, doubleTask{})
 	engine := NewToyEngine([]swf.WorkSet{ws})

@@ -170,13 +170,89 @@ func (e *ToyEngine) StartJob(ctx context.Context, start swf.StartJob) (swf.JobKe
 
 // RestartJob executes like StartJob but with the provided restart data.
 func (e *ToyEngine) RestartJob(ctx context.Context, restart swf.RestartJob) (swf.JobKey, error) {
-	return e.StartJob(ctx, swf.StartJob{
-		TenantId:     restart.TenantId,
-		JobType:      restart.JobType,
-		SingletonKey: restart.SingletonKey,
-		Data:         restart.Data,
-		RunPolicy:    restart.RunPolicy,
-	})
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// Load prior job metadata and input.
+	prior := e.getJobRecord(restart.PriorJobKey)
+	if prior == nil {
+		return swf.JobKey{}, fmt.Errorf("prior job %s not found", restart.PriorJobKey)
+	}
+	prior.mu.Lock()
+	jobType := prior.jobType
+	priorInput := prior.chapters[0]
+	prior.mu.Unlock()
+	if priorInput == nil || priorInput.Input == nil {
+		return swf.JobKey{}, fmt.Errorf("prior job %s missing initial input", restart.PriorJobKey)
+	}
+
+	// Determine new job key.
+	jobKey := swf.JobKey{TenantId: restart.PriorJobKey.TenantId, JobId: restart.JobID}
+	if jobKey.JobId == "" {
+		genKey, err := e.idGenerator(jobKey.TenantId)
+		if err != nil {
+			return swf.JobKey{}, err
+		}
+		jobKey.JobId = genKey.JobId
+	}
+
+	ws, ok := e.getWorkSet(jobType)
+	if !ok {
+		return swf.JobKey{}, fmt.Errorf("job worker %s not registered", jobType)
+	}
+
+	// Seed new job record with cloned chapters up to LastStepToKeep.
+	now := time.Now()
+	record := &jobRecord{
+		status:    swf.JobStatusReady,
+		jobType:   jobType,
+		createdAt: now,
+		chapters:  make(map[int64]*toyChapter),
+	}
+
+	// Clone chapters 0..LastStepToKeep from prior.
+	prior.mu.Lock()
+	for ord, chap := range prior.chapters {
+		if ord > restart.LastStepToKeep {
+			continue
+		}
+		record.chapters[ord] = &toyChapter{
+			TaskType:  chap.TaskType,
+			CreatedAt: chap.CreatedAt,
+			Input:     chap.Input,
+			Output:    chap.Output,
+		}
+	}
+	prior.mu.Unlock()
+
+	// Optionally append provided cached output.
+	if restart.ExtraTaskOutput != nil {
+		input := restart.ExtraTaskInput
+		if input == nil {
+			input = swf.NewTaskDataOrPanic(map[string]any{})
+		}
+		ord := restart.LastStepToKeep + 1
+		record.chapters[ord] = &toyChapter{
+			TaskType:  jobType,
+			CreatedAt: now,
+			Input:     input,
+			Output:    restart.ExtraTaskOutput,
+		}
+		// Mark job completed with provided output.
+		record.status = swf.JobStatusCompleted
+		record.result = restart.ExtraTaskOutput
+		record.finished = now
+		e.setJobRecord(jobKey, record)
+		return jobKey, nil
+	}
+
+	// Otherwise run the job from the original input (ordinal 0).
+	e.setJobRecord(jobKey, record)
+	runCtx, cancel := context.WithCancel(ctx)
+	record.cancel = cancel
+	e.runJob(runCtx, jobKey, ws, swf.JobData(priorInput.Input))
+	return jobKey, nil
 }
 
 // CancelJob attempts to cancel an active job.
