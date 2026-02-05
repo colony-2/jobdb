@@ -388,7 +388,7 @@ func outcomeFromEnvelope(env chapterEnvelope) (swf.TaskOutcome, error) {
 	}
 
 	switch env.PayloadKind {
-	case payloadKindApp, payloadKindAppChildJob:
+	case payloadKindApp:
 		outcome.Status = swf.TaskOutcomeStatusSucceeded
 		return outcome, nil
 	case payloadKindAppError:

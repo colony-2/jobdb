@@ -27,9 +27,9 @@ type StartJob struct {
 type RestartJob struct {
 	PriorJobKey     JobKey
 	LastStepToKeep  int64
-	JobID           string    // optional override for new job id
-	ExtraTaskInput  TaskData  // optional input used to compute hash for ExtraTaskOutput
-	ExtraTaskOutput TaskData  // optional cached task/job output to append at LastStepToKeep+1
+	JobID           string   // optional override for new job id
+	ExtraTaskInput  TaskData // optional input used to compute hash for ExtraTaskOutput
+	ExtraTaskOutput TaskData // optional cached task/job output to append at LastStepToKeep+1
 }
 
 type CancelJob struct {
@@ -60,7 +60,6 @@ type JobContext interface {
 	DoTask(policy RunPolicy, taskType string, data TaskData) (TaskData, error)
 	AwaitDuration(waitFor Duration) error
 	AwaitJobs(jobIds ...string) error
-	SpawnAsync(jobType string, data TaskData) (*Future, error)
 }
 
 type JobWorker interface {

@@ -1270,7 +1270,7 @@ func (c *toyJobContext) DoTask(_ swf.RunPolicy, taskType string, data swf.TaskDa
 		}
 	}
 
-	tc := swf.NewTaskContext(c.jobKey, c.step, c.Logger(), await, c.AwaitJobs, nil)
+	tc := swf.NewTaskContext(c.jobKey, c.step, c.Logger(), await, c.AwaitJobs)
 	output, err := taskWorker.Run(tc, materializedData)
 
 	// Cleanup materialized input artifacts after task completes
@@ -1512,10 +1512,6 @@ func (c *toyJobContext) AwaitJobs(jobIds ...string) error {
 			return nil
 		}
 	}
-}
-
-func (c *toyJobContext) SpawnAsync(jobType string, data swf.TaskData) (*swf.Future, error) {
-	return nil, fmt.Errorf("SpawnAsync not supported in ToyEngine")
 }
 
 // ManipulateStepForTest is a test-only helper to manipulate the step counter

@@ -18,7 +18,6 @@ const (
 	payloadKindApp         = "App"
 	payloadKindAppError    = "AppError"
 	payloadKindSystemError = "SystemError"
-	payloadKindAppChildJob = "AppChildJob"
 	payloadKindTimeout     = "Timeout"
 )
 
@@ -174,9 +173,6 @@ func envelopeToTaskData(env chapterEnvelope, artifacts []swf.Artifact) (swf.Task
 
 	switch env.PayloadKind {
 	case payloadKindApp:
-		return td, nil
-	case payloadKindAppChildJob:
-		// Spawn metadata; treat as successful payload.
 		return td, nil
 	case payloadKindTimeout:
 		var p swf.TimeoutPayload
