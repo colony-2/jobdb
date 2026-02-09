@@ -1029,8 +1029,31 @@ func (r *runner) DoJob(ctx context.Context, lease *pgwf.Lease) {
 						r.logger.Error("decode cached job result failed", "error", decErr)
 						return
 					}
-					if env.Meta.TaskType == r.worker.JobWorker.Name() && env.Meta.Attempt > 0 {
-						attempt = env.Meta.Attempt + 1
+					if env.Meta.TaskType == r.worker.JobWorker.Name() {
+						artifacts := convertStrataArtifacts(chap.Artifacts(), key.StoryID, chap.Ordinal())
+						if env.PayloadKind == payloadKindApp {
+							inputArtifacts, _ := inputData.GetArtifacts()
+							cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
+							_ = lease.Complete(ctx, r.engine.udb)
+							return
+						}
+						_, payloadErr := envelopeToTaskData(env, artifacts)
+						if payloadErr == nil {
+							inputArtifacts, _ := inputData.GetArtifacts()
+							cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
+							_ = lease.Complete(ctx, r.engine.udb)
+							return
+						}
+						retryable := isRetryable(payloadErr, config.retryCfg)
+						if !retryable {
+							inputArtifacts, _ := inputData.GetArtifacts()
+							cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
+							_ = lease.Complete(ctx, r.engine.udb)
+							return
+						}
+						if env.Meta.Attempt > 0 {
+							attempt = env.Meta.Attempt + 1
+						}
 					}
 					jobResultOrdinal++
 					continue
