@@ -994,6 +994,7 @@ func (r *runner) DoJob(ctx context.Context, lease *pgwf.Lease) {
 	if r.engine != nil {
 		defer r.engine.resetAwaitState(r.jobId)
 	}
+	defer stopLeaseKeepAlive(lease)
 	_ = lease.WithKeepAlive(r.engine.udb)
 
 	// Load initial chapter and setup job policy
@@ -1089,7 +1090,6 @@ func (r *runner) DoJob(ctx context.Context, lease *pgwf.Lease) {
 		_, nextAttempt, cached, terminal, err := r.checkCachedJobResult(ctx, key, jobResultOrdinal, config.inputRef.Hash, config.retryCfg, config.totalDeadline, config.totalTimeout, config.inputRef)
 		if err != nil {
 			r.logger.Error("check cached job result failed", "error", err)
-			_ = lease.Complete(ctx, r.engine.udb)
 			return
 		}
 
@@ -1110,7 +1110,6 @@ func (r *runner) DoJob(ctx context.Context, lease *pgwf.Lease) {
 		payload, artifacts, payloadKind, err := r.prepareJobResultPayload(output, jobErr, config.inputRef)
 		if err != nil {
 			r.logger.Error(err.Error())
-			_ = lease.Complete(ctx, r.engine.udb)
 			return
 		}
 
@@ -1151,7 +1150,6 @@ func (r *runner) DoJob(ctx context.Context, lease *pgwf.Lease) {
 			now := time.Now().UTC()
 			if err := r.awaitUntil(now.Add(backoff), jobResultOrdinal, attempt-1, "job", config.inputRef, time.Time{}, config.totalDeadline, 0, config.totalTimeout); err != nil {
 				r.logger.Error("job await failed", "error", err)
-				_ = lease.Complete(ctx, r.engine.udb)
 				return
 			}
 		}
