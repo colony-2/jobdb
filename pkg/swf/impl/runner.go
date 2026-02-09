@@ -1021,23 +1021,27 @@ func (r *runner) DoJob(ctx context.Context, lease *pgwf.Lease) {
 		if err := r.checkTotalTimeoutExceeded(config.totalDeadline, config.totalTimeout, config.inputRef); err != nil {
 			r.logger.Error("job total timeout", "error", err)
 			jobResultOrdinal := r.storyCounter
-			r.storyCounter++
-			chap, chapErr := r.engine.strata.Chapter(ctx, key, jobResultOrdinal)
-			if chapErr == nil {
-				env, decErr := decodeChapterEnvelope(chap.Body())
-				if decErr != nil {
-					r.logger.Error("decode cached job result failed", "error", decErr)
+			for {
+				chap, chapErr := r.engine.strata.Chapter(ctx, key, jobResultOrdinal)
+				if chapErr == nil {
+					env, decErr := decodeChapterEnvelope(chap.Body())
+					if decErr != nil {
+						r.logger.Error("decode cached job result failed", "error", decErr)
+						return
+					}
+					if env.Meta.TaskType == r.worker.JobWorker.Name() && env.Meta.Attempt > 0 {
+						attempt = env.Meta.Attempt + 1
+					}
+					jobResultOrdinal++
+					continue
+				}
+				if !errors.Is(chapErr, core.ErrNotFound) {
+					r.logger.Error("failed to check cached job result", "error", chapErr)
 					return
 				}
-				if env.Meta.Attempt > 0 {
-					attempt = env.Meta.Attempt + 1
-				}
-				jobResultOrdinal = r.storyCounter
-				r.storyCounter++
-			} else if !errors.Is(chapErr, core.ErrNotFound) {
-				r.logger.Error("failed to check cached job result", "error", chapErr)
-				return
+				break
 			}
+			r.storyCounter = jobResultOrdinal + 1
 
 			payload, artifacts, payloadKind, prepErr := r.prepareJobResultPayload(nil, err, config.inputRef)
 			if prepErr != nil {

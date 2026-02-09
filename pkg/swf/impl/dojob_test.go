@@ -132,6 +132,94 @@ func TestJobRestartUsesCache(t *testing.T) {
 	}
 }
 
+// TestTotalTimeoutReplayWritesNextOrdinal verifies that when a job's total timeout
+// is already exceeded on replay, the timeout chapter is written at the next
+// available ordinal instead of colliding with existing task chapters.
+func TestTotalTimeoutReplayWritesNextOrdinal(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	jobWorker := noopJobWorker{}
+	taskWorker := &echoTaskWorker{}
+	workset := initWorkset(jobWorker, taskWorker)
+
+	embedded, err := StartEmbeddedEngine(ctx, jobWorker, taskWorker)
+	if err != nil {
+		t.Fatalf("start embedded engine: %v", err)
+	}
+	defer embedded.Shutdown()
+
+	engine := embedded.SWFEngine.(*swfEngineImpl)
+
+	totalTimeout := 200 * time.Millisecond
+	start := swf.StartJob{
+		TenantId:  "test-tenant",
+		JobType:   jobWorker.Name(),
+		Data:      swf.NewTaskDataOrPanic(map[string]string{"test": "data"}),
+		RunPolicy: swf.RunPolicy{TotalTimeout: swf.AsDuration(totalTimeout)},
+	}
+	jobKey, err := engine.StartJob(ctx, start)
+	if err != nil {
+		t.Fatalf("start job: %v", err)
+	}
+
+	// Pre-populate task chapters (ordinals 1 and 2) without finishing the job.
+	taskRunner := &runner{
+		jobId:        pgwf.JobID(jobKey.JobId),
+		tenantId:     jobKey.TenantId,
+		worker:       workset,
+		storyCounter: 1,
+		engine:       engine,
+		logger:       engine.logger,
+		jobPolicy:    normalizeRunPolicy(start.RunPolicy),
+		capability:   pgwf.Capability(jobWorker.Name()),
+		ctx:          ctx,
+	}
+	taskInput := swf.NewTaskDataOrPanic(map[string]string{"task": "1"})
+	if _, err := taskRunner.DoTask(swf.RunPolicy{}, "echo", taskInput); err != nil {
+		t.Fatalf("task 1: %v", err)
+	}
+	taskInput = swf.NewTaskDataOrPanic(map[string]string{"task": "2"})
+	if _, err := taskRunner.DoTask(swf.RunPolicy{}, "echo", taskInput); err != nil {
+		t.Fatalf("task 2: %v", err)
+	}
+
+	// Wait for total timeout to elapse before replay.
+	time.Sleep(totalTimeout + 150*time.Millisecond)
+
+	lease := getLeaseForJob(t, ctx, engine, jobKey)
+	if lease == nil {
+		t.Fatalf("no lease available")
+	}
+
+	replayRunner := &runner{
+		jobId:        lease.JobID(),
+		tenantId:     jobKey.TenantId,
+		worker:       workset,
+		storyCounter: 1,
+		engine:       engine,
+		lease:        lease,
+		logger:       engine.logger,
+		jobPolicy:    normalizeRunPolicy(start.RunPolicy),
+		capability:   lease.NextNeed(),
+		ctx:          ctx,
+	}
+	replayRunner.DoJob(ctx, lease)
+
+	key := jobKey.ToStoryKey()
+	chap, err := engine.strata.Chapter(ctx, key, 3)
+	if err != nil {
+		t.Fatalf("expected timeout chapter at ordinal 3, got: %v", err)
+	}
+	env, err := decodeChapterEnvelope(chap.Body())
+	if err != nil {
+		t.Fatalf("decode chapter: %v", err)
+	}
+	if env.PayloadKind != payloadKindTimeout {
+		t.Fatalf("expected timeout payload, got %s", env.PayloadKind)
+	}
+}
+
 // TestJobRetryWithFailures verifies retry logic works correctly:
 // - First attempt fails with retryable error
 // - Second attempt succeeds
