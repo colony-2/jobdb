@@ -526,6 +526,7 @@ func (e *ToyEngine) GetJobRun(ctx context.Context, req swf.GetJobRunRequest) (sw
 	result := record.result
 	record.mu.Unlock()
 
+	startSet := false
 	if includeInputs {
 		if chap := chapters[0]; chap != nil {
 			input, err := buildToyTaskIO(ctx, chap.Input, req.JobKey.JobId, 0, includeInputs, includeArtifacts)
@@ -537,8 +538,28 @@ func (e *ToyEngine) GetJobRun(ctx context.Context, req swf.GetJobRunRequest) (sw
 				CreatedAt: chap.CreatedAt,
 				Input:     input,
 			}
+			startSet = true
 		}
 	}
+	attempts := []swf.JobAttempt{}
+	attemptIndex := map[int]int{}
+	ensureAttempt := func(num int) int {
+		if num <= 0 {
+			num = 1
+		}
+		if idx, ok := attemptIndex[num]; ok {
+			return idx
+		}
+		attempt := swf.JobAttempt{Attempt: num}
+		if num == 1 && startSet {
+			attempt.CreatedAt = resp.Start.CreatedAt
+		}
+		attempts = append(attempts, attempt)
+		idx := len(attempts) - 1
+		attemptIndex[num] = idx
+		return idx
+	}
+	_ = ensureAttempt(1)
 
 	ordinals := make([]int64, 0, len(chapters))
 	for ord := range chapters {
@@ -575,7 +596,8 @@ func (e *ToyEngine) GetJobRun(ctx context.Context, req swf.GetJobRunRequest) (sw
 			},
 		}
 
-		resp.Tasks = append(resp.Tasks, swf.TaskRun{
+		idx := ensureAttempt(1)
+		attempts[idx].Tasks = append(attempts[idx].Tasks, swf.TaskRun{
 			TaskRunID: fmt.Sprintf("%s:%d", chap.TaskType, ord),
 			TaskType:  chap.TaskType,
 			Attempts:  []swf.TaskAttempt{attempt},
@@ -604,19 +626,12 @@ func (e *ToyEngine) GetJobRun(ctx context.Context, req swf.GetJobRunRequest) (sw
 				Message: record.err.Error(),
 			}
 		}
-		jobAttempt := swf.JobAttempt{
-			Ordinal:   lastOrdinal + 1,
-			Attempt:   1,
-			CreatedAt: finished,
-			Output:    output,
-			Outcome:   outcome,
-		}
-		resp.JobAttempts = append(resp.JobAttempts, jobAttempt)
-	}
-
-	if len(resp.JobAttempts) > 0 {
-		latest := resp.JobAttempts[len(resp.JobAttempts)-1]
-		resp.Result = &latest
+		idx := ensureAttempt(1)
+		attempts[idx].Ordinal = lastOrdinal + 1
+		attempts[idx].Attempt = 1
+		attempts[idx].CreatedAt = finished
+		attempts[idx].Output = output
+		attempts[idx].Outcome = outcome
 	}
 
 	if status != swf.JobStatusCompleted && capability != "" {
@@ -638,7 +653,8 @@ func (e *ToyEngine) GetJobRun(ctx context.Context, req swf.GetJobRunRequest) (sw
 			state = swf.TaskAttemptStateRunning
 		}
 
-		resp.Tasks = append(resp.Tasks, swf.TaskRun{
+		idx := ensureAttempt(1)
+		attempts[idx].Tasks = append(attempts[idx].Tasks, swf.TaskRun{
 			TaskRunID: fmt.Sprintf("%s:%d", taskType, pendingStep),
 			TaskType:  taskType,
 			Attempts: []swf.TaskAttempt{
@@ -653,6 +669,7 @@ func (e *ToyEngine) GetJobRun(ctx context.Context, req swf.GetJobRunRequest) (sw
 		})
 	}
 
+	resp.Attempts = attempts
 	return resp, nil
 }
 

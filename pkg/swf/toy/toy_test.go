@@ -576,22 +576,25 @@ func TestToyEngineGetJobRunCompleted(t *testing.T) {
 	if got := extractNumberFromIO(t, resp.Start.Input); got != 1 {
 		t.Fatalf("unexpected start input: %d", got)
 	}
-	if len(resp.Tasks) != 2 {
-		t.Fatalf("expected 2 tasks, got %d", len(resp.Tasks))
+	if len(resp.Attempts) != 1 {
+		t.Fatalf("expected 1 job attempt, got %d", len(resp.Attempts))
 	}
-	if resp.Tasks[0].TaskType != "add" || resp.Tasks[1].TaskType != "double" {
-		t.Fatalf("unexpected task types: %s, %s", resp.Tasks[0].TaskType, resp.Tasks[1].TaskType)
+	if len(resp.Attempts[0].Tasks) != 2 {
+		t.Fatalf("expected 2 tasks, got %d", len(resp.Attempts[0].Tasks))
 	}
-	if got := extractNumberFromIO(t, resp.Tasks[0].Attempts[0].Output); got != 2 {
+	if resp.Attempts[0].Tasks[0].TaskType != "add" || resp.Attempts[0].Tasks[1].TaskType != "double" {
+		t.Fatalf("unexpected task types: %s, %s", resp.Attempts[0].Tasks[0].TaskType, resp.Attempts[0].Tasks[1].TaskType)
+	}
+	if got := extractNumberFromIO(t, resp.Attempts[0].Tasks[0].Attempts[0].Output); got != 2 {
 		t.Fatalf("unexpected add output: %d", got)
 	}
-	if got := extractNumberFromIO(t, resp.Tasks[1].Attempts[0].Output); got != 4 {
+	if got := extractNumberFromIO(t, resp.Attempts[0].Tasks[1].Attempts[0].Output); got != 4 {
 		t.Fatalf("unexpected double output: %d", got)
 	}
-	if resp.Result == nil || resp.Result.Output == nil {
+	if resp.Attempts[0].Output == nil {
 		t.Fatalf("expected job result output")
 	}
-	if got := extractNumberFromIO(t, resp.Result.Output); got != 4 {
+	if got := extractNumberFromIO(t, resp.Attempts[0].Output); got != 4 {
 		t.Fatalf("unexpected job result output: %d", got)
 	}
 }
@@ -739,13 +742,13 @@ func TestToyEngineGetJobRunPendingRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetJobRun failed: %v", err)
 	}
-	if resp.Result != nil {
-		t.Fatalf("expected nil result for pending job")
+	if len(resp.Attempts) != 1 {
+		t.Fatalf("expected 1 job attempt, got %d", len(resp.Attempts))
 	}
-	if len(resp.Tasks) != 1 {
-		t.Fatalf("expected 1 task run, got %d", len(resp.Tasks))
+	if len(resp.Attempts[0].Tasks) != 1 {
+		t.Fatalf("expected 1 task run, got %d", len(resp.Attempts[0].Tasks))
 	}
-	task := resp.Tasks[0]
+	task := resp.Attempts[0].Tasks[0]
 	if task.TaskType != "missing" {
 		t.Fatalf("unexpected task type: %s", task.TaskType)
 	}

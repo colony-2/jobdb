@@ -192,7 +192,7 @@ type chapterMetadata struct {
 	InputPayload  json.RawMessage
 }
 
-func taskDataToChapter(jobData swf.TaskData, ordinal int64, taskType string, workerId string, payloadKind string, inputHash string, createdAt time.Time, meta chapterMetadata) (story.Chapter, error) {
+func taskDataToChapter(jobData swf.TaskData, ordinal int64, taskType string, workerId string, chapterType string, payloadKind string, inputHash string, createdAt time.Time, meta chapterMetadata) (story.Chapter, error) {
 	if jobData == nil {
 		return nil, fmt.Errorf("task data is required")
 	}
@@ -205,11 +205,11 @@ func taskDataToChapter(jobData swf.TaskData, ordinal int64, taskType string, wor
 	if err != nil {
 		return nil, err
 	}
-	return payloadToChapter(data, artifacts, ordinal, taskType, workerId, payloadKind, inputHash, createdAt, meta)
+	return payloadToChapter(data, artifacts, ordinal, taskType, workerId, chapterType, payloadKind, inputHash, createdAt, meta)
 }
 
-func taskDataToCreatOptions(jobData swf.TaskData, ordinal int64, taskType string, workerId string, payloadKind string, inputHash string, createdAt time.Time, meta chapterMetadata) (story.CreateOptions, error) {
-	chap, err := taskDataToChapter(jobData, ordinal, taskType, workerId, payloadKind, inputHash, createdAt, meta)
+func taskDataToCreatOptions(jobData swf.TaskData, ordinal int64, taskType string, workerId string, chapterType string, payloadKind string, inputHash string, createdAt time.Time, meta chapterMetadata) (story.CreateOptions, error) {
+	chap, err := taskDataToChapter(jobData, ordinal, taskType, workerId, chapterType, payloadKind, inputHash, createdAt, meta)
 	if err != nil {
 		return story.CreateOptions{}, err
 	}
@@ -243,7 +243,7 @@ func (s *swfEngineImpl) StartJob(ctx context.Context, job swf.StartJob) (swf.Job
 	now := time.Now().UTC()
 	jobPolicy := job.RunPolicy
 	jobPolicy = normalizeRunPolicy(jobPolicy)
-	co, err := taskDataToCreatOptions(taskData, 0, job.JobType, s.workerId, payloadKindApp, inputHash, now, chapterMetadata{
+	co, err := taskDataToCreatOptions(taskData, 0, job.JobType, s.workerId, chapterTypeJobStart, payloadKindApp, inputHash, now, chapterMetadata{
 		Attempt: 1,
 	})
 	if err != nil {
@@ -349,7 +349,7 @@ func (s *swfEngineImpl) RestartJob(ctx context.Context, job swf.RestartJob) (swf
 		}
 
 		// Store provided output as the next chapter after LastStepToKeep.
-		createOptions, err = taskDataToCreatOptions(job.ExtraTaskOutput, job.LastStepToKeep+1, jobType, s.workerId, payloadKindApp, inputHash, time.Now().UTC(), meta)
+		createOptions, err = taskDataToCreatOptions(job.ExtraTaskOutput, job.LastStepToKeep+1, restartExtraTaskType, s.workerId, chapterTypeRestartExtra, payloadKindApp, inputHash, time.Now().UTC(), meta)
 		if err != nil {
 			return swf.JobKey{}, err
 		}
@@ -557,7 +557,7 @@ func (s *swfEngineImpl) recycleAwait(jobID pgwf.JobID, st *awaitState) {
 }
 
 // payloadToChapter builds a chapter from raw payload JSON and artifacts, bypassing TaskData.
-func payloadToChapter(payload json.RawMessage, artifacts []swf.Artifact, ordinal int64, taskType string, workerId string, payloadKind string, inputHash string, createdAt time.Time, metaOpts chapterMetadata) (story.Chapter, error) {
+func payloadToChapter(payload json.RawMessage, artifacts []swf.Artifact, ordinal int64, taskType string, workerId string, chapterType string, payloadKind string, inputHash string, createdAt time.Time, metaOpts chapterMetadata) (story.Chapter, error) {
 	if payload == nil {
 		return nil, fmt.Errorf("payload is required")
 	}
@@ -597,7 +597,7 @@ func payloadToChapter(payload json.RawMessage, artifacts []swf.Artifact, ordinal
 		meta.Input = metaOpts.InputPayload
 	}
 
-	envBytes, err := buildChapterEnvelope(meta, payloadKind, payload)
+	envBytes, err := buildChapterEnvelope(meta, chapterType, payloadKind, payload)
 	if err != nil {
 		return nil, err
 	}

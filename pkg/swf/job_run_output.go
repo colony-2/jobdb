@@ -10,26 +10,22 @@ func (r GetJobRunResponse) GetOutput(engine SWFEngine, tenantId string) (JobData
 	if r.Job.Status != JobStatusCompleted {
 		return nil, ErrJobNotComplete
 	}
-	attempt := r.Result
-	if attempt == nil && len(r.JobAttempts) > 0 {
-		latest := latestJobAttempt(r.JobAttempts)
-		attempt = &latest
-	}
-	if attempt == nil {
+	if len(r.Attempts) == 0 {
 		return nil, ErrJobNotComplete
 	}
-	if attempt.Outcome.Status == TaskOutcomeStatusFailed || attempt.Outcome.Error != nil {
-		if attempt.Outcome.Error != nil && attempt.Outcome.Error.Message != "" {
-			return nil, fmt.Errorf("%w: %s", ErrJobFailed, attempt.Outcome.Error.Message)
+	latest := latestJobAttempt(r.Attempts)
+	if latest.Outcome.Status == TaskOutcomeStatusFailed || latest.Outcome.Error != nil {
+		if latest.Outcome.Error != nil && latest.Outcome.Error.Message != "" {
+			return nil, fmt.Errorf("%w: %s", ErrJobFailed, latest.Outcome.Error.Message)
 		}
 		return nil, ErrJobFailed
 	}
-	if attempt.Output == nil {
+	if latest.Output == nil {
 		return nil, fmt.Errorf("%w: missing output", ErrJobFailed)
 	}
 
-	data := append([]byte(nil), attempt.Output.Data...)
-	artifacts, err := artifactsFromInfos(attempt.Output.Artifacts, engine, tenantId, r.Job.JobKey, attempt.Ordinal)
+	data := append([]byte(nil), latest.Output.Data...)
+	artifacts, err := artifactsFromInfos(latest.Output.Artifacts, engine, tenantId, r.Job.JobKey, latest.Ordinal)
 	if err != nil {
 		return nil, err
 	}

@@ -33,6 +33,14 @@ func (s *swfEngineImpl) GetJobRun(ctx context.Context, req swf.GetJobRunRequest)
 	if err != nil {
 		return swf.GetJobRunResponse{}, fmt.Errorf("failed to get job status: %w", err)
 	}
+	runPolicy := swf.RunPolicy{}
+	if len(statusInfo.Payload) > 0 {
+		var payload jobPayload
+		if err := json.Unmarshal(statusInfo.Payload, &payload); err == nil {
+			runPolicy = payload.RunPolicy
+		}
+	}
+	retryPolicy := normalizeRunPolicy(runPolicy).Retry
 
 	jobStatus := convertPgwfStatusToSwf(statusInfo.Status, statusInfo.CancelRequested, statusInfo.ArchivedAt)
 	resp := swf.GetJobRunResponse{
@@ -59,13 +67,39 @@ func (s *swfEngineImpl) GetJobRun(ctx context.Context, req swf.GetJobRunRequest)
 	}
 
 	var (
-		jobType     string
-		startSet    bool
-		tasks       []swf.TaskRun
-		jobRuns     []swf.JobAttempt
-		lastOrdinal int64 = -1
-		currentRun  *swf.TaskRun
+		jobType              string
+		startSet             bool
+		startInputRef        *swf.InputReference
+		attempts             []swf.JobAttempt
+		attemptIndex               = map[int]int{}
+		activeAttempt              = 1
+		currentAttempt             = 0
+		currentRunIdx              = -1
+		lastOrdinal          int64 = -1
+		lastCompletedAttempt int
+		lastCompletedOutcome swf.TaskOutcome
 	)
+
+	ensureAttempt := func(num int) int {
+		if num <= 0 {
+			num = 1
+		}
+		if idx, ok := attemptIndex[num]; ok {
+			return idx
+		}
+		attempt := swf.JobAttempt{
+			Attempt:  num,
+			InputRef: startInputRef,
+		}
+		if num == 1 && startSet {
+			attempt.CreatedAt = resp.Start.CreatedAt
+			attempt.WorkerID = resp.Start.WorkerID
+		}
+		attempts = append(attempts, attempt)
+		idx := len(attempts) - 1
+		attemptIndex[num] = idx
+		return idx
+	}
 
 	for iter.HasNext() {
 		chap, err := iter.Next(ctx)
@@ -83,8 +117,12 @@ func (s *swfEngineImpl) GetJobRun(ctx context.Context, req swf.GetJobRunRequest)
 		}
 
 		if chap.Ordinal() == 0 && !startSet {
+			if env.ChapterType != chapterTypeJobStart {
+				return swf.GetJobRunResponse{}, fmt.Errorf("%w: unexpected chapter type %q at ordinal 0", swf.ErrWorkflowNotDeterministic, env.ChapterType)
+			}
 			jobType = env.Meta.TaskType
 			resp.Job.JobType = jobType
+			startInputRef = &swf.InputReference{Ordinal: 0, Hash: env.Meta.InputHash}
 			startInput, err := buildTaskIOFromPayload(ctx, env.Payload, chap.Artifacts(), req.JobKey.JobId, chap.Ordinal(), includeInputs, includeArtifacts)
 			if err != nil {
 				return swf.GetJobRunResponse{}, err
@@ -99,55 +137,69 @@ func (s *swfEngineImpl) GetJobRun(ctx context.Context, req swf.GetJobRunRequest)
 				Input:     startInput,
 			}
 			startSet = true
+			_ = ensureAttempt(1)
 			continue
 		}
 
-		attempt, err := buildTaskAttempt(ctx, s, req.JobKey.ToStoryKey(), chap, env, includeInputs, includeOutputs || env.Meta.TaskType == jobType, includeArtifacts, includeAttemptInputs)
+		attempt, err := buildTaskAttempt(ctx, s, req.JobKey.ToStoryKey(), chap, env, includeInputs, includeOutputs || env.ChapterType == chapterTypeJobAttemptOutcome, includeArtifacts, includeAttemptInputs)
 		if err != nil {
 			return swf.GetJobRunResponse{}, err
 		}
 
-		if env.Meta.TaskType == jobType {
-			jobRuns = append(jobRuns, swf.JobAttempt{
-				Ordinal:   attempt.Ordinal,
-				Attempt:   attempt.Attempt,
-				WorkerID:  attempt.WorkerID,
-				CreatedAt: attempt.CreatedAt,
-				InputRef:  attempt.InputRef,
-				Output:    attempt.Output,
-				Outcome:   attempt.Outcome,
-			})
+		if env.ChapterType == chapterTypeJobAttemptOutcome {
+			attemptNum := attempt.Attempt
+			if attemptNum <= 0 {
+				attemptNum = 1
+			}
+			idx := ensureAttempt(attemptNum)
+			attempts[idx].Ordinal = attempt.Ordinal
+			attempts[idx].Attempt = attemptNum
+			attempts[idx].WorkerID = attempt.WorkerID
+			attempts[idx].CreatedAt = attempt.CreatedAt
+			attempts[idx].InputRef = attempt.InputRef
+			attempts[idx].Output = attempt.Output
+			attempts[idx].Outcome = attempt.Outcome
+			activeAttempt = attemptNum + 1
+			lastCompletedAttempt = attemptNum
+			lastCompletedOutcome = attempt.Outcome
+			currentAttempt = 0
+			currentRunIdx = -1
 			continue
 		}
 
-		if currentRun == nil || env.Meta.Attempt <= 1 || currentRun.TaskType != env.Meta.TaskType {
-			newRun := swf.TaskRun{
+		if env.ChapterType != chapterTypeTaskAttemptOutcome && env.ChapterType != chapterTypeRestartExtra {
+			return swf.GetJobRunResponse{}, fmt.Errorf("%w: unexpected chapter type %q at ordinal %d", swf.ErrWorkflowNotDeterministic, env.ChapterType, chap.Ordinal())
+		}
+		idx := ensureAttempt(activeAttempt)
+		if currentAttempt != activeAttempt {
+			currentAttempt = activeAttempt
+			currentRunIdx = -1
+		}
+		if currentRunIdx == -1 || attempt.Attempt <= 1 || attempts[idx].Tasks[currentRunIdx].TaskType != env.Meta.TaskType {
+			attempts[idx].Tasks = append(attempts[idx].Tasks, swf.TaskRun{
 				TaskRunID: fmt.Sprintf("%s:%d", env.Meta.TaskType, chap.Ordinal()),
 				TaskType:  env.Meta.TaskType,
 				Attempts:  []swf.TaskAttempt{},
-			}
-			tasks = append(tasks, newRun)
-			currentRun = &tasks[len(tasks)-1]
+			})
+			currentRunIdx = len(attempts[idx].Tasks) - 1
 		}
-		currentRun.Attempts = append(currentRun.Attempts, attempt)
+		attempts[idx].Tasks[currentRunIdx].Attempts = append(attempts[idx].Tasks[currentRunIdx].Attempts, attempt)
 	}
-
-	resp.Tasks = tasks
-	resp.JobAttempts = jobRuns
 
 	if resp.Job.JobType == "" {
 		resp.Job.JobType = swf.JobTypeFromNextNeed(statusInfo.NextNeed)
 	}
 
-	if len(jobRuns) > 0 {
-		latest := latestJobAttempt(jobRuns)
-		resp.Result = &latest
-		if !includeOutputs {
-			for i := 0; i < len(jobRuns)-1; i++ {
-				jobRuns[i].Output = nil
-			}
-			resp.JobAttempts = jobRuns
+	currentAttemptNum := 0
+	if statusInfo.ArchivedAt == nil && resp.Job.Status != swf.JobStatusCancelled {
+		if lastCompletedAttempt == 0 {
+			currentAttemptNum = 1
+		} else if shouldSynthesizeNextAttempt(lastCompletedAttempt, lastCompletedOutcome, retryPolicy) {
+			currentAttemptNum = lastCompletedAttempt + 1
 		}
+	}
+	if currentAttemptNum > 0 {
+		_ = ensureAttempt(currentAttemptNum)
 	}
 
 	if statusInfo.ArchivedAt == nil {
@@ -155,11 +207,22 @@ func (s *swfEngineImpl) GetJobRun(ctx context.Context, req swf.GetJobRunRequest)
 		if err != nil {
 			return swf.GetJobRunResponse{}, err
 		}
-		if ok {
-			resp.Tasks = append(resp.Tasks, runtimeRun)
+		if ok && currentAttemptNum > 0 {
+			idx := ensureAttempt(currentAttemptNum)
+			attempts[idx].Tasks = append(attempts[idx].Tasks, runtimeRun)
 		}
 	}
 
+	if !includeOutputs && len(attempts) > 0 {
+		latest := latestJobAttempt(attempts)
+		for i := range attempts {
+			if attempts[i].Attempt != latest.Attempt || attempts[i].Ordinal != latest.Ordinal {
+				attempts[i].Output = nil
+			}
+		}
+	}
+
+	resp.Attempts = attempts
 	return resp, nil
 }
 
@@ -179,6 +242,40 @@ func latestJobAttempt(attempts []swf.JobAttempt) swf.JobAttempt {
 		}
 	}
 	return best
+}
+
+func shouldSynthesizeNextAttempt(lastAttempt int, outcome swf.TaskOutcome, policy swf.RetryPolicy) bool {
+	if lastAttempt <= 0 {
+		return false
+	}
+	if outcome.Status != swf.TaskOutcomeStatusFailed {
+		return false
+	}
+	if policy.MaximumAttempts <= 0 {
+		policy = normalizeRetryPolicy(policy)
+	}
+	if lastAttempt >= int(policy.MaximumAttempts) {
+		return false
+	}
+	if outcome.Error == nil {
+		return true
+	}
+	switch outcome.Error.Kind {
+	case swf.TaskErrorKindTimeout:
+		if outcome.Error.Retryable == nil {
+			return false
+		}
+		return *outcome.Error.Retryable
+	case swf.TaskErrorKindSystem:
+		if outcome.Error.Retryable == nil {
+			return true
+		}
+		return *outcome.Error.Retryable
+	case swf.TaskErrorKindApp:
+		return true
+	default:
+		return true
+	}
 }
 
 func buildTaskAttempt(ctx context.Context, s *swfEngineImpl, key story.Key, chap story.Chapter, env chapterEnvelope, includeInputs, includeOutputs, includeArtifacts, includeAttemptInputs bool) (swf.TaskAttempt, error) {

@@ -29,7 +29,7 @@ func TestTaskAppErrorEnvelopeRoundTrip(t *testing.T) {
 	}
 
 	taskType := "taskErr"
-	chap, err := payloadToChapter(payload, nil, 1, taskType, "worker1", kind, inputHash, time.Now(), chapterMetadata{})
+	chap, err := payloadToChapter(payload, nil, 1, taskType, "worker1", chapterTypeTaskAttemptOutcome, kind, inputHash, time.Now(), chapterMetadata{})
 	if err != nil {
 		t.Fatalf("taskDataToChapter: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestTaskSystemErrorEnvelopeRoundTrip(t *testing.T) {
 	}
 
 	taskType := "taskSysErr"
-	chap, err := payloadToChapter(payload, nil, 1, taskType, "worker1", kind, inputHash, time.Now(), chapterMetadata{})
+	chap, err := payloadToChapter(payload, nil, 1, taskType, "worker1", chapterTypeTaskAttemptOutcome, kind, inputHash, time.Now(), chapterMetadata{})
 	if err != nil {
 		t.Fatalf("taskDataToChapter: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestJobAppErrorEnvelopeRoundTrip(t *testing.T) {
 	}
 
 	taskType := "jobWorker"
-	chap, err := payloadToChapter(payload, nil, 1, taskType, "worker-job", kind, inputHash, time.Now(), chapterMetadata{})
+	chap, err := payloadToChapter(payload, nil, 1, taskType, "worker-job", chapterTypeJobAttemptOutcome, kind, inputHash, time.Now(), chapterMetadata{})
 	if err != nil {
 		t.Fatalf("taskDataToChapter: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestJobSystemErrorEnvelopeRoundTrip(t *testing.T) {
 	}
 
 	taskType := "jobWorker"
-	chap, err := payloadToChapter(payload, nil, 1, taskType, "worker-job", kind, inputHash, time.Now(), chapterMetadata{})
+	chap, err := payloadToChapter(payload, nil, 1, taskType, "worker-job", chapterTypeJobAttemptOutcome, kind, inputHash, time.Now(), chapterMetadata{})
 	if err != nil {
 		t.Fatalf("taskDataToChapter: %v", err)
 	}

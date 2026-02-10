@@ -19,6 +19,13 @@ const (
 	payloadKindAppError    = "AppError"
 	payloadKindSystemError = "SystemError"
 	payloadKindTimeout     = "Timeout"
+
+	chapterTypeJobStart           = "JobStart"
+	chapterTypeJobAttemptOutcome  = "JobAttemptOutcome"
+	chapterTypeTaskAttemptOutcome = "TaskAttemptOutcome"
+	chapterTypeRestartExtra       = "RestartExtra"
+
+	restartExtraTaskType = "__restart_extra__"
 )
 
 type chapterMeta struct {
@@ -39,21 +46,26 @@ type chapterMeta struct {
 }
 
 type chapterEnvelope struct {
+	ChapterType string          `json:"chapter_type"`
 	Meta        chapterMeta     `json:"meta"`
 	PayloadKind string          `json:"payload_kind"`
 	Payload     json.RawMessage `json:"payload"`
 }
 
 // buildChapterEnvelope wraps a raw payload (already JSON) into the envelope.
-func buildChapterEnvelope(meta chapterMeta, payloadKind string, payload json.RawMessage) ([]byte, error) {
+func buildChapterEnvelope(meta chapterMeta, chapterType string, payloadKind string, payload json.RawMessage) ([]byte, error) {
 	if payloadKind == "" {
 		return nil, fmt.Errorf("payload kind is required")
+	}
+	if chapterType == "" {
+		return nil, fmt.Errorf("chapter type is required")
 	}
 	if !json.Valid(payload) {
 		return nil, fmt.Errorf("payload must be valid JSON")
 	}
 
 	env := chapterEnvelope{
+		ChapterType: chapterType,
 		Meta:        meta,
 		PayloadKind: payloadKind,
 		Payload:     payload,

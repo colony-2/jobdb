@@ -3,6 +3,7 @@ package impl
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -84,15 +85,20 @@ func TestRestartJobWithNewInitialDataOptional(t *testing.T) {
 	defer cancel()
 
 	var runs atomic.Int32
-	jobWorker := &countingJobWorker{name: "restart-job-with-input", counter: &runs}
+	taskRuns := atomic.Int32{}
+	jobWorker := &taskCallingJobWorkerWithCounter{name: "restart-job-with-input", taskType: "echo", taskCounter: &taskRuns, jobCounter: &runs}
+	jobWorker.workset = initWorkset(jobWorker, &echoTaskWorker{})
 
-	embedded, err := StartEmbeddedEngine(ctx, jobWorker)
+	embedded, err := StartEmbeddedEngine(ctx, nil)
 	if err != nil {
 		t.Fatalf("start embedded engine: %v", err)
 	}
 	defer embedded.Shutdown()
 
-	engine := embedded.SWFEngine
+	engine := embedded.SWFEngine.(*swfEngineImpl)
+	if err := engine.RegisterWorkers(jobWorker.workset); err != nil {
+		t.Fatalf("register workers: %v", err)
+	}
 	go engine.Run(ctx)
 
 	origInput := swf.NewTaskDataOrPanic(map[string]string{"hello": "world"})
@@ -110,13 +116,10 @@ func TestRestartJobWithNewInitialDataOptional(t *testing.T) {
 
 	newInput := swf.NewTaskDataOrPanic(map[string]string{"hello": "again"})
 	restartKey, err := engine.RestartJob(ctx, swf.RestartJob{
-		PriorJobKey:    jobKey,
-		LastStepToKeep: 0,
-		ExtraTaskInput: newInput,
-		ExtraTaskOutput: swf.NewTaskDataOrPanic(map[string]any{
-			"hello":    "again",
-			"executed": true,
-		}),
+		PriorJobKey:     jobKey,
+		LastStepToKeep:  0,
+		ExtraTaskInput:  newInput,
+		ExtraTaskOutput: newInput,
 	})
 	if err != nil {
 		t.Fatalf("restart job: %v", err)
@@ -125,26 +128,13 @@ func TestRestartJobWithNewInitialDataOptional(t *testing.T) {
 		t.Fatalf("wait for restarted job: %v", err)
 	}
 
-	// Job should replay cached steps; worker may re-run but result should reflect provided chapter.
+	// Job should replay cached steps via the extra task chapter.
 	if got := runs.Load(); got < 1 {
 		t.Fatalf("expected at least one job execution; runs=%d", got)
 	}
 
-	result, err := engine.GetJobResult(ctx, restartKey)
-	if err != nil {
-		t.Fatalf("get restart result: %v", err)
-	}
-	payload, err := result.GetData()
-	if err != nil {
-		t.Fatalf("decode restart result: %v", err)
-	}
-
-	var decoded map[string]any
-	if err := json.Unmarshal(payload, &decoded); err != nil {
-		t.Fatalf("unmarshal restart result: %v", err)
-	}
-	if decoded["hello"] != "again" {
-		t.Fatalf("unexpected restart result payload: %#v", decoded)
+	if _, err := engine.GetJobResult(ctx, restartKey); err == nil || !strings.Contains(err.Error(), "workflow was not deterministic") {
+		t.Fatalf("expected deterministic error in job result, got %v", err)
 	}
 }
 

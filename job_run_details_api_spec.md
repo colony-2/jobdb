@@ -32,9 +32,7 @@ type GetJobRunRequest struct {
 type GetJobRunResponse struct {
     Job   JobRunSummary
     Start JobStart
-    Tasks []TaskRun
-    JobAttempts []JobAttempt // empty when no job attempt chapters yet
-    Result *JobAttempt        // last job attempt if job is complete; nil otherwise
+    Attempts []JobAttempt // includes past attempts + current attempt when job is not archived
 }
 
 type JobRunSummary struct {
@@ -93,6 +91,7 @@ type JobAttempt struct {
     InputRef  *swf.InputReference
     Output    *TaskIO
     Outcome   TaskOutcome
+    Tasks     []TaskRun
 }
 
 type TaskIO struct {
@@ -138,7 +137,18 @@ type jobRunApi interface {
 - `Start` is derived from chapter ordinal `0` (the initial job input chapter).
   - `JobRunSummary.JobType` is `Start`'s `meta.task_type` (same as job worker name).
   - `Start.Input` is the chapter payload + artifacts (job input).
-- When the job is not archived/completed, expose runtime in the task model:
+- `Attempts` includes past job attempts (completed) plus the current attempt when the job is not archived.
+  - The first attempt is created as soon as the job start chapter exists.
+  - Completed attempts are derived from chapters with `meta.task_type == JobRunSummary.JobType` and `ordinal > 0`.
+  - The current attempt is inferred as the next attempt after the latest completed attempt when the job is not archived.
+    - A next attempt is synthesized only when the latest attempt failed, is retryable, and `attempt < run_policy.retry.maximum_attempts`.
+- Each `JobAttempt.Tasks` contains the task runs executed within that job attempt.
+  - Tasks are derived from chapters with `meta.task_type != JobRunSummary.JobType`.
+  - Task chapters are grouped under the active job attempt based on chapter order; a new job attempt begins after a job attempt chapter.
+  - Each chapter is a task attempt; retries are separate chapters with incremented `meta.attempt`.
+  - `TaskRunID` is built from the first attempt’s ordinal to keep it stable and unique.
+  - Attempts are grouped by scan order: a new `TaskRun` begins when `meta.attempt == 1`.
+- When the job is not archived/completed, expose runtime in the current attempt’s task list:
   - Append a synthetic `TaskRun` for the current `next_need` capability.
   - `TaskRun.TaskType` is set to `next_need` (capability) so callers can render the current task type.
   - The synthetic run has a single `TaskAttempt` with `State` and `Runtime` populated, `Output` nil.
@@ -149,15 +159,6 @@ type jobRunApi interface {
     - Active lease present -> `State="LEASED"` with `Runtime.LeaseOwner`/`LeaseExpiresAt`.
     - `AwaitingFuture` -> `State="WAITING"` with `Runtime.AvailableAt`.
     - `PendingJobs` -> `State="WAITING"` with `Runtime.WaitFor`.
-- `Tasks` are derived from chapters with `meta.task_type != JobRunSummary.JobType`.
-  - Each chapter is a task attempt; retries are separate chapters with incremented `meta.attempt`.
-  - `TaskRunID` is built from the first attempt’s ordinal to keep it stable and unique.
-  - Attempts are grouped by scan order: a new `TaskRun` begins when `meta.attempt == 1`.
-- For completed attempts, `State` mirrors `Outcome.Status` (`SUCCEEDED` or `FAILED`).
-- For runtime attempts, `Outcome` is omitted and `State` is one of `READY`, `LEASED`, or `WAITING`.
-- `JobAttempts` are derived from chapters with `meta.task_type == JobRunSummary.JobType` and `ordinal > 0`.
-  - These represent job worker attempts (retries) and are separate from task runs.
-- `Result` is the last `JobAttempt` only if pgwf reports the job archived/completed; otherwise `nil`.
 - `Input` payloads for task attempts:
   - If `meta.input` is populated (task input storage enabled), use it directly.
   - Otherwise, return `nil` and rely on `InputRef` to point at the input chapter.

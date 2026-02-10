@@ -14,11 +14,9 @@ type GetJobRunRequest struct {
 }
 
 type GetJobRunResponse struct {
-	Job         JobRunSummary
-	Start       JobStart
-	Tasks       []TaskRun
-	JobAttempts []JobAttempt
-	Result      *JobAttempt
+	Job      JobRunSummary
+	Start    JobStart
+	Attempts []JobAttempt
 }
 
 type JobRunSummary struct {
@@ -94,6 +92,7 @@ type JobAttempt struct {
 	InputRef  *InputReference
 	Output    *TaskIO
 	Outcome   TaskOutcome
+	Tasks     []TaskRun
 }
 
 type TaskIO struct {

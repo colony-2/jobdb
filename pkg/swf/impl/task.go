@@ -129,7 +129,7 @@ func (h *taskHandleImpl) Finish(ctx context.Context, taskData swf.TaskData) erro
 		meta.RunPolicy = &payload.RunPolicy
 	}
 
-	chap, err := taskDataToChapter(taskData, h.outputOrdinal, h.taskType, h.engine.workerId, payloadKindApp, inputHash, time.Now().UTC(), meta)
+	chap, err := taskDataToChapter(taskData, h.outputOrdinal, h.taskType, h.engine.workerId, chapterTypeTaskAttemptOutcome, payloadKindApp, inputHash, time.Now().UTC(), meta)
 	if err != nil {
 		return err
 	}

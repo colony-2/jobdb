@@ -13,6 +13,7 @@ Problem: Strata chapters currently persist only raw JSON `TaskData` bodies. When
 - Chapter body is JSON for easy inspection:
   ```json
   {
+    "chapter_type": "TaskAttemptOutcome",
     "meta": {
       "version": 1,
       "ordinal": <int>,
@@ -25,6 +26,11 @@ Problem: Strata chapters currently persist only raw JSON `TaskData` bodies. When
     "payload": <payload object (JSON)>
   }
   ```
+  - `chapter_type` is required and describes the semantic role of the chapter:
+    - `JobStart`
+    - `JobAttemptOutcome`
+    - `TaskAttemptOutcome`
+    - `RestartExtra`
 - Artifacts stay on the chapter (as today); they are not embedded in the envelope. The input hash must incorporate artifact references (see hashing).
 - `version` allows future format changes; `source` tags who wrote it.
 - Extensibility:

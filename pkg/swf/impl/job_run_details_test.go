@@ -64,26 +64,26 @@ func TestGetJobRunCompleted(t *testing.T) {
 	if got := extractFieldString(t, resp.Start.Input.Data, "job"); got != "input" {
 		t.Fatalf("unexpected start input: %s", got)
 	}
-	if len(resp.Tasks) != 2 {
-		t.Fatalf("expected 2 task runs, got %d", len(resp.Tasks))
+	if len(resp.Attempts) != 1 {
+		t.Fatalf("expected 1 job attempt, got %d", len(resp.Attempts))
 	}
-	if resp.Tasks[0].TaskType != "echo" || resp.Tasks[1].TaskType != "echo" {
-		t.Fatalf("unexpected task types: %s, %s", resp.Tasks[0].TaskType, resp.Tasks[1].TaskType)
+	if len(resp.Attempts[0].Tasks) != 2 {
+		t.Fatalf("expected 2 task runs, got %d", len(resp.Attempts[0].Tasks))
 	}
-	if got := extractFieldString(t, resp.Tasks[0].Attempts[0].Output.Data, "task"); got != "1" {
+	if resp.Attempts[0].Tasks[0].TaskType != "echo" || resp.Attempts[0].Tasks[1].TaskType != "echo" {
+		t.Fatalf("unexpected task types: %s, %s", resp.Attempts[0].Tasks[0].TaskType, resp.Attempts[0].Tasks[1].TaskType)
+	}
+	if got := extractFieldString(t, resp.Attempts[0].Tasks[0].Attempts[0].Output.Data, "task"); got != "1" {
 		t.Fatalf("unexpected task 1 output: %s", got)
 	}
-	if got := extractFieldString(t, resp.Tasks[1].Attempts[0].Output.Data, "task"); got != "2" {
+	if got := extractFieldString(t, resp.Attempts[0].Tasks[1].Attempts[0].Output.Data, "task"); got != "2" {
 		t.Fatalf("unexpected task 2 output: %s", got)
 	}
-	if resp.Result == nil || resp.Result.Output == nil {
+	if resp.Attempts[0].Output == nil {
 		t.Fatalf("missing job result")
 	}
-	if got := extractFieldString(t, resp.Result.Output.Data, "job"); got != "input" {
+	if got := extractFieldString(t, resp.Attempts[0].Output.Data, "job"); got != "input" {
 		t.Fatalf("unexpected job result output: %s", got)
-	}
-	if len(resp.JobAttempts) != 1 {
-		t.Fatalf("expected 1 job attempt, got %d", len(resp.JobAttempts))
 	}
 
 	out, err := resp.GetOutput(engine, jobKey.TenantId)
@@ -148,13 +148,13 @@ func TestGetJobRunPendingRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get job run: %v", err)
 	}
-	if resp.Result != nil {
-		t.Fatalf("expected nil result for pending job")
+	if len(resp.Attempts) != 1 {
+		t.Fatalf("expected 1 job attempt, got %d", len(resp.Attempts))
 	}
-	if len(resp.Tasks) != 1 {
-		t.Fatalf("expected 1 task run, got %d", len(resp.Tasks))
+	if len(resp.Attempts[0].Tasks) != 1 {
+		t.Fatalf("expected 1 task run, got %d", len(resp.Attempts[0].Tasks))
 	}
-	task := resp.Tasks[0]
+	task := resp.Attempts[0].Tasks[0]
 	expectedCapability := jobWorker.Name() + ":" + taskType
 	if task.TaskType != expectedCapability {
 		t.Fatalf("unexpected task type: %s", task.TaskType)
@@ -223,6 +223,9 @@ func TestGetJobRunGetOutputFailed(t *testing.T) {
 	resp, err := engine.GetJobRun(ctx, swf.GetJobRunRequest{JobKey: jobKey})
 	if err != nil {
 		t.Fatalf("get job run: %v", err)
+	}
+	if len(resp.Attempts) != 1 {
+		t.Fatalf("expected 1 job attempt, got %d", len(resp.Attempts))
 	}
 	if _, err := resp.GetOutput(engine, jobKey.TenantId); !errors.Is(err, swf.ErrJobFailed) {
 		t.Fatalf("expected ErrJobFailed, got %v", err)
@@ -352,23 +355,81 @@ func TestGetJobRunJobRetryRepresentation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get job run: %v", err)
 	}
-	if len(resp.JobAttempts) != 2 {
-		t.Fatalf("expected 2 job attempts, got %d", len(resp.JobAttempts))
+	if len(resp.Attempts) != 2 {
+		t.Fatalf("expected 2 job attempts, got %d", len(resp.Attempts))
 	}
-	if resp.JobAttempts[0].Attempt != 1 || resp.JobAttempts[1].Attempt != 2 {
-		t.Fatalf("unexpected attempt numbers: %d, %d", resp.JobAttempts[0].Attempt, resp.JobAttempts[1].Attempt)
+	if resp.Attempts[0].Attempt != 1 || resp.Attempts[1].Attempt != 2 {
+		t.Fatalf("unexpected attempt numbers: %d, %d", resp.Attempts[0].Attempt, resp.Attempts[1].Attempt)
 	}
-	if resp.JobAttempts[0].Outcome.Status != swf.TaskOutcomeStatusFailed {
-		t.Fatalf("expected first attempt to fail, got %s", resp.JobAttempts[0].Outcome.Status)
+	if resp.Attempts[0].Outcome.Status != swf.TaskOutcomeStatusFailed {
+		t.Fatalf("expected first attempt to fail, got %s", resp.Attempts[0].Outcome.Status)
 	}
-	if resp.JobAttempts[1].Outcome.Status != swf.TaskOutcomeStatusSucceeded {
-		t.Fatalf("expected second attempt to succeed, got %s", resp.JobAttempts[1].Outcome.Status)
+	if resp.Attempts[1].Outcome.Status != swf.TaskOutcomeStatusSucceeded {
+		t.Fatalf("expected second attempt to succeed, got %s", resp.Attempts[1].Outcome.Status)
 	}
-	if resp.Result == nil {
-		t.Fatalf("expected job result")
+}
+
+func TestGetJobRunSynthesizedNextAttempt(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var attemptCount atomic.Int32
+	jobWorker := &failThenSucceedJobWorker{
+		name:         "job-run-synth-next",
+		failAttempts: 1,
+		counter:      &attemptCount,
 	}
-	if resp.Result.Attempt != 2 {
-		t.Fatalf("expected result attempt 2, got %d", resp.Result.Attempt)
+	jobWorker.workset = initWorkset(jobWorker)
+
+	embedded, err := StartEmbeddedEngine(ctx, nil)
+	if err != nil {
+		t.Fatalf("start embedded engine: %v", err)
+	}
+	defer embedded.Shutdown()
+
+	engine := embedded.SWFEngine.(*swfEngineImpl)
+	if err := engine.RegisterWorkers(jobWorker.workset); err != nil {
+		t.Fatalf("register workers: %v", err)
+	}
+	go engine.Run(ctx)
+
+	jobKey, err := engine.StartJob(ctx, swf.StartJob{
+		TenantId: "test-tenant",
+		JobType:  jobWorker.Name(),
+		Data:     swf.NewTaskDataOrPanic(map[string]string{"job": "retry"}),
+		RunPolicy: swf.RunPolicy{
+			Retry: swf.RetryPolicy{
+				MaximumAttempts:    2,
+				BackoffCoefficient: 1.0,
+				InitialInterval:    swf.Duration(5 * time.Second),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("start job: %v", err)
+	}
+
+	var resp swf.GetJobRunResponse
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err = engine.GetJobRun(ctx, swf.GetJobRunRequest{JobKey: jobKey})
+		if err != nil {
+			t.Fatalf("get job run: %v", err)
+		}
+		if len(resp.Attempts) > 0 && resp.Attempts[0].Outcome.Status == swf.TaskOutcomeStatusFailed {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if len(resp.Attempts) != 2 {
+		t.Fatalf("expected synthesized next attempt, got %d attempts", len(resp.Attempts))
+	}
+	if resp.Attempts[1].Output != nil {
+		t.Fatalf("expected next attempt to be pending without output")
+	}
+	if resp.Job.Status == swf.JobStatusCompleted {
+		t.Fatalf("expected job to be pending during backoff")
 	}
 }
 
@@ -428,10 +489,13 @@ func TestGetJobRunTaskRetryRepresentation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get job run: %v", err)
 	}
-	if len(resp.Tasks) != 1 {
-		t.Fatalf("expected 1 task run, got %d", len(resp.Tasks))
+	if len(resp.Attempts) != 1 {
+		t.Fatalf("expected 1 job attempt, got %d", len(resp.Attempts))
 	}
-	taskRun := resp.Tasks[0]
+	if len(resp.Attempts[0].Tasks) != 1 {
+		t.Fatalf("expected 1 task run, got %d", len(resp.Attempts[0].Tasks))
+	}
+	taskRun := resp.Attempts[0].Tasks[0]
 	if taskRun.TaskType != taskWorker.Name() {
 		t.Fatalf("unexpected task type: %s", taskRun.TaskType)
 	}

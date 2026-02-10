@@ -186,6 +186,9 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 			if decErr != nil {
 				return nil, fmt.Errorf("%w: decode cached chapter: %v", swf.ErrWorkflowNotDeterministic, decErr)
 			}
+			if env.ChapterType != chapterTypeTaskAttemptOutcome && env.ChapterType != chapterTypeRestartExtra {
+				return nil, fmt.Errorf("%w: unexpected chapter type %q at ordinal %d", swf.ErrWorkflowNotDeterministic, env.ChapterType, ordinal)
+			}
 
 			r.logger.Debug("checking cached task result",
 				"taskType", taskType,
@@ -476,7 +479,7 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 			InputPayload: inputPayload,
 		}
 
-		chap, err = payloadToChapter(payload, artifacts, ordinal, taskType, r.engine.workerId, payloadKind, inputHash, now, meta)
+		chap, err = payloadToChapter(payload, artifacts, ordinal, taskType, r.engine.workerId, chapterTypeTaskAttemptOutcome, payloadKind, inputHash, now, meta)
 		if err != nil {
 			return nil, err
 		}
@@ -703,6 +706,9 @@ func (r *runner) loadInitialChapterAndPolicy() (swf.TaskData, chapterEnvelope, e
 	if err != nil {
 		return nil, chapterEnvelope{}, fmt.Errorf("failed to decode initial chapter: %w", err)
 	}
+	if env0.ChapterType != chapterTypeJobStart {
+		return nil, chapterEnvelope{}, fmt.Errorf("%w: unexpected chapter type %q at ordinal 0", swf.ErrWorkflowNotDeterministic, env0.ChapterType)
+	}
 	if env0.Meta.RunPolicy != nil {
 		r.jobPolicy = mergeRunPolicy(*env0.Meta.RunPolicy, r.jobPolicy)
 	}
@@ -865,6 +871,9 @@ func (r *runner) checkCachedJobResult(ctx context.Context, key story.Key, ordina
 	if decErr != nil {
 		return nil, 0, false, false, fmt.Errorf("%w: decode cached chapter: %v", swf.ErrWorkflowNotDeterministic, decErr)
 	}
+	if env.ChapterType != chapterTypeJobAttemptOutcome {
+		return nil, 0, false, false, fmt.Errorf("%w: unexpected chapter type %q at ordinal %d", swf.ErrWorkflowNotDeterministic, env.ChapterType, ordinal)
+	}
 
 	r.logger.Debug("checking cached job result",
 		"ordinal", ordinal,
@@ -968,7 +977,7 @@ func (r *runner) saveJobChapter(key story.Key, payload json.RawMessage, artifact
 		InputRef: inputRef,
 	}
 
-	chap, err := payloadToChapter(payload, artifacts, ordinal, workerName, r.engine.workerId, kind, inputHash, now, meta)
+	chap, err := payloadToChapter(payload, artifacts, ordinal, workerName, r.engine.workerId, chapterTypeJobAttemptOutcome, kind, inputHash, now, meta)
 	if err != nil {
 		return fmt.Errorf("failed to build chapter: %w", err)
 	}
