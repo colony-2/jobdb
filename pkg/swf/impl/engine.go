@@ -1052,18 +1052,27 @@ func (s *swfEngineImpl) runSomething(ctx context.Context, lease *swf.Lease) {
 	payload.RunPolicy = normalizeRunPolicy(payload.RunPolicy)
 
 	s.resetAwaitState(lease.JobID())
+	leaseAdapter := newPgwfLeaseAdapter(lease, s.udb)
+	backend := &defaultRunnerBackend{
+		engine:     s,
+		lease:      leaseAdapter,
+		pgwfLease:  lease,
+		capability: capability,
+	}
 	runner := runner{
 		jobId:        lease.JobID(),
 		tenantId:     string(lease.TenantID()),
 		worker:       workSet,
 		storyCounter: 1,
-		engine:       s,
-		lease:        lease,
+		backend:      backend,
+		lease:        leaseAdapter,
 		logger:       s.logger.With("jobId", lease.JobID(), "capability", capability),
 		jobPolicy:    payload.RunPolicy,
 		capability:   capability,
+		workerId:     s.workerId,
 	}
-	runner.DoJob(ctx, lease)
+	runner.DoJob(ctx)
+	s.resetAwaitState(lease.JobID())
 }
 
 var _ swf.SWFEngine = &swfEngineImpl{}

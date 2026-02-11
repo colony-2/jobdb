@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/colony-2/pgwf-go/installer"
+	"github.com/colony-2/pgwf-go/pkg/pgwf"
 	"github.com/colony-2/strata-go/pkg/daemon"
 	"github.com/colony-2/swf-go/pkg/swf"
 	"github.com/fergusstrange/embedded-postgres"
@@ -153,6 +154,39 @@ func StartEmbeddedEngine(ctx context.Context, job swf.JobWorker, tasks ...swf.Ta
 
 	return full, nil
 
+}
+
+func newRunnerForTest(engine *swfEngineImpl, lease *pgwf.Lease, ws *swf.WorkSet, ctx context.Context) *runner {
+	if engine == nil {
+		return &runner{}
+	}
+	var cap pgwf.Capability
+	if lease != nil {
+		cap = lease.NextNeed()
+	}
+	leaseAdapter := newPgwfLeaseAdapter(lease, engine.udb)
+	backend := &defaultRunnerBackend{
+		engine:     engine,
+		lease:      leaseAdapter,
+		pgwfLease:  lease,
+		capability: cap,
+	}
+	r := &runner{
+		worker:       ws,
+		storyCounter: 1,
+		backend:      backend,
+		lease:        leaseAdapter,
+		logger:       engine.logger,
+		jobPolicy:    normalizeRunPolicy(swf.RunPolicy{}),
+		capability:   cap,
+		ctx:          ctx,
+		workerId:     engine.workerId,
+	}
+	if lease != nil {
+		r.jobId = lease.JobID()
+		r.tenantId = string(lease.TenantID())
+	}
+	return r
 }
 
 type EmbeddedEngine struct {

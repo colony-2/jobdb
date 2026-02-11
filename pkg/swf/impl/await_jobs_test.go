@@ -57,13 +57,7 @@ func TestAwaitJobsReschedulesAndExits(t *testing.T) {
 		t.Fatalf("expected lease")
 	}
 
-	r := runner{
-		jobId:      lease.JobID(),
-		tenantId:   string(tenantID),
-		engine:     engine,
-		lease:      lease,
-		capability: lease.NextNeed(),
-	}
+	r := *newRunnerForTest(engine, lease, nil, ctx)
 
 	errCh := make(chan error, 1)
 	postCall := make(chan struct{}, 1)

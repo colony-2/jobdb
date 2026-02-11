@@ -75,23 +75,12 @@ func TestTaskContextAwaitJobsReschedulesAndExits(t *testing.T) {
 		t.Fatalf("no lease available")
 	}
 
-	r := &runner{
-		jobId:        lease.JobID(),
-		tenantId:     jobKey.TenantId,
-		worker:       ws,
-		storyCounter: 1,
-		engine:       engine,
-		lease:        lease,
-		logger:       engine.logger,
-		jobPolicy:    normalizeRunPolicy(swf.RunPolicy{}),
-		capability:   lease.NextNeed(),
-		ctx:          ctx,
-	}
+	r := newRunnerForTest(engine, lease, ws, ctx)
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		r.DoJob(ctx, lease)
+		r.DoJob(ctx)
 	}()
 
 	select {

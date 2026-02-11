@@ -262,19 +262,8 @@ func runOnceWithLease(t *testing.T, ctx context.Context, engine *swfEngineImpl, 
 	if lease == nil {
 		t.Fatalf("no lease available")
 	}
-	r := &runner{
-		jobId:        lease.JobID(),
-		tenantId:     jobKey.TenantId,
-		worker:       workset,
-		storyCounter: 1,
-		engine:       engine,
-		lease:        lease,
-		logger:       engine.logger,
-		jobPolicy:    normalizeRunPolicy(swf.RunPolicy{}),
-		capability:   lease.NextNeed(),
-		ctx:          ctx,
-	}
-	r.DoJob(ctx, lease)
+	r := newRunnerForTest(engine, lease, workset, ctx)
+	r.DoJob(ctx)
 }
 
 func expireLease(t *testing.T, ctx context.Context, engine *swfEngineImpl, jobKey swf.JobKey) {
@@ -389,9 +378,13 @@ func (w *leaseCaptureJobWorker) Name() string { return w.name }
 
 func (w *leaseCaptureJobWorker) Run(ctx swf.JobContext, data swf.JobData) (swf.JobData, error) {
 	if runnerCtx, ok := ctx.(*runner); ok && runnerCtx.lease != nil {
-		select {
-		case w.leaseCh <- runnerCtx.lease:
-		default:
+		if accessor, ok := runnerCtx.lease.(interface{ PgwfLease() *pgwf.Lease }); ok {
+			if lease := accessor.PgwfLease(); lease != nil {
+				select {
+				case w.leaseCh <- lease:
+				default:
+				}
+			}
 		}
 	}
 	return erroringJobData{err: errors.New("bad output")}, nil

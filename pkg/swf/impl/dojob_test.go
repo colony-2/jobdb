@@ -59,19 +59,8 @@ func TestJobRestartUsesCache(t *testing.T) {
 	}
 
 	// Execute manually - this will run the job and save the result
-	r := &runner{
-		jobId:        lease.JobID(),
-		tenantId:     jobKey.TenantId,
-		worker:       jobWorker.workset,
-		storyCounter: 1,
-		engine:       engine,
-		lease:        lease,
-		logger:       engine.logger,
-		jobPolicy:    normalizeRunPolicy(swf.RunPolicy{}),
-		capability:   lease.NextNeed(),
-		ctx:          ctx,
-	}
-	r.DoJob(ctx, lease)
+	r := newRunnerForTest(engine, lease, jobWorker.workset, ctx)
+	r.DoJob(ctx)
 
 	// Verify job executed exactly once
 	if executionCount.Load() != 1 {
@@ -96,19 +85,8 @@ func TestJobRestartUsesCache(t *testing.T) {
 	// The job should NOT re-execute - it should use the cached result
 	lease2 := getLeaseForJob(t, ctx, engine, jobKey)
 	if lease2 != nil {
-		r2 := &runner{
-			jobId:        lease2.JobID(),
-			tenantId:     jobKey.TenantId,
-			worker:       jobWorker.workset,
-			storyCounter: 1,
-			engine:       engine,
-			lease:        lease2,
-			logger:       engine.logger,
-			jobPolicy:    normalizeRunPolicy(swf.RunPolicy{}),
-			capability:   lease2.NextNeed(),
-			ctx:          ctx,
-		}
-		r2.DoJob(ctx, lease2)
+		r2 := newRunnerForTest(engine, lease2, jobWorker.workset, ctx)
+		r2.DoJob(ctx)
 
 		// CRITICAL: Execution count should still be 1, not 2
 		// The job should have used the cached result from ordinal 1
@@ -164,17 +142,11 @@ func TestTotalTimeoutReplayWritesNextOrdinal(t *testing.T) {
 	}
 
 	// Pre-populate task chapters (ordinals 1 and 2) without finishing the job.
-	taskRunner := &runner{
-		jobId:        pgwf.JobID(jobKey.JobId),
-		tenantId:     jobKey.TenantId,
-		worker:       workset,
-		storyCounter: 1,
-		engine:       engine,
-		logger:       engine.logger,
-		jobPolicy:    normalizeRunPolicy(start.RunPolicy),
-		capability:   pgwf.Capability(jobWorker.Name()),
-		ctx:          ctx,
-	}
+	taskRunner := newRunnerForTest(engine, nil, workset, ctx)
+	taskRunner.jobId = pgwf.JobID(jobKey.JobId)
+	taskRunner.tenantId = jobKey.TenantId
+	taskRunner.jobPolicy = normalizeRunPolicy(start.RunPolicy)
+	taskRunner.capability = pgwf.Capability(jobWorker.Name())
 	taskInput := swf.NewTaskDataOrPanic(map[string]string{"task": "1"})
 	if _, err := taskRunner.DoTask(swf.RunPolicy{}, "echo", taskInput); err != nil {
 		t.Fatalf("task 1: %v", err)
@@ -192,19 +164,9 @@ func TestTotalTimeoutReplayWritesNextOrdinal(t *testing.T) {
 		t.Fatalf("no lease available")
 	}
 
-	replayRunner := &runner{
-		jobId:        lease.JobID(),
-		tenantId:     jobKey.TenantId,
-		worker:       workset,
-		storyCounter: 1,
-		engine:       engine,
-		lease:        lease,
-		logger:       engine.logger,
-		jobPolicy:    normalizeRunPolicy(start.RunPolicy),
-		capability:   lease.NextNeed(),
-		ctx:          ctx,
-	}
-	replayRunner.DoJob(ctx, lease)
+	replayRunner := newRunnerForTest(engine, lease, workset, ctx)
+	replayRunner.jobPolicy = normalizeRunPolicy(start.RunPolicy)
+	replayRunner.DoJob(ctx)
 
 	key := jobKey.ToStoryKey()
 	chap, err := engine.strata.Chapter(ctx, key, 3)
@@ -512,19 +474,8 @@ func TestJobOrdinalDeterminism(t *testing.T) {
 		t.Fatalf("no lease available")
 	}
 
-	r := &runner{
-		jobId:        lease.JobID(),
-		tenantId:     jobKey.TenantId,
-		worker:       jobWorker.workset,
-		storyCounter: 1,
-		engine:       engine,
-		lease:        lease,
-		logger:       engine.logger,
-		jobPolicy:    normalizeRunPolicy(swf.RunPolicy{}),
-		capability:   lease.NextNeed(),
-		ctx:          ctx,
-	}
-	r.DoJob(ctx, lease)
+	r := newRunnerForTest(engine, lease, jobWorker.workset, ctx)
+	r.DoJob(ctx)
 
 	// The job calls DoTask twice, so we should have ordinals: 0 (input), 1 (task1), 2 (task2), 3 (job result)
 	key := jobKey.ToStoryKey()
@@ -540,19 +491,8 @@ func TestJobOrdinalDeterminism(t *testing.T) {
 	// Now restart - should replay through cached results
 	lease2 := getLeaseForJob(t, ctx, engine, jobKey)
 	if lease2 != nil {
-		r2 := &runner{
-			jobId:        lease2.JobID(),
-			tenantId:     jobKey.TenantId,
-			worker:       jobWorker.workset,
-			storyCounter: 1,
-			engine:       engine,
-			lease:        lease2,
-			logger:       engine.logger,
-			jobPolicy:    normalizeRunPolicy(swf.RunPolicy{}),
-			capability:   lease2.NextNeed(),
-			ctx:          ctx,
-		}
-		r2.DoJob(ctx, lease2)
+		r2 := newRunnerForTest(engine, lease2, jobWorker.workset, ctx)
+		r2.DoJob(ctx)
 	}
 
 	// Should still have exactly the same ordinals, no duplicates

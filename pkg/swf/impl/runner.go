@@ -15,6 +15,7 @@ import (
 	"github.com/colony-2/strata-go/pkg/client/core"
 	"github.com/colony-2/strata-go/pkg/client/story"
 	"github.com/colony-2/swf-go/pkg/swf"
+	swfinternal "github.com/colony-2/swf-go/pkg/swf/internal"
 )
 
 type runner struct {
@@ -22,11 +23,12 @@ type runner struct {
 	tenantId     string
 	worker       *swf.WorkSet
 	storyCounter int64
-	engine       *swfEngineImpl
-	lease        *pgwf.Lease
+	backend      swfinternal.RunnerBackend
+	lease        swfinternal.Lease
 	logger       *slog.Logger
 	jobPolicy    swf.RunPolicy
 	capability   pgwf.Capability
+	workerId     string
 	ctx          context.Context
 	// current attempt bookkeeping for job-level Await/Spawn paths.
 	currentInvocationDeadline time.Time
@@ -63,7 +65,7 @@ func (r *runner) taskTotalDeadline(ctx context.Context, key story.Key, ordinal i
 	if startOrdinal < 0 {
 		startOrdinal = 0
 	}
-	chap, err := r.engine.strata.Chapter(ctx, key, startOrdinal)
+	chap, err := r.backend.GetChapter(ctx, key, startOrdinal)
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -99,27 +101,16 @@ func (r *runner) awaitUntil(wakeAt time.Time, ordinal int64, attempt int, kind s
 		return nil
 	}
 	ctx := r.ctx
-
-	ch := r.engine.AwaitUntil(r.jobId, r.capability, r.lease, ordinal, attempt, wakeAt)
-	if ch == nil {
-		prematureCloseOut()
-		return nil
+	if ctx == nil {
+		ctx = context.Background()
 	}
-
-	// Clear any stale signal before waiting.
-	select {
-	case <-ch:
-	default:
+	info := swfinternal.AwaitInfo{
+		JobKey:  r.GetJobKey(),
+		Ordinal: ordinal,
+		Attempt: attempt,
 	}
-
-	select {
-	case sig := <-ch:
-		if sig.Kind == awaitSignalKindRecycle {
-			prematureCloseOut()
-		}
-	case <-ctx.Done():
-		prematureCloseOut()
-		return ctx.Err()
+	if err := r.backend.AwaitUntil(ctx, wakeAt, info); err != nil {
+		return err
 	}
 	now = time.Now()
 	if !totalDeadline.IsZero() && (now.After(totalDeadline) || now.Equal(totalDeadline)) {
@@ -179,7 +170,7 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 		}
 
 		// CACHE-FIRST: Check if we already have a result at this ordinal
-		chap, err := r.engine.strata.Chapter(ctx, key, ordinal)
+		chap, err := r.backend.GetChapter(ctx, key, ordinal)
 		if err == nil {
 			// Cached result exists
 			env, decErr := decodeChapterEnvelope(chap.Body())
@@ -296,7 +287,7 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 				}
 			}
 
-			err = r.lease.Reschedule(context.TODO(), r.engine.udb, deps, jobPayload{
+			err = r.lease.Reschedule(context.TODO(), deps, jobPayload{
 				RunPolicy: r.jobPolicy,
 				TaskWait: &taskWait{
 					InputStep:  inputOrdinal,
@@ -350,7 +341,12 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 							return r.awaitUntil(wakeAt, ordinal, attemptNum, "task", inputRef, attemptInvocationDeadline, totalDeadline, invocationTimeout, totalTimeout)
 						},
 						func(jobIds ...string) error {
-							rescheduled, err := r.rescheduleAwaitJobs(jobIds...)
+							info := swfinternal.AwaitInfo{
+								JobKey:  r.GetJobKey(),
+								Ordinal: ordinal,
+								Attempt: attemptNum,
+							}
+							rescheduled, err := r.backend.AwaitJobs(ctx, jobIds, info)
 							if err != nil {
 								return err
 							}
@@ -479,12 +475,12 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 			InputPayload: inputPayload,
 		}
 
-		chap, err = payloadToChapter(payload, artifacts, ordinal, taskType, r.engine.workerId, chapterTypeTaskAttemptOutcome, payloadKind, inputHash, now, meta)
+		chap, err = payloadToChapter(payload, artifacts, ordinal, taskType, r.workerId, chapterTypeTaskAttemptOutcome, payloadKind, inputHash, now, meta)
 		if err != nil {
 			return nil, err
 		}
 
-		err = r.engine.strata.SaveChapter(context.TODO(), key, chap)
+		err = r.backend.SaveChapter(context.TODO(), key, chap)
 		if err != nil {
 			return nil, err
 		}
@@ -492,7 +488,7 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 
 		returnedOutput := output
 		if originalErr == nil {
-			returnedOutput, err = wrapOutputArtifactsWithFallback(output, dataBytes, artifacts, outputArtifactDigests, key, ordinal, r.engine.strata, r.logger)
+			returnedOutput, err = r.backend.AfterSaveTaskOutput(output, dataBytes, artifacts, outputArtifactDigests, key, ordinal, r.logger)
 			if err != nil {
 				return nil, err
 			}
@@ -566,7 +562,7 @@ type RunError struct {
 }
 
 func (r *runner) getChapter(ordinal int64) (story.Chapter, error) {
-	return r.engine.strata.Chapter(context.TODO(), r.GetJobKey().ToStoryKey(), ordinal)
+	return r.backend.GetChapter(context.TODO(), r.GetJobKey().ToStoryKey(), ordinal)
 }
 
 func (r *runner) Logger() *slog.Logger {
@@ -585,105 +581,21 @@ func (r *runner) AwaitDuration(waitFor swf.Duration) error {
 	return r.awaitUntil(time.Now().Add(wait), r.storyCounter, 0, kind, r.currentInputRef, r.currentInvocationDeadline, r.currentTotalDeadline, r.currentInvocationLimit, r.currentTotalLimit)
 }
 
-func (r *runner) rescheduleAwaitJobs(jobIds ...string) (bool, error) {
-	if len(jobIds) == 0 {
-		return false, fmt.Errorf("at least one jobId is required")
-	}
-	if r.engine == nil || r.engine.udb == nil {
-		return false, fmt.Errorf("engine is not available")
-	}
-	if r.lease == nil {
-		return false, fmt.Errorf("lease is not available")
-	}
-	capability := r.capability
-	if capability == "" {
-		capability = r.lease.NextNeed()
-	}
-	if capability == "" {
-		return false, fmt.Errorf("capability is required")
-	}
-	completed, err := r.awaitJobsComplete(jobIds...)
-	if err != nil {
-		return false, err
-	}
-	if completed {
-		return false, nil
-	}
-	waitFor := make([]pgwf.JobID, 0, len(jobIds))
-	for _, id := range jobIds {
-		if id == "" {
-			return false, fmt.Errorf("jobId cannot be empty")
-		}
-		waitFor = append(waitFor, pgwf.JobID(id))
-	}
-	payload := r.lease.Payload()
-	if len(payload) == 0 {
-		payload = json.RawMessage(`{}`)
-	}
-	deps := pgwf.JobDependencies{
-		NextNeed: capability,
-		WaitFor:  waitFor,
-	}
-	if err := r.lease.Reschedule(context.TODO(), r.engine.udb, deps, payload); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-func (r *runner) awaitJobsComplete(jobIds ...string) (bool, error) {
-	if r.engine == nil {
-		return false, fmt.Errorf("engine is not available")
-	}
-	tenantId := r.tenantId
-	if tenantId == "" {
-		return false, fmt.Errorf("tenantId is required")
-	}
-	jobKeys := make([]swf.JobKey, 0, len(jobIds))
-	jobIDSet := make(map[string]struct{}, len(jobIds))
-	for _, id := range jobIds {
-		if id == "" {
-			return false, fmt.Errorf("jobId cannot be empty")
-		}
-		jobKeys = append(jobKeys, swf.JobKey{TenantId: tenantId, JobId: id})
-		jobIDSet[id] = struct{}{}
-	}
+func (r *runner) AwaitJobs(jobIds ...string) error {
 	ctx := r.ctx
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	pageToken := ""
-	for {
-		resp, err := r.engine.ListJobs(ctx, swf.ListJobsRequest{
-			TenantIds: []string{tenantId},
-			Stores:    []swf.JobStore{swf.JobStoreActive},
-			JobKeys:   jobKeys,
-			PageSize:  swf.MaxListJobsPageSize,
-			PageToken: pageToken,
-		})
-		if err != nil {
-			return false, err
-		}
-		for _, job := range resp.Jobs {
-			if _, ok := jobIDSet[job.JobKey.JobId]; ok {
-				return false, nil
-			}
-		}
-		if resp.NextPageToken == "" {
-			return true, nil
-		}
-		pageToken = resp.NextPageToken
+	info := swfinternal.AwaitInfo{
+		JobKey: r.GetJobKey(),
 	}
-}
-
-func (r *runner) AwaitJobs(jobIds ...string) error {
-	rescheduled, err := r.rescheduleAwaitJobs(jobIds...)
+	rescheduled, err := r.backend.AwaitJobs(ctx, jobIds, info)
 	if err != nil {
 		return err
 	}
-	if !rescheduled {
-		return nil
+	if rescheduled {
+		prematureCloseOut()
 	}
-	prematureCloseOut()
 	return nil
 }
 
@@ -857,7 +769,7 @@ func (r *runner) validatePostExecutionTimeouts(jobErr error, attemptInvocationDe
 // - error: any error encountered
 func (r *runner) checkCachedJobResult(ctx context.Context, key story.Key, ordinal int64, inputHash string, retryCfg swf.RetryPolicy, totalDeadline time.Time, totalTimeout time.Duration, inputRef *swf.InputReference) (swf.JobData, int, bool, bool, error) {
 	maxAttempts := int(retryCfg.MaximumAttempts)
-	cached, err := r.engine.strata.Chapter(ctx, key, ordinal)
+	cached, err := r.backend.GetJobAttemptOutcome(ctx, key, ordinal)
 	if errors.Is(err, core.ErrNotFound) {
 		// No cached result, need to execute
 		return nil, 1, false, false, nil
@@ -977,12 +889,12 @@ func (r *runner) saveJobChapter(key story.Key, payload json.RawMessage, artifact
 		InputRef: inputRef,
 	}
 
-	chap, err := payloadToChapter(payload, artifacts, ordinal, workerName, r.engine.workerId, chapterTypeJobAttemptOutcome, kind, inputHash, now, meta)
+	chap, err := payloadToChapter(payload, artifacts, ordinal, workerName, r.workerId, chapterTypeJobAttemptOutcome, kind, inputHash, now, meta)
 	if err != nil {
 		return fmt.Errorf("failed to build chapter: %w", err)
 	}
 
-	err = r.engine.strata.SaveChapter(context.TODO(), key, chap)
+	err = r.backend.SaveChapter(context.TODO(), key, chap)
 	if err != nil {
 		return fmt.Errorf("failed to save chapter: %w", err)
 	}
@@ -995,16 +907,15 @@ func (r *runner) saveJobChapter(key story.Key, payload json.RawMessage, artifact
 // DoJob executes the job worker with retry logic, timeout handling, and result persistence
 // Follows cache-first pattern: checks for cached result before executing
 // Each retry attempt gets a new ordinal (chapters are write-once)
-func (r *runner) DoJob(ctx context.Context, lease *pgwf.Lease) {
+func (r *runner) DoJob(ctx context.Context) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	r.ctx = ctx
-	if r.engine != nil {
-		defer r.engine.resetAwaitState(r.jobId)
+	if r.lease != nil {
+		defer r.lease.StopKeepAlive()
+		_ = r.lease.KeepAlive(ctx)
 	}
-	defer stopLeaseKeepAlive(lease)
-	_ = lease.WithKeepAlive(r.engine.udb)
 
 	// Load initial chapter and setup job policy
 	inputData, env0, err := r.loadInitialChapterAndPolicy()
@@ -1031,7 +942,7 @@ func (r *runner) DoJob(ctx context.Context, lease *pgwf.Lease) {
 			r.logger.Error("job total timeout", "error", err)
 			jobResultOrdinal := r.storyCounter
 			for {
-				chap, chapErr := r.engine.strata.Chapter(ctx, key, jobResultOrdinal)
+				chap, chapErr := r.backend.GetChapter(ctx, key, jobResultOrdinal)
 				if chapErr == nil {
 					env, decErr := decodeChapterEnvelope(chap.Body())
 					if decErr != nil {
@@ -1043,21 +954,21 @@ func (r *runner) DoJob(ctx context.Context, lease *pgwf.Lease) {
 						if env.PayloadKind == payloadKindApp {
 							inputArtifacts, _ := inputData.GetArtifacts()
 							cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
-							_ = lease.Complete(ctx, r.engine.udb)
+							_ = r.lease.Complete(ctx)
 							return
 						}
 						_, payloadErr := envelopeToTaskData(env, artifacts)
 						if payloadErr == nil {
 							inputArtifacts, _ := inputData.GetArtifacts()
 							cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
-							_ = lease.Complete(ctx, r.engine.udb)
+							_ = r.lease.Complete(ctx)
 							return
 						}
 						retryable := isRetryable(payloadErr, config.retryCfg)
 						if !retryable {
 							inputArtifacts, _ := inputData.GetArtifacts()
 							cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
-							_ = lease.Complete(ctx, r.engine.udb)
+							_ = r.lease.Complete(ctx)
 							return
 						}
 						if env.Meta.Attempt > 0 {
@@ -1089,7 +1000,7 @@ func (r *runner) DoJob(ctx context.Context, lease *pgwf.Lease) {
 			}
 			inputArtifacts, _ := inputData.GetArtifacts()
 			cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
-			_ = lease.Complete(ctx, r.engine.udb)
+			_ = r.lease.Complete(ctx)
 			return
 		}
 
@@ -1133,7 +1044,7 @@ func (r *runner) DoJob(ctx context.Context, lease *pgwf.Lease) {
 			// Found cached job result - use it instead of fresh execution result
 			if terminal {
 				// Terminal result (success or non-retryable error) - complete and return
-				_ = lease.Complete(ctx, r.engine.udb)
+				_ = r.lease.Complete(ctx)
 				return
 			}
 			// Retryable error - update attempt number and retry
@@ -1163,7 +1074,7 @@ func (r *runner) DoJob(ctx context.Context, lease *pgwf.Lease) {
 			// Success - cleanup input artifacts, complete lease and return
 			inputArtifacts, _ := inputData.GetArtifacts()
 			cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
-			_ = lease.Complete(ctx, r.engine.udb)
+			_ = r.lease.Complete(ctx)
 			return
 		}
 
@@ -1172,7 +1083,7 @@ func (r *runner) DoJob(ctx context.Context, lease *pgwf.Lease) {
 			// Non-retryable or max attempts reached - cleanup input artifacts, complete lease and return
 			inputArtifacts, _ := inputData.GetArtifacts()
 			cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
-			_ = lease.Complete(ctx, r.engine.udb)
+			_ = r.lease.Complete(ctx)
 			return
 		}
 

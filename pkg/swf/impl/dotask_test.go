@@ -62,19 +62,8 @@ func TestTaskRestartUsesCache(t *testing.T) {
 		t.Fatalf("no lease available")
 	}
 
-	r := &runner{
-		jobId:        lease.JobID(),
-		tenantId:     jobKey.TenantId,
-		worker:       ws,
-		storyCounter: 1,
-		engine:       engine,
-		lease:        lease,
-		logger:       engine.logger,
-		jobPolicy:    normalizeRunPolicy(swf.RunPolicy{}),
-		capability:   lease.NextNeed(),
-		ctx:          ctx,
-	}
-	r.DoJob(ctx, lease)
+	r := newRunnerForTest(engine, lease, ws, ctx)
+	r.DoJob(ctx)
 
 	// Verify task executed exactly once
 	if taskExecutionCount.Load() != 1 {
@@ -98,19 +87,8 @@ func TestTaskRestartUsesCache(t *testing.T) {
 	// Now restart - task should use cached result, NOT re-execute
 	lease2 := getLeaseForJob(t, ctx, engine, jobKey)
 	if lease2 != nil {
-		r2 := &runner{
-			jobId:        lease2.JobID(),
-			tenantId:     jobKey.TenantId,
-			worker:       ws,
-			storyCounter: 1,
-			engine:       engine,
-			lease:        lease2,
-			logger:       engine.logger,
-			jobPolicy:    normalizeRunPolicy(swf.RunPolicy{}),
-			capability:   lease2.NextNeed(),
-			ctx:          ctx,
-		}
-		r2.DoJob(ctx, lease2)
+		r2 := newRunnerForTest(engine, lease2, ws, ctx)
+		r2.DoJob(ctx)
 
 		// CRITICAL: Task execution count should still be 1
 		if taskExecutionCount.Load() != 1 {
@@ -155,19 +133,8 @@ func TestExternalTaskCompletionUsesStoredInputHash(t *testing.T) {
 		t.Fatalf("no lease available")
 	}
 
-	r := &runner{
-		jobId:        lease.JobID(),
-		tenantId:     jobKey.TenantId,
-		worker:       jobWorker.workset,
-		storyCounter: 1,
-		engine:       engine,
-		lease:        lease,
-		logger:       engine.logger,
-		jobPolicy:    normalizeRunPolicy(swf.RunPolicy{}),
-		capability:   lease.NextNeed(),
-		ctx:          ctx,
-	}
-	r.DoJob(ctx, lease)
+	r := newRunnerForTest(engine, lease, jobWorker.workset, ctx)
+	r.DoJob(ctx)
 
 	handles, err := engine.FindTasksWaitingForCapability(ctx, jobWorker.Name(), taskType, []string{jobKey.TenantId})
 	if err != nil {
@@ -186,19 +153,8 @@ func TestExternalTaskCompletionUsesStoredInputHash(t *testing.T) {
 	if lease2 == nil {
 		t.Fatalf("no lease available after task completion")
 	}
-	r2 := &runner{
-		jobId:        lease2.JobID(),
-		tenantId:     jobKey.TenantId,
-		worker:       jobWorker.workset,
-		storyCounter: 1,
-		engine:       engine,
-		lease:        lease2,
-		logger:       engine.logger,
-		jobPolicy:    normalizeRunPolicy(swf.RunPolicy{}),
-		capability:   lease2.NextNeed(),
-		ctx:          ctx,
-	}
-	r2.DoJob(ctx, lease2)
+	r2 := newRunnerForTest(engine, lease2, jobWorker.workset, ctx)
+	r2.DoJob(ctx)
 
 	result, err := engine.GetJobResult(ctx, jobKey)
 	if err != nil {
@@ -956,23 +912,13 @@ func TestDoTaskRescheduleSetsAlternateNeedFromInvocationTimeout(t *testing.T) {
 				t.Fatalf("expected lease for job")
 			}
 
-			r := &runner{
-				jobId:        lease.JobID(),
-				tenantId:     jobKey.TenantId,
-				worker:       ws,
-				storyCounter: 1,
-				engine:       engine,
-				lease:        lease,
-				logger:       engine.logger,
-				jobPolicy:    normalizeRunPolicy(tc.policy),
-				capability:   lease.NextNeed(),
-				ctx:          ctx,
-			}
+			r := newRunnerForTest(engine, lease, ws, ctx)
+			r.jobPolicy = normalizeRunPolicy(tc.policy)
 
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
-				r.DoJob(ctx, lease)
+				r.DoJob(ctx)
 			}()
 
 			select {
@@ -1071,19 +1017,9 @@ func TestAlternateNeedReplayRecordsInvocationTimeout(t *testing.T) {
 	firstDone := make(chan struct{})
 	go func() {
 		defer close(firstDone)
-		r := &runner{
-			jobId:        lease1.JobID(),
-			tenantId:     jobKey.TenantId,
-			worker:       ws,
-			storyCounter: 1,
-			engine:       engine,
-			lease:        lease1,
-			logger:       engine.logger,
-			jobPolicy:    normalizeRunPolicy(jobWorker.policy),
-			capability:   lease1.NextNeed(),
-			ctx:          ctx,
-		}
-		r.DoJob(ctx, lease1)
+		r := newRunnerForTest(engine, lease1, ws, ctx)
+		r.jobPolicy = normalizeRunPolicy(jobWorker.policy)
+		r.DoJob(ctx)
 	}()
 
 	<-firstDone
@@ -1115,19 +1051,9 @@ func TestAlternateNeedReplayRecordsInvocationTimeout(t *testing.T) {
 	}
 
 	// Run again; DoTask will now find worker, sleep past invocation timeout, and record timeout payload.
-	r2 := &runner{
-		jobId:        lease2.JobID(),
-		tenantId:     jobKey.TenantId,
-		worker:       ws,
-		storyCounter: 1,
-		engine:       engine,
-		lease:        lease2,
-		logger:       engine.logger,
-		jobPolicy:    normalizeRunPolicy(jobWorker.policy),
-		capability:   lease2.NextNeed(),
-		ctx:          ctx,
-	}
-	r2.DoJob(ctx, lease2)
+	r2 := newRunnerForTest(engine, lease2, ws, ctx)
+	r2.jobPolicy = normalizeRunPolicy(jobWorker.policy)
+	r2.DoJob(ctx)
 
 	// Verify task chapter recorded an invocation timeout.
 	chap, err := engine.strata.Chapter(ctx, jobKey.ToStoryKey(), 1)

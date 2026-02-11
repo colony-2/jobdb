@@ -22,7 +22,8 @@ type RunnerBackend interface {
     SaveChapter(ctx context.Context, key story.Key, chap story.Chapter) error
     GetJobAttemptOutcome(ctx context.Context, key story.Key, ordinal int64) (story.Chapter, error)
     AwaitUntil(ctx context.Context, wakeAt time.Time, info AwaitInfo) error
-    AwaitJobs(ctx context.Context, jobIds []string, info AwaitInfo) error
+    // returns (rescheduled, error)
+    AwaitJobs(ctx context.Context, jobIds []string, info AwaitInfo) (bool, error)
 }
 
 // AwaitInfo provides context for awaits.
@@ -45,9 +46,9 @@ type AwaitInfo struct {
 ## Lease Abstraction (Noop-Friendly)
 Instead of adding lease methods to `RunnerBackend`, introduce an **internal SWF lease interface** and pass it into the runner. The API should exclude DB arguments; the adapter can carry any DB references internally.
 ```go
-// swf/internal (unexported) lease interface used by the runner.
+// swf/internal lease interface used by the runner.
 // It should cover all pgwf.Lease methods currently used in runner code.
-type lease interface {
+type Lease interface {
     KeepAlive(ctx context.Context) error
     StopKeepAlive()
     Complete(ctx context.Context) error

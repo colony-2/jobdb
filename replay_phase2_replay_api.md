@@ -43,7 +43,7 @@ type ReplayCacheMissError struct {
 - `GetJobAttemptOutcome`: if missing, return `ReplayCacheMissError{Reason: ReplayCacheMissJobResultMissing}`.
 - `SaveChapter`: always return `ErrReplayShouldNeverMutate`.
 - `AwaitUntil`: if `wakeAt` is in the future, return `ReplayCacheMissError{Reason: ReplayCacheMissAwaitNotReady}`; if already satisfied, return nil immediately.
-- `AwaitJobs`: if any job is not complete, return `ReplayCacheMissError{Reason: ReplayCacheMissAwaitJobsPending}`; otherwise return nil.
+- `AwaitJobs`: return `(false, ReplayCacheMissError{Reason: ReplayCacheMissAwaitJobsPending})` if any job is not complete; otherwise return `(false, nil)`.
 ## Replay Lease Behavior
 - Replay uses a noop internal SWF `lease` implementation that never mutates state.
 - Optionally return `ErrReplayShouldNeverMutate` on mutation attempts for easier detection.
