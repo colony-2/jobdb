@@ -2,7 +2,9 @@ package impl
 
 import "github.com/colony-2/swf-go/pkg/swf"
 
-type noopReattemptObserver struct{}
+type noopReplayObserver struct{}
 
-func (noopReattemptObserver) OnTaskReattemptBoundary(event swf.TaskReattemptBoundary) {}
-func (noopReattemptObserver) OnJobReattemptBoundary(event swf.JobReattemptBoundary)  {}
+func (noopReplayObserver) OnJobStart(event swf.JobStartEvent)  {}
+func (noopReplayObserver) OnTaskStart(event swf.TaskStartEvent) {}
+func (noopReplayObserver) OnTaskEnd(event swf.TaskEndEvent)     {}
+func (noopReplayObserver) OnJobEnd(event swf.JobEndEvent)       {}

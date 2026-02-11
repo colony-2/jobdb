@@ -181,7 +181,7 @@ func newRunnerForTest(engine *swfEngineImpl, lease *pgwf.Lease, ws *swf.WorkSet,
 		capability:   cap,
 		ctx:          ctx,
 		workerId:     engine.workerId,
-		observer:     noopReattemptObserver{},
+		observer:     noopReplayObserver{},
 	}
 	if lease != nil {
 		r.jobId = lease.JobID()

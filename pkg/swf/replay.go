@@ -37,33 +37,46 @@ func (e ReplayCacheMissError) Error() string {
 // ErrReplayShouldNeverMutate signals replay attempted to mutate state.
 var ErrReplayShouldNeverMutate = errors.New("replay run should never mutate state")
 
-// ReattemptObserver receives retry boundary events.
-type ReattemptObserver interface {
-	OnTaskReattemptBoundary(event TaskReattemptBoundary)
-	OnJobReattemptBoundary(event JobReattemptBoundary)
+// ReplayObserver receives lifecycle events during replay.
+type ReplayObserver interface {
+	OnJobStart(event JobStartEvent)
+	OnTaskStart(event TaskStartEvent)
+	OnTaskEnd(event TaskEndEvent)
+	OnJobEnd(event JobEndEvent)
 }
 
-type TaskReattemptBoundary struct {
-	JobKey                 JobKey
-	TaskType               string
-	PreviousAttemptOrdinal int64
-	PreviousAttemptNumber  int
-	PreviousAttemptError   error
-	NextAttemptOrdinal     int64
-	NextAttemptNumber      int
+type JobStartEvent struct {
+	JobKey        JobKey
+	AttemptNumber int
+	Input         JobData
 }
 
-type JobReattemptBoundary struct {
-	JobKey                 JobKey
-	PreviousAttemptOrdinal int64
-	PreviousAttemptNumber  int
-	PreviousAttemptError   error
-	NextAttemptOrdinal     int64
-	NextAttemptNumber      int
+type TaskStartEvent struct {
+	JobKey        JobKey
+	TaskType      string
+	Ordinal       int64
+	AttemptNumber int
+	Input         TaskData
+}
+
+type TaskEndEvent struct {
+	JobKey        JobKey
+	TaskType      string
+	Ordinal       int64
+	AttemptNumber int
+	Output        TaskData
+	Err           error
+}
+
+type JobEndEvent struct {
+	JobKey        JobKey
+	AttemptNumber int
+	Output        JobData
+	Err           error
 }
 
 // ReplayRunRequest describes a cache-only job replay.
 type ReplayRunRequest struct {
 	JobKey   JobKey
-	Observer ReattemptObserver // optional
+	Observer ReplayObserver // optional
 }

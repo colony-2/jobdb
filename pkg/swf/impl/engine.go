@@ -767,7 +767,7 @@ func (s *swfEngineImpl) ReplayJobRun(ctx context.Context, req swf.ReplayRunReque
 	backend := &replayRunnerBackend{engine: s}
 	observer := req.Observer
 	if observer == nil {
-		observer = noopReattemptObserver{}
+		observer = noopReplayObserver{}
 	}
 
 	r := runner{
@@ -1128,7 +1128,7 @@ func (s *swfEngineImpl) runSomething(ctx context.Context, lease *swf.Lease) {
 		jobPolicy:    payload.RunPolicy,
 		capability:   capability,
 		workerId:     s.workerId,
-		observer:     noopReattemptObserver{},
+		observer:     noopReplayObserver{},
 	}
 	runner.DoJob(ctx)
 	s.resetAwaitState(lease.JobID())

@@ -13,7 +13,7 @@ Add replay APIs that execute workflows through the standard runner but use a **R
 ```go
 type ReplayRunRequest struct {
     JobKey   swf.JobKey
-    Observer ReattemptObserver // optional
+    Observer ReplayObserver // optional
 }
 
 func (e *swfEngineImpl) ReplayJobRun(ctx context.Context, req ReplayRunRequest) (swf.JobData, error)
@@ -55,9 +55,11 @@ type ReplayCacheMissError struct {
 
 ## Observer (Retry Boundaries)
 ```go
-type ReattemptObserver interface {
-    OnTaskReattemptBoundary(event TaskReattemptBoundary)
-    OnJobReattemptBoundary(event JobReattemptBoundary)
+type ReplayObserver interface {
+    OnJobStart(event JobStartEvent)
+    OnTaskStart(event TaskStartEvent)
+    OnTaskEnd(event TaskEndEvent)
+    OnJobEnd(event JobEndEvent)
 }
 ```
 - Replay uses the caller-provided observer.

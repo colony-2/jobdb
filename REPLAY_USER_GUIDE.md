@@ -16,7 +16,7 @@ This guide explains how to use **ReplayJobRun** to replay a workflow using cache
 ```go
 type ReplayRunRequest struct {
     JobKey   swf.JobKey
-    Observer swf.ReattemptObserver // optional
+    Observer swf.ReplayObserver // optional
 }
 
 // Executes a job with cached results only.
@@ -26,9 +26,11 @@ ReplayJobRun(ctx context.Context, req ReplayRunRequest) (swf.JobData, error)
 ### Retry Boundary Observer
 Replay can emit retry-boundary events (only information not otherwise available):
 ```go
-type ReattemptObserver interface {
-    OnTaskReattemptBoundary(event TaskReattemptBoundary)
-    OnJobReattemptBoundary(event JobReattemptBoundary)
+type ReplayObserver interface {
+    OnJobStart(event JobStartEvent)
+    OnTaskStart(event TaskStartEvent)
+    OnTaskEnd(event TaskEndEvent)
+    OnJobEnd(event JobEndEvent)
 }
 ```
 
@@ -148,4 +150,4 @@ Key types:
 - `ReplayRunRequest`
 - `ReplayCacheMissError`
 - `ReplayCacheMissReason`
-- `ReattemptObserver`
+- `ReplayObserver`
