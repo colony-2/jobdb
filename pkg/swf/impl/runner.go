@@ -38,6 +38,8 @@ type runner struct {
 	currentTotalLimit         time.Duration
 	currentInputRef           *swf.InputReference
 	currentKind               string
+	currentJobAttemptStartAt  time.Time
+	lastTaskEndAt             *time.Time
 }
 
 func (r *runner) GetJobKey() swf.JobKey {
@@ -153,8 +155,15 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 	key := r.GetJobKey().ToStoryKey()
 	attempt := 1
 
+	var nextAttemptStartAt *time.Time
 	// Main retry loop - each attempt gets a new ordinal (chapters are write-once)
 	for {
+		startAt := time.Now().UTC()
+		if nextAttemptStartAt != nil {
+			startAt = *nextAttemptStartAt
+			nextAttemptStartAt = nil
+		}
+
 		// Get ordinal for this attempt
 		ordinal := r.storyCounter
 		r.storyCounter++
@@ -165,11 +174,16 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 		}
 		inputRef.Hash = inputHash
 
-		r.emitTaskStart(taskType, ordinal, attempt, data)
-
 		totalDeadline, err := r.taskTotalDeadline(ctx, key, ordinal, totalTimeout)
 		if err != nil {
-			r.emitTaskEnd(taskType, ordinal, attempt, nil, err)
+			if isReplayCacheMiss(err) {
+				fallback := r.fallbackTaskTime()
+				r.emitTaskStart(taskType, ordinal, attempt, data, fallback)
+				r.emitTaskEnd(taskType, ordinal, attempt, nil, err, fallback)
+				return nil, err
+			}
+			r.emitTaskStart(taskType, ordinal, attempt, data, startAt)
+			r.emitTaskEnd(taskType, ordinal, attempt, nil, err, startAt)
 			return nil, fmt.Errorf("compute total deadline: %w", err)
 		}
 
@@ -179,13 +193,18 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 			// Cached result exists
 			env, decErr := decodeChapterEnvelope(chap.Body())
 			if decErr != nil {
-				r.emitTaskEnd(taskType, ordinal, attempt, nil, decErr)
+				fallback := r.fallbackTaskTime()
+				r.emitTaskStart(taskType, ordinal, attempt, data, fallback)
+				r.emitTaskEnd(taskType, ordinal, attempt, nil, decErr, fallback)
 				return nil, fmt.Errorf("%w: decode cached chapter: %v", swf.ErrWorkflowNotDeterministic, decErr)
 			}
 			if env.ChapterType != chapterTypeTaskAttemptOutcome && env.ChapterType != chapterTypeRestartExtra {
-				r.emitTaskEnd(taskType, ordinal, attempt, nil, fmt.Errorf("%w: unexpected chapter type %q at ordinal %d", swf.ErrWorkflowNotDeterministic, env.ChapterType, ordinal))
+				r.emitTaskStart(taskType, ordinal, attempt, data, metaStartAt(env))
+				r.emitTaskEnd(taskType, ordinal, attempt, nil, fmt.Errorf("%w: unexpected chapter type %q at ordinal %d", swf.ErrWorkflowNotDeterministic, env.ChapterType, ordinal), metaEndAt(env))
 				return nil, fmt.Errorf("%w: unexpected chapter type %q at ordinal %d", swf.ErrWorkflowNotDeterministic, env.ChapterType, ordinal)
 			}
+
+			r.emitTaskStart(taskType, ordinal, attempt, data, metaStartAt(env))
 
 			r.logger.Debug("checking cached task result",
 				"taskType", taskType,
@@ -195,7 +214,7 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 				"hashMatch", env.Meta.InputHash == inputHash)
 
 			if env.Meta.InputHash == "" {
-				r.emitTaskEnd(taskType, ordinal, attempt, nil, fmt.Errorf("%w: ordinal %d task %s missing input hash", swf.ErrMissingInputHash, ordinal, taskType))
+				r.emitTaskEnd(taskType, ordinal, attempt, nil, fmt.Errorf("%w: ordinal %d task %s missing input hash", swf.ErrMissingInputHash, ordinal, taskType), metaEndAt(env))
 				return nil, fmt.Errorf("%w: ordinal %d task %s missing input hash", swf.ErrMissingInputHash, ordinal, taskType)
 			}
 			if env.Meta.InputHash != inputHash {
@@ -232,12 +251,12 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 					CachedOutputErr:   cachedOutputErr,
 					Meta:              meta,
 				}
-				r.emitTaskEnd(taskType, ordinal, attempt, nil, err)
+				r.emitTaskEnd(taskType, ordinal, attempt, nil, err, metaEndAt(env))
 				return nil, err
 			}
 			if !totalDeadline.IsZero() && time.Now().After(totalDeadline) {
 				err := swf.NewTimeoutError("task", totalTimeout, swf.TimeoutScopeTotal, inputRef, false)
-				r.emitTaskEnd(taskType, ordinal, attempt, nil, err)
+				r.emitTaskEnd(taskType, ordinal, attempt, nil, err, metaEndAt(env))
 				return nil, swf.NewTimeoutError("task", totalTimeout, swf.TimeoutScopeTotal, inputRef, false)
 			}
 
@@ -246,7 +265,7 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 			td, payloadErr := envelopeToTaskData(env, artifacts)
 			if payloadErr == nil {
 				// Cached success - return immediately
-				r.emitTaskEnd(taskType, ordinal, attempt, td, nil)
+				r.emitTaskEnd(taskType, ordinal, attempt, td, nil, metaEndAt(env))
 				return td, nil
 			}
 
@@ -258,15 +277,21 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 			retryable := isRetryable(payloadErr, retryCfg)
 			if !retryable || priorAttempt >= maxAttempts {
 				// Non-retryable or max attempts - return error
-				r.emitTaskEnd(taskType, ordinal, attempt, nil, payloadErr)
+				r.emitTaskEnd(taskType, ordinal, attempt, nil, payloadErr, metaEndAt(env))
 				return nil, payloadErr
 			}
 
 			// Retryable error - wait backoff and continue to next iteration (new ordinal)
-			r.emitTaskEnd(taskType, ordinal, attempt, nil, payloadErr)
+			r.emitTaskEnd(taskType, ordinal, attempt, nil, payloadErr, metaEndAt(env))
 			backoff := time.Duration(0)
 			if priorAttempt > 0 {
 				backoff = computeBackoff(retryCfg, priorAttempt)
+			}
+			if env.Meta.FinishedAt != nil {
+				nextAttemptStartAt = env.Meta.FinishedAt
+			} else {
+				t := metaEndAt(env)
+				nextAttemptStartAt = &t
 			}
 			if backoff > 0 {
 				wakeAt := env.Meta.CreatedAt.Add(backoff)
@@ -279,7 +304,14 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 			// Continue to next iteration for retry (new ordinal, with incremented attempt)
 			continue
 		} else if !errors.Is(err, core.ErrNotFound) {
-			r.emitTaskEnd(taskType, ordinal, attempt, nil, err)
+			if isReplayCacheMiss(err) {
+				fallback := r.fallbackTaskTime()
+				r.emitTaskStart(taskType, ordinal, attempt, data, fallback)
+				r.emitTaskEnd(taskType, ordinal, attempt, nil, err, fallback)
+				return nil, err
+			}
+			r.emitTaskStart(taskType, ordinal, attempt, data, startAt)
+			r.emitTaskEnd(taskType, ordinal, attempt, nil, err, startAt)
 			return nil, fmt.Errorf("failed to get chapter %d: %w", ordinal, err)
 		}
 
@@ -313,7 +345,7 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 			})
 
 			if err != nil {
-				r.emitTaskEnd(taskType, ordinal, attempt, nil, err)
+				r.emitTaskEnd(taskType, ordinal, attempt, nil, err, startAt)
 				return nil, fmt.Errorf("failed to reschedule job: %w", err)
 			}
 
@@ -322,10 +354,12 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 		}
 
 		// Execute task
+		r.emitTaskStart(taskType, ordinal, attempt, data, startAt)
+		attemptStartAt := startAt
 		now := time.Now()
 		if !totalDeadline.IsZero() && now.After(totalDeadline) {
 			err := swf.NewTimeoutError("task", totalTimeout, swf.TimeoutScopeTotal, inputRef, false)
-			r.emitTaskEnd(taskType, ordinal, attempt, nil, err)
+			r.emitTaskEnd(taskType, ordinal, attempt, nil, err, startAt)
 			return nil, swf.NewTimeoutError("task", totalTimeout, swf.TimeoutScopeTotal, inputRef, false)
 		}
 
@@ -474,6 +508,7 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 		}
 
 		retryable := isRetryable(originalErr, retryCfg)
+		finishedAt := time.Now().UTC()
 		now = time.Now().UTC()
 		backoff := time.Duration(0)
 		if originalErr != nil && retryable && attempt < maxAttempts {
@@ -491,6 +526,8 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 			Attempt:      attempt,
 			InputRef:     inputRef,
 			InputPayload: inputPayload,
+			StartedAt:    &attemptStartAt,
+			FinishedAt:   &finishedAt,
 		}
 
 		chap, err = payloadToChapter(payload, artifacts, ordinal, taskType, r.workerId, chapterTypeTaskAttemptOutcome, payloadKind, inputHash, now, meta)
@@ -508,7 +545,7 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 		if originalErr == nil {
 			returnedOutput, err = r.backend.AfterSaveTaskOutput(output, dataBytes, artifacts, outputArtifactDigests, key, ordinal, r.logger)
 			if err != nil {
-				r.emitTaskEnd(taskType, ordinal, attempt, nil, err)
+				r.emitTaskEnd(taskType, ordinal, attempt, nil, err, now.UTC())
 				return nil, err
 			}
 		}
@@ -520,7 +557,7 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 			// Success - cleanup input artifacts and return
 			inputArtifacts, _ := data.GetArtifacts()
 			cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
-			r.emitTaskEnd(taskType, ordinal, attempt, returnedOutput, nil)
+			r.emitTaskEnd(taskType, ordinal, attempt, returnedOutput, nil, finishedAt)
 			return returnedOutput, nil
 		}
 
@@ -532,11 +569,12 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 
 			if backoff > 0 {
 				if err := r.awaitUntil(now.Add(backoff), ordinal, attempt, "task", inputRef, time.Time{}, totalDeadline, 0, totalTimeout); err != nil {
-					r.emitTaskEnd(taskType, ordinal, attempt, nil, err)
+					r.emitTaskEnd(taskType, ordinal, attempt, nil, err, now.UTC())
 					return nil, err
 				}
 			}
-			r.emitTaskEnd(taskType, ordinal, attempt, nil, originalErr)
+			r.emitTaskEnd(taskType, ordinal, attempt, nil, originalErr, finishedAt)
+			nextAttemptStartAt = &finishedAt
 			// Increment attempt for next iteration
 			attempt++
 			// Continue to next iteration (new ordinal, incremented attempt)
@@ -546,7 +584,7 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 		// Max attempts or non-retryable - cleanup input artifacts and return error
 		inputArtifacts, _ := data.GetArtifacts()
 		cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
-		r.emitTaskEnd(taskType, ordinal, attempt, nil, originalErr)
+		r.emitTaskEnd(taskType, ordinal, attempt, nil, originalErr, now.UTC())
 		return nil, originalErr
 	}
 }
@@ -591,26 +629,28 @@ func (r *runner) observerOrNoop() swf.ReplayObserver {
 	return noopReplayObserver{}
 }
 
-func (r *runner) emitJobStart(attempt int, input swf.JobData) {
+func (r *runner) emitJobStart(attempt int, input swf.JobData, at time.Time) {
 	obs := r.observerOrNoop()
 	obs.OnJobStart(swf.JobStartEvent{
 		JobKey:        r.GetJobKey(),
 		AttemptNumber: attempt,
 		Input:         input,
+		At:            at,
 	})
 }
 
-func (r *runner) emitJobEnd(attempt int, output swf.JobData, err error) {
+func (r *runner) emitJobEnd(attempt int, output swf.JobData, err error, at time.Time) {
 	obs := r.observerOrNoop()
 	obs.OnJobEnd(swf.JobEndEvent{
 		JobKey:        r.GetJobKey(),
 		AttemptNumber: attempt,
 		Output:        output,
 		Err:           err,
+		At:            at,
 	})
 }
 
-func (r *runner) emitTaskStart(taskType string, ordinal int64, attempt int, input swf.TaskData) {
+func (r *runner) emitTaskStart(taskType string, ordinal int64, attempt int, input swf.TaskData, at time.Time) {
 	obs := r.observerOrNoop()
 	obs.OnTaskStart(swf.TaskStartEvent{
 		JobKey:        r.GetJobKey(),
@@ -618,10 +658,12 @@ func (r *runner) emitTaskStart(taskType string, ordinal int64, attempt int, inpu
 		Ordinal:       ordinal,
 		AttemptNumber: attempt,
 		Input:         input,
+		At:            at,
 	})
 }
 
-func (r *runner) emitTaskEnd(taskType string, ordinal int64, attempt int, output swf.TaskData, err error) {
+func (r *runner) emitTaskEnd(taskType string, ordinal int64, attempt int, output swf.TaskData, err error, at time.Time) {
+	r.lastTaskEndAt = &at
 	obs := r.observerOrNoop()
 	obs.OnTaskEnd(swf.TaskEndEvent{
 		JobKey:        r.GetJobKey(),
@@ -630,7 +672,37 @@ func (r *runner) emitTaskEnd(taskType string, ordinal int64, attempt int, output
 		AttemptNumber: attempt,
 		Output:        output,
 		Err:           err,
+		At:            at,
 	})
+}
+
+func metaStartAt(env chapterEnvelope) time.Time {
+	if env.Meta.StartedAt != nil {
+		return env.Meta.StartedAt.UTC()
+	}
+	return env.Meta.CreatedAt
+}
+
+func metaEndAt(env chapterEnvelope) time.Time {
+	if env.Meta.FinishedAt != nil {
+		return env.Meta.FinishedAt.UTC()
+	}
+	return env.Meta.CreatedAt
+}
+
+func isReplayCacheMiss(err error) bool {
+	var miss swf.ReplayCacheMissError
+	return errors.As(err, &miss)
+}
+
+func (r *runner) fallbackTaskTime() time.Time {
+	if r.lastTaskEndAt != nil {
+		return *r.lastTaskEndAt
+	}
+	if !r.currentJobAttemptStartAt.IsZero() {
+		return r.currentJobAttemptStartAt
+	}
+	return time.Now().UTC()
 }
 
 func (r *runner) getChapter(ordinal int64) (story.Chapter, error) {
@@ -834,25 +906,26 @@ func (r *runner) validatePostExecutionTimeouts(jobErr error, attemptInvocationDe
 
 // checkCachedJobResult checks if a cached job result exists and handles retry logic
 // Returns: (output, nextAttempt, priorAttempt, cached, terminal, priorErr, err)
-func (r *runner) checkCachedJobResult(ctx context.Context, key story.Key, ordinal int64, inputHash string, retryCfg swf.RetryPolicy, totalDeadline time.Time, totalTimeout time.Duration, inputRef *swf.InputReference) (swf.JobData, int, int, bool, bool, error, error) {
+func (r *runner) checkCachedJobResult(ctx context.Context, key story.Key, ordinal int64, inputHash string, retryCfg swf.RetryPolicy, totalDeadline time.Time, totalTimeout time.Duration, inputRef *swf.InputReference) (swf.JobData, int, int, bool, bool, error, error, *time.Time, *time.Time) {
 	maxAttempts := int(retryCfg.MaximumAttempts)
 	cached, err := r.backend.GetJobAttemptOutcome(ctx, key, ordinal)
 	if errors.Is(err, core.ErrNotFound) {
 		// No cached result, need to execute
-		return nil, 1, 0, false, false, nil, nil
+		return nil, 1, 0, false, false, nil, nil, nil, nil
 	}
 	if err != nil {
-		return nil, 0, 0, false, false, nil, fmt.Errorf("failed to get chapter %d: %w", ordinal, err)
+		return nil, 0, 0, false, false, nil, fmt.Errorf("failed to get chapter %d: %w", ordinal, err), nil, nil
 	}
 
 	// Found cached result
 	env, decErr := decodeChapterEnvelope(cached.Body())
 	if decErr != nil {
-		return nil, 0, 0, false, false, nil, fmt.Errorf("%w: decode cached chapter: %v", swf.ErrWorkflowNotDeterministic, decErr)
+		return nil, 0, 0, false, false, nil, fmt.Errorf("%w: decode cached chapter: %v", swf.ErrWorkflowNotDeterministic, decErr), nil, nil
 	}
 	if env.ChapterType != chapterTypeJobAttemptOutcome {
-		return nil, 0, 0, false, false, nil, fmt.Errorf("%w: unexpected chapter type %q at ordinal %d", swf.ErrWorkflowNotDeterministic, env.ChapterType, ordinal)
+		return nil, 0, 0, false, false, nil, fmt.Errorf("%w: unexpected chapter type %q at ordinal %d", swf.ErrWorkflowNotDeterministic, env.ChapterType, ordinal), nil, nil
 	}
+	endAt := metaEndAt(env)
 
 	r.logger.Debug("checking cached job result",
 		"ordinal", ordinal,
@@ -865,10 +938,10 @@ func (r *runner) checkCachedJobResult(ctx context.Context, key story.Key, ordina
 			"ordinal", ordinal,
 			"cachedInputHash", env.Meta.InputHash,
 			"computedInputHash", inputHash)
-		return nil, 0, 0, false, false, nil, fmt.Errorf("%w: ordinal %d job result input hash mismatch", swf.ErrWorkflowNotDeterministic, ordinal)
+		return nil, 0, 0, false, false, nil, fmt.Errorf("%w: ordinal %d job result input hash mismatch", swf.ErrWorkflowNotDeterministic, ordinal), nil, nil
 	}
 	if !totalDeadline.IsZero() && time.Now().After(totalDeadline) {
-		return nil, 0, 0, false, false, nil, swf.NewTimeoutError("job", totalTimeout, swf.TimeoutScopeTotal, inputRef, false)
+		return nil, 0, 0, false, false, nil, swf.NewTimeoutError("job", totalTimeout, swf.TimeoutScopeTotal, inputRef, false), nil, nil
 	}
 
 	priorAttempt := env.Meta.Attempt
@@ -882,14 +955,14 @@ func (r *runner) checkCachedJobResult(ctx context.Context, key story.Key, ordina
 	output, payloadErr := envelopeToTaskData(env, artifacts)
 	if payloadErr == nil {
 		// Cached success - terminal
-		return output, nextAttempt, priorAttempt, true, true, nil, nil
+		return output, nextAttempt, priorAttempt, true, true, nil, nil, &endAt, &endAt
 	}
 
 	// Cached error - check if retryable
 	retryable := isRetryable(payloadErr, retryCfg)
 	if !retryable || priorAttempt >= maxAttempts {
 		// Non-retryable or max attempts - terminal
-		return nil, nextAttempt, priorAttempt, true, true, payloadErr, payloadErr
+		return nil, nextAttempt, priorAttempt, true, true, payloadErr, payloadErr, &endAt, &endAt
 	}
 
 	// Retryable error - need to wait backoff then retry
@@ -901,13 +974,13 @@ func (r *runner) checkCachedJobResult(ctx context.Context, key story.Key, ordina
 		wakeAt := env.Meta.CreatedAt.Add(backoff)
 		if time.Now().Before(wakeAt) {
 			if err := r.awaitUntil(wakeAt, ordinal, priorAttempt, "job", inputRef, time.Time{}, totalDeadline, 0, totalTimeout); err != nil {
-				return nil, 0, 0, false, false, nil, err
+				return nil, 0, 0, false, false, nil, err, nil, nil
 			}
 		}
 	}
 
 	// After backoff, need to retry (not terminal)
-	return nil, nextAttempt, priorAttempt, true, false, payloadErr, nil
+	return nil, nextAttempt, priorAttempt, true, false, payloadErr, nil, &endAt, &endAt
 }
 
 // prepareJobResultPayload converts job output or error into a payload and artifacts
@@ -949,11 +1022,13 @@ func (r *runner) prepareJobResultPayload(output swf.JobData, originalErr error, 
 }
 
 // saveJobChapter saves the job result chapter
-func (r *runner) saveJobChapter(key story.Key, payload json.RawMessage, artifacts []swf.Artifact, ordinal int64, workerName, inputHash string, kind string, attempt int, inputRef *swf.InputReference) error {
+func (r *runner) saveJobChapter(key story.Key, payload json.RawMessage, artifacts []swf.Artifact, ordinal int64, workerName, inputHash string, kind string, attempt int, inputRef *swf.InputReference, startedAt *time.Time, finishedAt *time.Time) error {
 	now := time.Now().UTC()
 	meta := chapterMetadata{
 		Attempt:  attempt,
 		InputRef: inputRef,
+		StartedAt: startedAt,
+		FinishedAt: finishedAt,
 	}
 
 	chap, err := payloadToChapter(payload, artifacts, ordinal, workerName, r.workerId, chapterTypeJobAttemptOutcome, kind, inputHash, now, meta)
@@ -1001,10 +1076,22 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 	key := r.GetJobKey().ToStoryKey()
 	maxAttempts := int(config.retryCfg.MaximumAttempts)
 	attempt := 1
+	initialJobStartAt := env0.Meta.CreatedAt
+	var nextAttemptStartAt *time.Time
 
 	// Main retry loop - each attempt gets a new ordinal (chapters are write-once)
 	for {
-		r.emitJobStart(attempt, inputData)
+		startAt := time.Now().UTC()
+		if attempt == 1 {
+			startAt = initialJobStartAt
+		}
+		if nextAttemptStartAt != nil {
+			startAt = *nextAttemptStartAt
+			nextAttemptStartAt = nil
+		}
+		r.currentJobAttemptStartAt = startAt
+		r.lastTaskEndAt = nil
+		r.emitJobStart(attempt, inputData, startAt)
 
 		// Check if total timeout has been exceeded
 		if err := r.checkTotalTimeoutExceeded(config.totalDeadline, config.totalTimeout, config.inputRef); err != nil {
@@ -1024,7 +1111,7 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 							inputArtifacts, _ := inputData.GetArtifacts()
 							cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
 							_ = r.lease.Complete(ctx)
-							r.emitJobEnd(attempt, nil, nil)
+							r.emitJobEnd(attempt, nil, nil, metaEndAt(env))
 							return nil, nil
 						}
 						_, payloadErr := envelopeToTaskData(env, artifacts)
@@ -1032,7 +1119,7 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 							inputArtifacts, _ := inputData.GetArtifacts()
 							cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
 							_ = r.lease.Complete(ctx)
-							r.emitJobEnd(attempt, nil, nil)
+							r.emitJobEnd(attempt, nil, nil, metaEndAt(env))
 							return nil, nil
 						}
 						retryable := isRetryable(payloadErr, config.retryCfg)
@@ -1040,7 +1127,7 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 							inputArtifacts, _ := inputData.GetArtifacts()
 							cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
 							_ = r.lease.Complete(ctx)
-							r.emitJobEnd(attempt, nil, payloadErr)
+							r.emitJobEnd(attempt, nil, payloadErr, metaEndAt(env))
 							return nil, payloadErr
 						}
 						if env.Meta.Attempt > 0 {
@@ -1051,6 +1138,11 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 					continue
 				}
 				if !errors.Is(chapErr, core.ErrNotFound) {
+					if isReplayCacheMiss(chapErr) {
+						endAt := r.fallbackTaskTime()
+						r.emitJobEnd(attempt, nil, chapErr, endAt)
+						return nil, chapErr
+					}
 					r.logger.Error("failed to check cached job result", "error", chapErr)
 					return nil, chapErr
 				}
@@ -1063,7 +1155,7 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 				r.logger.Error(prepErr.Error())
 				return nil, prepErr
 			}
-			if saveErr := r.saveJobChapter(key, payload, artifacts, jobResultOrdinal, r.worker.JobWorker.Name(), config.inputRef.Hash, payloadKind, attempt, config.inputRef); saveErr != nil {
+			if saveErr := r.saveJobChapter(key, payload, artifacts, jobResultOrdinal, r.worker.JobWorker.Name(), config.inputRef.Hash, payloadKind, attempt, config.inputRef, nil, nil); saveErr != nil {
 				r.logger.Error(saveErr.Error())
 				return nil, saveErr
 			}
@@ -1073,7 +1165,7 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 			inputArtifacts, _ := inputData.GetArtifacts()
 			cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
 			_ = r.lease.Complete(ctx)
-			r.emitJobEnd(attempt, nil, err)
+			r.emitJobEnd(attempt, nil, err, startAt)
 			return nil, err
 		}
 
@@ -1081,6 +1173,7 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 		attemptInvocationDeadline := r.setupAttemptDeadlines(config.invocationTimeout, config.totalDeadline, config.totalTimeout, config.inputRef)
 
 		// Execute job worker asynchronously (may call DoTask which will use storyCounter)
+		attemptStartAt := startAt
 		resultCh := r.executeJobWorkerAsync(inputData)
 
 		// Wait for result with deadline enforcement
@@ -1091,12 +1184,16 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 		if output == nil && jobErr == nil {
 			// Job was rescheduled - lease was already updated by DoTask
 			// Exit without saving job result
-			r.emitJobEnd(attempt, nil, nil)
+			r.emitJobEnd(attempt, nil, nil, attemptStartAt)
 			return nil, nil
 		}
 
 		// Validate timeouts after execution
 		jobErr = r.validatePostExecutionTimeouts(jobErr, attemptInvocationDeadline, config.totalDeadline, config.invocationTimeout, config.totalTimeout, config.inputRef)
+		attemptFinishedAt := time.Now().UTC()
+		if isReplayCacheMiss(jobErr) {
+			attemptFinishedAt = r.fallbackTaskTime()
+		}
 
 		if jobErr != nil {
 			r.logger.Error("job worker run failed", "error", jobErr, "attempt", attempt)
@@ -1108,8 +1205,16 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 
 		// Check if we already have a cached job result at this ordinal
 		// (e.g., if we crashed after saving the result but before completing the lease)
-		outputCached, nextAttempt, _, cached, terminal, priorErr, err := r.checkCachedJobResult(ctx, key, jobResultOrdinal, config.inputRef.Hash, config.retryCfg, config.totalDeadline, config.totalTimeout, config.inputRef)
+		outputCached, nextAttempt, _, cached, terminal, priorErr, err, cachedEndAt, nextStartAt := r.checkCachedJobResult(ctx, key, jobResultOrdinal, config.inputRef.Hash, config.retryCfg, config.totalDeadline, config.totalTimeout, config.inputRef)
 		if err != nil {
+			if isReplayCacheMiss(err) {
+				endAt := attemptFinishedAt
+				if r.lastTaskEndAt != nil {
+					endAt = *r.lastTaskEndAt
+				}
+				r.emitJobEnd(attempt, nil, err, endAt)
+				return nil, err
+			}
 			r.logger.Error("check cached job result failed", "error", err)
 			return nil, err
 		}
@@ -1120,14 +1225,31 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 				// Terminal result (success or non-retryable error) - complete and return
 				_ = r.lease.Complete(ctx)
 				if priorErr != nil {
-					r.emitJobEnd(attempt, nil, priorErr)
+					at := attemptFinishedAt
+					if cachedEndAt != nil {
+						at = *cachedEndAt
+					}
+					r.emitJobEnd(attempt, nil, priorErr, at)
 					return nil, priorErr
 				}
-				r.emitJobEnd(attempt, outputCached, nil)
+				at := attemptFinishedAt
+				if cachedEndAt != nil {
+					at = *cachedEndAt
+				}
+				r.emitJobEnd(attempt, outputCached, nil, at)
 				return outputCached, nil
 			}
 			// Retryable error - update attempt number and retry
-			r.emitJobEnd(attempt, nil, priorErr)
+			at := attemptFinishedAt
+			if cachedEndAt != nil {
+				at = *cachedEndAt
+			}
+			r.emitJobEnd(attempt, nil, priorErr, at)
+			if nextStartAt != nil {
+				nextAttemptStartAt = nextStartAt
+			} else {
+				nextAttemptStartAt = &at
+			}
 			attempt = nextAttempt
 			// Continue to next iteration for retry
 			continue
@@ -1141,7 +1263,7 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 		}
 
 		// Save the execution result at this ordinal (write-once)
-		if err := r.saveJobChapter(key, payload, artifacts, jobResultOrdinal, r.worker.JobWorker.Name(), config.inputRef.Hash, payloadKind, attempt, config.inputRef); err != nil {
+		if err := r.saveJobChapter(key, payload, artifacts, jobResultOrdinal, r.worker.JobWorker.Name(), config.inputRef.Hash, payloadKind, attempt, config.inputRef, &attemptStartAt, &attemptFinishedAt); err != nil {
 			r.logger.Error(err.Error())
 			return nil, err
 		}
@@ -1155,7 +1277,7 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 			inputArtifacts, _ := inputData.GetArtifacts()
 			cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
 			_ = r.lease.Complete(ctx)
-			r.emitJobEnd(attempt, output, nil)
+			r.emitJobEnd(attempt, output, nil, attemptFinishedAt)
 			return output, nil
 		}
 
@@ -1165,7 +1287,7 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 			inputArtifacts, _ := inputData.GetArtifacts()
 			cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
 			_ = r.lease.Complete(ctx)
-			r.emitJobEnd(attempt, nil, jobErr)
+			r.emitJobEnd(attempt, nil, jobErr, attemptFinishedAt)
 			return nil, jobErr
 		}
 
@@ -1174,8 +1296,9 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 		cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
 
 		backoff := computeBackoff(config.retryCfg, attempt)
-		r.emitJobEnd(attempt, nil, jobErr)
+		r.emitJobEnd(attempt, nil, jobErr, attemptFinishedAt)
 		attempt++
+		nextAttemptStartAt = &attemptFinishedAt
 		if backoff > 0 {
 			now := time.Now().UTC()
 			if err := r.awaitUntil(now.Add(backoff), jobResultOrdinal, attempt-1, "job", config.inputRef, time.Time{}, config.totalDeadline, 0, config.totalTimeout); err != nil {

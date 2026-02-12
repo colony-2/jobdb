@@ -3,6 +3,7 @@ package swf
 import (
 	"errors"
 	"fmt"
+	"time"
 )
 
 type ReplayCacheMissReason string
@@ -49,6 +50,7 @@ type JobStartEvent struct {
 	JobKey        JobKey
 	AttemptNumber int
 	Input         JobData
+	At            time.Time
 }
 
 type TaskStartEvent struct {
@@ -57,6 +59,7 @@ type TaskStartEvent struct {
 	Ordinal       int64
 	AttemptNumber int
 	Input         TaskData
+	At            time.Time
 }
 
 type TaskEndEvent struct {
@@ -66,6 +69,7 @@ type TaskEndEvent struct {
 	AttemptNumber int
 	Output        TaskData
 	Err           error
+	At            time.Time
 }
 
 type JobEndEvent struct {
@@ -73,6 +77,7 @@ type JobEndEvent struct {
 	AttemptNumber int
 	Output        JobData
 	Err           error
+	At            time.Time
 }
 
 // ReplayRunRequest describes a cache-only job replay.

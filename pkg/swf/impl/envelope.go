@@ -34,6 +34,8 @@ type chapterMeta struct {
 	TaskType      string              `json:"task_type"`
 	WorkerID      string              `json:"worker_id"`
 	CreatedAt     time.Time           `json:"created_at"`
+	StartedAt     *time.Time          `json:"started_at,omitempty"`
+	FinishedAt    *time.Time          `json:"finished_at,omitempty"`
 	InputHash     string              `json:"input_hash"`
 	Input         json.RawMessage     `json:"input,omitempty"`
 	Attempt       int                 `json:"attempt,omitempty"`
