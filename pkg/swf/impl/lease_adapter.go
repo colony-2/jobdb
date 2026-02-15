@@ -31,11 +31,11 @@ func (l *pgwfLeaseAdapter) StopKeepAlive() {
 	stopLeaseKeepAlive(l.lease)
 }
 
-func (l *pgwfLeaseAdapter) Complete(ctx context.Context) error {
+func (l *pgwfLeaseAdapter) CompleteWithStatus(ctx context.Context, status pgwf.CompletionStatus, completionDetail string) error {
 	if l == nil || l.lease == nil || l.udb == nil {
 		return nil
 	}
-	return l.lease.Complete(ctx, l.udb)
+	return l.lease.CompleteWithStatus(ctx, l.udb, status, completionDetail)
 }
 
 func (l *pgwfLeaseAdapter) Reschedule(ctx context.Context, deps pgwf.JobDependencies, payload any) error {

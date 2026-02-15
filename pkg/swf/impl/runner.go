@@ -713,6 +713,14 @@ func (r *runner) Logger() *slog.Logger {
 	return r.logger
 }
 
+func (r *runner) completeLease(ctx context.Context, err error) {
+	if r.lease == nil {
+		return
+	}
+	status, detail := completionStatusAndDetail(err)
+	_ = r.lease.CompleteWithStatus(ctx, status, detail)
+}
+
 func (r *runner) AwaitDuration(waitFor swf.Duration) error {
 	wait := waitFor.ToDuration()
 	if wait <= 0 {
@@ -1110,7 +1118,7 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 						if env.PayloadKind == payloadKindApp {
 							inputArtifacts, _ := inputData.GetArtifacts()
 							cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
-							_ = r.lease.Complete(ctx)
+							r.completeLease(ctx, nil)
 							r.emitJobEnd(attempt, nil, nil, metaEndAt(env))
 							return nil, nil
 						}
@@ -1118,7 +1126,7 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 						if payloadErr == nil {
 							inputArtifacts, _ := inputData.GetArtifacts()
 							cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
-							_ = r.lease.Complete(ctx)
+							r.completeLease(ctx, nil)
 							r.emitJobEnd(attempt, nil, nil, metaEndAt(env))
 							return nil, nil
 						}
@@ -1126,7 +1134,7 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 						if !retryable {
 							inputArtifacts, _ := inputData.GetArtifacts()
 							cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
-							_ = r.lease.Complete(ctx)
+							r.completeLease(ctx, payloadErr)
 							r.emitJobEnd(attempt, nil, payloadErr, metaEndAt(env))
 							return nil, payloadErr
 						}
@@ -1164,7 +1172,7 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 			}
 			inputArtifacts, _ := inputData.GetArtifacts()
 			cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
-			_ = r.lease.Complete(ctx)
+			r.completeLease(ctx, err)
 			r.emitJobEnd(attempt, nil, err, startAt)
 			return nil, err
 		}
@@ -1223,7 +1231,7 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 			// Found cached job result - use it instead of fresh execution result
 			if terminal {
 				// Terminal result (success or non-retryable error) - complete and return
-				_ = r.lease.Complete(ctx)
+				r.completeLease(ctx, priorErr)
 				if priorErr != nil {
 					at := attemptFinishedAt
 					if cachedEndAt != nil {
@@ -1276,7 +1284,7 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 			// Success - cleanup input artifacts, complete lease and return
 			inputArtifacts, _ := inputData.GetArtifacts()
 			cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
-			_ = r.lease.Complete(ctx)
+			r.completeLease(ctx, nil)
 			r.emitJobEnd(attempt, output, nil, attemptFinishedAt)
 			return output, nil
 		}
@@ -1286,7 +1294,7 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 			// Non-retryable or max attempts reached - cleanup input artifacts, complete lease and return
 			inputArtifacts, _ := inputData.GetArtifacts()
 			cleanupArtifacts(context.TODO(), inputArtifacts, r.logger)
-			_ = r.lease.Complete(ctx)
+			r.completeLease(ctx, jobErr)
 			r.emitJobEnd(attempt, nil, jobErr, attemptFinishedAt)
 			return nil, jobErr
 		}

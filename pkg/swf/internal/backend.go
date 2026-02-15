@@ -40,7 +40,7 @@ type AwaitInfo struct {
 type Lease interface {
 	KeepAlive(ctx context.Context) error
 	StopKeepAlive()
-	Complete(ctx context.Context) error
+	CompleteWithStatus(ctx context.Context, status pgwf.CompletionStatus, completionDetail string) error
 	Reschedule(ctx context.Context, deps pgwf.JobDependencies, payload any) error
 	NextNeed() pgwf.Capability
 	Payload() []byte

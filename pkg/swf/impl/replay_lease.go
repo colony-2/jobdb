@@ -11,7 +11,9 @@ type replayLease struct{}
 
 func (replayLease) KeepAlive(ctx context.Context) error { return nil }
 func (replayLease) StopKeepAlive()                      {}
-func (replayLease) Complete(ctx context.Context) error  { return nil }
+func (replayLease) CompleteWithStatus(ctx context.Context, status pgwf.CompletionStatus, completionDetail string) error {
+	return nil
+}
 func (replayLease) Reschedule(ctx context.Context, deps pgwf.JobDependencies, payload any) error {
 	return swf.ErrReplayShouldNeverMutate
 }
