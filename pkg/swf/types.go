@@ -102,7 +102,10 @@ type InputReference struct {
 	Hash    string `json:"hash,omitempty"`
 }
 
+// Deprecated: exposes the pgwf lease type through the public swf API.
 type Lease = pgwf.Lease
+
+// Deprecated: exposes the pgwf dependencies type through the public swf API.
 type Dependencies = pgwf.JobDependencies
 
 // JobKey uniquely identifies a job across all tenants.
@@ -156,6 +159,7 @@ func ParseJobKey(s string) (JobKey, error) {
 	}, nil
 }
 
+// Deprecated: exposes a Strata type through the public swf API.
 // ToStoryKey converts a JobKey to a Strata story.Key.
 func (jk JobKey) ToStoryKey() story.Key {
 	return story.Key{
@@ -164,6 +168,7 @@ func (jk JobKey) ToStoryKey() story.Key {
 	}
 }
 
+// Deprecated: exposes a Strata type through the public swf API.
 // JobKeyFromStoryKey creates a JobKey from a Strata story.Key.
 func JobKeyFromStoryKey(sk story.Key) JobKey {
 	return JobKey{

@@ -205,6 +205,7 @@ func (metadataEqual) metadataFilter() {}
 func (metadataOr) metadataFilter()    {}
 func (metadataAnd) metadataFilter()   {}
 
+// Deprecated: exposes pgwf metadata predicate types through the public swf API.
 func PgwfMetadataPredicates(filter MetadataFilter) ([]pgwf.MetadataPredicate, error) {
 	if filter == nil {
 		return nil, nil

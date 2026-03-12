@@ -177,6 +177,7 @@ func NewArtifact(
 	}
 }
 
+// Deprecated: exposes a Strata type through the public swf API.
 // FromStrataArtifact wraps a strata.Artifact as a swf.Artifact.
 // This is used internally by SWF to bridge strata artifacts.
 // Users should not need to call this directly.
@@ -184,6 +185,7 @@ func FromStrataArtifact(strataArt strata.Artifact) Artifact {
 	return &strataArtifactAdapter{art: strataArt}
 }
 
+// Deprecated: exposes a Strata type through the public swf API.
 // ToStrataArtifact converts a swf.Artifact to a strata.Artifact.
 // If the artifact is already a strata adapter, returns the underlying strata artifact.
 // Otherwise, wraps it in a swf-to-strata adapter.

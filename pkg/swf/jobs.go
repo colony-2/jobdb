@@ -17,22 +17,22 @@ import (
 // StartJob defines the parameters for starting a new workflow job.
 // If JobID is provided, it will be used as the job identifier; otherwise, a new unique ID will be generated.
 type StartJob struct {
-	TenantId     string          // REQUIRED: Tenant for this job
-	JobType      string          // The type of job to start (must match a registered JobWorker name)
-	JobID        string          // Optional job identifier. If empty, a new unique ID will be generated using ksuid
-	SingletonKey string          // Optional key to ensure only one job with this key runs at a time
-	Data         JobData         // Input data for the job
-	RunPolicy    RunPolicy       // Runtime policy for retries, timeouts, etc.
-	Metadata     json.RawMessage // Optional metadata persisted with the job in pgwf
+	TenantId      string            // REQUIRED: Tenant for this job
+	JobType       string            // The type of job to start (must match a registered JobWorker name)
+	JobID         string            // Optional job identifier. If empty, a new unique ID will be generated using ksuid
+	SingletonKey  string            // Optional key to ensure only one job with this key runs at a time
+	Data          JobData           // Input data for the job
+	RunPolicy     RunPolicy         // Runtime policy for retries, timeouts, etc.
+	Metadata      json.RawMessage   // Optional metadata persisted with the job in pgwf
 	Prerequisites []JobPrerequisite // Optional prerequisites that must complete before this job starts
 }
 
 type RestartJob struct {
 	PriorJobKey     JobKey
 	LastStepToKeep  int64
-	JobID           string   // optional override for new job id
-	ExtraTaskInput  TaskData // optional input used to compute hash for ExtraTaskOutput
-	ExtraTaskOutput TaskData // optional cached task/job output to append at LastStepToKeep+1
+	JobID           string            // optional override for new job id
+	ExtraTaskInput  TaskData          // optional input used to compute hash for ExtraTaskOutput
+	ExtraTaskOutput TaskData          // optional cached task/job output to append at LastStepToKeep+1
 	Prerequisites   []JobPrerequisite // Optional prerequisites that must complete before this job starts
 }
 
@@ -103,11 +103,13 @@ type EngineBuilder struct {
 	postgresDSN  string
 	logger       *slog.Logger
 	awaitRecycle time.Duration
+	runtime      WorkflowRuntime
 }
 
 type WorkSet struct {
-	JobWorker    JobWorker
-	TaskWorkers  map[string]TaskWorker
+	JobWorker   JobWorker
+	TaskWorkers map[string]TaskWorker
+	// Deprecated: Capabilities exposes pgwf-specific capability names.
 	Capabilities []pgwf.Capability
 }
 
@@ -120,6 +122,12 @@ func NewEngineBuilder() *EngineBuilder {
 	}
 }
 
+func (e *EngineBuilder) WithRuntime(runtime WorkflowRuntime) *EngineBuilder {
+	e.runtime = runtime
+	return e
+}
+
+// Deprecated: prefer WithRuntime with a backend-agnostic runtime implementation.
 func (e *EngineBuilder) WithPostgresDSN(dsn string) *EngineBuilder {
 	e.postgresDSN = dsn
 	return e
@@ -130,11 +138,13 @@ func (e *EngineBuilder) WithMaxActive(maxActive int) *EngineBuilder {
 	return e
 }
 
+// Deprecated: prefer WithRuntime with a backend-agnostic runtime implementation.
 func (e *EngineBuilder) WithStrata(uri string) *EngineBuilder {
 	e.strataURI = uri
 	return e
 }
 
+// Deprecated: prefer WithRuntime with a backend-agnostic runtime implementation.
 func (e *EngineBuilder) WithStrataAPIKey(key string) *EngineBuilder {
 	e.strataAPIKey = key
 	return e
@@ -199,7 +209,30 @@ func (e *EngineBuilder) PlusWorkers(jobWorker JobWorker, taskWorkers ...TaskWork
 	return e
 }
 
+func (b *EngineBuilder) BuildEngine() (SWFEngine, error) {
+	if b.runtime == nil {
+		return nil, fmt.Errorf("workflow runtime is required")
+	}
+
+	ws := make([]WorkSet, len(b.workers))
+	i := 0
+	for _, v := range b.workers {
+		ws[i] = v
+		i++
+	}
+
+	return b.runtime.BuildEngine(ws, RuntimeBuildOptions{
+		Logger:                b.logger,
+		MaxActive:             b.maxActive,
+		AwaitRecycleThreshold: b.awaitRecycle,
+	})
+}
+
 func (b *EngineBuilder) Build(builder Builder) (SWFEngine, error) {
+	if b.runtime != nil {
+		return b.BuildEngine()
+	}
+
 	if b.strataURI == "" {
 		return nil, fmt.Errorf("strata URI is required")
 	}
@@ -245,4 +278,5 @@ func (b *EngineBuilder) Build(builder Builder) (SWFEngine, error) {
 	return engine, nil
 }
 
+// Deprecated: prefer WorkflowRuntime implementations plus EngineBuilder.BuildEngine.
 type Builder func(db *gorm.DB, strataClient *strataclient.Client, workers []WorkSet, logger *slog.Logger) (SWFEngine, error)
