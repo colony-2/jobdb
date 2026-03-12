@@ -9,8 +9,6 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
-
-	strata "github.com/colony-2/strata-go/pkg/client/artifact"
 )
 
 // Artifact represents a file-like resource that can be consumed by tasks
@@ -38,7 +36,6 @@ type Artifact interface {
 
 	// Open returns a ReadCloser to stream the artifact contents.
 	// Multiple calls to Open() may return independent readers.
-	// This is a convenience method not in strata.Artifact.
 	Open() (io.ReadCloser, error)
 
 	// ArtifactKey returns the key for this artifact after it has been persisted.
@@ -175,27 +172,6 @@ func NewArtifact(
 		opener:  opener,
 		cleanup: cleanup,
 	}
-}
-
-// Deprecated: exposes a Strata type through the public swf API.
-// FromStrataArtifact wraps a strata.Artifact as a swf.Artifact.
-// This is used internally by SWF to bridge strata artifacts.
-// Users should not need to call this directly.
-func FromStrataArtifact(strataArt strata.Artifact) Artifact {
-	return &strataArtifactAdapter{art: strataArt}
-}
-
-// Deprecated: exposes a Strata type through the public swf API.
-// ToStrataArtifact converts a swf.Artifact to a strata.Artifact.
-// If the artifact is already a strata adapter, returns the underlying strata artifact.
-// Otherwise, wraps it in a swf-to-strata adapter.
-func ToStrataArtifact(art Artifact) strata.Artifact {
-	// If it's already a strata adapter, return the underlying artifact
-	if adapter, ok := art.(*strataArtifactAdapter); ok {
-		return adapter.art
-	}
-	// Otherwise, wrap it
-	return &swfToStrataAdapter{art: art}
 }
 
 // bytesArtifact - in-memory artifact
@@ -480,107 +456,4 @@ func (a *customArtifact) Cleanup() error {
 		return nil // Already cleaned (idempotent)
 	}
 	return a.cleanup()
-}
-
-// strataArtifactAdapter wraps a strata.Artifact as a swf.Artifact
-type strataArtifactAdapter struct {
-	art strata.Artifact
-	key atomic.Pointer[ArtifactKey]
-}
-
-func (a *strataArtifactAdapter) Name() string {
-	return a.art.Name()
-}
-
-func (a *strataArtifactAdapter) Size() int64 {
-	return a.art.SizeBytes()
-}
-
-func (a *strataArtifactAdapter) Sha256(ctx context.Context) (string, error) {
-	return a.art.Sha256(ctx)
-}
-
-func (a *strataArtifactAdapter) WriteTo(ctx context.Context, w io.Writer) error {
-	return a.art.WriteTo(ctx, w)
-}
-
-func (a *strataArtifactAdapter) SaveToFile(ctx context.Context, path string) error {
-	return a.art.SaveToFile(ctx, path)
-}
-
-func (a *strataArtifactAdapter) Bytes(ctx context.Context) ([]byte, error) {
-	return a.art.Bytes(ctx)
-}
-
-func (a *strataArtifactAdapter) Open() (io.ReadCloser, error) {
-	_, rc, err := a.art.ToInput(context.Background())
-	return rc, err
-}
-
-func (a *strataArtifactAdapter) ArtifactKey() (ArtifactKey, error) {
-	return loadArtifactKey(&a.key)
-}
-
-func (a *strataArtifactAdapter) setArtifactKey(key ArtifactKey) {
-	a.key.Store(&key)
-}
-
-func (a *strataArtifactAdapter) Cleanup() error {
-	// Check if strata artifact has cleanup interface
-	if cleanup, ok := a.art.(interface{ Cleanup() error }); ok {
-		return cleanup.Cleanup()
-	}
-	return nil
-}
-
-// swfToStrataAdapter wraps a swf.Artifact as a strata.Artifact
-type swfToStrataAdapter struct {
-	art Artifact
-}
-
-func (a *swfToStrataAdapter) ID() string {
-	return ""
-}
-
-func (a *swfToStrataAdapter) Name() string {
-	return a.art.Name()
-}
-
-func (a *swfToStrataAdapter) ContentType() string {
-	return "application/octet-stream"
-}
-
-func (a *swfToStrataAdapter) SizeBytes() int64 {
-	return a.art.Size()
-}
-
-func (a *swfToStrataAdapter) Sha256(ctx context.Context) (string, error) {
-	return a.art.Sha256(ctx)
-}
-
-func (a *swfToStrataAdapter) WriteTo(ctx context.Context, w io.Writer) error {
-	return a.art.WriteTo(ctx, w)
-}
-
-func (a *swfToStrataAdapter) SaveToFile(ctx context.Context, path string) error {
-	return a.art.SaveToFile(ctx, path)
-}
-
-func (a *swfToStrataAdapter) Bytes(ctx context.Context) ([]byte, error) {
-	return a.art.Bytes(ctx)
-}
-
-func (a *swfToStrataAdapter) ToInput(ctx context.Context) (strata.Descriptor, io.ReadCloser, error) {
-	rc, err := a.art.Open()
-	if err != nil {
-		return strata.Descriptor{}, nil, err
-	}
-
-	desc := strata.Descriptor{
-		Name:        a.art.Name(),
-		ContentType: "application/octet-stream",
-		SizeBytes:   a.art.Size(),
-	}
-
-	return desc, rc, nil
 }

@@ -6,8 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/colony-2/pgwf-go/pkg/pgwf"
-	"github.com/colony-2/strata-go/pkg/client/story"
 	"github.com/invopop/jsonschema"
 )
 
@@ -102,12 +100,6 @@ type InputReference struct {
 	Hash    string `json:"hash,omitempty"`
 }
 
-// Deprecated: exposes the pgwf lease type through the public swf API.
-type Lease = pgwf.Lease
-
-// Deprecated: exposes the pgwf dependencies type through the public swf API.
-type Dependencies = pgwf.JobDependencies
-
 // JobKey uniquely identifies a job across all tenants.
 // It combines tenant identity with job identity.
 type JobKey struct {
@@ -115,7 +107,7 @@ type JobKey struct {
 	JobId    string `json:"jobId"`
 }
 
-// ArtifactKey identifies an artifact within a job's story.
+// ArtifactKey identifies an artifact within a persisted job run.
 type ArtifactKey struct {
 	JobId       string `json:"jobId"`
 	TaskOrdinal int64  `json:"taskOrdinal"`
@@ -157,24 +149,6 @@ func ParseJobKey(s string) (JobKey, error) {
 		TenantId: parts[0],
 		JobId:    parts[1],
 	}, nil
-}
-
-// Deprecated: exposes a Strata type through the public swf API.
-// ToStoryKey converts a JobKey to a Strata story.Key.
-func (jk JobKey) ToStoryKey() story.Key {
-	return story.Key{
-		AnthologyID: jk.TenantId,
-		StoryID:     jk.JobId,
-	}
-}
-
-// Deprecated: exposes a Strata type through the public swf API.
-// JobKeyFromStoryKey creates a JobKey from a Strata story.Key.
-func JobKeyFromStoryKey(sk story.Key) JobKey {
-	return JobKey{
-		TenantId: sk.AnthologyID,
-		JobId:    sk.StoryID,
-	}
 }
 
 // IsZero returns true if the JobKey is the zero value.

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/colony-2/swf-go/pkg/swf"
-	"github.com/colony-2/swf-go/pkg/swf/impl"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -60,13 +59,9 @@ func TestArtifactStorageOnTaskError(t *testing.T) {
 		taskWorker := &errorWithArtifactsTask{artifact: errorArtifact}
 
 		// Build engine with the job and task worker
-		engine, err := swf.NewEngineBuilder().
-			WithPostgresDSN(postgresDSN).
-			WithStrata(baseURL).
-			WithStrataAPIKey(strata.APIKey).
-			PlusWorkers(jobWorker, taskWorker).
-			Build(impl.Builder)
-		require.NoError(t, err)
+		engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
+			b.PlusWorkers(jobWorker, taskWorker)
+		})
 
 		// Run engine in background
 		go engine.Run(ctx)
@@ -94,7 +89,7 @@ func TestArtifactStorageOnTaskError(t *testing.T) {
 
 		// Verify the error artifact was stored by reading from strata
 		client := mustStrataClient(t, baseURL, strata.APIKey)
-		taskChapter := waitForChapter(t, client, jobKey.ToStoryKey(), 1, 10*time.Second)
+		taskChapter := waitForChapter(t, client, storyKeyForJob(jobKey), 1, 10*time.Second)
 
 		// Verify the chapter has the error artifact
 		artifacts := taskChapter.Artifacts()
@@ -146,13 +141,9 @@ func TestArtifactStorageOnTaskError(t *testing.T) {
 		taskWorker := &simpleRetryErrorTask{artifact: artifact}
 
 		// Build engine with retry policy
-		engine, err := swf.NewEngineBuilder().
-			WithPostgresDSN(postgresDSN).
-			WithStrata(baseURL).
-			WithStrataAPIKey(strata.APIKey).
-			PlusWorkers(jobWorker, taskWorker).
-			Build(impl.Builder)
-		require.NoError(t, err)
+		engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
+			b.PlusWorkers(jobWorker, taskWorker)
+		})
 
 		// Run engine in background
 		go engine.Run(ctx)
@@ -182,7 +173,7 @@ func TestArtifactStorageOnTaskError(t *testing.T) {
 		// Verify each task attempt chapter has its artifact
 		client := mustStrataClient(t, baseURL, strata.APIKey)
 		for i := 1; i <= 3; i++ {
-			chapter := waitForChapter(t, client, jobKey.ToStoryKey(), int64(i), 10*time.Second)
+			chapter := waitForChapter(t, client, storyKeyForJob(jobKey), int64(i), 10*time.Second)
 			artifacts := chapter.Artifacts()
 			require.Len(t, artifacts, 1, fmt.Sprintf("attempt %d should have one artifact", i))
 			assert.Equal(t, "retry-error.log", artifacts[0].Name(), fmt.Sprintf("attempt %d artifact name should match", i))
@@ -237,13 +228,9 @@ func TestArtifactStorageOnJobError(t *testing.T) {
 		jobWorker := &errorJobWithArtifacts{artifact: jobErrorArtifact}
 
 		// Build engine
-		engine, err := swf.NewEngineBuilder().
-			WithPostgresDSN(postgresDSN).
-			WithStrata(baseURL).
-			WithStrataAPIKey(strata.APIKey).
-			PlusWorkers(jobWorker).
-			Build(impl.Builder)
-		require.NoError(t, err)
+		engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
+			b.PlusWorkers(jobWorker)
+		})
 
 		// Run engine in background
 		go engine.Run(ctx)
@@ -268,7 +255,7 @@ func TestArtifactStorageOnJobError(t *testing.T) {
 		// Verify the error artifact was stored
 		// Job result should be in ordinal 1 (after job input at ordinal 0)
 		client := mustStrataClient(t, baseURL, strata.APIKey)
-		jobResultChapter := waitForChapter(t, client, jobKey.ToStoryKey(), 1, 10*time.Second)
+		jobResultChapter := waitForChapter(t, client, storyKeyForJob(jobKey), 1, 10*time.Second)
 
 		artifacts := jobResultChapter.Artifacts()
 		require.Len(t, artifacts, 1, "job result should have error artifact")

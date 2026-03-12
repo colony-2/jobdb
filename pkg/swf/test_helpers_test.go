@@ -5,41 +5,27 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"math/rand"
 	"net/http"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
 	strataclient "github.com/colony-2/strata-go/pkg/client"
 	"github.com/colony-2/strata-go/pkg/client/core"
 	"github.com/colony-2/strata-go/pkg/client/story"
-	"github.com/colony-2/swf-go/pkg/swf/impl"
-	"github.com/fergusstrange/embedded-postgres"
+	"github.com/colony-2/swf-go/pkg/swf"
+	directruntime "github.com/colony-2/swf-go/pkg/swf/runtime/direct"
+	directtest "github.com/colony-2/swf-go/pkg/swf/runtime/direct/testsupport"
 )
 
 // startEmbeddedPostgres launches a temporary embedded Postgres instance with isolated paths.
 func startEmbeddedPostgres(t *testing.T) (string, func()) {
 	t.Helper()
-	pgPort := uint32(20000 + (time.Now().UnixNano() % 1000))
-	tmpDir := t.TempDir()
-	runtimePath := filepath.Join(tmpDir, "runtime")
-	dataPath := filepath.Join(tmpDir, "data")
-	_ = os.MkdirAll(runtimePath, 0o755)
-	_ = os.MkdirAll(dataPath, 0o755)
-	postgres := embeddedpostgres.NewDatabase(
-		embeddedpostgres.DefaultConfig().
-			Port(pgPort).
-			RuntimePath(runtimePath).
-			DataPath(dataPath),
-	)
-	if err := postgres.Start(); err != nil {
+	dsn, stop, err := directtest.StartEmbeddedPostgres()
+	if err != nil {
 		t.Fatalf("failed to start embedded postgres: %v", err)
 	}
-	stop := func() { _ = postgres.Stop() }
-	return fmt.Sprintf("postgres://postgres:postgres@localhost:%d/postgres?sslmode=disable", pgPort), stop
+	return dsn, stop
 }
 
 // installPGWF runs the pgwf schema installer against the provided DSN.
@@ -49,7 +35,7 @@ func installPGWF(ctx context.Context, dsn string) error {
 		return err
 	}
 	defer db.Close()
-	return impl.InstallPGWF(ctx, db)
+	return directtest.InstallPGWF(ctx, db)
 }
 
 // startStrata either uses an existing STRATA_BASE_URL or starts an embedded daemon if available.
@@ -66,7 +52,7 @@ func startStrata(t *testing.T) (string, *strataHandle) {
 		return base, &strataHandle{BaseURL: base, APIKey: apiKey, Shutdown: func() {}}
 	}
 
-	s, err := impl.StartEmbeddedStrata()
+	s, err := directtest.StartEmbeddedStrata()
 	if err != nil {
 		t.Fatalf("failed to start embedded strata: %v", err)
 	}
@@ -128,5 +114,27 @@ func decodeNumber(t *testing.T, body []byte) int {
 
 // randPort helper to avoid collisions in some legacy tests.
 func randPort(base uint32) uint32 {
-	return base + uint32(rand.Intn(1000))
+	return base
+}
+
+func buildDirectEngine(t *testing.T, postgresDSN, baseURL, apiKey string, configure func(*swf.EngineBuilder)) swf.SWFEngine {
+	t.Helper()
+	runtime, err := directruntime.NewFromConfig(postgresDSN, baseURL, apiKey)
+	if err != nil {
+		t.Fatalf("create direct runtime: %v", err)
+	}
+	builder := swf.NewEngineBuilder()
+	builder.WithRuntime(runtime)
+	if configure != nil {
+		configure(builder)
+	}
+	engine, err := builder.BuildEngine()
+	if err != nil {
+		t.Fatalf("build engine: %v", err)
+	}
+	return engine
+}
+
+func storyKeyForJob(jobKey swf.JobKey) story.Key {
+	return story.Key{AnthologyID: jobKey.TenantId, StoryID: jobKey.JobId}
 }

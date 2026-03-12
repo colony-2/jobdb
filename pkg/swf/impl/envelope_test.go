@@ -223,7 +223,7 @@ func TestJobSystemErrorEnvelopeRoundTrip(t *testing.T) {
 func convertStrataArtifactsToSwf(strataArts []strata.Artifact) []swf.Artifact {
 	artifacts := make([]swf.Artifact, 0, len(strataArts))
 	for _, a := range strataArts {
-		artifacts = append(artifacts, swf.FromStrataArtifact(a))
+		artifacts = append(artifacts, fromStrataArtifact(a))
 	}
 	return artifacts
 }

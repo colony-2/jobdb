@@ -7,11 +7,6 @@ import (
 	"log/slog"
 	"regexp"
 	"time"
-
-	"github.com/colony-2/pgwf-go/pkg/pgwf"
-	strataclient "github.com/colony-2/strata-go/pkg/client"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
 )
 
 // StartJob defines the parameters for starting a new workflow job.
@@ -98,9 +93,6 @@ type jobRunApi interface {
 type EngineBuilder struct {
 	workers      map[string]WorkSet
 	maxActive    int
-	strataURI    string
-	strataAPIKey string
-	postgresDSN  string
 	logger       *slog.Logger
 	awaitRecycle time.Duration
 	runtime      WorkflowRuntime
@@ -109,8 +101,6 @@ type EngineBuilder struct {
 type WorkSet struct {
 	JobWorker   JobWorker
 	TaskWorkers map[string]TaskWorker
-	// Deprecated: Capabilities exposes pgwf-specific capability names.
-	Capabilities []pgwf.Capability
 }
 
 func NewEngineBuilder() *EngineBuilder {
@@ -127,26 +117,8 @@ func (e *EngineBuilder) WithRuntime(runtime WorkflowRuntime) *EngineBuilder {
 	return e
 }
 
-// Deprecated: prefer WithRuntime with a backend-agnostic runtime implementation.
-func (e *EngineBuilder) WithPostgresDSN(dsn string) *EngineBuilder {
-	e.postgresDSN = dsn
-	return e
-}
-
 func (e *EngineBuilder) WithMaxActive(maxActive int) *EngineBuilder {
 	e.maxActive = maxActive
-	return e
-}
-
-// Deprecated: prefer WithRuntime with a backend-agnostic runtime implementation.
-func (e *EngineBuilder) WithStrata(uri string) *EngineBuilder {
-	e.strataURI = uri
-	return e
-}
-
-// Deprecated: prefer WithRuntime with a backend-agnostic runtime implementation.
-func (e *EngineBuilder) WithStrataAPIKey(key string) *EngineBuilder {
-	e.strataAPIKey = key
 	return e
 }
 
@@ -173,7 +145,6 @@ func AsWorkSet(jobWorker JobWorker, taskWorkers ...TaskWorker) (*WorkSet, error)
 	}
 
 	tasks := make(map[string]TaskWorker)
-	capabilities := make([]pgwf.Capability, 0, len(taskWorkers))
 	for _, tw := range taskWorkers {
 
 		if _, ok := tasks[tw.Name()]; ok {
@@ -184,13 +155,11 @@ func AsWorkSet(jobWorker JobWorker, taskWorkers ...TaskWorker) (*WorkSet, error)
 			return nil, fmt.Errorf("task worker with name %s already registered", tw.Name())
 		}
 		tasks[tw.Name()] = tw
-		capabilities = append(capabilities, pgwf.Capability(jobWorker.Name()+":"+tw.Name()))
 	}
 
 	return &WorkSet{
-		JobWorker:    jobWorker,
-		TaskWorkers:  tasks,
-		Capabilities: capabilities,
+		JobWorker:   jobWorker,
+		TaskWorkers: tasks,
 	}, nil
 
 }
@@ -227,56 +196,3 @@ func (b *EngineBuilder) BuildEngine() (SWFEngine, error) {
 		AwaitRecycleThreshold: b.awaitRecycle,
 	})
 }
-
-func (b *EngineBuilder) Build(builder Builder) (SWFEngine, error) {
-	if b.runtime != nil {
-		return b.BuildEngine()
-	}
-
-	if b.strataURI == "" {
-		return nil, fmt.Errorf("strata URI is required")
-	}
-
-	if b.strataAPIKey == "" {
-		return nil, fmt.Errorf("strata API key is required")
-	}
-
-	if b.postgresDSN == "" {
-		return nil, fmt.Errorf("postgres DSN is required")
-	}
-
-	b.logger.Info("building engine", "workers", b.workers)
-	sclient, err := strataclient.New(strataclient.Config{
-		BaseURL: b.strataURI,
-		APIKey:  b.strataAPIKey,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create strata client: %w", err)
-	}
-
-	db, err := gorm.Open(postgres.Open(b.postgresDSN), &gorm.Config{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to postgres: %w", err)
-	}
-
-	ws := make([]WorkSet, len(b.workers))
-	i := 0
-	for _, v := range b.workers {
-		ws[i] = v
-		i++
-	}
-	engine, err := builder(db, sclient, ws, b.logger)
-	if err != nil {
-		return nil, err
-	}
-	type awaitConfigurator interface {
-		SetAwaitThreshold(time.Duration)
-	}
-	if cfg, ok := engine.(awaitConfigurator); ok && b.awaitRecycle > 0 {
-		cfg.SetAwaitThreshold(b.awaitRecycle)
-	}
-	return engine, nil
-}
-
-// Deprecated: prefer WorkflowRuntime implementations plus EngineBuilder.BuildEngine.
-type Builder func(db *gorm.DB, strataClient *strataclient.Client, workers []WorkSet, logger *slog.Logger) (SWFEngine, error)

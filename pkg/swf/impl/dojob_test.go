@@ -68,7 +68,7 @@ func TestJobRestartUsesCache(t *testing.T) {
 	}
 
 	// Verify the result was saved (ordinal 1 should exist with success)
-	key := jobKey.ToStoryKey()
+	key := storyKeyForJob(jobKey)
 	chap, err := engine.strata.Chapter(ctx, key, 1)
 	if err != nil {
 		t.Fatalf("expected chapter at ordinal 1: %v", err)
@@ -168,7 +168,7 @@ func TestTotalTimeoutReplayWritesNextOrdinal(t *testing.T) {
 	replayRunner.jobPolicy = normalizeRunPolicy(start.RunPolicy)
 	replayRunner.DoJob(ctx)
 
-	key := jobKey.ToStoryKey()
+	key := storyKeyForJob(jobKey)
 	chap, err := engine.strata.Chapter(ctx, key, 3)
 	if err != nil {
 		t.Fatalf("expected timeout chapter at ordinal 3, got: %v", err)
@@ -241,7 +241,7 @@ func TestJobRetryWithFailures(t *testing.T) {
 	}
 
 	// Verify both attempts are saved in story (each at a different ordinal)
-	key := jobKey.ToStoryKey()
+	key := storyKeyForJob(jobKey)
 
 	// Ordinal 1 should have the first failed attempt
 	chap1, err := engine.strata.Chapter(ctx, key, 1)
@@ -346,7 +346,7 @@ func TestJobMaxRetriesExhausted(t *testing.T) {
 
 	// Verify all attempts are saved as separate chapters (write-once design)
 	// Each attempt gets its own ordinal: 1, 2, 3
-	key := jobKey.ToStoryKey()
+	key := storyKeyForJob(jobKey)
 	for i := 1; i <= maxAttempts; i++ {
 		chap, err := engine.strata.Chapter(ctx, key, int64(i))
 		if err != nil {
@@ -478,7 +478,7 @@ func TestJobOrdinalDeterminism(t *testing.T) {
 	r.DoJob(ctx)
 
 	// The job calls DoTask twice, so we should have ordinals: 0 (input), 1 (task1), 2 (task2), 3 (job result)
-	key := jobKey.ToStoryKey()
+	key := storyKeyForJob(jobKey)
 
 	// Verify all ordinals exist
 	for i := int64(0); i <= 3; i++ {
@@ -533,9 +533,9 @@ func getLeaseForJob(t *testing.T, ctx context.Context, engine *swfEngineImpl, jo
 // Test job workers
 
 type countingJobWorker struct {
-	name     string
-	counter  *atomic.Int32
-	workset  *swf.WorkSet
+	name    string
+	counter *atomic.Int32
+	workset *swf.WorkSet
 }
 
 func (w *countingJobWorker) Name() string { return w.name }

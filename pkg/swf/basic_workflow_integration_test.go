@@ -11,7 +11,6 @@ import (
 	strataclient "github.com/colony-2/strata-go/pkg/client"
 	"github.com/colony-2/strata-go/pkg/client/story"
 	"github.com/colony-2/swf-go/pkg/swf"
-	"github.com/colony-2/swf-go/pkg/swf/impl"
 	_ "github.com/lib/pq"
 )
 
@@ -36,27 +35,13 @@ func TestBasicWorkflowIntegration(t *testing.T) {
 	logCapture := newCaptureHandler()
 	logger := slog.New(logCapture)
 
-	engine1, err := swf.NewEngineBuilder().
-		WithPostgresDSN(postgresDSN).
-		WithStrata(baseURL).
-		WithStrataAPIKey(strata.APIKey).
-		WithLogger(logger).
-		PlusWorkers(pipeJob{}, addOneTask{}).
-		Build(impl.Builder)
-	if err != nil {
-		t.Fatalf("failed to build engine1: %v", err)
-	}
+	engine1 := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
+		b.WithLogger(logger).PlusWorkers(pipeJob{}, addOneTask{})
+	})
 
-	engine2, err := swf.NewEngineBuilder().
-		WithPostgresDSN(postgresDSN).
-		WithStrata(baseURL).
-		WithStrataAPIKey(strata.APIKey).
-		WithLogger(logger).
-		PlusWorkers(pipeJob{}, doubleTask{}).
-		Build(impl.Builder)
-	if err != nil {
-		t.Fatalf("failed to build engine2: %v", err)
-	}
+	engine2 := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
+		b.WithLogger(logger).PlusWorkers(pipeJob{}, doubleTask{})
+	})
 
 	go engine1.Run(ctx)
 	go engine2.Run(ctx)

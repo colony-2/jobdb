@@ -60,7 +60,7 @@ func (r *Runtime) BuildEngine(workers []swf.WorkSet, opts swf.RuntimeBuildOption
 		return nil, fmt.Errorf("strata client is required")
 	}
 
-	engine, err := impl.Builder(r.db, r.strataClient, workers, opts.Logger)
+	engine, err := impl.NewEngine(r.db, r.strataClient, workers, opts.Logger)
 	if err != nil {
 		return nil, err
 	}

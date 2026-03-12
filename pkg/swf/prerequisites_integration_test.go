@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/colony-2/swf-go/pkg/swf"
-	"github.com/colony-2/swf-go/pkg/swf/impl"
 )
 
 const (
@@ -67,18 +66,12 @@ func TestPrerequisitesSuccessAndComplete(t *testing.T) {
 	defer strata.Shutdown()
 	waitForStrataReady(t, baseURL)
 
-	engine, err := swf.NewEngineBuilder().
-		WithPostgresDSN(postgresDSN).
-		WithStrata(baseURL).
-		WithStrataAPIKey(strata.APIKey).
-		PlusWorkers(prereqSuccessWorker{}).
-		PlusWorkers(prereqFailWorker{}).
-		PlusWorkers(prereqDependentWorker{}).
-		PlusWorkers(prereqRestartJobWorker{}, prereqRestartTaskWorker{}).
-		Build(impl.Builder)
-	if err != nil {
-		t.Fatalf("failed to build engine: %v", err)
-	}
+	engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
+		b.PlusWorkers(prereqSuccessWorker{}).
+			PlusWorkers(prereqFailWorker{}).
+			PlusWorkers(prereqDependentWorker{}).
+			PlusWorkers(prereqRestartJobWorker{}, prereqRestartTaskWorker{})
+	})
 
 	go engine.Run(ctx)
 
@@ -180,18 +173,12 @@ func TestRestartPrerequisitesCheckedAtRestartExtra(t *testing.T) {
 	defer strata.Shutdown()
 	waitForStrataReady(t, baseURL)
 
-	engine, err := swf.NewEngineBuilder().
-		WithPostgresDSN(postgresDSN).
-		WithStrata(baseURL).
-		WithStrataAPIKey(strata.APIKey).
-		PlusWorkers(prereqSuccessWorker{}).
-		PlusWorkers(prereqFailWorker{}).
-		PlusWorkers(prereqDependentWorker{}).
-		PlusWorkers(prereqRestartJobWorker{}, prereqRestartTaskWorker{}).
-		Build(impl.Builder)
-	if err != nil {
-		t.Fatalf("failed to build engine: %v", err)
-	}
+	engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
+		b.PlusWorkers(prereqSuccessWorker{}).
+			PlusWorkers(prereqFailWorker{}).
+			PlusWorkers(prereqDependentWorker{}).
+			PlusWorkers(prereqRestartJobWorker{}, prereqRestartTaskWorker{})
+	})
 
 	go engine.Run(ctx)
 
@@ -224,10 +211,10 @@ func TestRestartPrerequisitesCheckedAtRestartExtra(t *testing.T) {
 	}
 
 	restartKey, err := engine.RestartJob(ctx, swf.RestartJob{
-		PriorJobKey: baseKey,
-		LastStepToKeep: 0,
-		JobID: "restart-with-prereqs",
-		ExtraTaskInput: swf.NewTaskDataOrPanic(baseInput),
+		PriorJobKey:     baseKey,
+		LastStepToKeep:  0,
+		JobID:           "restart-with-prereqs",
+		ExtraTaskInput:  swf.NewTaskDataOrPanic(baseInput),
 		ExtraTaskOutput: swf.NewTaskDataOrPanic(map[string]interface{}{"n": 3}),
 		Prerequisites: []swf.JobPrerequisite{
 			{JobID: failKey.JobId, Condition: swf.JobPrereqSuccess},

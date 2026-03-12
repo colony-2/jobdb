@@ -29,22 +29,22 @@ const (
 )
 
 type chapterMeta struct {
-	Version       int                 `json:"version"`
-	Ordinal       int64               `json:"ordinal"`
-	TaskType      string              `json:"task_type"`
-	WorkerID      string              `json:"worker_id"`
-	CreatedAt     time.Time           `json:"created_at"`
-	StartedAt     *time.Time          `json:"started_at,omitempty"`
-	FinishedAt    *time.Time          `json:"finished_at,omitempty"`
-	InputHash     string              `json:"input_hash"`
-	Input         json.RawMessage     `json:"input,omitempty"`
-	Attempt       int                 `json:"attempt,omitempty"`
-	MaxAttempts   int                 `json:"max_attempts,omitempty"`
-	NextAttemptAt *time.Time          `json:"next_attempt_at,omitempty"`
-	BackoffMillis int64               `json:"backoff_ms,omitempty"`
-	Retryable     *bool               `json:"retryable,omitempty"`
-	InputRef      *swf.InputReference `json:"input_ref,omitempty"`
-	RunPolicy     *swf.RunPolicy      `json:"run_policy,omitempty"`
+	Version       int                   `json:"version"`
+	Ordinal       int64                 `json:"ordinal"`
+	TaskType      string                `json:"task_type"`
+	WorkerID      string                `json:"worker_id"`
+	CreatedAt     time.Time             `json:"created_at"`
+	StartedAt     *time.Time            `json:"started_at,omitempty"`
+	FinishedAt    *time.Time            `json:"finished_at,omitempty"`
+	InputHash     string                `json:"input_hash"`
+	Input         json.RawMessage       `json:"input,omitempty"`
+	Attempt       int                   `json:"attempt,omitempty"`
+	MaxAttempts   int                   `json:"max_attempts,omitempty"`
+	NextAttemptAt *time.Time            `json:"next_attempt_at,omitempty"`
+	BackoffMillis int64                 `json:"backoff_ms,omitempty"`
+	Retryable     *bool                 `json:"retryable,omitempty"`
+	InputRef      *swf.InputReference   `json:"input_ref,omitempty"`
+	RunPolicy     *swf.RunPolicy        `json:"run_policy,omitempty"`
 	Prerequisites []swf.JobPrerequisite `json:"prereqs,omitempty"`
 }
 

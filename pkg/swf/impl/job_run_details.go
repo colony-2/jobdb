@@ -53,7 +53,7 @@ func (s *swfEngineImpl) GetJobRun(ctx context.Context, req swf.GetJobRunRequest)
 		},
 	}
 
-	st, err := s.strata.Story(ctx, req.JobKey.ToStoryKey())
+	st, err := s.strata.Story(ctx, storyKeyForJob(req.JobKey))
 	if err != nil {
 		return swf.GetJobRunResponse{}, fmt.Errorf("failed to load story: %w", err)
 	}
@@ -141,7 +141,7 @@ func (s *swfEngineImpl) GetJobRun(ctx context.Context, req swf.GetJobRunRequest)
 			continue
 		}
 
-		attempt, err := buildTaskAttempt(ctx, s, req.JobKey.ToStoryKey(), chap, env, includeInputs, includeOutputs || env.ChapterType == chapterTypeJobAttemptOutcome, includeArtifacts, includeAttemptInputs)
+		attempt, err := buildTaskAttempt(ctx, s, storyKeyForJob(req.JobKey), chap, env, includeInputs, includeOutputs || env.ChapterType == chapterTypeJobAttemptOutcome, includeArtifacts, includeAttemptInputs)
 		if err != nil {
 			return swf.GetJobRunResponse{}, err
 		}
@@ -203,7 +203,7 @@ func (s *swfEngineImpl) GetJobRun(ctx context.Context, req swf.GetJobRunRequest)
 	}
 
 	if statusInfo.ArchivedAt == nil {
-		runtimeRun, ok, err := buildRuntimeTaskRun(ctx, s, req.JobKey.ToStoryKey(), statusInfo, lastOrdinal, includeInputs, includeArtifacts, includeAttemptInputs)
+		runtimeRun, ok, err := buildRuntimeTaskRun(ctx, s, storyKeyForJob(req.JobKey), statusInfo, lastOrdinal, includeInputs, includeArtifacts, includeAttemptInputs)
 		if err != nil {
 			return swf.GetJobRunResponse{}, err
 		}

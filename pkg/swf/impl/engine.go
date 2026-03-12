@@ -117,7 +117,7 @@ func (s *swfEngineImpl) refreshCapabilitiesLocked() {
 			caps = append(caps, capKey)
 			seen[capKey] = struct{}{}
 		}
-		for _, c := range ws.Capabilities {
+		for _, c := range workSetCapabilities(ws) {
 			if _, ok := seen[c]; !ok {
 				caps = append(caps, c)
 				seen[c] = struct{}{}
@@ -137,7 +137,7 @@ func (s *swfEngineImpl) addWorkSetLocked(workset *swf.WorkSet) {
 	if s.workers == nil {
 		s.workers = make(map[pgwf.Capability]*swf.WorkSet)
 	}
-	for _, c := range workset.Capabilities {
+	for _, c := range workSetCapabilities(workset) {
 		s.workers[c] = workset
 	}
 	s.workers[pgwf.Capability(workset.JobWorker.Name())] = workset
@@ -171,7 +171,7 @@ func (s *swfEngineImpl) RegisterWorkers(workset *swf.WorkSet) error {
 	if _, ok := s.workers[jobCap]; ok {
 		return fmt.Errorf("worker %s already registered", workset.JobWorker.Name())
 	}
-	for _, cap := range workset.Capabilities {
+	for _, cap := range workSetCapabilities(workset) {
 		if existing, ok := s.workers[cap]; ok {
 			return fmt.Errorf("capability %s already registered for worker %s", cap, existing.JobWorker.Name())
 		}
@@ -242,7 +242,7 @@ func (s *swfEngineImpl) StartJob(ctx context.Context, job swf.StartJob) (swf.Job
 	if err != nil {
 		return swf.JobKey{}, err
 	}
-	key := jobKey.ToStoryKey()
+	key := storyKeyForJob(jobKey)
 	taskData := swf.TaskData(job.Data)
 	inputHash, err := computeInputHash(ctx, taskData)
 	if err != nil {
@@ -252,7 +252,7 @@ func (s *swfEngineImpl) StartJob(ctx context.Context, job swf.StartJob) (swf.Job
 	jobPolicy := job.RunPolicy
 	jobPolicy = normalizeRunPolicy(jobPolicy)
 	co, err := taskDataToCreatOptions(taskData, 0, job.JobType, s.workerId, chapterTypeJobStart, payloadKindApp, inputHash, now, chapterMetadata{
-		Attempt: 1,
+		Attempt:       1,
 		Prerequisites: prereqs,
 	})
 	if err != nil {
@@ -306,8 +306,8 @@ func (s *swfEngineImpl) RestartJob(ctx context.Context, job swf.RestartJob) (swf
 	if err != nil {
 		return swf.JobKey{}, err
 	}
-	sourceJob := job.PriorJobKey.ToStoryKey()
-	targetJob := jobKey.ToStoryKey()
+	sourceJob := storyKeyForJob(job.PriorJobKey)
+	targetJob := storyKeyForJob(jobKey)
 
 	// Load initial chapter to recover job type, run policy, and input hash.
 	chap0, err := s.strata.Chapter(ctx, sourceJob, 0)
@@ -659,7 +659,7 @@ func payloadToChapter(payload json.RawMessage, artifacts []swf.Artifact, ordinal
 
 	chapBuilder := story.NewChapter().WithOrdinal(ordinal).WithBytes(envBytes)
 	for _, v := range artifacts {
-		chapBuilder.AddArtifact(swf.ToStrataArtifact(v))
+		chapBuilder.AddArtifact(toStrataArtifact(v))
 	}
 	return chapBuilder, nil
 }
@@ -772,7 +772,7 @@ func (s *swfEngineImpl) GetJobResult(ctx context.Context, jobKey swf.JobKey) (sw
 		return nil, swf.ErrJobNotComplete
 	}
 
-	key := jobKey.ToStoryKey()
+	key := storyKeyForJob(jobKey)
 	st, err := s.strata.Story(ctx, key)
 	if err != nil {
 		return nil, err
@@ -796,7 +796,7 @@ func (s *swfEngineImpl) ReplayJobRun(ctx context.Context, req swf.ReplayRunReque
 		return nil, err
 	}
 
-	key := req.JobKey.ToStoryKey()
+	key := storyKeyForJob(req.JobKey)
 	chap0, err := s.strata.Chapter(ctx, key, 0)
 	if err != nil {
 		if errors.Is(err, core.ErrNotFound) {
@@ -870,7 +870,7 @@ func (s *swfEngineImpl) GetArtifact(tenantId string, key swf.ArtifactKey) (swf.A
 	}
 	for _, art := range chap.Artifacts() {
 		if art != nil && art.Name() == key.Name {
-			swfArt := swf.FromStrataArtifact(art)
+			swfArt := fromStrataArtifact(art)
 			swf.AssignArtifactKey(swfArt, key)
 			return swfArt, nil
 		}
@@ -892,7 +892,7 @@ func (s *swfEngineImpl) ListJobs(ctx context.Context, req swf.ListJobsRequest) (
 	pgwfStatuses := convertSwfStatusesToPgwf(req.Statuses)
 	includeArchived := shouldIncludeArchived(req.Stores, req.Statuses)
 
-	metadataPredicates, err := swf.PgwfMetadataPredicates(req.MetadataFilter)
+	metadataPredicates, err := metadataPredicatesToPgwf(req.MetadataFilter)
 	if err != nil {
 		return swf.ListJobsResponse{}, err
 	}
@@ -1085,7 +1085,7 @@ func (s *swfEngineImpl) GetWaitingTask(ctx context.Context, key swf.JobKey) (swf
 
 var _ swf.SWFEngine = &swfEngineImpl{}
 
-var Builder swf.Builder = func(db *gorm.DB, strataClient *strataclient.Client, workers []swf.WorkSet, logger *slog.Logger) (swf.SWFEngine, error) {
+func NewEngine(db *gorm.DB, strataClient *strataclient.Client, workers []swf.WorkSet, logger *slog.Logger) (swf.SWFEngine, error) {
 	underlying, err := db.DB()
 	if err != nil {
 		return nil, err
@@ -1099,8 +1099,8 @@ var Builder swf.Builder = func(db *gorm.DB, strataClient *strataclient.Client, w
 	capMap := make(map[pgwf.Capability]*swf.WorkSet)
 	for i := range workers {
 		w := &workers[i]
-		for _, c := range w.Capabilities {
-			capMap[c] = w
+		for taskName := range w.TaskWorkers {
+			capMap[pgwf.Capability(w.JobWorker.Name()+":"+taskName)] = w
 		}
 		capMap[pgwf.Capability(w.JobWorker.Name())] = w
 	}
@@ -1154,7 +1154,7 @@ func (s *swfEngineImpl) Run(ctx context.Context) {
 }
 
 // runs inside goroutine for a specific lease.
-func (s *swfEngineImpl) runSomething(ctx context.Context, lease *swf.Lease) {
+func (s *swfEngineImpl) runSomething(ctx context.Context, lease *pgwf.Lease) {
 	capability := lease.NextNeed()
 	workSet, ok := s.workSetFor(capability)
 	if !ok {

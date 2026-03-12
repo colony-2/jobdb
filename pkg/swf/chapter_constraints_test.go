@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/colony-2/swf-go/pkg/swf"
-	"github.com/colony-2/swf-go/pkg/swf/impl"
 	"github.com/colony-2/swf-go/pkg/swf/toy"
 	_ "github.com/lib/pq"
 )
@@ -51,18 +50,9 @@ func TestChapterConstraintsAcrossEngines(t *testing.T) {
 
 				logCapture := newCaptureHandler()
 				logger := slog.New(logCapture)
-				engine, err := swf.NewEngineBuilder().
-					WithPostgresDSN(postgresDSN).
-					WithStrata(baseURL).
-					WithStrataAPIKey(strata.APIKey).
-					WithLogger(logger).
-					PlusWorkers(&deterministicJob{}, &incrementTask{}).
-					Build(impl.Builder)
-				if err != nil {
-					strata.Shutdown()
-					stopPG()
-					t.Fatalf("failed to build engine: %v", err)
-				}
+				engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
+					b.WithLogger(logger).PlusWorkers(&deterministicJob{}, &incrementTask{})
+				})
 
 				cleanup := func() {
 					strata.Shutdown()

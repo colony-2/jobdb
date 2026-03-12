@@ -97,7 +97,7 @@ func TestReplayObserverUsesCachedChapterTimes(t *testing.T) {
 		t.Fatalf("do job: %v", err)
 	}
 
-	key := jobKey.ToStoryKey()
+	key := storyKeyForJob(jobKey)
 	chap0, err := engine.strata.Chapter(ctx, key, 0)
 	if err != nil {
 		t.Fatalf("chapter 0: %v", err)
@@ -201,7 +201,7 @@ func TestReplayObserverMissingTaskUsesPriorEndTime(t *testing.T) {
 		t.Fatalf("task 1: %v", err)
 	}
 
-	key := jobKey.ToStoryKey()
+	key := storyKeyForJob(jobKey)
 	taskChap, err := engine.strata.Chapter(ctx, key, 1)
 	if err != nil {
 		t.Fatalf("chapter 1: %v", err)

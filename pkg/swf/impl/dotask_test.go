@@ -71,7 +71,7 @@ func TestTaskRestartUsesCache(t *testing.T) {
 	}
 
 	// Verify the task result was cached at ordinal 1
-	key := jobKey.ToStoryKey()
+	key := storyKeyForJob(jobKey)
 	chap1, err := engine.strata.Chapter(ctx, key, 1)
 	if err != nil {
 		t.Fatalf("expected task chapter at ordinal 1: %v", err)
@@ -231,7 +231,7 @@ func TestTaskRetryWithFailures(t *testing.T) {
 	}
 
 	// Verify both attempts are saved as separate chapters
-	key := jobKey.ToStoryKey()
+	key := storyKeyForJob(jobKey)
 
 	// Ordinal 1 should have the first failed attempt
 	chap1, err := engine.strata.Chapter(ctx, key, 1)
@@ -339,7 +339,7 @@ func TestTaskMaxRetriesExhausted(t *testing.T) {
 	}
 
 	// Verify all task attempts are saved as separate chapters
-	key := jobKey.ToStoryKey()
+	key := storyKeyForJob(jobKey)
 	for i := 1; i <= maxAttempts; i++ {
 		chap, err := engine.strata.Chapter(ctx, key, int64(i))
 		if err != nil {
@@ -426,7 +426,7 @@ func TestTaskInputStoredOnSuccess(t *testing.T) {
 		t.Fatalf("job did not complete: %v", err)
 	}
 
-	key := jobKey.ToStoryKey()
+	key := storyKeyForJob(jobKey)
 	chap, err := engine.strata.Chapter(ctx, key, 1)
 	if err != nil {
 		t.Fatalf("expected task chapter at ordinal 1: %v", err)
@@ -502,7 +502,7 @@ func TestTaskInputStoredOnError(t *testing.T) {
 		t.Fatalf("job did not complete: %v", err)
 	}
 
-	key := jobKey.ToStoryKey()
+	key := storyKeyForJob(jobKey)
 	chap, err := engine.strata.Chapter(ctx, key, 1)
 	if err != nil {
 		t.Fatalf("expected task chapter at ordinal 1: %v", err)
@@ -684,7 +684,7 @@ func TestTaskWithMultipleRetries(t *testing.T) {
 	}
 
 	// Verify chapter structure
-	key := jobKey.ToStoryKey()
+	key := storyKeyForJob(jobKey)
 	// Ordinal 0: input
 	// Ordinal 1: task1 attempt 1 (fail)
 	// Ordinal 2: task1 attempt 2 (success)
@@ -1056,7 +1056,7 @@ func TestAlternateNeedReplayRecordsInvocationTimeout(t *testing.T) {
 	r2.DoJob(ctx)
 
 	// Verify task chapter recorded an invocation timeout.
-	chap, err := engine.strata.Chapter(ctx, jobKey.ToStoryKey(), 1)
+	chap, err := engine.strata.Chapter(ctx, storyKeyForJob(jobKey), 1)
 	if err != nil {
 		t.Fatalf("fetch task chapter: %v", err)
 	}

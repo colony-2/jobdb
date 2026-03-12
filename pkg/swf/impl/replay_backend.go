@@ -20,10 +20,10 @@ func (b *replayRunnerBackend) GetChapter(ctx context.Context, key story.Key, ord
 	chap, err := b.engine.strata.Chapter(ctx, key, ordinal)
 	if errors.Is(err, core.ErrNotFound) {
 		return nil, swf.ReplayCacheMissError{
-			JobKey:   swf.JobKey{TenantId: key.AnthologyID, JobId: key.StoryID},
-			Ordinal:  ordinal,
-			Attempt:  1,
-			Reason:   swf.ReplayCacheMissTaskResultMissing,
+			JobKey:  swf.JobKey{TenantId: key.AnthologyID, JobId: key.StoryID},
+			Ordinal: ordinal,
+			Attempt: 1,
+			Reason:  swf.ReplayCacheMissTaskResultMissing,
 		}
 	}
 	return chap, err
@@ -37,10 +37,10 @@ func (b *replayRunnerBackend) GetJobAttemptOutcome(ctx context.Context, key stor
 	chap, err := b.engine.strata.Chapter(ctx, key, ordinal)
 	if errors.Is(err, core.ErrNotFound) {
 		return nil, swf.ReplayCacheMissError{
-			JobKey:   swf.JobKey{TenantId: key.AnthologyID, JobId: key.StoryID},
-			Ordinal:  ordinal,
-			Attempt:  1,
-			Reason:   swf.ReplayCacheMissJobResultMissing,
+			JobKey:  swf.JobKey{TenantId: key.AnthologyID, JobId: key.StoryID},
+			Ordinal: ordinal,
+			Attempt: 1,
+			Reason:  swf.ReplayCacheMissJobResultMissing,
 		}
 	}
 	return chap, err

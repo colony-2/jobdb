@@ -10,20 +10,20 @@ import (
 // TaskDeterminismMeta exposes deterministic metadata persisted with a task chapter.
 // It is a public, minimal view of the internal chapter metadata used for replay.
 type TaskDeterminismMeta struct {
-	Ordinal       int64              `json:"ordinal"`
-	TaskType      string             `json:"task_type"`
-	WorkerID      string             `json:"worker_id,omitempty"`
-	CreatedAt     time.Time          `json:"created_at,omitempty"`
-	Attempt       int                `json:"attempt,omitempty"`
-	MaxAttempts   int                `json:"max_attempts,omitempty"`
-	NextAttemptAt *time.Time         `json:"next_attempt_at,omitempty"`
-	BackoffMillis int64              `json:"backoff_ms,omitempty"`
-	Retryable     *bool              `json:"retryable,omitempty"`
-	InputHash     string             `json:"input_hash,omitempty"`
-	InputRef      *InputReference    `json:"input_ref,omitempty"`
-	RunPolicy     *RunPolicy         `json:"run_policy,omitempty"`
-	InputPayload  json.RawMessage    `json:"input_payload,omitempty"`
-	Version       int                `json:"version,omitempty"`
+	Ordinal       int64           `json:"ordinal"`
+	TaskType      string          `json:"task_type"`
+	WorkerID      string          `json:"worker_id,omitempty"`
+	CreatedAt     time.Time       `json:"created_at,omitempty"`
+	Attempt       int             `json:"attempt,omitempty"`
+	MaxAttempts   int             `json:"max_attempts,omitempty"`
+	NextAttemptAt *time.Time      `json:"next_attempt_at,omitempty"`
+	BackoffMillis int64           `json:"backoff_ms,omitempty"`
+	Retryable     *bool           `json:"retryable,omitempty"`
+	InputHash     string          `json:"input_hash,omitempty"`
+	InputRef      *InputReference `json:"input_ref,omitempty"`
+	RunPolicy     *RunPolicy      `json:"run_policy,omitempty"`
+	InputPayload  json.RawMessage `json:"input_payload,omitempty"`
+	Version       int             `json:"version,omitempty"`
 }
 
 // TaskInputMismatchError is returned when a cached task chapter's input hash

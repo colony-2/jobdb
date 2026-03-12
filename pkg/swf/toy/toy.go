@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/colony-2/pgwf-go/pkg/pgwf"
 	"github.com/colony-2/swf-go/pkg/swf"
 	"github.com/segmentio/ksuid"
 )
@@ -97,7 +96,7 @@ type normalizedMetadataPredicate struct {
 	ValuesJSON []string
 }
 
-func normalizeMetadataPredicates(predicates []pgwf.MetadataPredicate) ([]normalizedMetadataPredicate, error) {
+func normalizeMetadataPredicates(predicates []swf.MetadataPredicate) ([]normalizedMetadataPredicate, error) {
 	if len(predicates) == 0 {
 		return nil, nil
 	}
@@ -1038,7 +1037,7 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.
 		return swf.ListJobsResponse{}, nil
 	}
 
-	rawPredicates, err := swf.PgwfMetadataPredicates(req.MetadataFilter)
+	rawPredicates, err := swf.MetadataPredicates(req.MetadataFilter)
 	if err != nil {
 		return swf.ListJobsResponse{}, err
 	}

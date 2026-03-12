@@ -153,7 +153,7 @@ func (r *runner) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData
 	totalTimeout := durationPtrToDuration(effectivePolicy.TotalTimeout)
 	maxAttempts := int(retryCfg.MaximumAttempts)
 
-	key := r.GetJobKey().ToStoryKey()
+	key := storyKeyForJob(r.GetJobKey())
 	attempt := 1
 
 	var nextAttemptStartAt *time.Time
@@ -613,7 +613,7 @@ func cleanupArtifacts(ctx context.Context, artifacts []swf.Artifact, logger *slo
 func convertStrataArtifacts(strataArts []strata.Artifact, jobID string, ordinal int64) []swf.Artifact {
 	artifacts := make([]swf.Artifact, 0, len(strataArts))
 	for _, a := range strataArts {
-		artifacts = append(artifacts, swf.FromStrataArtifact(a))
+		artifacts = append(artifacts, fromStrataArtifact(a))
 	}
 	assignArtifactKeys(artifacts, jobID, ordinal)
 	return artifacts
@@ -714,7 +714,7 @@ func (r *runner) fallbackTaskTime() time.Time {
 }
 
 func (r *runner) getChapter(ordinal int64) (story.Chapter, error) {
-	return r.backend.GetChapter(context.TODO(), r.GetJobKey().ToStoryKey(), ordinal)
+	return r.backend.GetChapter(context.TODO(), storyKeyForJob(r.GetJobKey()), ordinal)
 }
 
 func (r *runner) Logger() *slog.Logger {
@@ -759,7 +759,7 @@ func (r *runner) failJobPrerequisites(ctx context.Context, inputData swf.JobData
 		r.logger.Error(prepErr.Error())
 		return nil, prepErr
 	}
-	if saveErr := r.saveJobChapter(r.GetJobKey().ToStoryKey(), payload, artifacts, jobResultOrdinal, r.worker.JobWorker.Name(), config.inputRef.Hash, payloadKind, attempt, config.inputRef, &startAt, &startAt); saveErr != nil {
+	if saveErr := r.saveJobChapter(storyKeyForJob(r.GetJobKey()), payload, artifacts, jobResultOrdinal, r.worker.JobWorker.Name(), config.inputRef.Hash, payloadKind, attempt, config.inputRef, &startAt, &startAt); saveErr != nil {
 		r.logger.Error(saveErr.Error())
 		return nil, saveErr
 	}
@@ -1085,9 +1085,9 @@ func (r *runner) prepareJobResultPayload(output swf.JobData, originalErr error, 
 func (r *runner) saveJobChapter(key story.Key, payload json.RawMessage, artifacts []swf.Artifact, ordinal int64, workerName, inputHash string, kind string, attempt int, inputRef *swf.InputReference, startedAt *time.Time, finishedAt *time.Time) error {
 	now := time.Now().UTC()
 	meta := chapterMetadata{
-		Attempt:  attempt,
-		InputRef: inputRef,
-		StartedAt: startedAt,
+		Attempt:    attempt,
+		InputRef:   inputRef,
+		StartedAt:  startedAt,
 		FinishedAt: finishedAt,
 	}
 
@@ -1139,7 +1139,7 @@ func (r *runner) DoJob(ctx context.Context) (swf.JobData, error) {
 		}
 	}
 
-	key := r.GetJobKey().ToStoryKey()
+	key := storyKeyForJob(r.GetJobKey())
 	maxAttempts := int(config.retryCfg.MaximumAttempts)
 	attempt := 1
 	initialJobStartAt := env0.Meta.CreatedAt

@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/colony-2/pgwf-go/pkg/pgwf"
 )
 
 // JobSummary is a lightweight view of a job sourced purely from pgwf tables.
@@ -83,6 +81,11 @@ type metadataOr struct {
 type metadataAnd struct {
 	left  MetadataFilter
 	right MetadataFilter
+}
+
+type MetadataPredicate struct {
+	Path   []string
+	Values []any
 }
 
 func Metadata() MetadataFilter {
@@ -205,19 +208,18 @@ func (metadataEqual) metadataFilter() {}
 func (metadataOr) metadataFilter()    {}
 func (metadataAnd) metadataFilter()   {}
 
-// Deprecated: exposes pgwf metadata predicate types through the public swf API.
-func PgwfMetadataPredicates(filter MetadataFilter) ([]pgwf.MetadataPredicate, error) {
+func MetadataPredicates(filter MetadataFilter) ([]MetadataPredicate, error) {
 	if filter == nil {
 		return nil, nil
 	}
-	predicates := make([]pgwf.MetadataPredicate, 0)
+	predicates := make([]MetadataPredicate, 0)
 	if err := collectMetadataPredicates(filter, &predicates); err != nil {
 		return nil, err
 	}
 	return predicates, nil
 }
 
-func collectMetadataPredicates(filter MetadataFilter, out *[]pgwf.MetadataPredicate) error {
+func collectMetadataPredicates(filter MetadataFilter, out *[]MetadataPredicate) error {
 	switch v := filter.(type) {
 	case metadataEmpty:
 		return nil
@@ -252,18 +254,18 @@ func newEqualFilter(field FieldName, value any) (MetadataFilter, error) {
 	return metadataEqual{field: field, value: value}, nil
 }
 
-func predicateFromEqual(field FieldName, values []any) (pgwf.MetadataPredicate, error) {
+func predicateFromEqual(field FieldName, values []any) (MetadataPredicate, error) {
 	if err := validateField(field, values); err != nil {
-		return pgwf.MetadataPredicate{}, err
+		return MetadataPredicate{}, err
 	}
 	clean := make([]any, 0, len(values))
 	for _, value := range values {
 		if value == nil {
-			return pgwf.MetadataPredicate{}, fmt.Errorf("metadata field %q value is required", field)
+			return MetadataPredicate{}, fmt.Errorf("metadata field %q value is required", field)
 		}
 		clean = append(clean, value)
 	}
-	return pgwf.MetadataPredicate{
+	return MetadataPredicate{
 		Path:   []string{string(field)},
 		Values: clean,
 	}, nil

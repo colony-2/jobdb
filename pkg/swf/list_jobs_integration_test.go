@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/colony-2/swf-go/pkg/swf"
-	"github.com/colony-2/swf-go/pkg/swf/impl"
 )
 
 func TestListJobsRoutesByStatusAndOrdersWithUnion(t *testing.T) {
@@ -21,14 +20,7 @@ func TestListJobsRoutesByStatusAndOrdersWithUnion(t *testing.T) {
 	baseURL, strata := startStrata(t)
 	defer strata.Shutdown()
 
-	engine, err := swf.NewEngineBuilder().
-		WithPostgresDSN(postgresDSN).
-		WithStrata(baseURL).
-		WithStrataAPIKey(strata.APIKey).
-		Build(impl.Builder)
-	if err != nil {
-		t.Fatalf("failed to build engine: %v", err)
-	}
+	engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, nil)
 
 	db, err := sql.Open("postgres", postgresDSN)
 	if err != nil {

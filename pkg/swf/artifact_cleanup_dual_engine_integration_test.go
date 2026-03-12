@@ -10,7 +10,6 @@ import (
 
 	strataclient "github.com/colony-2/strata-go/pkg/client"
 	"github.com/colony-2/swf-go/pkg/swf"
-	"github.com/colony-2/swf-go/pkg/swf/impl"
 	"github.com/colony-2/swf-go/pkg/swf/toy"
 	"github.com/stretchr/testify/require"
 )
@@ -70,13 +69,9 @@ func TestArtifactCleanupAcrossEngines(t *testing.T) {
 			strataAPIKey:  strata.APIKey,
 		}
 		taskWorker := &artifactCleanupTask{dir: tempDir, fileNames: fileNames}
-		engine, err := swf.NewEngineBuilder().
-			WithPostgresDSN(postgresDSN).
-			WithStrata(baseURL).
-			WithStrataAPIKey(strata.APIKey).
-			PlusWorkers(jobWorker, taskWorker).
-			Build(impl.Builder)
-		require.NoError(t, err)
+		engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
+			b.PlusWorkers(jobWorker, taskWorker)
+		})
 
 		go engine.Run(ctx)
 		runArtifactCleanupScenario(t, ctx, engine, filePaths)
@@ -131,7 +126,7 @@ func (j *artifactCleanupJob) downloadTaskArtifacts(ctx swf.JobContext, taskOutpu
 		return nil, err
 	}
 
-	key := ctx.GetJobKey().ToStoryKey()
+	key := storyKeyForJob(ctx.GetJobKey())
 	chapter, err := client.Chapter(context.Background(), key, j.taskOrdinal)
 	if err != nil {
 		return nil, err
@@ -140,7 +135,10 @@ func (j *artifactCleanupJob) downloadTaskArtifacts(ctx swf.JobContext, taskOutpu
 	strataArtifacts := chapter.Artifacts()
 	taskArtifacts := make([]swf.Artifact, 0, len(strataArtifacts))
 	for _, art := range strataArtifacts {
-		taskArtifacts = append(taskArtifacts, swf.FromStrataArtifact(art))
+		taskArtifacts = append(taskArtifacts, swf.NewArtifact(art.Name(), func() (io.ReadCloser, int64, error) {
+			_, rc, err := art.ToInput(context.Background())
+			return rc, art.SizeBytes(), err
+		}, nil))
 	}
 	return j.copyArtifacts(taskArtifacts)
 }

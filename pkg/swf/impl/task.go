@@ -49,7 +49,7 @@ func (h *taskHandleImpl) Metadata() json.RawMessage {
 func (h *taskHandleImpl) chapter() (story.Chapter, error) {
 	if h.inputChapter == nil {
 		jobKey := h.JobKey()
-		chapter, err := h.engine.strata.Chapter(context.TODO(), jobKey.ToStoryKey(), h.inputOrdinal)
+		chapter, err := h.engine.strata.Chapter(context.TODO(), storyKeyForJob(jobKey), h.inputOrdinal)
 		if err != nil {
 			return nil, err
 		}
@@ -81,7 +81,7 @@ func (h *taskHandleImpl) Finish(ctx context.Context, taskData swf.TaskData) erro
 	// Load input chapter if not already set (e.g., when created by FindTasksWaitingForCapability)
 	if h.inputChapter == nil && h.inputOrdinal > 0 {
 		jobKey := h.JobKey()
-		ch, err := h.engine.strata.Chapter(ctx, jobKey.ToStoryKey(), h.inputOrdinal)
+		ch, err := h.engine.strata.Chapter(ctx, storyKeyForJob(jobKey), h.inputOrdinal)
 		if err != nil {
 			return fmt.Errorf("failed to load input chapter: %w", err)
 		}
@@ -134,7 +134,7 @@ func (h *taskHandleImpl) Finish(ctx context.Context, taskData swf.TaskData) erro
 		return err
 	}
 	jobKey := h.JobKey()
-	err = h.engine.strata.SaveChapter(ctx, jobKey.ToStoryKey(), chap)
+	err = h.engine.strata.SaveChapter(ctx, storyKeyForJob(jobKey), chap)
 	if err != nil {
 		return err
 	}
@@ -155,7 +155,7 @@ var _ swf.TaskHandle = &taskHandleImpl{}
 func chapterToTaskData(chapter story.Chapter, jobKey swf.JobKey) (swf.TaskData, error) {
 	artifacts := make([]swf.Artifact, 0, len(chapter.Artifacts()))
 	for _, a := range chapter.Artifacts() {
-		artifacts = append(artifacts, swf.FromStrataArtifact(a))
+		artifacts = append(artifacts, fromStrataArtifact(a))
 	}
 	assignArtifactKeys(artifacts, jobKey.JobId, chapter.Ordinal())
 

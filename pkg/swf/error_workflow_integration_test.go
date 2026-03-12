@@ -43,15 +43,9 @@ func TestTaskErrorsAreEnvelopedAndReturned(t *testing.T) {
 			jobWorker := singleTaskJob{taskType: "err_task"}
 			taskWorker := errorTaskWorker{err: tt.taskErr}
 
-			engine, err := swf.NewEngineBuilder().
-				WithPostgresDSN(postgresDSN).
-				WithStrata(baseURL).
-				WithStrataAPIKey(strata.APIKey).
-				PlusWorkers(jobWorker, taskWorker).
-				Build(impl.Builder)
-			if err != nil {
-				t.Fatalf("failed to build engine: %v", err)
-			}
+			engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
+				b.PlusWorkers(jobWorker, taskWorker)
+			})
 
 			go engine.Run(ctx)
 
@@ -118,15 +112,9 @@ func TestJobErrorsAreEnvelopedAndReturned(t *testing.T) {
 
 			jobWorker := errorJobWorker{err: tt.jobErr}
 
-			engine, err := swf.NewEngineBuilder().
-				WithPostgresDSN(postgresDSN).
-				WithStrata(baseURL).
-				WithStrataAPIKey(strata.APIKey).
-				PlusWorkers(jobWorker).
-				Build(impl.Builder)
-			if err != nil {
-				t.Fatalf("failed to build engine: %v", err)
-			}
+			engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
+				b.PlusWorkers(jobWorker)
+			})
 
 			go engine.Run(ctx)
 

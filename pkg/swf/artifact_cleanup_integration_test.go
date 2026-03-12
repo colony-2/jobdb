@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/colony-2/swf-go/pkg/swf"
-	"github.com/colony-2/swf-go/pkg/swf/impl"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -67,13 +66,9 @@ func TestArtifactCleanupAfterUpload(t *testing.T) {
 		taskWorker := &artifactProducingTask{artifact: artifact}
 
 		// Build engine with the job and task worker
-		engine, err := swf.NewEngineBuilder().
-			WithPostgresDSN(postgresDSN).
-			WithStrata(baseURL).
-			WithStrataAPIKey(strata.APIKey).
-			PlusWorkers(jobWorker, taskWorker).
-			Build(impl.Builder)
-		require.NoError(t, err)
+		engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
+			b.PlusWorkers(jobWorker, taskWorker)
+		})
 
 		// Run engine in background
 		go engine.Run(ctx)
@@ -159,13 +154,9 @@ func TestArtifactCleanupAfterUpload(t *testing.T) {
 		taskWorker := &failingTask{}
 
 		// Build engine with the job and task worker
-		engine, err := swf.NewEngineBuilder().
-			WithPostgresDSN(postgresDSN).
-			WithStrata(baseURL).
-			WithStrataAPIKey(strata.APIKey).
-			PlusWorkers(jobWorker, taskWorker).
-			Build(impl.Builder)
-		require.NoError(t, err)
+		engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
+			b.PlusWorkers(jobWorker, taskWorker)
+		})
 
 		// Run engine in background
 		go engine.Run(ctx)
@@ -223,13 +214,9 @@ func TestArtifactCleanupAfterUpload(t *testing.T) {
 			payload:  testData,
 		}
 
-		engine, err := swf.NewEngineBuilder().
-			WithPostgresDSN(postgresDSN).
-			WithStrata(baseURL).
-			WithStrataAPIKey(strata.APIKey).
-			PlusWorkers(jobWorker, taskWorker).
-			Build(impl.Builder)
-		require.NoError(t, err)
+		engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
+			b.PlusWorkers(jobWorker, taskWorker)
+		})
 
 		go engine.Run(ctx)
 
