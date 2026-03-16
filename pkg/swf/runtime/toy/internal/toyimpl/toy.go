@@ -854,9 +854,6 @@ func cleanupArtifacts(ctx context.Context, artifacts []swf.Artifact, logger *slo
 }
 
 func (e *ToyEngine) PutStoredArtifacts(ctx context.Context, req swf.PutArtifactsRequest) ([]swf.StoredArtifact, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
 	out := make([]swf.StoredArtifact, 0, len(req.Items))
 	for _, item := range req.Items {
 		if item.Open == nil {
@@ -876,11 +873,13 @@ func (e *ToyEngine) PutStoredArtifacts(ctx context.Context, req swf.PutArtifacts
 		if err != nil {
 			return nil, err
 		}
+		e.mu.Lock()
 		e.runtimeArtifacts[runtimeArtifactKey{
 			jobKey:  req.JobKey,
 			ordinal: req.Ordinal,
 			name:    item.Name,
 		}] = append([]byte(nil), data...)
+		e.mu.Unlock()
 		out = append(out, swf.StoredArtifact{
 			Name:   item.Name,
 			Digest: digest,
