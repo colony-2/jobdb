@@ -512,18 +512,37 @@ func (r *Runtime) OpenArtifact(ctx context.Context, ref swf.ArtifactRef) (swf.Ar
 	if err := r.validate(); err != nil {
 		return nil, err
 	}
+	chapter, err := r.loadChapter(ctx, storyKeyForJob(ref.JobKey), ref.Ordinal)
+	if err != nil {
+		return nil, err
+	}
+	var descriptor *strataartifact.Descriptor
+	for _, existing := range chapter.Artifacts() {
+		if existing == nil || existing.Name() != ref.Name {
+			continue
+		}
+		digest, _ := existing.Sha256(ctx)
+		if ref.Digest != "" && digest != "" && ref.Digest != digest {
+			continue
+		}
+		descriptor = &strataartifact.Descriptor{
+			Name:        existing.Name(),
+			ContentType: existing.ContentType(),
+			SizeBytes:   existing.SizeBytes(),
+			Sha256:      digest,
+		}
+		break
+	}
+	if descriptor == nil {
+		return nil, fmt.Errorf("artifact %s not found for job %s ordinal %d", ref.Name, ref.JobKey.JobId, ref.Ordinal)
+	}
 	art := strataartifact.FromRemote(
-		strataartifact.Descriptor{
-			Name:        ref.Name,
-			ContentType: "application/octet-stream",
-			SizeBytes:   0,
-			Sha256:      ref.Digest,
-		},
+		*descriptor,
 		strataartifact.Locator{
 			AnthologyID: ref.JobKey.TenantId,
 			StoryID:     ref.JobKey.JobId,
 			Ordinal:     ref.Ordinal,
-			Name:        ref.Name,
+			Name:        descriptor.Name,
 		},
 		r.strataClient.Core(),
 	)
