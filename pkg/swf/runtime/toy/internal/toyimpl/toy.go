@@ -423,7 +423,7 @@ func toyTaskOutcomeFromError(err error) swf.TaskOutcome {
 		},
 	}
 
-	var jobFailed swf.JobFailedError
+	var jobFailed *swf.JobFailedError
 	if errors.As(err, &jobFailed) && jobFailed.Cause != nil {
 		err = jobFailed.Cause
 	}

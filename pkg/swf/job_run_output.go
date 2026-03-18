@@ -18,7 +18,7 @@ func (r GetJobRunResponse) GetOutput(engine SWFEngine, tenantId string) (JobData
 		return nil, jobFailedErrorFromOutcome(latest.Outcome)
 	}
 	if latest.Output == nil {
-		return nil, JobFailedError{Cause: AppError{Payload: AppErrorPayload{
+		return nil, &JobFailedError{Cause: AppError{Payload: AppErrorPayload{
 			Message: "missing output",
 			Level:   "error",
 		}}}

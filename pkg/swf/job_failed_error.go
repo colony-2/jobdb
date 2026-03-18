@@ -24,7 +24,10 @@ type JobFailedError struct {
 	Cause error
 }
 
-func (e JobFailedError) Error() string {
+func (e *JobFailedError) Error() string {
+	if e == nil {
+		return ErrJobFailed.Error()
+	}
 	if e.Cause == nil {
 		return ErrJobFailed.Error()
 	}
@@ -34,19 +37,22 @@ func (e JobFailedError) Error() string {
 	return fmt.Sprintf("%s: %s", ErrJobFailed, e.Cause.Error())
 }
 
-func (e JobFailedError) Unwrap() error {
+func (e *JobFailedError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
 	return e.Cause
 }
 
-func (e JobFailedError) Is(target error) bool {
+func (e *JobFailedError) Is(target error) bool {
 	return target == ErrJobFailed
 }
 
 func jobFailedErrorFromOutcome(outcome TaskOutcome) error {
 	if outcome.Error == nil {
-		return JobFailedError{}
+		return &JobFailedError{}
 	}
-	return JobFailedError{Cause: taskErrorToError(outcome.Error, outcome.PayloadKind)}
+	return &JobFailedError{Cause: taskErrorToError(outcome.Error, outcome.PayloadKind)}
 }
 
 func taskErrorToError(taskErr *TaskError, payloadKind string) error {
@@ -112,7 +118,7 @@ func encodeJobFailedError(err error, inputRef *InputReference) (json.RawMessage,
 		jobFailedAttrKey: true,
 	}
 
-	var jobFailed JobFailedError
+	var jobFailed *JobFailedError
 	switch {
 	case errors.As(err, &jobFailed) && jobFailed.Cause != nil:
 		message, level = encodeJobFailedCause(jobFailed.Cause, attrs)
@@ -178,7 +184,7 @@ func decodeJobFailedAppError(payload AppErrorPayload) (error, bool) {
 				after = Duration(parsed)
 			}
 		}
-		return JobFailedError{Cause: TimeoutError{Payload: TimeoutPayload{
+		return &JobFailedError{Cause: TimeoutError{Payload: TimeoutPayload{
 			Scope:     attrString(payload.Attrs, jobFailedScopeAttrKey),
 			After:     after,
 			Retryable: attrBool(payload.Attrs, jobFailedRetryableAttrKey),
@@ -188,7 +194,7 @@ func decodeJobFailedAppError(payload AppErrorPayload) (error, bool) {
 			Message:   payload.Message,
 		}}}, true
 	case TaskErrorKindSystem:
-		return JobFailedError{Cause: SystemError{Payload: SystemErrorPayload{
+		return &JobFailedError{Cause: SystemError{Payload: SystemErrorPayload{
 			Message:    payload.Message,
 			Component:  attrString(payload.Attrs, jobFailedComponentAttrKey),
 			Code:       attrString(payload.Attrs, jobFailedCodeAttrKey),
@@ -197,7 +203,7 @@ func decodeJobFailedAppError(payload AppErrorPayload) (error, bool) {
 			Stacktrace: append([]string(nil), payload.Stacktrace...),
 		}}}, true
 	default:
-		return JobFailedError{Cause: AppError{Payload: AppErrorPayload{
+		return &JobFailedError{Cause: AppError{Payload: AppErrorPayload{
 			Message:    payload.Message,
 			Level:      payload.Level,
 			Attrs:      stripJobFailedAttrs(payload.Attrs),
