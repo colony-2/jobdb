@@ -31,7 +31,8 @@ func (e *JobFailedError) Error() string {
 	if e.Cause == nil {
 		return ErrJobFailed.Error()
 	}
-	if errors.Is(e.Cause, ErrJobFailed) {
+	var nested *JobFailedError
+	if errors.As(e.Cause, &nested) {
 		return e.Cause.Error()
 	}
 	return fmt.Sprintf("%s: %s", ErrJobFailed, e.Cause.Error())
