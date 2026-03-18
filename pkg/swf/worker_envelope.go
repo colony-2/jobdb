@@ -196,7 +196,7 @@ func envelopeToTaskData(env chapterEnvelope, artifacts []Artifact) (TaskData, er
 		if err := json.Unmarshal(env.Payload, &p); err != nil {
 			return td, err
 		}
-		return td, TimeoutError{Payload: p}
+		return td, &TimeoutError{Payload: p}
 	case payloadKindAppError:
 		// Rehydrate a cached application-level error.
 		var p AppErrorPayload
@@ -206,14 +206,14 @@ func envelopeToTaskData(env chapterEnvelope, artifacts []Artifact) (TaskData, er
 		if jobFailedErr, ok := decodeJobFailedAppError(p); ok {
 			return td, jobFailedErr
 		}
-		return td, AppError{Payload: p}
+		return td, &AppError{Payload: p}
 	case payloadKindSystemError:
 		// Rehydrate a cached system-level error.
 		var p SystemErrorPayload
 		if err := json.Unmarshal(env.Payload, &p); err != nil {
 			return td, err
 		}
-		return td, SystemError{Payload: p}
+		return td, &SystemError{Payload: p}
 	default:
 		return td, fmt.Errorf("unsupported payload kind %q", env.PayloadKind)
 	}

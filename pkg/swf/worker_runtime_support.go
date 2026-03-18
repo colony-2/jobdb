@@ -185,7 +185,7 @@ func storedChapterToTaskData(runtime WorkflowRuntime, jobKey JobKey, ch StoredCh
 		if err := json.Unmarshal(ch.Data, &p); err != nil {
 			return td, err
 		}
-		return td, TimeoutError{Payload: p}
+		return td, &TimeoutError{Payload: p}
 	case payloadKindAppError:
 		var p AppErrorPayload
 		if err := json.Unmarshal(ch.Data, &p); err != nil {
@@ -194,13 +194,13 @@ func storedChapterToTaskData(runtime WorkflowRuntime, jobKey JobKey, ch StoredCh
 		if jobFailedErr, ok := decodeJobFailedAppError(p); ok {
 			return td, jobFailedErr
 		}
-		return td, AppError{Payload: p}
+		return td, &AppError{Payload: p}
 	case payloadKindSystemError:
 		var p SystemErrorPayload
 		if err := json.Unmarshal(ch.Data, &p); err != nil {
 			return td, err
 		}
-		return td, SystemError{Payload: p}
+		return td, &SystemError{Payload: p}
 	default:
 		return td, fmt.Errorf("unsupported payload kind %q", ch.PayloadKind)
 	}

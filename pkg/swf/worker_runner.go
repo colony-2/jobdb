@@ -168,7 +168,7 @@ func (r *workerRunner) fallbackTaskTime() time.Time {
 }
 
 func panicToAppError(rec interface{}) error {
-	return AppError{Payload: AppErrorPayload{Message: fmt.Sprintf("panic: %v", rec), Level: "error"}}
+	return &AppError{Payload: AppErrorPayload{Message: fmt.Sprintf("panic: %v", rec), Level: "error"}}
 }
 
 func prematureCloseOut() {
@@ -435,6 +435,7 @@ func (r *workerRunner) executeJobWorkerAsync(inputData TaskData) chan jobResult 
 			if rec := recover(); rec != nil {
 				jobErr = panicToAppError(rec)
 			}
+			jobErr = normalizeComparableError(jobErr)
 			resultCh <- jobResult{output: output, err: jobErr}
 		}()
 		output, jobErr = r.worker.JobWorker.Run(r, inputData)
@@ -822,6 +823,7 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 					if rec := recover(); rec != nil {
 						taskErr = panicToAppError(rec)
 					}
+					taskErr = normalizeComparableError(taskErr)
 				}()
 				output, taskErr = worker.Run(NewTaskContext(
 					r.GetJobKey(),

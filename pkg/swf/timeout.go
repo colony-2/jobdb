@@ -34,11 +34,27 @@ func (e TimeoutError) Error() string {
 	return "timeout exceeded"
 }
 
+func (e *TimeoutError) As(target any) bool {
+	if e == nil {
+		return false
+	}
+	switch t := target.(type) {
+	case *TimeoutError:
+		*t = *e
+		return true
+	case **TimeoutError:
+		*t = e
+		return true
+	default:
+		return false
+	}
+}
+
 // NewTimeoutError constructs a timeout error with the provided scope and retryability.
 func NewTimeoutError(kind string, after time.Duration, scope string, inputRef *InputReference, retryable bool) error {
 	code := "timeout_" + scope
 	msg := fmt.Sprintf("%s %s timed out after %s", kind, scope, after.String())
-	return TimeoutError{
+	return &TimeoutError{
 		Payload: TimeoutPayload{
 			Scope:     scope,
 			After:     Duration(after),

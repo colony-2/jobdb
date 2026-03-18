@@ -51,11 +51,27 @@ func (e SystemError) Error() string {
 	return e.Payload.Message
 }
 
+func (e *SystemError) As(target any) bool {
+	if e == nil {
+		return false
+	}
+	switch t := target.(type) {
+	case *SystemError:
+		*t = *e
+		return true
+	case **SystemError:
+		*t = e
+		return true
+	default:
+		return false
+	}
+}
+
 func (SystemError) systemErrorMarker() {}
 
 // NewSystemError constructs a system error with the provided payload.
 func NewSystemError(payload SystemErrorPayload) error {
-	return SystemError{Payload: payload}
+	return &SystemError{Payload: payload}
 }
 
 // AppError represents user-land/task errors; wraps AppErrorPayload.
@@ -65,6 +81,22 @@ type AppError struct {
 
 func (e AppError) Error() string {
 	return e.Payload.Message
+}
+
+func (e *AppError) As(target any) bool {
+	if e == nil {
+		return false
+	}
+	switch t := target.(type) {
+	case *AppError:
+		*t = *e
+		return true
+	case **AppError:
+		*t = e
+		return true
+	default:
+		return false
+	}
 }
 
 // IsAppError reports whether err is a wrapped AppError.

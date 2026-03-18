@@ -963,7 +963,7 @@ func decodeToyJobFailedAppError(payload swf.AppErrorPayload) (error, bool) {
 
 	switch kind, _ := attrs["_swf_job_failed_kind"].(string); kind {
 	case swf.TaskErrorKindTimeout:
-		return &swf.JobFailedError{Cause: swf.TimeoutError{Payload: swf.TimeoutPayload{
+		return &swf.JobFailedError{Cause: &swf.TimeoutError{Payload: swf.TimeoutPayload{
 			Scope:     toyAttrString(attrs, "_swf_job_failed_scope"),
 			After:     toyAttrDuration(attrs, "_swf_job_failed_after"),
 			Retryable: toyAttrBool(attrs, "_swf_job_failed_retryable"),
@@ -973,7 +973,7 @@ func decodeToyJobFailedAppError(payload swf.AppErrorPayload) (error, bool) {
 			Message:   payload.Message,
 		}}}, true
 	case swf.TaskErrorKindSystem:
-		return &swf.JobFailedError{Cause: swf.SystemError{Payload: swf.SystemErrorPayload{
+		return &swf.JobFailedError{Cause: &swf.SystemError{Payload: swf.SystemErrorPayload{
 			Message:    payload.Message,
 			Component:  toyAttrString(attrs, "_swf_job_failed_component"),
 			Code:       toyAttrString(attrs, "_swf_job_failed_code"),
@@ -982,7 +982,7 @@ func decodeToyJobFailedAppError(payload swf.AppErrorPayload) (error, bool) {
 			Stacktrace: append([]string(nil), payload.Stacktrace...),
 		}}}, true
 	default:
-		return &swf.JobFailedError{Cause: swf.AppError{Payload: swf.AppErrorPayload{
+		return &swf.JobFailedError{Cause: &swf.AppError{Payload: swf.AppErrorPayload{
 			Message:    payload.Message,
 			Level:      payload.Level,
 			Attrs:      toyStripJobFailedAttrs(attrs),

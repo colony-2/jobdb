@@ -194,21 +194,21 @@ func envelopeToTaskData(env chapterEnvelope, artifacts []swf.Artifact) (swf.Task
 		if err := json.Unmarshal(env.Payload, &p); err != nil {
 			return td, err
 		}
-		return td, swf.TimeoutError{Payload: p}
+		return td, &swf.TimeoutError{Payload: p}
 	case payloadKindAppError:
 		// Rehydrate a cached application-level error.
 		var p swf.AppErrorPayload
 		if err := json.Unmarshal(env.Payload, &p); err != nil {
 			return td, err
 		}
-		return td, swf.AppError{Payload: p}
+		return td, &swf.AppError{Payload: p}
 	case payloadKindSystemError:
 		// Rehydrate a cached system-level error.
 		var p swf.SystemErrorPayload
 		if err := json.Unmarshal(env.Payload, &p); err != nil {
 			return td, err
 		}
-		return td, swf.SystemError{Payload: p}
+		return td, &swf.SystemError{Payload: p}
 	default:
 		return td, fmt.Errorf("unsupported payload kind %q", env.PayloadKind)
 	}
