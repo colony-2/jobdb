@@ -15,8 +15,8 @@ import (
 	"github.com/colony-2/strata-go/pkg/client/story"
 	"github.com/colony-2/swf-go/pkg/swf"
 	directruntime "github.com/colony-2/swf-go/pkg/swf/runtime/direct"
-	toyruntime "github.com/colony-2/swf-go/pkg/swf/runtime/toy"
 	directtest "github.com/colony-2/swf-go/pkg/swf/runtime/direct/testsupport"
+	toyruntime "github.com/colony-2/swf-go/pkg/swf/runtime/toy"
 )
 
 // startEmbeddedPostgres launches a temporary embedded Postgres instance with isolated paths.

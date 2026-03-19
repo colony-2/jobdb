@@ -156,7 +156,7 @@ func TestCustomJobIDAcrossBuiltInRuntimes(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 
-			jobKey, err := built.Engine.StartJob(ctx, swf.StartJob{
+			jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
 				TenantId: "tenant-custom-" + harness.Name,
 				JobType:  ws.JobWorker.Name(),
 				JobID:    "custom-job-id",
@@ -185,7 +185,7 @@ func TestRestartValidationAcrossBuiltInRuntimes(t *testing.T) {
 				built := harness.New(t, ws)
 				defer built.Shutdown(t)
 
-				if _, err := built.Engine.RestartJob(ctx, swf.RestartJob{
+				if _, err := built.Engine.SubmitRestartJob(ctx, swf.SubmitRestartJob{
 					PriorJobKey:    swf.JobKey{TenantId: "tenant", JobId: "missing"},
 					LastStepToKeep: -1,
 				}); err == nil {
@@ -198,7 +198,7 @@ func TestRestartValidationAcrossBuiltInRuntimes(t *testing.T) {
 				built := harness.New(t, ws)
 				defer built.Shutdown(t)
 
-				jobKey, err := built.Engine.StartJob(ctx, swf.StartJob{
+				jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "tenant-missing-next-" + harness.Name,
 					JobType:  ws.JobWorker.Name(),
 					Data:     swftest.NumberTaskData(1),
@@ -208,7 +208,7 @@ func TestRestartValidationAcrossBuiltInRuntimes(t *testing.T) {
 				}
 				swftest.WaitForEngineStatus(t, ctx, built.Engine, jobKey, swf.JobStatusCompleted)
 
-				if _, err := built.Engine.RestartJob(ctx, swf.RestartJob{
+				if _, err := built.Engine.SubmitRestartJob(ctx, swf.SubmitRestartJob{
 					PriorJobKey:    jobKey,
 					LastStepToKeep: 1,
 				}); err == nil {
@@ -223,7 +223,7 @@ func TestRestartValidationAcrossBuiltInRuntimes(t *testing.T) {
 				built := harness.New(t, ws)
 				defer built.Shutdown(t)
 
-				jobKey, err := built.Engine.StartJob(ctx, swf.StartJob{
+				jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "tenant-retry-boundary-" + harness.Name,
 					JobType:  job.Name(),
 					Data:     swftest.NumberTaskData(1),
@@ -233,7 +233,7 @@ func TestRestartValidationAcrossBuiltInRuntimes(t *testing.T) {
 				}
 				swftest.WaitForEngineStatus(t, ctx, built.Engine, jobKey, swf.JobStatusCompleted)
 
-				if _, err := built.Engine.RestartJob(ctx, swf.RestartJob{
+				if _, err := built.Engine.SubmitRestartJob(ctx, swf.SubmitRestartJob{
 					PriorJobKey:    jobKey,
 					LastStepToKeep: 1,
 				}); err == nil {
@@ -269,7 +269,7 @@ func TestAwaitJobsAcrossBuiltInRuntimes(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 
-			childDone := swftest.MustStartJobAsync(t, built.Engine, swf.StartJob{
+			childDone := swftest.MustStartJobAsync(t, built.Engine, swf.SubmitJob{
 				TenantId: tenantID,
 				JobType:  childWorker.Name(),
 				JobID:    childJobID,
@@ -281,7 +281,7 @@ func TestAwaitJobsAcrossBuiltInRuntimes(t *testing.T) {
 				t.Fatalf("child did not start: %v", ctx.Err())
 			}
 
-			parentDone := swftest.MustStartJobAsync(t, built.Engine, swf.StartJob{
+			parentDone := swftest.MustStartJobAsync(t, built.Engine, swf.SubmitJob{
 				TenantId: tenantID,
 				JobType:  parentWorker.Name(),
 				JobID:    parentJobID,
@@ -334,7 +334,7 @@ func TestTaskContextAwaitJobsAcrossBuiltInRuntimes(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 
-			childDone := swftest.MustStartJobAsync(t, built.Engine, swf.StartJob{
+			childDone := swftest.MustStartJobAsync(t, built.Engine, swf.SubmitJob{
 				TenantId: tenantID,
 				JobType:  childWorker.Name(),
 				JobID:    childJobID,
@@ -347,7 +347,7 @@ func TestTaskContextAwaitJobsAcrossBuiltInRuntimes(t *testing.T) {
 			}
 
 			parentKey := swf.JobKey{TenantId: tenantID, JobId: "parent"}
-			parentDone := swftest.MustStartJobAsync(t, built.Engine, swf.StartJob{
+			parentDone := swftest.MustStartJobAsync(t, built.Engine, swf.SubmitJob{
 				TenantId: tenantID,
 				JobType:  parentWorker.Name(),
 				JobID:    parentKey.JobId,
@@ -379,7 +379,7 @@ func TestPendingTaskHandlesAcrossBuiltInRuntimes(t *testing.T) {
 			defer cancel()
 
 			jobKey := swf.JobKey{TenantId: "tenant-pending-" + harness.Name, JobId: "pending"}
-			done := swftest.MustStartJobAsync(t, built.Engine, swf.StartJob{
+			done := swftest.MustStartJobAsync(t, built.Engine, swf.SubmitJob{
 				TenantId: jobKey.TenantId,
 				JobType:  ws.JobWorker.Name(),
 				JobID:    jobKey.JobId,
@@ -415,6 +415,15 @@ func TestPendingTaskHandlesAcrossBuiltInRuntimes(t *testing.T) {
 			if resp.Jobs[0].TaskWaitInput == nil || *resp.Jobs[0].TaskWaitInput != handle.TaskOrdinalToComplete()-1 {
 				t.Fatalf("unexpected task wait input %+v", resp.Jobs[0].TaskWaitInput)
 			}
+			if resp.Jobs[0].NextNeed == nil || *resp.Jobs[0].NextNeed != ws.JobWorker.Name()+":pending-task" {
+				t.Fatalf("unexpected next need %+v", resp.Jobs[0].NextNeed)
+			}
+			if resp.Jobs[0].TaskWaitNext == nil || *resp.Jobs[0].TaskWaitNext != ws.JobWorker.Name() {
+				t.Fatalf("unexpected task wait resume need %+v", resp.Jobs[0].TaskWaitNext)
+			}
+			if resp.Jobs[0].TaskWaitInputHash == nil || *resp.Jobs[0].TaskWaitInputHash == "" {
+				t.Fatalf("expected task wait input hash")
+			}
 
 			if err := handle.Finish(ctx, swftest.NumberTaskData(200)); err != nil {
 				t.Fatalf("finish waiting task: %v", err)
@@ -439,7 +448,7 @@ func TestReplayAfterExternalTaskCompletionAcrossBuiltInRuntimes(t *testing.T) {
 			defer cancel()
 
 			jobKey := swf.JobKey{TenantId: "tenant-external-" + harness.Name, JobId: "approval"}
-			done := swftest.MustStartJobAsync(t, built.Engine, swf.StartJob{
+			done := swftest.MustStartJobAsync(t, built.Engine, swf.SubmitJob{
 				TenantId: jobKey.TenantId,
 				JobType:  ws.JobWorker.Name(),
 				JobID:    jobKey.JobId,
@@ -485,7 +494,7 @@ func TestGetJobRunRetryRepresentationOnDirectRuntime(t *testing.T) {
 				built := harness.New(t, ws)
 				defer built.Shutdown(t)
 
-				jobKey, err := built.Engine.StartJob(ctx, swf.StartJob{
+				jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "tenant-job-run-job-" + harness.Name,
 					JobType:  job.Name(),
 					Data:     swftest.NumberTaskData(1),
@@ -514,7 +523,7 @@ func TestGetJobRunRetryRepresentationOnDirectRuntime(t *testing.T) {
 				built := harness.New(t, ws)
 				defer built.Shutdown(t)
 
-				jobKey, err := built.Engine.StartJob(ctx, swf.StartJob{
+				jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "tenant-job-run-task-" + harness.Name,
 					JobType:  job.Name(),
 					Data:     swftest.NumberTaskData(1),
@@ -570,7 +579,7 @@ func TestGetJobRunSynthesizedNextAttemptOnDirectRuntime(t *testing.T) {
 			built := harness.New(t, ws)
 			defer built.Shutdown(t)
 
-			jobKey, err := built.Engine.StartJob(ctx, swf.StartJob{
+			jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
 				TenantId: "tenant-synth-next-" + harness.Name,
 				JobType:  job.Name(),
 				Data:     swftest.NumberTaskData(1),
@@ -628,7 +637,7 @@ func TestRestartWithExtraOutputDeterminismErrorOnDirectRuntime(t *testing.T) {
 			defer built.Shutdown(t)
 
 			origInput := swf.NewTaskDataOrPanic(map[string]string{"hello": "world"})
-			jobKey, err := built.Engine.StartJob(ctx, swf.StartJob{
+			jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
 				TenantId: "tenant-restart-extra-" + harness.Name,
 				JobType:  ws.JobWorker.Name(),
 				Data:     origInput,
@@ -639,7 +648,7 @@ func TestRestartWithExtraOutputDeterminismErrorOnDirectRuntime(t *testing.T) {
 			swftest.WaitForEngineStatus(t, ctx, built.Engine, jobKey, swf.JobStatusCompleted)
 
 			newInput := swf.NewTaskDataOrPanic(map[string]string{"hello": "again"})
-			restartKey, err := built.Engine.RestartJob(ctx, swf.RestartJob{
+			restartKey, err := built.Engine.SubmitRestartJob(ctx, swf.SubmitRestartJob{
 				PriorJobKey:     jobKey,
 				LastStepToKeep:  0,
 				ExtraTaskInput:  newInput,
@@ -653,7 +662,7 @@ func TestRestartWithExtraOutputDeterminismErrorOnDirectRuntime(t *testing.T) {
 			if runs < 1 {
 				t.Fatalf("expected at least one initial job execution")
 			}
-			if _, err := built.Engine.GetJobResult(ctx, restartKey); err == nil || !errors.Is(err, swf.ErrWorkflowNotDeterministic) && !strings.Contains(err.Error(), "workflow was not deterministic") {
+			if _, err := jobResultForTest(built.Engine, ctx, restartKey); err == nil || !errors.Is(err, swf.ErrWorkflowNotDeterministic) && !strings.Contains(err.Error(), "workflow was not deterministic") {
 				t.Fatalf("expected determinism error from restart result, got %v", err)
 			}
 		})
@@ -672,7 +681,7 @@ func TestCancelledJobReturnsCancelledOutputAcrossBuiltInRuntimes(t *testing.T) {
 			defer cancel()
 
 			jobKey := swf.JobKey{TenantId: "tenant-cancel-" + harness.Name, JobId: "cancelled"}
-			done := swftest.MustStartJobAsync(t, built.Engine, swf.StartJob{
+			done := swftest.MustStartJobAsync(t, built.Engine, swf.SubmitJob{
 				TenantId: jobKey.TenantId,
 				JobType:  ws.JobWorker.Name(),
 				JobID:    jobKey.JobId,

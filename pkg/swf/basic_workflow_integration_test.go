@@ -45,10 +45,10 @@ func TestBasicWorkflowIntegration(t *testing.T) {
 
 	go engine1.Run(ctx)
 	go engine2.Run(ctx)
-	go userInputWatcher(ctx, t, engine1)
+	go userInputWatcher(ctx, t, engine1, []string{tenantID})
 
 	initial := swf.NewTaskDataOrPanic(map[string]interface{}{"n": 1})
-	jobKey, err := engine1.StartJob(ctx, swf.StartJob{
+	jobKey, err := engine1.SubmitJob(ctx, swf.SubmitJob{
 		TenantId: tenantID,
 		JobType:  pipeJobName,
 		Data:     initial,
@@ -140,7 +140,7 @@ func (doubleTask) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskData, er
 const userInputTaskName = "userInput"
 
 // userInputWatcher completes externally-handled tasks that no engine claims.
-func userInputWatcher(ctx context.Context, t *testing.T, engine swf.SWFEngine) {
+func userInputWatcher(ctx context.Context, t *testing.T, engine swf.SWFEngine, tenantIDs []string) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -148,7 +148,7 @@ func userInputWatcher(ctx context.Context, t *testing.T, engine swf.SWFEngine) {
 		default:
 		}
 
-		handles, err := engine.FindTasksWaitingForCapability(ctx, pipeJobName, userInputTaskName, nil)
+		handles, err := engine.FindTasksWaitingForCapability(ctx, pipeJobName, userInputTaskName, tenantIDs)
 		if err != nil {
 			// If the database is shutting down or context will end soon, just back off.
 			select {

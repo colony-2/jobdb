@@ -39,7 +39,7 @@ func New(opts ...Option) *Runtime {
 	return &Runtime{engine: engine}
 }
 
-func (r *Runtime) StartJob(ctx context.Context, req swf.StartJobRequest) (swf.JobHandle, error) {
+func (r *Runtime) SubmitJob(ctx context.Context, req swf.SubmitJobRequest) (swf.JobHandle, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -149,7 +149,7 @@ func (r *Runtime) StartJob(ctx context.Context, req swf.StartJobRequest) (swf.Jo
 	return swf.JobHandle{JobKey: jobKey}, nil
 }
 
-func (r *Runtime) existingEquivalentJob(jobKey swf.JobKey, job swf.StartJob, inputHash string) (swf.JobHandle, bool, error) {
+func (r *Runtime) existingEquivalentJob(jobKey swf.JobKey, job swf.SubmitJob, inputHash string) (swf.JobHandle, bool, error) {
 	r.engine.mu.Lock()
 	defer r.engine.mu.Unlock()
 
@@ -197,7 +197,7 @@ func sameSingletonKey(existing *string, requested string) bool {
 	return *existing == requested
 }
 
-func (r *Runtime) RestartJob(ctx context.Context, req swf.RestartJobRequest) (swf.JobHandle, error) {
+func (r *Runtime) SubmitRestartJob(ctx context.Context, req swf.SubmitRestartJobRequest) (swf.JobHandle, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -356,27 +356,56 @@ func (r *Runtime) PollWork(ctx context.Context, req swf.PollWorkRequest) ([]swf.
 	return out, nil
 }
 
-func (r *Runtime) CheckJobStatus(ctx context.Context, jobKey swf.JobKey) (swf.JobStatus, error) {
-	record := r.engine.getJobRecord(jobKey)
-	if record == nil {
-		return "", swf.ErrJobNotFound
-	}
-	record.mu.Lock()
-	defer record.mu.Unlock()
-	return record.status, nil
+type jobInfoTaskData struct {
+	taskData swf.TaskData
+	err      error
 }
 
-func (r *Runtime) GetJobResult(ctx context.Context, jobKey swf.JobKey) (swf.TaskData, error) {
+func (d *jobInfoTaskData) GetData() (swf.Data, error) {
+	if d.taskData == nil {
+		return nil, d.err
+	}
+	data, err := d.taskData.GetData()
+	if err != nil {
+		return data, err
+	}
+	return data, d.err
+}
+
+func (d *jobInfoTaskData) GetDataOrPanic() swf.Data {
+	data, err := d.GetData()
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
+
+func (d *jobInfoTaskData) GetArtifacts() ([]swf.Artifact, error) {
+	if d.taskData == nil {
+		return nil, d.err
+	}
+	return d.taskData.GetArtifacts()
+}
+
+func (d *jobInfoTaskData) TaskDataResult() (swf.TaskData, error) {
+	return d.taskData, d.err
+}
+
+func (r *Runtime) GetJob(ctx context.Context, jobKey swf.JobKey) (swf.JobInfo, error) {
 	record := r.engine.getJobRecord(jobKey)
 	if record == nil {
-		return nil, swf.ErrJobNotFound
+		return swf.JobInfo{}, swf.ErrJobNotFound
 	}
 	record.mu.Lock()
 	defer record.mu.Unlock()
-	if record.status != swf.JobStatusCompleted {
-		return nil, swf.ErrJobNotComplete
+	job := swf.JobInfo{
+		Status: record.status,
+		Data:   &jobInfoTaskData{err: swf.ErrJobNotComplete},
 	}
-	return record.result, record.err
+	if record.status == swf.JobStatusCompleted || record.status == swf.JobStatusCancelled {
+		job.Data = &jobInfoTaskData{taskData: record.result, err: record.err}
+	}
+	return job, nil
 }
 
 func (r *Runtime) GetJobRun(ctx context.Context, req swf.GetJobRunRequest) (swf.GetJobRunResponse, error) {
@@ -401,45 +430,80 @@ func (r *Runtime) GetChapter(ctx context.Context, ref swf.ChapterRef) (swf.Store
 	return cloneStoredChapter(chapter), nil
 }
 
+func (r *Runtime) ListChapters(ctx context.Context, req swf.ListChaptersRequest) ([]swf.StoredChapter, error) {
+	if req.StartOrdinal < 0 {
+		return nil, fmt.Errorf("start ordinal must be >= 0")
+	}
+	r.engine.mu.Lock()
+	defer r.engine.mu.Unlock()
+
+	chapters := r.engine.runtimeChapters[req.JobKey]
+	if chapters == nil {
+		return nil, swf.ErrJobNotFound
+	}
+
+	ordinals := make([]int64, 0, len(chapters))
+	for ordinal := range chapters {
+		ordinals = append(ordinals, ordinal)
+	}
+	sort.Slice(ordinals, func(i, j int) bool { return ordinals[i] < ordinals[j] })
+
+	out := make([]swf.StoredChapter, 0, len(ordinals))
+	for _, ordinal := range ordinals {
+		if ordinal < req.StartOrdinal {
+			continue
+		}
+		if req.EndOrdinal != nil && ordinal > *req.EndOrdinal {
+			break
+		}
+		out = append(out, cloneStoredChapter(chapters[ordinal]))
+	}
+	return out, nil
+}
+
 func (r *Runtime) PutChapter(ctx context.Context, req swf.PutChapterRequest) error {
+	chapter, err := r.prepareChapterWrite(ctx, req)
+	if err != nil {
+		return err
+	}
 	r.engine.mu.Lock()
 	if r.engine.runtimeChapters[req.Ref.JobKey] == nil {
 		r.engine.runtimeChapters[req.Ref.JobKey] = make(map[int64]swf.StoredChapter)
 	}
-	r.engine.runtimeChapters[req.Ref.JobKey][req.Ref.Ordinal] = cloneStoredChapter(req.Chapter)
+	r.engine.runtimeChapters[req.Ref.JobKey][req.Ref.Ordinal] = cloneStoredChapter(chapter)
 	record := r.engine.jobRecords[req.Ref.JobKey]
 	r.engine.mu.Unlock()
 
 	if record == nil {
 		return nil
 	}
-	td, err := r.taskDataFromStoredChapter(req.Ref.JobKey, req.Chapter)
-	if err != nil && req.Chapter.ChapterType != "JobAttemptOutcome" && td == nil {
+	td, err := r.taskDataFromStoredChapter(req.Ref.JobKey, chapter)
+	if err != nil && chapter.ChapterType != "JobAttemptOutcome" && td == nil {
 		return err
 	}
-	meta, _ := extractAttemptFromMetadata(req.Chapter.Metadata)
+	meta, _ := extractAttemptFromMetadata(chapter.Metadata)
 	record.mu.Lock()
-	if req.Chapter.ChapterType != "JobAttemptOutcome" {
+	if chapter.ChapterType != "JobAttemptOutcome" {
 		record.chapters[req.Ref.Ordinal] = &toyChapter{
-			TaskType:  req.Chapter.TaskType,
-			CreatedAt: req.Chapter.CreatedAt,
+			TaskType:  chapter.TaskType,
+			CreatedAt: chapter.CreatedAt,
 			Input:     td,
 			Output:    td,
 			Attempt:   meta,
 			Err:       err,
 		}
 	}
-	if req.Chapter.ChapterType == "JobAttemptOutcome" {
+	if chapter.ChapterType == "JobAttemptOutcome" {
 		record.result = td
 		if td == nil {
 			record.result = &swf.EnvelopedTaskData{
 				SimpleTaskData: swf.SimpleTaskData{
-					Data: append([]byte(nil), req.Chapter.Data...),
+					Data: append([]byte(nil), chapter.Data...),
 				},
-				Kind: req.Chapter.PayloadKind,
+				Kind: chapter.PayloadKind,
 			}
 		}
-		_, resultErr := r.taskDataFromStoredChapter(req.Ref.JobKey, req.Chapter)
+		_, resultErr := r.taskDataFromStoredChapter(req.Ref.JobKey, chapter)
 		record.err = resultErr
 	}
 	record.mu.Unlock()
@@ -448,10 +512,6 @@ func (r *Runtime) PutChapter(ctx context.Context, req swf.PutChapterRequest) err
 
 func (r *Runtime) OpenArtifact(ctx context.Context, ref swf.ArtifactRef) (swf.ArtifactReader, error) {
 	return r.engine.OpenStoredArtifact(ctx, ref)
-}
-
-func (r *Runtime) PutArtifacts(ctx context.Context, req swf.PutArtifactsRequest) ([]swf.StoredArtifact, error) {
-	return r.engine.PutStoredArtifacts(ctx, req)
 }
 
 func (r *Runtime) FindTasksWaitingForCapability(ctx context.Context, jobType string, taskType string, tenantIds []string) ([]swf.TaskHandle, error) {
@@ -501,6 +561,7 @@ func (r *Runtime) GetWaitingTask(ctx context.Context, key swf.JobKey) (swf.TaskH
 	payload := cloneJSON(record.payload)
 	metadata := cloneJSON(record.metadata)
 	createdAt := record.createdAt
+	currentCapability := record.capability
 	record.mu.Unlock()
 
 	wait, err := extractWorkerTaskWait(payload)
@@ -510,7 +571,7 @@ func (r *Runtime) GetWaitingTask(ctx context.Context, key swf.JobKey) (swf.TaskH
 	if wait == nil {
 		return nil, swf.ErrJobNotFound
 	}
-	taskType := extractTaskType(wait.Next)
+	taskType := extractTaskType(currentCapability)
 	return &runtimeTaskHandle{
 		runtime:   r,
 		jobKey:    key,
@@ -558,6 +619,72 @@ func (r *Runtime) materializeTaskData(ctx context.Context, jobKey swf.JobKey, or
 		stored = append(stored, swf.StoredArtifact{Name: art.Name(), Digest: digest, Size: art.Size()})
 	}
 	return &swf.SimpleTaskData{Data: raw, Artifacts: materialized}, stored, nil
+}
+
+func (r *Runtime) prepareChapterWrite(ctx context.Context, req swf.PutChapterRequest) (swf.StoredChapter, error) {
+	chapter := req.Chapter
+	if len(req.ArtifactUploads) == 0 {
+		return chapter, nil
+	}
+
+	stored := make([]swf.StoredArtifact, 0, len(req.ArtifactUploads))
+	for _, item := range req.ArtifactUploads {
+		if item.Open == nil {
+			return swf.StoredChapter{}, fmt.Errorf("artifact %q missing opener", item.Name)
+		}
+		rc, err := item.Open()
+		if err != nil {
+			return swf.StoredChapter{}, err
+		}
+		data, err := io.ReadAll(rc)
+		_ = rc.Close()
+		if err != nil {
+			return swf.StoredChapter{}, err
+		}
+		art := swf.NewArtifactFromBytes(item.Name, data)
+		digest, err := art.Sha256(ctx)
+		if err != nil {
+			return swf.StoredChapter{}, err
+		}
+		r.engine.mu.Lock()
+		r.engine.runtimeArtifacts[runtimeArtifactKey{
+			jobKey:  req.Ref.JobKey,
+			ordinal: req.Ref.Ordinal,
+			name:    item.Name,
+		}] = append([]byte(nil), data...)
+		r.engine.mu.Unlock()
+		stored = append(stored, swf.StoredArtifact{
+			Name:   item.Name,
+			Digest: digest,
+			Size:   int64(len(data)),
+		})
+	}
+	if err := validateStoredArtifactDescriptors(chapter.Artifacts, stored); err != nil {
+		return swf.StoredChapter{}, err
+	}
+	chapter.Artifacts = stored
+	return chapter, nil
+}
+
+func validateStoredArtifactDescriptors(existing []swf.StoredArtifact, computed []swf.StoredArtifact) error {
+	if len(existing) == 0 {
+		return nil
+	}
+	if len(existing) != len(computed) {
+		return fmt.Errorf("chapter artifact metadata count %d does not match uploads %d", len(existing), len(computed))
+	}
+	for i := range existing {
+		if existing[i].Name != computed[i].Name {
+			return fmt.Errorf("chapter artifact %d name %q does not match uploaded artifact %q", i, existing[i].Name, computed[i].Name)
+		}
+		if existing[i].Size != 0 && existing[i].Size != computed[i].Size {
+			return fmt.Errorf("chapter artifact %q size %d does not match uploaded size %d", existing[i].Name, existing[i].Size, computed[i].Size)
+		}
+		if existing[i].Digest != "" && existing[i].Digest != computed[i].Digest {
+			return fmt.Errorf("chapter artifact %q digest %q does not match uploaded digest %q", existing[i].Name, existing[i].Digest, computed[i].Digest)
+		}
+	}
+	return nil
 }
 
 func (r *Runtime) taskDataFromStoredChapter(jobKey swf.JobKey, chapter swf.StoredChapter) (swf.TaskData, error) {
@@ -740,6 +867,7 @@ func (l *runtimeLease) Payload() json.RawMessage { return append(json.RawMessage
 func (l *runtimeLease) KeepAlive(context.Context) error {
 	return nil
 }
+func (l *runtimeLease) StopKeepAlive() {}
 func (l *runtimeLease) Complete(ctx context.Context, req swf.CompleteExecutionRequest) error {
 	return l.runtime.completeLease(l.jobKey, l.leaseID, req)
 }
@@ -773,56 +901,108 @@ func (h *runtimeTaskHandle) Data() (swf.TaskData, error) {
 }
 
 func (h *runtimeTaskHandle) Finish(ctx context.Context, taskData swf.TaskData) error {
-	record := h.runtime.engine.getJobRecord(h.jobKey)
+	return h.runtime.CompleteTaskIfWaiting(ctx, swf.CompleteTaskIfWaitingRequest{
+		JobKey:        h.jobKey,
+		Capability:    swf.JobTypeFromNextNeed(h.wait.Next) + ":" + h.taskType,
+		ResumeNeed:    h.wait.Next,
+		InputOrdinal:  h.wait.InputStep,
+		OutputOrdinal: h.wait.OutputStep,
+		InputHash:     h.wait.InputHash,
+		Data:          taskData,
+	})
+}
+
+func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req swf.CompleteTaskIfWaitingRequest) error {
+	record := r.engine.getJobRecord(req.JobKey)
 	if record == nil {
 		return swf.ErrJobNotFound
 	}
 	payloadInfo := workerJobPayload{}
-	_ = json.Unmarshal(h.payload, &payloadInfo)
 
-	td, storedArtifacts, err := h.runtime.materializeTaskData(ctx, h.jobKey, h.wait.OutputStep, taskData)
+	record.mu.Lock()
+	payload := cloneJSON(record.payload)
+	currentCapability := record.capability
+	record.mu.Unlock()
+
+	_ = json.Unmarshal(payload, &payloadInfo)
+	wait, err := extractWorkerTaskWait(payload)
 	if err != nil {
 		return err
 	}
-	payload, err := td.GetData()
+	if wait == nil {
+		return nil
+	}
+	if req.Capability != "" && currentCapability != req.Capability {
+		return nil
+	}
+	if req.ResumeNeed != "" && wait.Next != req.ResumeNeed {
+		return nil
+	}
+	if req.InputOrdinal != 0 && wait.InputStep != req.InputOrdinal {
+		return nil
+	}
+	if wait.OutputStep != req.OutputOrdinal {
+		return nil
+	}
+	if req.InputHash != "" && wait.InputHash != req.InputHash {
+		return nil
+	}
+
+	td, storedArtifacts, err := r.materializeTaskData(ctx, req.JobKey, wait.OutputStep, req.Data)
+	if err != nil {
+		return err
+	}
+	dataPayload, err := td.GetData()
 	if err != nil {
 		return err
 	}
 	metaJSON, err := marshalChapterMetadata(map[string]any{
 		"version":    1,
-		"ordinal":    h.wait.OutputStep,
-		"task_type":  h.taskType,
+		"ordinal":    wait.OutputStep,
+		"task_type":  extractTaskType(currentCapability),
 		"created_at": time.Now().UTC(),
-		"input_hash": h.wait.InputHash,
+		"input_hash": wait.InputHash,
 		"attempt":    1,
 		"run_policy": payloadInfo.RunPolicy,
 	})
 	if err != nil {
 		return err
 	}
-	if err := h.runtime.PutChapter(ctx, swf.PutChapterRequest{
-		Ref: swf.ChapterRef{JobKey: h.jobKey, Ordinal: h.wait.OutputStep},
+	taskType := extractTaskType(currentCapability)
+	if taskType == "" || taskType == currentCapability {
+		return fmt.Errorf("task type not found in capability")
+	}
+	if err := r.PutChapter(ctx, swf.PutChapterRequest{
+		Ref: swf.ChapterRef{JobKey: req.JobKey, Ordinal: wait.OutputStep},
 		Chapter: swf.StoredChapter{
-			Ordinal:     h.wait.OutputStep,
-			TaskType:    h.taskType,
+			Ordinal:     wait.OutputStep,
+			TaskType:    taskType,
 			ChapterType: "TaskAttemptOutcome",
 			PayloadKind: "App",
-			InputHash:   h.wait.InputHash,
+			InputHash:   wait.InputHash,
 			CreatedAt:   time.Now().UTC(),
 			Metadata:    metaJSON,
-			Data:        append(json.RawMessage(nil), payload...),
+			Data:        append(json.RawMessage(nil), dataPayload...),
 			Artifacts:   storedArtifacts,
 		},
 	}); err != nil {
 		return err
 	}
+	record = r.engine.getJobRecord(req.JobKey)
+	if record == nil {
+		return swf.ErrJobNotFound
+	}
 	record.mu.Lock()
-	record.capability = h.wait.Next
+	resumeNeed := wait.Next
+	if req.ResumeNeed != "" {
+		resumeNeed = req.ResumeNeed
+	}
+	record.capability = resumeNeed
 	record.payload = mustMarshalWorkerPayload(workerJobPayload{RunPolicy: payloadInfo.RunPolicy})
 	record.status = swf.JobStatusReady
 	record.leased = false
 	record.leaseID = ""
-	record.step = h.wait.OutputStep
+	record.step = wait.OutputStep
 	record.mu.Unlock()
 	return nil
 }

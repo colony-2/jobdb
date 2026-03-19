@@ -60,7 +60,7 @@ func (j *awaitFailedChildJob) Run(ctx swf.JobContext, data swf.JobData) (swf.Job
 	if err := ctx.AwaitJobs(j.childID); err != nil {
 		return nil, err
 	}
-	result, err := j.engine.GetJobResult(context.Background(), swf.JobKey{
+	result, err := jobResultForTest(j.engine, context.Background(), swf.JobKey{
 		TenantId: ctx.GetJobKey().TenantId,
 		JobId:    j.childID,
 	})
@@ -77,7 +77,7 @@ type awaitFailedChildViaRunOutputJob struct {
 func (awaitFailedChildViaRunOutputJob) Name() string { return "await-failed-child-run-output" }
 
 func (j *awaitFailedChildViaRunOutputJob) Run(ctx swf.JobContext, data swf.JobData) (swf.JobData, error) {
-	childKey, err := j.engine.StartJob(context.Background(), swf.StartJob{
+	childKey, err := j.engine.SubmitJob(context.Background(), swf.SubmitJob{
 		TenantId: ctx.GetJobKey().TenantId,
 		JobType:  "failed-child",
 		JobID:    ctx.GetJobKey().JobId + "-child",
@@ -139,7 +139,7 @@ func (t childRunOutputStartTask) Run(ctx swf.TaskContext, data swf.TaskData) (sw
 	if t.engine == nil || *t.engine == nil {
 		return nil, errors.New("engine not configured")
 	}
-	childKey, err := (*t.engine).StartJob(context.Background(), swf.StartJob{
+	childKey, err := (*t.engine).SubmitJob(context.Background(), swf.SubmitJob{
 		TenantId:  ctx.JobKey.TenantId,
 		JobType:   "child-run-output-failing-child",
 		Data:      data,
@@ -227,7 +227,7 @@ func TestArtifactPassthroughAcrossBuiltInRuntimes(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 
-			jobKey, err := built.Engine.StartJob(ctx, swf.StartJob{
+			jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
 				TenantId: "tenant-artifact-passthrough-" + harness.Name,
 				JobType:  ws.JobWorker.Name(),
 				JobID:    "artifact-passthrough",
@@ -251,7 +251,7 @@ func TestArtifactPassthroughAcrossBuiltInRuntimes(t *testing.T) {
 				t.Fatal("artifact passthrough workflow deadlocked")
 			}
 
-			result, err := built.Engine.GetJobResult(ctx, jobKey)
+			result, err := jobResultForTest(built.Engine, ctx, jobKey)
 			if err != nil {
 				t.Fatalf("get job result: %v", err)
 			}
@@ -291,7 +291,7 @@ func TestAwaitFailedChildReplayAcrossBuiltInRuntimes(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 
-			childKey, err := built.Engine.StartJob(ctx, swf.StartJob{
+			childKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
 				TenantId: "tenant-await-failed-child-" + harness.Name,
 				JobType:  child.Name(),
 				JobID:    parent.childID,
@@ -300,7 +300,7 @@ func TestAwaitFailedChildReplayAcrossBuiltInRuntimes(t *testing.T) {
 			if err != nil {
 				t.Fatalf("start child: %v", err)
 			}
-			parentKey, err := built.Engine.StartJob(ctx, swf.StartJob{
+			parentKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
 				TenantId: childKey.TenantId,
 				JobType:  parent.Name(),
 				JobID:    "parent-await-failed-child",
@@ -321,7 +321,7 @@ func TestAwaitFailedChildReplayAcrossBuiltInRuntimes(t *testing.T) {
 			swftest.WaitForEngineStatus(t, ctx, built.Engine, childKey, swf.JobStatusCompleted)
 			swftest.WaitForEngineStatus(t, ctx, built.Engine, parentKey, swf.JobStatusCompleted)
 
-			_, err = built.Engine.GetJobResult(ctx, parentKey)
+			_, err = jobResultForTest(built.Engine, ctx, parentKey)
 			if err == nil {
 				t.Fatal("expected parent result to fail")
 			}
@@ -369,7 +369,7 @@ func TestToyAwaitFailedChildViaGetJobRunOutputCompletes(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	parentKey, err := built.Engine.StartJob(ctx, swf.StartJob{
+	parentKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
 		TenantId: "tenant-await-failed-child-run-output",
 		JobType:  parent.Name(),
 		JobID:    "parent-await-failed-child-run-output",
@@ -389,7 +389,7 @@ func TestToyAwaitFailedChildViaGetJobRunOutputCompletes(t *testing.T) {
 	close(releaseChild)
 	swftest.WaitForEngineStatus(t, ctx, built.Engine, parentKey, swf.JobStatusCompleted)
 
-	_, err = built.Engine.GetJobResult(ctx, parentKey)
+	_, err = jobResultForTest(built.Engine, ctx, parentKey)
 	if err == nil {
 		t.Fatal("expected parent result to fail")
 	}
@@ -426,7 +426,7 @@ func TestGetJobRunOutputErrorShapeStableAcrossBuiltInRuntimes(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 
-			jobKey, err := built.Engine.StartJob(ctx, swf.StartJob{
+			jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
 				TenantId:  "tenant-job-run-output-shape-" + harness.Name,
 				JobType:   parent.Name(),
 				Data:      swftest.NumberTaskData(1),
@@ -442,7 +442,7 @@ func TestGetJobRunOutputErrorShapeStableAcrossBuiltInRuntimes(t *testing.T) {
 				t.Fatalf("unexpected replay branch executed %d times", branchRuns.Load())
 			}
 
-			_, err = built.Engine.GetJobResult(ctx, jobKey)
+			_, err = jobResultForTest(built.Engine, ctx, jobKey)
 			if err == nil {
 				t.Fatal("expected parent result to fail")
 			}
@@ -478,7 +478,7 @@ func TestToyGetJobRunIncludesFailedTaskAttemptForChildOutputFailure(t *testing.T
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	jobKey, err := built.Engine.StartJob(ctx, swf.StartJob{
+	jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
 		TenantId:  "tenant-toy-run-projection",
 		JobType:   parent.Name(),
 		Data:      swftest.NumberTaskData(1),

@@ -83,14 +83,16 @@ func MustWorkSet(t *testing.T, job swf.JobWorker, tasks ...swf.TaskWorker) swf.W
 func WaitForEngineStatus(t *testing.T, ctx context.Context, engine swf.SWFEngine, jobKey swf.JobKey, want swf.JobStatus) {
 	t.Helper()
 	waitForStatus(t, ctx, func(ctx context.Context) (swf.JobStatus, error) {
-		return engine.CheckJobStatus(ctx, jobKey)
+		job, err := engine.GetJob(ctx, jobKey)
+		return job.Status, err
 	}, want)
 }
 
 func WaitForRuntimeStatus(t *testing.T, ctx context.Context, runtime swf.WorkflowRuntime, jobKey swf.JobKey, want swf.JobStatus) {
 	t.Helper()
 	waitForStatus(t, ctx, func(ctx context.Context) (swf.JobStatus, error) {
-		return runtime.CheckJobStatus(ctx, jobKey)
+		job, err := runtime.GetJob(ctx, jobKey)
+		return job.Status, err
 	}, want)
 }
 
@@ -135,11 +137,11 @@ func MustDecodeNumberTaskIO(t *testing.T, data *swf.TaskIO) int {
 	return decodeNumber(t, data.Data)
 }
 
-func MustStartJobAsync(t *testing.T, engine swf.SWFEngine, start swf.StartJob) <-chan error {
+func MustStartJobAsync(t *testing.T, engine swf.SWFEngine, start swf.SubmitJob) <-chan error {
 	t.Helper()
 	done := make(chan error, 1)
 	go func() {
-		_, err := engine.StartJob(context.Background(), start)
+		_, err := engine.SubmitJob(context.Background(), start)
 		done <- err
 	}()
 	return done

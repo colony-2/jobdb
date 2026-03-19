@@ -297,14 +297,14 @@ func (r *workerRunner) awaitJobsComplete(ctx context.Context, jobIds []string) (
 		if id == "" {
 			return false, fmt.Errorf("jobId cannot be empty")
 		}
-		status, err := r.runtime.CheckJobStatus(ctx, JobKey{TenantId: r.GetJobKey().TenantId, JobId: id})
+		job, err := r.runtime.GetJob(ctx, JobKey{TenantId: r.GetJobKey().TenantId, JobId: id})
 		if errors.Is(err, ErrJobNotFound) {
 			continue
 		}
 		if err != nil {
 			return false, err
 		}
-		if status != JobStatusCompleted && status != JobStatusCancelled {
+		if job.Status != JobStatusCompleted && job.Status != JobStatusCancelled {
 			return false, nil
 		}
 	}
@@ -518,14 +518,17 @@ func (r *workerRunner) checkPrerequisites(ctx context.Context, meta chapterMeta)
 			continue
 		}
 		key := JobKey{TenantId: r.GetJobKey().TenantId, JobId: prereq.JobID}
-		status, err := r.runtime.CheckJobStatus(ctx, key)
+		job, err := r.runtime.GetJob(ctx, key)
 		if err != nil {
 			return fmt.Errorf("check prerequisite job %s: %w", prereq.JobID, err)
 		}
-		if status != JobStatusCompleted {
+		if job.Status != JobStatusCompleted {
 			return newPrereqFailedError(fmt.Sprintf("prerequisite job %s not completed", prereq.JobID))
 		}
-		if _, err := r.runtime.GetJobResult(ctx, key); err != nil {
+		if job.Data == nil {
+			return newPrereqFailedError(fmt.Sprintf("prerequisite job %s did not expose result data", prereq.JobID))
+		}
+		if _, err := job.Data.GetData(); err != nil {
 			msg := fmt.Sprintf("prerequisite job %s did not succeed", prereq.JobID)
 			if err.Error() != "" {
 				msg += ": " + err.Error()
@@ -1015,9 +1018,7 @@ func (r *workerRunner) DoJob(ctx context.Context) (JobData, error) {
 
 	if r.lease != nil && !r.replay {
 		_ = r.lease.KeepAlive(ctx)
-		if stopper, ok := r.lease.(interface{ StopKeepAlive() }); ok {
-			defer stopper.StopKeepAlive()
-		}
+		defer r.lease.StopKeepAlive()
 	}
 
 	for {

@@ -71,7 +71,7 @@ func TestCompletionStatusAndDetail(t *testing.T) {
 	go engine.Run(ctx)
 
 	tenantID := "completion-status-tenant"
-	successKey, err := engine.StartJob(ctx, swf.StartJob{
+	successKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 		TenantId: tenantID,
 		JobType:  completionSuccessJobName,
 		Data:     swf.NewTaskDataOrPanic(map[string]interface{}{"n": 1}),
@@ -79,7 +79,7 @@ func TestCompletionStatusAndDetail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start success job: %v", err)
 	}
-	appKey, err := engine.StartJob(ctx, swf.StartJob{
+	appKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 		TenantId: tenantID,
 		JobType:  completionAppJobName,
 		Data:     swf.NewTaskDataOrPanic(map[string]interface{}{"n": 2}),
@@ -87,7 +87,7 @@ func TestCompletionStatusAndDetail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start app error job: %v", err)
 	}
-	systemKey, err := engine.StartJob(ctx, swf.StartJob{
+	systemKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 		TenantId: tenantID,
 		JobType:  completionSystemJobName,
 		Data:     swf.NewTaskDataOrPanic(map[string]interface{}{"n": 3}),
@@ -95,7 +95,7 @@ func TestCompletionStatusAndDetail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start system error job: %v", err)
 	}
-	timeoutKey, err := engine.StartJob(ctx, swf.StartJob{
+	timeoutKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 		TenantId: tenantID,
 		JobType:  completionTimeoutJobName,
 		Data:     swf.NewTaskDataOrPanic(map[string]interface{}{"n": 4}),

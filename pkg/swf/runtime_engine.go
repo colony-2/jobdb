@@ -8,8 +8,6 @@ import (
 
 type workerEngineAPI interface {
 	ReplayJobRun(ctx context.Context, req ReplayRunRequest) (JobData, error)
-	FindTasksWaitingForCapability(ctx context.Context, jobType string, taskType string, tenantIds []string) ([]TaskHandle, error)
-	GetWaitingTask(ctx context.Context, key JobKey) (TaskHandle, error)
 	Run(ctx context.Context)
 	RegisterWorkers(workset *WorkSet) error
 	GetArtifact(tenantId string, key ArtifactKey) (Artifact, error)
@@ -30,9 +28,9 @@ func newRuntimeEngine(runtime WorkflowRuntime, worker workerEngineAPI) SWFEngine
 	}
 }
 
-func (e *runtimeEngine) StartJob(ctx context.Context, start StartJob) (JobKey, error) {
-	handle, err := e.runtime.StartJob(ctx, StartJobRequest{
-		Job:         start,
+func (e *runtimeEngine) SubmitJob(ctx context.Context, submit SubmitJob) (JobKey, error) {
+	handle, err := e.runtime.SubmitJob(ctx, SubmitJobRequest{
+		Job:         submit,
 		RequestTime: nowUTC(),
 	})
 	if err != nil {
@@ -41,8 +39,8 @@ func (e *runtimeEngine) StartJob(ctx context.Context, start StartJob) (JobKey, e
 	return handle.JobKey, nil
 }
 
-func (e *runtimeEngine) RestartJob(ctx context.Context, restart RestartJob) (JobKey, error) {
-	handle, err := e.runtime.RestartJob(ctx, RestartJobRequest{
+func (e *runtimeEngine) SubmitRestartJob(ctx context.Context, restart SubmitRestartJob) (JobKey, error) {
+	handle, err := e.runtime.SubmitRestartJob(ctx, SubmitRestartJobRequest{
 		Job:         restart,
 		RequestTime: nowUTC(),
 	})
@@ -59,16 +57,12 @@ func (e *runtimeEngine) CancelJob(ctx context.Context, cancel CancelJob) error {
 	})
 }
 
-func (e *runtimeEngine) CheckJobStatus(ctx context.Context, jobKey JobKey) (JobStatus, error) {
-	return e.runtime.CheckJobStatus(ctx, jobKey)
-}
-
-func (e *runtimeEngine) GetJobResult(ctx context.Context, jobKey JobKey) (TaskData, error) {
-	return e.runtime.GetJobResult(ctx, jobKey)
+func (e *runtimeEngine) GetJob(ctx context.Context, jobKey JobKey) (JobInfo, error) {
+	return e.runtime.GetJob(ctx, jobKey)
 }
 
 func (e *runtimeEngine) GetJobRun(ctx context.Context, req GetJobRunRequest) (GetJobRunResponse, error) {
-	return e.runtime.GetJobRun(ctx, req)
+	return getJobRunFromRuntime(ctx, e.runtime, req)
 }
 
 func (e *runtimeEngine) ReplayJobRun(ctx context.Context, req ReplayRunRequest) (JobData, error) {
@@ -80,11 +74,11 @@ func (e *runtimeEngine) ListJobs(ctx context.Context, req ListJobsRequest) (List
 }
 
 func (e *runtimeEngine) FindTasksWaitingForCapability(ctx context.Context, jobType string, taskType string, tenantIds []string) ([]TaskHandle, error) {
-	return e.worker.FindTasksWaitingForCapability(ctx, jobType, taskType, tenantIds)
+	return findWaitingTasksFromRuntime(ctx, e.runtime, jobType, taskType, tenantIds)
 }
 
 func (e *runtimeEngine) GetWaitingTask(ctx context.Context, key JobKey) (TaskHandle, error) {
-	return e.worker.GetWaitingTask(ctx, key)
+	return getWaitingTaskFromRuntime(ctx, e.runtime, key)
 }
 
 func (e *runtimeEngine) Run(ctx context.Context) {

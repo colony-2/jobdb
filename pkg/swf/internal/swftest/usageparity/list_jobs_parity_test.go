@@ -33,7 +33,7 @@ func TestListJobsStatusParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{completedWS, cancelWS}, func(t *testing.T, ctx context.Context, subject scenarioSubject) listJobsObservation {
-				completeKey, err := subject.StartJob(ctx, swf.StartJob{
+				completeKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "tenant-list-" + harness.Name,
 					JobType:  completedWS.JobWorker.Name(),
 					JobID:    "completed",
@@ -44,7 +44,7 @@ func TestListJobsStatusParityAcrossBuiltInRuntimes(t *testing.T) {
 				}
 				subject.WaitForStatus(t, ctx, completeKey, swf.JobStatusCompleted)
 
-				cancelKey, err := subject.StartJob(ctx, swf.StartJob{
+				cancelKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: completeKey.TenantId,
 					JobType:  cancelWS.JobWorker.Name(),
 					JobID:    "cancelled",
@@ -105,7 +105,7 @@ func TestListJobsFilterParityAcrossBuiltInRuntimes(t *testing.T) {
 					t.Fatalf("marshal beta metadata: %v", err)
 				}
 
-				alphaKey, err := subject.StartJob(ctx, swf.StartJob{
+				alphaKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId:     tenantID,
 					JobType:      alphaWS.JobWorker.Name(),
 					JobID:        "alpha-job",
@@ -118,7 +118,7 @@ func TestListJobsFilterParityAcrossBuiltInRuntimes(t *testing.T) {
 				}
 				subject.WaitForStatus(t, ctx, alphaKey, swf.JobStatusCompleted)
 
-				betaKey, err := subject.StartJob(ctx, swf.StartJob{
+				betaKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: tenantID,
 					JobType:  betaWS.JobWorker.Name(),
 					JobID:    "beta-job",

@@ -675,6 +675,9 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.
 	}
 
 	tenantAllowed := func(tenantId string) bool {
+		if len(req.TenantIds) == 0 {
+			return true
+		}
 		for _, tid := range req.TenantIds {
 			if tid == tenantId {
 				return true
@@ -809,31 +812,30 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.
 			copy(metadataCopy, rec.metadata)
 		}
 		summary := swf.JobSummary{
-			JobKey:          key,
-			Status:          status,
-			JobType:         rec.jobType,
-			SingletonKey:    rec.singleton,
-			WaitFor:         append([]string(nil), rec.waitFor...),
-			AvailableAt:     rec.createdAt,
-			ExpiresAt:       nil,
-			LeaseExpiresAt:  nil,
-			CancelRequested: rec.cancelled,
-			CreatedAt:       rec.createdAt,
-			ArchivedAt:      rec.archived,
-			Payload:         payloadCopy,
-			Metadata:        metadataCopy,
-			TaskWaitInput:   nil,
-			TaskWaitOutput:  nil,
-			TaskWaitNext:    nil,
+			JobKey:            key,
+			Status:            status,
+			JobType:           rec.jobType,
+			NextNeed:          cloneString(rec.capability),
+			SingletonKey:      rec.singleton,
+			WaitFor:           append([]string(nil), rec.waitFor...),
+			AvailableAt:       rec.createdAt,
+			ExpiresAt:         nil,
+			LeaseExpiresAt:    nil,
+			CancelRequested:   rec.cancelled,
+			CreatedAt:         rec.createdAt,
+			ArchivedAt:        rec.archived,
+			Payload:           payloadCopy,
+			Metadata:          metadataCopy,
+			TaskWaitInput:     nil,
+			TaskWaitOutput:    nil,
+			TaskWaitInputHash: nil,
+			TaskWaitNext:      nil,
 		}
-		if rec.capability != "" {
-			summary.TaskWaitNext = &rec.capability
-			step := rec.step
-			if step > 0 {
-				input := step - 1
-				summary.TaskWaitInput = &input
-				summary.TaskWaitOutput = &step
-			}
+		if wait, err := extractWorkerTaskWait(payloadCopy); err == nil && wait != nil {
+			summary.TaskWaitInput = &wait.InputStep
+			summary.TaskWaitOutput = &wait.OutputStep
+			summary.TaskWaitInputHash = cloneStringPtr(&wait.InputHash)
+			summary.TaskWaitNext = cloneStringPtr(&wait.Next)
 		}
 		rec.mu.Unlock()
 		records = append(records, summary)
@@ -938,42 +940,6 @@ func cleanupArtifacts(ctx context.Context, artifacts []swf.Artifact, logger *slo
 	}
 }
 
-func (e *ToyEngine) PutStoredArtifacts(ctx context.Context, req swf.PutArtifactsRequest) ([]swf.StoredArtifact, error) {
-	out := make([]swf.StoredArtifact, 0, len(req.Items))
-	for _, item := range req.Items {
-		if item.Open == nil {
-			return nil, fmt.Errorf("artifact %q missing opener", item.Name)
-		}
-		rc, err := item.Open()
-		if err != nil {
-			return nil, err
-		}
-		data, err := io.ReadAll(rc)
-		_ = rc.Close()
-		if err != nil {
-			return nil, err
-		}
-		art := swf.NewArtifactFromBytes(item.Name, data)
-		digest, err := art.Sha256(ctx)
-		if err != nil {
-			return nil, err
-		}
-		e.mu.Lock()
-		e.runtimeArtifacts[runtimeArtifactKey{
-			jobKey:  req.JobKey,
-			ordinal: req.Ordinal,
-			name:    item.Name,
-		}] = append([]byte(nil), data...)
-		e.mu.Unlock()
-		out = append(out, swf.StoredArtifact{
-			Name:   item.Name,
-			Digest: digest,
-			Size:   int64(len(data)),
-		})
-	}
-	return out, nil
-}
-
 func (e *ToyEngine) OpenStoredArtifact(ctx context.Context, ref swf.ArtifactRef) (swf.ArtifactReader, error) {
 	e.mu.Lock()
 	data, ok := e.runtimeArtifacts[runtimeArtifactKey{
@@ -1003,4 +969,20 @@ func (r toyArtifactReader) Size() int64 {
 
 func (r toyArtifactReader) Name() string {
 	return r.art.Name()
+}
+
+func cloneStringPtr(src *string) *string {
+	if src == nil {
+		return nil
+	}
+	value := *src
+	return &value
+}
+
+func cloneString(src string) *string {
+	if src == "" {
+		return nil
+	}
+	value := src
+	return &value
 }

@@ -80,38 +80,76 @@ func (h *taskHandleImpl) JobKey() swf.JobKey {
 }
 
 func (h *taskHandleImpl) Finish(ctx context.Context, taskData swf.TaskData) error {
+	tw, err := extractTaskWaitFromRaw(h.payload)
+	if err != nil {
+		return err
+	}
+	if tw == nil {
+		return nil
+	}
+	return h.runtime.CompleteTaskIfWaiting(ctx, swf.CompleteTaskIfWaitingRequest{
+		JobKey:        h.JobKey(),
+		Capability:    swf.JobTypeFromNextNeed(string(h.nextNeed)) + ":" + h.taskType,
+		ResumeNeed:    string(h.nextNeed),
+		InputOrdinal:  tw.InputStep,
+		OutputOrdinal: tw.OutputStep,
+		InputHash:     tw.InputHash,
+		Data:          taskData,
+	})
+}
+
+func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req swf.CompleteTaskIfWaitingRequest) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	// Load input chapter if not already set (e.g., when created by FindTasksWaitingForCapability)
-	if h.inputChapter == nil && h.inputOrdinal > 0 {
-		jobKey := h.JobKey()
-		if h.runtime == nil {
-			return fmt.Errorf("task handle backend is nil")
-		}
-		ch, err := h.runtime.strataClient.Chapter(ctx, storyKeyForJob(jobKey), h.inputOrdinal)
+	if err := r.validate(); err != nil {
+		return err
+	}
+	jobKey := req.JobKey
+	job, err := pgwf.GetJob(ctx, r.pgwfDB(ctx), pgwf.TenantID(jobKey.TenantId), pgwf.JobID(jobKey.JobId), pgwf.GetJobOptions{IncludePayload: true})
+	if errors.Is(err, pgwf.ErrJobNotFound) {
+		return swf.ErrJobNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("failed to load job: %w", err)
+	}
+	tw, err := extractTaskWaitFromRaw(job.Payload)
+	if err != nil {
+		return err
+	}
+	if tw == nil {
+		return nil
+	}
+	if req.Capability != "" && job.NextNeed != req.Capability {
+		return nil
+	}
+	if req.ResumeNeed != "" && tw.Next != req.ResumeNeed {
+		return nil
+	}
+	if req.InputOrdinal != 0 && tw.InputStep != req.InputOrdinal {
+		return nil
+	}
+	if tw.OutputStep != req.OutputOrdinal {
+		return nil
+	}
+	if req.InputHash != "" && tw.InputHash != req.InputHash {
+		return nil
+	}
+
+	var inputChapter story.Chapter
+	if tw.InputStep > 0 {
+		inputChapter, err = r.strataClient.Chapter(ctx, storyKeyForJob(jobKey), tw.InputStep)
 		if err != nil {
 			return fmt.Errorf("failed to load input chapter: %w", err)
 		}
-		h.inputChapter = ch
 	}
 
-	// Compute input hash from input chapter
-	tw, err := extractTaskWaitFromRaw(h.payload)
-	if err != nil || tw.InputHash == "" {
-		return fmt.Errorf("input hash not found in payload")
-	}
-	inputHash := tw.InputHash
-
-	// Extract metadata from payload and input chapter
 	var payload jobPayload
-	_ = json.Unmarshal(h.payload, &payload)
+	_ = json.Unmarshal(job.Payload, &payload)
 
-	// Build chapter metadata from input chapter and payload
 	meta := chapterMetadata{}
-	if h.inputChapter != nil {
-		if env, decErr := decodeChapterEnvelope(h.inputChapter.Body()); decErr == nil {
-			// Preserve attempt information from input
+	if inputChapter != nil {
+		if env, decErr := decodeChapterEnvelope(inputChapter.Body()); decErr == nil {
 			if env.Meta.Attempt > 0 {
 				meta.Attempt = env.Meta.Attempt
 			}
@@ -132,38 +170,43 @@ func (h *taskHandleImpl) Finish(ctx context.Context, taskData swf.TaskData) erro
 			}
 		}
 	}
-	// Include RunPolicy from payload
 	if payload.RunPolicy.Retry.MaximumAttempts > 0 {
 		meta.RunPolicy = &payload.RunPolicy
 	}
 
-	if h.runtime == nil {
-		return fmt.Errorf("task handle backend is nil")
+	workerID := r.workerID
+	taskType := taskTypeFromCapability(job.NextNeed)
+	if req.Capability != "" {
+		taskType = taskTypeFromCapability(req.Capability)
 	}
-	workerID := h.runtime.workerID
-
-	chap, err := taskDataToChapter(taskData, h.outputOrdinal, h.taskType, workerID, chapterTypeTaskAttemptOutcome, payloadKindApp, inputHash, time.Now().UTC(), meta)
+	if taskType == "" || taskType == job.NextNeed || (req.Capability != "" && taskType == req.Capability) {
+		return fmt.Errorf("task type not found in capability")
+	}
+	chap, err := taskDataToChapter(req.Data, tw.OutputStep, taskType, workerID, chapterTypeTaskAttemptOutcome, payloadKindApp, tw.InputHash, time.Now().UTC(), meta)
 	if err != nil {
 		return err
 	}
-	jobKey := h.JobKey()
-	err = h.runtime.strataClient.SaveChapter(ctx, storyKeyForJob(jobKey), chap)
+	err = r.strataClient.SaveChapter(ctx, storyKeyForJob(jobKey), chap)
 	if err != nil {
 		if errors.Is(err, core.ErrConflict) {
 			return nil
 		}
 		return err
 	}
-	artifacts, _ := taskData.GetArtifacts()
-	assignArtifactKeys(artifacts, jobKey.JobId, h.outputOrdinal)
-	tenantID := pgwf.TenantID(h.tenantId)
+	artifacts, _ := req.Data.GetArtifacts()
+	assignArtifactKeys(artifacts, jobKey.JobId, tw.OutputStep)
+	tenantID := pgwf.TenantID(jobKey.TenantId)
+	resumeNeed := tw.Next
+	if req.ResumeNeed != "" {
+		resumeNeed = req.ResumeNeed
+	}
 
 	return pgwf.RescheduleUnheldJob(
 		ctx,
-		h.runtime.pgwfDB(ctx),
+		r.pgwfDB(ctx),
 		tenantID,
-		pgwf.JobID(h.jobID),
-		pgwf.WorkerID(workerID), pgwf.JobDependencies{NextNeed: h.nextNeed},
+		pgwf.JobID(jobKey.JobId),
+		pgwf.WorkerID(workerID), pgwf.JobDependencies{NextNeed: pgwf.Capability(resumeNeed)},
 		jobPayload{RunPolicy: payload.RunPolicy})
 }
 

@@ -78,7 +78,7 @@ func TestPrerequisitesSuccessAndComplete(t *testing.T) {
 	tenantID := "prereq-tenant"
 
 	successJobID := "prereq-success"
-	successKey, err := engine.StartJob(ctx, swf.StartJob{
+	successKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 		TenantId: tenantID,
 		JobType:  prereqSuccessJobName,
 		JobID:    successJobID,
@@ -89,7 +89,7 @@ func TestPrerequisitesSuccessAndComplete(t *testing.T) {
 	}
 
 	failJobID := "prereq-fail"
-	failKey, err := engine.StartJob(ctx, swf.StartJob{
+	failKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 		TenantId: tenantID,
 		JobType:  prereqFailJobName,
 		JobID:    failJobID,
@@ -99,7 +99,7 @@ func TestPrerequisitesSuccessAndComplete(t *testing.T) {
 		t.Fatalf("start failed prereq: %v", err)
 	}
 
-	successDependent, err := engine.StartJob(ctx, swf.StartJob{
+	successDependent, err := engine.SubmitJob(ctx, swf.SubmitJob{
 		TenantId: tenantID,
 		JobType:  prereqDependentJobName,
 		JobID:    "dependent-success",
@@ -112,7 +112,7 @@ func TestPrerequisitesSuccessAndComplete(t *testing.T) {
 		t.Fatalf("start dependent success: %v", err)
 	}
 
-	failedDependent, err := engine.StartJob(ctx, swf.StartJob{
+	failedDependent, err := engine.SubmitJob(ctx, swf.SubmitJob{
 		TenantId: tenantID,
 		JobType:  prereqDependentJobName,
 		JobID:    "dependent-failed",
@@ -125,7 +125,7 @@ func TestPrerequisitesSuccessAndComplete(t *testing.T) {
 		t.Fatalf("start dependent failed: %v", err)
 	}
 
-	completeDependent, err := engine.StartJob(ctx, swf.StartJob{
+	completeDependent, err := engine.SubmitJob(ctx, swf.SubmitJob{
 		TenantId: tenantID,
 		JobType:  prereqDependentJobName,
 		JobID:    "dependent-complete",
@@ -144,15 +144,15 @@ func TestPrerequisitesSuccessAndComplete(t *testing.T) {
 		}
 	}
 
-	if _, err := engine.GetJobResult(ctx, successDependent); err != nil {
+	if _, err := jobResultForTest(engine, ctx, successDependent); err != nil {
 		t.Fatalf("expected success dependent to succeed, got %v", err)
 	}
 
-	if _, err := engine.GetJobResult(ctx, completeDependent); err != nil {
+	if _, err := jobResultForTest(engine, ctx, completeDependent); err != nil {
 		t.Fatalf("expected complete dependent to succeed, got %v", err)
 	}
 
-	if _, err := engine.GetJobResult(ctx, failedDependent); err == nil {
+	if _, err := jobResultForTest(engine, ctx, failedDependent); err == nil {
 		t.Fatalf("expected failed dependent to error")
 	} else if !strings.Contains(err.Error(), "prerequisite job") {
 		t.Fatalf("expected prereq error, got %v", err)
@@ -184,7 +184,7 @@ func TestRestartPrerequisitesCheckedAtRestartExtra(t *testing.T) {
 
 	tenantID := "restart-prereq-tenant"
 	baseInput := map[string]interface{}{"n": 1}
-	baseKey, err := engine.StartJob(ctx, swf.StartJob{
+	baseKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 		TenantId: tenantID,
 		JobType:  prereqRestartJobName,
 		JobID:    "restart-base",
@@ -197,7 +197,7 @@ func TestRestartPrerequisitesCheckedAtRestartExtra(t *testing.T) {
 		t.Fatalf("wait base job: %v", err)
 	}
 
-	failKey, err := engine.StartJob(ctx, swf.StartJob{
+	failKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 		TenantId: tenantID,
 		JobType:  prereqFailJobName,
 		JobID:    "restart-prereq-fail",
@@ -210,7 +210,7 @@ func TestRestartPrerequisitesCheckedAtRestartExtra(t *testing.T) {
 		t.Fatalf("wait fail prereq: %v", err)
 	}
 
-	restartKey, err := engine.RestartJob(ctx, swf.RestartJob{
+	restartKey, err := engine.SubmitRestartJob(ctx, swf.SubmitRestartJob{
 		PriorJobKey:     baseKey,
 		LastStepToKeep:  0,
 		JobID:           "restart-with-prereqs",
@@ -226,7 +226,7 @@ func TestRestartPrerequisitesCheckedAtRestartExtra(t *testing.T) {
 	if err := swf.WaitForJobToComplete(ctx, 30*time.Second, restartKey, engine); err != nil {
 		t.Fatalf("wait restart job: %v", err)
 	}
-	if _, err := engine.GetJobResult(ctx, restartKey); err == nil {
+	if _, err := jobResultForTest(engine, ctx, restartKey); err == nil {
 		t.Fatalf("expected restart to fail due to prereqs")
 	} else if !strings.Contains(err.Error(), "prerequisite job") {
 		t.Fatalf("expected prereq error, got %v", err)

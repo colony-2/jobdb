@@ -75,7 +75,7 @@ func TestArtifactCleanupAfterUpload(t *testing.T) {
 
 		// Start the job
 		startTime := time.Now()
-		jobKey, err := engine.StartJob(ctx, swf.StartJob{
+		jobKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 			TenantId: "test-tenant",
 			JobType:  jobWorker.Name(),
 			Data:     swf.NewTaskDataOrPanic(map[string]string{"key": "value"}),
@@ -84,7 +84,7 @@ func TestArtifactCleanupAfterUpload(t *testing.T) {
 
 		// Wait for job to complete
 		require.Eventually(t, func() bool {
-			status, _ := engine.CheckJobStatus(ctx, jobKey)
+			status, _ := jobStatusForTest(engine, ctx, jobKey)
 			return status == swf.JobStatusCompleted
 		}, 30*time.Second, 200*time.Millisecond)
 
@@ -96,7 +96,7 @@ func TestArtifactCleanupAfterUpload(t *testing.T) {
 		assert.True(t, os.IsNotExist(err), "file should be cleaned up after upload")
 
 		// Verify the artifact was actually uploaded by reading it back
-		result, err := engine.GetJobResult(ctx, jobKey)
+		result, err := jobResultForTest(engine, ctx, jobKey)
 		require.NoError(t, err)
 
 		artifacts, err := result.GetArtifacts()
@@ -162,7 +162,7 @@ func TestArtifactCleanupAfterUpload(t *testing.T) {
 		go engine.Run(ctx)
 
 		// Start the job with artifact
-		jobKey, err := engine.StartJob(ctx, swf.StartJob{
+		jobKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 			TenantId: "test-tenant",
 			JobType:  jobWorker.Name(),
 			Data: &swf.SimpleTaskData{
@@ -174,7 +174,7 @@ func TestArtifactCleanupAfterUpload(t *testing.T) {
 
 		// Wait for job to complete (with error)
 		require.Eventually(t, func() bool {
-			status, _ := engine.CheckJobStatus(ctx, jobKey)
+			status, _ := jobStatusForTest(engine, ctx, jobKey)
 			return status == swf.JobStatusCompleted
 		}, 30*time.Second, 200*time.Millisecond)
 
@@ -220,7 +220,7 @@ func TestArtifactCleanupAfterUpload(t *testing.T) {
 
 		go engine.Run(ctx)
 
-		jobKey, err := engine.StartJob(ctx, swf.StartJob{
+		jobKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 			TenantId: "test-tenant",
 			JobType:  jobWorker.Name(),
 			Data:     swf.NewTaskDataOrPanic(map[string]string{"key": "value"}),
@@ -228,11 +228,11 @@ func TestArtifactCleanupAfterUpload(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Eventually(t, func() bool {
-			status, _ := engine.CheckJobStatus(ctx, jobKey)
+			status, _ := jobStatusForTest(engine, ctx, jobKey)
 			return status == swf.JobStatusCompleted
 		}, 30*time.Second, 200*time.Millisecond)
 
-		_, err = engine.GetJobResult(ctx, jobKey)
+		_, err = jobResultForTest(engine, ctx, jobKey)
 		require.NoError(t, err)
 
 		_, err = os.Stat(testFile)

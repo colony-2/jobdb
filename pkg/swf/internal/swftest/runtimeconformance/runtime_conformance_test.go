@@ -28,7 +28,7 @@ func TestBuiltInRuntimesConstructAndExecuteThroughBuilder(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 
-			jobKey, err := built.Engine.StartJob(ctx, swf.StartJob{
+			jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
 				TenantId: "tenant-builder-" + harness.Name,
 				JobType:  swftest.SequenceJobName,
 				Data:     swftest.NumberTaskData(1),
@@ -39,7 +39,7 @@ func TestBuiltInRuntimesConstructAndExecuteThroughBuilder(t *testing.T) {
 
 			swftest.WaitForEngineStatus(t, ctx, built.Engine, jobKey, swf.JobStatusCompleted)
 
-			result, err := built.Engine.GetJobResult(ctx, jobKey)
+			result, err := jobResultForTest(built.Engine, ctx, jobKey)
 			if err != nil {
 				t.Fatalf("get job result: %v", err)
 			}
@@ -66,8 +66,8 @@ func TestWorkflowRuntimeLifecycleAcrossBuiltInRuntimes(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 
-			handle, err := built.Runtime.StartJob(ctx, swf.StartJobRequest{
-				Job: swf.StartJob{
+			handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
+				Job: swf.SubmitJob{
 					TenantId: "tenant-runtime-" + harness.Name,
 					JobType:  swftest.SequenceJobName,
 					Data:     swftest.NumberTaskData(1),
@@ -80,7 +80,7 @@ func TestWorkflowRuntimeLifecycleAcrossBuiltInRuntimes(t *testing.T) {
 
 			swftest.WaitForRuntimeStatus(t, ctx, built.Runtime, handle.JobKey, swf.JobStatusCompleted)
 
-			result, err := built.Runtime.GetJobResult(ctx, handle.JobKey)
+			result, err := jobResultForTest(built.Runtime, ctx, handle.JobKey)
 			if err != nil {
 				t.Fatalf("get job result via runtime: %v", err)
 			}
@@ -126,8 +126,8 @@ func TestWorkflowRuntimeChapterAndArtifactRoundTripAcrossBuiltInRuntimes(t *test
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 
-			handle, err := built.Runtime.StartJob(ctx, swf.StartJobRequest{
-				Job: swf.StartJob{
+			handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
+				Job: swf.SubmitJob{
 					TenantId: "tenant-artifacts-" + harness.Name,
 					JobType:  swftest.SequenceJobName,
 					Data:     swftest.NumberTaskData(1),
@@ -140,26 +140,6 @@ func TestWorkflowRuntimeChapterAndArtifactRoundTripAcrossBuiltInRuntimes(t *test
 			swftest.WaitForRuntimeStatus(t, ctx, built.Runtime, handle.JobKey, swf.JobStatusCompleted)
 
 			artifactBytes := []byte("hello runtime")
-			storedArtifacts, err := built.Runtime.PutArtifacts(ctx, swf.PutArtifactsRequest{
-				JobKey:  handle.JobKey,
-				Ordinal: 50,
-				Items: []swf.ArtifactUpload{
-					{
-						Name: "hello.txt",
-						Size: int64(len(artifactBytes)),
-						Open: func() (io.ReadCloser, error) {
-							return io.NopCloser(bytes.NewReader(artifactBytes)), nil
-						},
-					},
-				},
-			})
-			if err != nil {
-				t.Fatalf("put artifacts: %v", err)
-			}
-			if len(storedArtifacts) != 1 {
-				t.Fatalf("expected 1 stored artifact, got %d", len(storedArtifacts))
-			}
-
 			req := swf.PutChapterRequest{
 				Ref: swf.ChapterRef{
 					JobKey:  handle.JobKey,
@@ -173,7 +153,15 @@ func TestWorkflowRuntimeChapterAndArtifactRoundTripAcrossBuiltInRuntimes(t *test
 					InputHash:   "manual-input-hash",
 					CreatedAt:   time.Now().UTC(),
 					Data:        json.RawMessage(`{"n":99}`),
-					Artifacts:   storedArtifacts,
+				},
+				ArtifactUploads: []swf.ArtifactUpload{
+					{
+						Name: "hello.txt",
+						Size: int64(len(artifactBytes)),
+						Open: func() (io.ReadCloser, error) {
+							return io.NopCloser(bytes.NewReader(artifactBytes)), nil
+						},
+					},
 				},
 			}
 			if err := built.Runtime.PutChapter(ctx, req); err != nil {
@@ -193,12 +181,11 @@ func TestWorkflowRuntimeChapterAndArtifactRoundTripAcrossBuiltInRuntimes(t *test
 			if len(storedChapter.Artifacts) != 1 || storedChapter.Artifacts[0].Name != "hello.txt" {
 				t.Fatalf("unexpected stored artifacts %+v", storedChapter.Artifacts)
 			}
-
 			reader, err := built.Runtime.OpenArtifact(ctx, swf.ArtifactRef{
 				JobKey:  handle.JobKey,
 				Ordinal: 50,
-				Name:    storedArtifacts[0].Name,
-				Digest:  storedArtifacts[0].Digest,
+				Name:    storedChapter.Artifacts[0].Name,
+				Digest:  storedChapter.Artifacts[0].Digest,
 			})
 			if err != nil {
 				t.Fatalf("open artifact: %v", err)
@@ -219,6 +206,69 @@ func TestWorkflowRuntimeChapterAndArtifactRoundTripAcrossBuiltInRuntimes(t *test
 	}
 }
 
+func TestWorkflowRuntimeListChaptersRangeAcrossBuiltInRuntimes(t *testing.T) {
+	ws := swftest.MustWorkSet(t,
+		swftest.SequenceJob{Steps: []string{swftest.AddOneTaskName, swftest.DoubleTaskName}},
+		swftest.AddOneTask{},
+		swftest.DoubleTask{},
+	)
+
+	for _, harness := range swftest.BuiltInRuntimeHarnesses() {
+		harness := harness
+		t.Run(harness.Name, func(t *testing.T) {
+			built := harness.New(t, ws)
+			defer built.Shutdown(t)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+
+			handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
+				Job: swf.SubmitJob{
+					TenantId: "tenant-chapter-range-" + harness.Name,
+					JobType:  swftest.SequenceJobName,
+					Data:     swftest.NumberTaskData(1),
+				},
+				RequestTime: time.Now().UTC(),
+			})
+			if err != nil {
+				t.Fatalf("submit job via runtime: %v", err)
+			}
+
+			swftest.WaitForRuntimeStatus(t, ctx, built.Runtime, handle.JobKey, swf.JobStatusCompleted)
+
+			endOrdinal := int64(99)
+			chapters, err := built.Runtime.ListChapters(ctx, swf.ListChaptersRequest{
+				JobKey:       handle.JobKey,
+				StartOrdinal: 1,
+				EndOrdinal:   &endOrdinal,
+			})
+			if err != nil {
+				t.Fatalf("list chapters range: %v", err)
+			}
+			if len(chapters) == 0 {
+				t.Fatal("expected ranged chapter listing to return chapters")
+			}
+			for _, chapter := range chapters {
+				if chapter.Ordinal < 1 {
+					t.Fatalf("unexpected chapter ordinal %d", chapter.Ordinal)
+				}
+			}
+
+			emptyStart := int64(99)
+			empty, err := built.Runtime.ListChapters(ctx, swf.ListChaptersRequest{
+				JobKey:       handle.JobKey,
+				StartOrdinal: emptyStart,
+			})
+			if err != nil {
+				t.Fatalf("list chapters above max ordinal: %v", err)
+			}
+			if len(empty) != 0 {
+				t.Fatalf("expected empty chapter range above max ordinal, got %d", len(empty))
+			}
+		})
+	}
+}
+
 func TestWorkflowRuntimeLeaseOperationsOnSupportingRuntimes(t *testing.T) {
 	for _, harness := range swftest.BuiltInRuntimeHarnesses() {
 		harness := harness
@@ -233,8 +283,8 @@ func TestWorkflowRuntimeLeaseOperationsOnSupportingRuntimes(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 
-			handle, err := built.Runtime.StartJob(ctx, swf.StartJobRequest{
-				Job: swf.StartJob{
+			handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
+				Job: swf.SubmitJob{
 					TenantId: "tenant-lease-" + harness.Name,
 					JobType:  "lease-job",
 					Data:     swftest.NumberTaskData(7),

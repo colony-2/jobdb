@@ -11,22 +11,24 @@ import (
 
 // JobSummary is a lightweight view of a job sourced purely from pgwf tables.
 type JobSummary struct {
-	JobKey          JobKey
-	Status          JobStatus
-	JobType         string
-	SingletonKey    *string
-	WaitFor         []string // JobIds only - all WaitFor jobs must be in same tenant
-	AvailableAt     time.Time
-	ExpiresAt       *time.Time
-	LeaseExpiresAt  *time.Time
-	CancelRequested bool
-	CreatedAt       time.Time
-	ArchivedAt      *time.Time
-	Payload         json.RawMessage
-	Metadata        json.RawMessage
-	TaskWaitInput   *int64
-	TaskWaitOutput  *int64
-	TaskWaitNext    *string
+	JobKey            JobKey
+	Status            JobStatus
+	JobType           string
+	NextNeed          *string
+	SingletonKey      *string
+	WaitFor           []string // JobIds only - all WaitFor jobs must be in same tenant
+	AvailableAt       time.Time
+	ExpiresAt         *time.Time
+	LeaseExpiresAt    *time.Time
+	CancelRequested   bool
+	CreatedAt         time.Time
+	ArchivedAt        *time.Time
+	Payload           json.RawMessage
+	Metadata          json.RawMessage
+	TaskWaitInput     *int64
+	TaskWaitOutput    *int64
+	TaskWaitInputHash *string
+	TaskWaitNext      *string
 }
 
 type JobStore string
@@ -45,6 +47,7 @@ type JobTaskFilter struct {
 }
 
 // ListJobsRequest filters and paginates the union of active + archived jobs.
+// TenantIds must contain at least one tenant ID.
 type ListJobsRequest struct {
 	TenantIds      []string
 	Statuses       []JobStatus

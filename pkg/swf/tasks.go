@@ -10,8 +10,7 @@ import (
 
 type taskRunApi interface {
 	// FindTasksWaitingForCapability returns task handles for jobs waiting for the given capability.
-	// If tenantIds is non-empty, only tasks from those tenants are returned.
-	// If tenantIds is empty, all tasks are returned.
+	// tenantIds must contain at least one tenant ID.
 	FindTasksWaitingForCapability(ctx context.Context, jobType string, taskType string, tenantIds []string) ([]TaskHandle, error)
 	// GetWaitingTask returns a task handle if the job is currently ready/pending that capability.
 	GetWaitingTask(ctx context.Context, key JobKey) (TaskHandle, error)

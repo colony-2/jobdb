@@ -9,9 +9,9 @@ import (
 	"time"
 )
 
-// StartJob defines the parameters for starting a new workflow job.
+// SubmitJob defines the parameters for starting a new workflow job.
 // If JobID is provided, it will be used as the job identifier; otherwise, a new unique ID will be generated.
-type StartJob struct {
+type SubmitJob struct {
 	TenantId      string            // REQUIRED: Tenant for this job
 	JobType       string            // The type of job to start (must match a registered JobWorker name)
 	JobID         string            // Optional job identifier. If empty, a new unique ID will be generated using ksuid
@@ -22,7 +22,7 @@ type StartJob struct {
 	Prerequisites []JobPrerequisite // Optional prerequisites that must complete before this job starts
 }
 
-type RestartJob struct {
+type SubmitRestartJob struct {
 	PriorJobKey     JobKey
 	LastStepToKeep  int64
 	JobID           string            // optional override for new job id
@@ -63,13 +63,18 @@ const (
 	JobStatusCompleted      JobStatus = "COMPLETED"
 )
 
+type JobInfo struct {
+	Status JobStatus
+	Data   TaskData
+}
+
 type JobData TaskData
 
 type JobContext interface {
 	//jobRunApi
 	GetJobKey() JobKey
 	Logger() *slog.Logger
-	//RunChildJobSync(ctx context.Context, childJob StartJob) (JobKey, error)
+	//RunChildJobSync(ctx context.Context, childJob SubmitJob) (JobKey, error)
 	DoTask(policy RunPolicy, taskType string, data TaskData) (TaskData, error)
 	AwaitDuration(waitFor Duration) error
 	AwaitJobs(jobIds ...string) error
@@ -81,11 +86,10 @@ type JobWorker interface {
 }
 
 type jobRunApi interface {
-	StartJob(ctx context.Context, start StartJob) (JobKey, error)
-	RestartJob(ctx context.Context, restart RestartJob) (JobKey, error)
+	SubmitJob(ctx context.Context, submit SubmitJob) (JobKey, error)
+	SubmitRestartJob(ctx context.Context, restart SubmitRestartJob) (JobKey, error)
 	CancelJob(ctx context.Context, cancel CancelJob) error
-	CheckJobStatus(ctx context.Context, jobKey JobKey) (JobStatus, error)
-	GetJobResult(ctx context.Context, jobKey JobKey) (TaskData, error)
+	GetJob(ctx context.Context, jobKey JobKey) (JobInfo, error)
 	GetJobRun(ctx context.Context, req GetJobRunRequest) (GetJobRunResponse, error)
 	ReplayJobRun(ctx context.Context, req ReplayRunRequest) (JobData, error)
 }

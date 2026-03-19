@@ -80,20 +80,20 @@ func TestChapterConstraintsAcrossEngines(t *testing.T) {
 				ctx := context.Background()
 				input := swf.NewTaskDataOrPanic(map[string]int{"n": 1})
 
-				jobKey, err := engine.StartJob(ctx, swf.StartJob{
+				jobKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "test-tenant",
 					JobType:  "deterministic-job",
 					Data:     input,
 				})
 				if err != nil {
-					t.Fatalf("StartJob failed: %v", err)
+					t.Fatalf("SubmitJob failed: %v", err)
 				}
 
 				// Wait for job to complete (with timeout for async engines)
 				waitForJobToComplete(t, engine, jobKey)
 
 				// Should have a successful result
-				result, err := engine.GetJobResult(ctx, jobKey)
+				result, err := jobResultForTest(engine, ctx, jobKey)
 				if err != nil {
 					t.Fatalf("GetJobResult failed: %v", err)
 				}
@@ -115,20 +115,20 @@ func TestChapterConstraintsAcrossEngines(t *testing.T) {
 				ctx := context.Background()
 				input := swf.NewTaskDataOrPanic(map[string]int{"n": 1})
 
-				jobKey, err := engine.StartJob(ctx, swf.StartJob{
+				jobKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "test-tenant",
 					JobType:  "non-deterministic-job",
 					Data:     input,
 				})
 				if err != nil {
-					t.Fatalf("StartJob failed: %v", err)
+					t.Fatalf("SubmitJob failed: %v", err)
 				}
 
 				// Wait for job to complete (with timeout for async engines)
 				waitForJobToComplete(t, engine, jobKey)
 
 				// Should have an error result indicating the replay diverged.
-				_, err = engine.GetJobResult(ctx, jobKey)
+				_, err = jobResultForTest(engine, ctx, jobKey)
 				if err == nil {
 					t.Fatal("expected error from GetJobResult, got nil")
 				}
@@ -223,7 +223,7 @@ func waitForJobToComplete(t *testing.T, engine swf.SWFEngine, jobKey swf.JobKey)
 	ctx := context.Background()
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		status, err := engine.CheckJobStatus(ctx, jobKey)
+		status, err := jobStatusForTest(engine, ctx, jobKey)
 		if err != nil {
 			t.Fatalf("CheckJobStatus failed: %v", err)
 		}

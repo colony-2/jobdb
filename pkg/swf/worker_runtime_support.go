@@ -24,11 +24,6 @@ type workerTaskWait struct {
 	InputHash  string `json:"input_hash,omitempty"`
 }
 
-type waitingTaskRuntime interface {
-	FindTasksWaitingForCapability(ctx context.Context, jobType string, taskType string, tenantIds []string) ([]TaskHandle, error)
-	GetWaitingTask(ctx context.Context, key JobKey) (TaskHandle, error)
-}
-
 type runtimeBackedArtifact struct {
 	runtime WorkflowRuntime
 	ref     ArtifactRef
@@ -206,38 +201,10 @@ func storedChapterToTaskData(runtime WorkflowRuntime, jobKey JobKey, ch StoredCh
 	}
 }
 
-func persistStoredChapter(ctx context.Context, runtime WorkflowRuntime, ref ChapterRef, chapter StoredChapter) error {
-	artifacts := chapter.Artifacts
-	if len(artifacts) == 0 {
-		return runtime.PutChapter(ctx, PutChapterRequest{Ref: ref, Chapter: chapter})
-	}
-	return runtime.PutChapter(ctx, PutChapterRequest{Ref: ref, Chapter: chapter})
-}
-
 func persistTaskDataChapter(ctx context.Context, runtime WorkflowRuntime, ref ChapterRef, taskType string, chapterType string, payloadKind string, inputHash string, createdAt time.Time, meta chapterMeta, payload json.RawMessage, artifacts []Artifact) (TaskData, error) {
-	storedArtifacts := make([]StoredArtifact, 0, len(artifacts))
-	if len(artifacts) > 0 {
-		uploads := make([]ArtifactUpload, 0, len(artifacts))
-		for _, art := range artifacts {
-			if art == nil {
-				continue
-			}
-			art := art
-			uploads = append(uploads, ArtifactUpload{
-				Name: art.Name(),
-				Size: art.Size(),
-				Open: art.Open,
-			})
-		}
-		var err error
-		storedArtifacts, err = runtime.PutArtifacts(ctx, PutArtifactsRequest{
-			JobKey:  ref.JobKey,
-			Ordinal: ref.Ordinal,
-			Items:   uploads,
-		})
-		if err != nil {
-			return nil, err
-		}
+	uploads, storedArtifacts, err := artifactUploadsForChapterWrite(ctx, artifacts)
+	if err != nil {
+		return nil, err
 	}
 
 	meta.Version = envelopeVersion
@@ -266,8 +233,9 @@ func persistTaskDataChapter(ctx context.Context, runtime WorkflowRuntime, ref Ch
 		Artifacts:   storedArtifacts,
 	}
 	if err := runtime.PutChapter(ctx, PutChapterRequest{
-		Ref:     ref,
-		Chapter: chapter,
+		Ref:             ref,
+		Chapter:         chapter,
+		ArtifactUploads: uploads,
 	}); err != nil {
 		return nil, err
 	}
@@ -288,6 +256,44 @@ func persistTaskDataChapter(ctx context.Context, runtime WorkflowRuntime, ref Ch
 		return nil, nil
 	}
 	return storedChapterToTaskData(runtime, ref.JobKey, chapter)
+}
+
+func artifactUploadsForChapterWrite(ctx context.Context, artifacts []Artifact) ([]ArtifactUpload, []StoredArtifact, error) {
+	if len(artifacts) == 0 {
+		return nil, nil, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	uploads := make([]ArtifactUpload, 0, len(artifacts))
+	stored := make([]StoredArtifact, 0, len(artifacts))
+	for idx, art := range artifacts {
+		if art == nil {
+			return nil, nil, fmt.Errorf("artifact %d is nil", idx)
+		}
+		if art.Name() == "" {
+			return nil, nil, fmt.Errorf("artifact %d is missing name", idx)
+		}
+		digest, err := art.Sha256(ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("artifact %d sha256: %w", idx, err)
+		}
+		if digest == "" {
+			return nil, nil, fmt.Errorf("artifact %d sha256 is empty", idx)
+		}
+		uploads = append(uploads, ArtifactUpload{
+			Name: art.Name(),
+			Size: art.Size(),
+			Open: art.Open,
+		})
+		stored = append(stored, StoredArtifact{
+			Name:   art.Name(),
+			Digest: digest,
+			Size:   art.Size(),
+		})
+	}
+	return uploads, stored, nil
 }
 
 func validateOutputArtifacts(ctx context.Context, artifacts []Artifact) ([]string, error) {

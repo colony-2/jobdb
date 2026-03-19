@@ -23,7 +23,7 @@ func TestDirectGetJobRunRetryRepresentationParity(t *testing.T) {
 				job := &retryJob{}
 				ws := swftest.MustWorkSet(t, job)
 				return observeViaMode(t, harness, mode, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) normalizedJobRun {
-					jobKey, err := subject.StartJob(ctx, swf.StartJob{
+					jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 						TenantId: "tenant-job-run-job-" + harness.Name,
 						JobType:  job.Name(),
 						JobID:    "job-retry-shape",
@@ -60,7 +60,7 @@ func TestDirectGetJobRunRetryRepresentationParity(t *testing.T) {
 				task := &retryTask{}
 				ws := swftest.MustWorkSet(t, job, task)
 				return observeViaMode(t, harness, mode, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) normalizedJobRun {
-					jobKey, err := subject.StartJob(ctx, swf.StartJob{
+					jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 						TenantId: "tenant-job-run-task-" + harness.Name,
 						JobType:  job.Name(),
 						JobID:    "task-retry-shape",
@@ -104,7 +104,7 @@ func TestDirectGetJobRunSynthesizedNextAttemptParity(t *testing.T) {
 				job := &retryJob{}
 				ws := swftest.MustWorkSet(t, job)
 				return observeViaMode(t, harness, mode, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) normalizedJobRun {
-					jobKey, err := subject.StartJob(ctx, swf.StartJob{
+					jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 						TenantId: "tenant-synth-next-" + harness.Name,
 						JobType:  job.Name(),
 						JobID:    "synth-next",
@@ -158,7 +158,7 @@ func TestDirectRestartWithExtraOutputDeterminismErrorParity(t *testing.T) {
 				ws := swftest.MustWorkSet(t, singleEchoJob{runs: &runs}, echoTask{})
 				return observeViaMode(t, harness, mode, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) errorObservation {
 					origInput := swf.NewTaskDataOrPanic(map[string]string{"hello": "world"})
-					jobKey, err := subject.StartJob(ctx, swf.StartJob{
+					jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 						TenantId: "tenant-restart-extra-" + harness.Name,
 						JobType:  ws.JobWorker.Name(),
 						JobID:    "restart-extra-base",
@@ -170,7 +170,7 @@ func TestDirectRestartWithExtraOutputDeterminismErrorParity(t *testing.T) {
 					subject.WaitForStatus(t, ctx, jobKey, swf.JobStatusCompleted)
 
 					newInput := swf.NewTaskDataOrPanic(map[string]string{"hello": "again"})
-					restartKey, err := subject.RestartJob(ctx, swf.RestartJob{
+					restartKey, err := subject.SubmitRestartJob(ctx, swf.SubmitRestartJob{
 						PriorJobKey:     jobKey,
 						LastStepToKeep:  0,
 						JobID:           "restart-extra-copy",
@@ -182,7 +182,7 @@ func TestDirectRestartWithExtraOutputDeterminismErrorParity(t *testing.T) {
 					}
 					subject.WaitForStatus(t, ctx, restartKey, swf.JobStatusCompleted)
 
-					_, err = subject.GetJobResult(ctx, restartKey)
+					_, err = jobResultForTest(subject, ctx, restartKey)
 					if err == nil || (!errors.Is(err, swf.ErrWorkflowNotDeterministic) && !strings.Contains(err.Error(), "workflow was not deterministic")) {
 						t.Fatalf("expected determinism error via %s, got %v", subject.mode, err)
 					}

@@ -12,26 +12,25 @@ import (
 // concrete persistence, artifact storage, and lease-management backends.
 type WorkflowRuntime interface {
 	// Job lifecycle
-	StartJob(ctx context.Context, req StartJobRequest) (JobHandle, error)
-	RestartJob(ctx context.Context, req RestartJobRequest) (JobHandle, error)
+	SubmitJob(ctx context.Context, req SubmitJobRequest) (JobHandle, error)
+	SubmitRestartJob(ctx context.Context, req SubmitRestartJobRequest) (JobHandle, error)
 	CancelJob(ctx context.Context, req CancelJobRequest) error
 
 	// Worker loop
 	PollWork(ctx context.Context, req PollWorkRequest) ([]ExecutionLease, error)
+	CompleteTaskIfWaiting(ctx context.Context, req CompleteTaskIfWaitingRequest) error
 
 	// Read APIs
-	CheckJobStatus(ctx context.Context, jobKey JobKey) (JobStatus, error)
-	GetJobResult(ctx context.Context, jobKey JobKey) (TaskData, error)
-	GetJobRun(ctx context.Context, req GetJobRunRequest) (GetJobRunResponse, error)
+	GetJob(ctx context.Context, jobKey JobKey) (JobInfo, error)
 	ListJobs(ctx context.Context, req ListJobsRequest) (ListJobsResponse, error)
 
 	// Chapter / replay access
 	GetChapter(ctx context.Context, ref ChapterRef) (StoredChapter, error)
+	ListChapters(ctx context.Context, req ListChaptersRequest) ([]StoredChapter, error)
 	PutChapter(ctx context.Context, req PutChapterRequest) error
 
 	// Artifact access
 	OpenArtifact(ctx context.Context, ref ArtifactRef) (ArtifactReader, error)
-	PutArtifacts(ctx context.Context, req PutArtifactsRequest) ([]StoredArtifact, error)
 }
 
 // RuntimeBuildOptions configures the shared worker engine built on top of a
@@ -53,18 +52,19 @@ type ExecutionLease interface {
 	Capability() string
 	Payload() json.RawMessage
 	KeepAlive(ctx context.Context) error
+	StopKeepAlive()
 	Complete(ctx context.Context, req CompleteExecutionRequest) error
 	Reschedule(ctx context.Context, req RescheduleExecutionRequest) error
 }
 
-type StartJobRequest struct {
-	Job         StartJob
+type SubmitJobRequest struct {
+	Job         SubmitJob
 	WorkerID    string
 	RequestTime time.Time
 }
 
-type RestartJobRequest struct {
-	Job         RestartJob
+type SubmitRestartJobRequest struct {
+	Job         SubmitRestartJob
 	WorkerID    string
 	RequestTime time.Time
 }
@@ -82,11 +82,27 @@ type PollWorkRequest struct {
 	LongPollUntil *time.Time
 }
 
+type CompleteTaskIfWaitingRequest struct {
+	JobKey        JobKey
+	Capability    string
+	ResumeNeed    string
+	InputOrdinal  int64
+	OutputOrdinal int64
+	InputHash     string
+	Data          TaskData
+}
+
 type ChapterRef struct {
 	JobKey   JobKey
 	Ordinal  int64
 	Attempt  int
 	TaskType string
+}
+
+type ListChaptersRequest struct {
+	JobKey       JobKey
+	StartOrdinal int64
+	EndOrdinal   *int64
 }
 
 type StoredArtifact struct {
@@ -108,8 +124,9 @@ type StoredChapter struct {
 }
 
 type PutChapterRequest struct {
-	Ref     ChapterRef
-	Chapter StoredChapter
+	Ref             ChapterRef
+	Chapter         StoredChapter
+	ArtifactUploads []ArtifactUpload
 }
 
 type ArtifactRef struct {
@@ -129,12 +146,6 @@ type ArtifactUpload struct {
 	Name string
 	Size int64
 	Open func() (io.ReadCloser, error)
-}
-
-type PutArtifactsRequest struct {
-	JobKey  JobKey
-	Ordinal int64
-	Items   []ArtifactUpload
 }
 
 type CompleteExecutionRequest struct {

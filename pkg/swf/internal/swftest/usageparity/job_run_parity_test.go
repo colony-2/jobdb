@@ -37,7 +37,7 @@ func TestCompletedJobRunParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) jobRunObservation {
-				jobKey, err := subject.StartJob(ctx, swf.StartJob{
+				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "tenant-job-run-complete-" + harness.Name,
 					JobType:  swftest.SequenceJobName,
 					JobID:    "completed-run",
@@ -76,7 +76,7 @@ func TestPendingRuntimeViewParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) jobRunObservation {
-				jobKey, err := subject.StartJob(ctx, swf.StartJob{
+				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "tenant-job-run-pending-" + harness.Name,
 					JobType:  ws.JobWorker.Name(),
 					JobID:    "pending-run",
@@ -125,7 +125,7 @@ func TestLazyOutputLoadParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) jobRunOutputObservation {
-				jobKey, err := subject.StartJob(ctx, swf.StartJob{
+				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "tenant-job-run-lazy-" + harness.Name,
 					JobType:  swftest.SequenceJobName,
 					JobID:    "lazy-output",
@@ -144,7 +144,7 @@ func TestLazyOutputLoadParityAcrossBuiltInRuntimes(t *testing.T) {
 					t.Fatalf("get lazy job run via %s: %v", subject.mode, err)
 				}
 				output, outputErr := run.GetOutput(subject.Engine(), jobKey.TenantId)
-				result, resultErr := subject.GetJobResult(ctx, jobKey)
+				result, resultErr := jobResultForTest(subject, ctx, jobKey)
 
 				return jobRunOutputObservation{
 					JobKey:    jobKey,
@@ -167,7 +167,7 @@ func TestFailedGetOutputParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) jobRunOutputObservation {
-				jobKey, err := subject.StartJob(ctx, swf.StartJob{
+				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "tenant-job-run-failed-" + harness.Name,
 					JobType:  swftest.FailingJobName,
 					JobID:    "failed-output",
@@ -183,7 +183,7 @@ func TestFailedGetOutputParityAcrossBuiltInRuntimes(t *testing.T) {
 					t.Fatalf("get failed job run via %s: %v", subject.mode, err)
 				}
 				output, outputErr := run.GetOutput(subject.Engine(), jobKey.TenantId)
-				result, resultErr := subject.GetJobResult(ctx, jobKey)
+				result, resultErr := jobResultForTest(subject, ctx, jobKey)
 
 				return jobRunOutputObservation{
 					JobKey:    jobKey,
@@ -206,7 +206,7 @@ func TestCancelledGetOutputParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) jobRunOutputObservation {
-				jobKey, err := subject.StartJob(ctx, swf.StartJob{
+				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "tenant-job-run-cancelled-" + harness.Name,
 					JobType:  swftest.SequenceJobName,
 					JobID:    "cancelled-output",
@@ -226,7 +226,7 @@ func TestCancelledGetOutputParityAcrossBuiltInRuntimes(t *testing.T) {
 					t.Fatalf("get cancelled job run via %s: %v", subject.mode, err)
 				}
 				output, outputErr := run.GetOutput(subject.Engine(), jobKey.TenantId)
-				result, resultErr := subject.GetJobResult(ctx, jobKey)
+				result, resultErr := jobResultForTest(subject, ctx, jobKey)
 
 				return jobRunOutputObservation{
 					JobKey:    jobKey,

@@ -67,8 +67,8 @@ func TestRuntimeArtifactRoundTripParityAcrossBuiltInRuntimes(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
-			handle, err := built.Runtime.StartJob(ctx, swf.StartJobRequest{
-				Job: swf.StartJob{
+			handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
+				Job: swf.SubmitJob{
 					TenantId: "tenant-artifact-" + harness.Name,
 					JobType:  ws.JobWorker.Name(),
 					JobID:    "artifact-roundtrip",
@@ -82,26 +82,6 @@ func TestRuntimeArtifactRoundTripParityAcrossBuiltInRuntimes(t *testing.T) {
 			swftest.WaitForRuntimeStatus(t, ctx, built.Runtime, handle.JobKey, swf.JobStatusCompleted)
 
 			artifactBytes := []byte("hello parity artifact")
-			stored, err := built.Runtime.PutArtifacts(ctx, swf.PutArtifactsRequest{
-				JobKey:  handle.JobKey,
-				Ordinal: 50,
-				Items: []swf.ArtifactUpload{
-					{
-						Name: "hello.txt",
-						Size: int64(len(artifactBytes)),
-						Open: func() (io.ReadCloser, error) {
-							return io.NopCloser(bytes.NewReader(artifactBytes)), nil
-						},
-					},
-				},
-			})
-			if err != nil {
-				t.Fatalf("put artifacts: %v", err)
-			}
-			if len(stored) != 1 {
-				t.Fatalf("expected 1 stored artifact, got %d", len(stored))
-			}
-
 			chapterReq := swf.PutChapterRequest{
 				Ref: swf.ChapterRef{
 					JobKey:  handle.JobKey,
@@ -115,7 +95,15 @@ func TestRuntimeArtifactRoundTripParityAcrossBuiltInRuntimes(t *testing.T) {
 					InputHash:   "manual-input",
 					CreatedAt:   time.Now().UTC(),
 					Data:        []byte(`{"n":99}`),
-					Artifacts:   stored,
+				},
+				ArtifactUploads: []swf.ArtifactUpload{
+					{
+						Name: "hello.txt",
+						Size: int64(len(artifactBytes)),
+						Open: func() (io.ReadCloser, error) {
+							return io.NopCloser(bytes.NewReader(artifactBytes)), nil
+						},
+					},
 				},
 			}
 			if err := built.Runtime.PutChapter(ctx, chapterReq); err != nil {
@@ -126,6 +114,10 @@ func TestRuntimeArtifactRoundTripParityAcrossBuiltInRuntimes(t *testing.T) {
 			if err != nil {
 				t.Fatalf("get chapter: %v", err)
 			}
+			if len(chapter.Artifacts) != 1 {
+				t.Fatalf("expected 1 stored artifact, got %+v", chapter.Artifacts)
+			}
+			stored := chapter.Artifacts
 
 			runtimeArtifact := mustReadRuntimeArtifactBytes(t, ctx, built.Runtime, swf.ArtifactRef{
 				JobKey:  handle.JobKey,
@@ -167,7 +159,7 @@ func TestStoredChapterRoundTripParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) storedChapterObservation {
-				jobKey, err := subject.StartJob(ctx, swf.StartJob{
+				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "tenant-chapter-roundtrip-" + harness.Name,
 					JobType:  ws.JobWorker.Name(),
 					JobID:    "chapter-roundtrip",
@@ -179,26 +171,6 @@ func TestStoredChapterRoundTripParityAcrossBuiltInRuntimes(t *testing.T) {
 				subject.WaitForStatus(t, ctx, jobKey, swf.JobStatusCompleted)
 
 				artifactBytes := []byte("chapter roundtrip artifact")
-				stored, err := subject.Runtime().PutArtifacts(ctx, swf.PutArtifactsRequest{
-					JobKey:  jobKey,
-					Ordinal: 50,
-					Items: []swf.ArtifactUpload{
-						{
-							Name: "chapter.txt",
-							Size: int64(len(artifactBytes)),
-							Open: func() (io.ReadCloser, error) {
-								return io.NopCloser(bytes.NewReader(artifactBytes)), nil
-							},
-						},
-					},
-				})
-				if err != nil {
-					t.Fatalf("put chapter artifacts via %s: %v", subject.mode, err)
-				}
-				if len(stored) != 1 {
-					t.Fatalf("expected 1 stored artifact via %s, got %d", subject.mode, len(stored))
-				}
-
 				req := swf.PutChapterRequest{
 					Ref: swf.ChapterRef{JobKey: jobKey, Ordinal: 50},
 					Chapter: swf.StoredChapter{
@@ -209,7 +181,15 @@ func TestStoredChapterRoundTripParityAcrossBuiltInRuntimes(t *testing.T) {
 						InputHash:   "manual-input",
 						CreatedAt:   time.Now().UTC(),
 						Data:        []byte(`{"n":99}`),
-						Artifacts:   stored,
+					},
+					ArtifactUploads: []swf.ArtifactUpload{
+						{
+							Name: "chapter.txt",
+							Size: int64(len(artifactBytes)),
+							Open: func() (io.ReadCloser, error) {
+								return io.NopCloser(bytes.NewReader(artifactBytes)), nil
+							},
+						},
 					},
 				}
 				if err := subject.Runtime().PutChapter(ctx, req); err != nil {
@@ -219,6 +199,10 @@ func TestStoredChapterRoundTripParityAcrossBuiltInRuntimes(t *testing.T) {
 				if err != nil {
 					t.Fatalf("get chapter via %s: %v", subject.mode, err)
 				}
+				if len(chapter.Artifacts) != 1 {
+					t.Fatalf("expected 1 stored artifact via %s, got %+v", subject.mode, chapter.Artifacts)
+				}
+				stored := chapter.Artifacts
 
 				runtimeArtifact := mustReadRuntimeArtifactBytes(t, ctx, subject.Runtime(), swf.ArtifactRef{
 					JobKey:  jobKey,
@@ -252,7 +236,7 @@ func TestChapterMetadataRoundTripParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) normalizedStoredChapter {
-				jobKey, err := subject.StartJob(ctx, swf.StartJob{
+				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "tenant-chapter-metadata-" + harness.Name,
 					JobType:  ws.JobWorker.Name(),
 					JobID:    "chapter-metadata",
@@ -304,7 +288,7 @@ func TestArtifactStorageOnTaskErrorParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) artifactErrorObservation {
-				jobKey, err := subject.StartJob(ctx, swf.StartJob{
+				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "tenant-artifact-task-error-" + harness.Name,
 					JobType:  ws.JobWorker.Name(),
 					JobID:    "task-error-artifact",
@@ -315,7 +299,7 @@ func TestArtifactStorageOnTaskErrorParityAcrossBuiltInRuntimes(t *testing.T) {
 				}
 				subject.WaitForStatus(t, ctx, jobKey, swf.JobStatusCompleted)
 
-				result, resultErr := subject.GetJobResult(ctx, jobKey)
+				result, resultErr := jobResultForTest(subject, ctx, jobKey)
 				run, err := subject.GetJobRun(ctx, swf.GetJobRunRequest{
 					JobKey:               jobKey,
 					IncludeOutputs:       true,
@@ -379,7 +363,7 @@ func TestArtifactStorageOnJobErrorParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) artifactErrorObservation {
-				jobKey, err := subject.StartJob(ctx, swf.StartJob{
+				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "tenant-artifact-job-error-" + harness.Name,
 					JobType:  ws.JobWorker.Name(),
 					JobID:    "job-error-artifact",
@@ -390,7 +374,7 @@ func TestArtifactStorageOnJobErrorParityAcrossBuiltInRuntimes(t *testing.T) {
 				}
 				subject.WaitForStatus(t, ctx, jobKey, swf.JobStatusCompleted)
 
-				result, resultErr := subject.GetJobResult(ctx, jobKey)
+				result, resultErr := jobResultForTest(subject, ctx, jobKey)
 				run, err := subject.GetJobRun(ctx, swf.GetJobRunRequest{
 					JobKey:               jobKey,
 					IncludeOutputs:       true,
@@ -469,7 +453,7 @@ func TestArtifactCleanupVisibleBehaviorParityAcrossBuiltInRuntimes(t *testing.T)
 				ws := swftest.MustWorkSet(t, job, task)
 
 				return observeViaMode(t, harness, mode, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) artifactCleanupObservation {
-					jobKey, err := subject.StartJob(ctx, swf.StartJob{
+					jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 						TenantId: "tenant-artifact-cleanup-" + harness.Name,
 						JobType:  job.Name(),
 						JobID:    "cleanup-visible",
@@ -480,7 +464,7 @@ func TestArtifactCleanupVisibleBehaviorParityAcrossBuiltInRuntimes(t *testing.T)
 					}
 					subject.WaitForStatus(t, ctx, jobKey, swf.JobStatusCompleted)
 
-					result, err := subject.GetJobResult(ctx, jobKey)
+					result, err := jobResultForTest(subject, ctx, jobKey)
 					if err != nil {
 						t.Fatalf("get cleanup result via %s: %v", subject.mode, err)
 					}

@@ -30,7 +30,7 @@ func TestExplicitJobIDParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) lifecycleObservation {
-				jobKey, err := subject.StartJob(ctx, swf.StartJob{
+				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "tenant-custom-id-" + harness.Name,
 					JobType:  ws.JobWorker.Name(),
 					JobID:    "custom-job-id",
@@ -41,7 +41,7 @@ func TestExplicitJobIDParityAcrossBuiltInRuntimes(t *testing.T) {
 				}
 				subject.WaitForStatus(t, ctx, jobKey, swf.JobStatusCompleted)
 
-				result, err := subject.GetJobResult(ctx, jobKey)
+				result, err := jobResultForTest(subject, ctx, jobKey)
 				if err != nil {
 					t.Fatalf("get job result via %s: %v", subject.mode, err)
 				}
@@ -81,7 +81,7 @@ func TestCancelJobParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) cancelObservation {
-				jobKey, err := subject.StartJob(ctx, swf.StartJob{
+				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "tenant-cancel-" + harness.Name,
 					JobType:  ws.JobWorker.Name(),
 					JobID:    "cancel-parity",
@@ -105,7 +105,7 @@ func TestCancelJobParityAcrossBuiltInRuntimes(t *testing.T) {
 				}
 				subject.WaitForStatus(t, ctx, jobKey, swf.JobStatusCancelled)
 
-				result, resultErr := subject.GetJobResult(ctx, jobKey)
+				result, resultErr := jobResultForTest(subject, ctx, jobKey)
 				_ = result
 				run, err := subject.GetJobRun(ctx, swf.GetJobRunRequest{
 					JobKey:               jobKey,
@@ -150,7 +150,7 @@ func TestRestartJobParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) lifecycleObservation {
-				origKey, err := subject.StartJob(ctx, swf.StartJob{
+				origKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "tenant-restart-" + harness.Name,
 					JobType:  swftest.SequenceJobName,
 					JobID:    "restart-original",
@@ -161,7 +161,7 @@ func TestRestartJobParityAcrossBuiltInRuntimes(t *testing.T) {
 				}
 				subject.WaitForStatus(t, ctx, origKey, swf.JobStatusCompleted)
 
-				restartKey, err := subject.RestartJob(ctx, swf.RestartJob{
+				restartKey, err := subject.SubmitRestartJob(ctx, swf.SubmitRestartJob{
 					PriorJobKey:    origKey,
 					LastStepToKeep: 0,
 					JobID:          "restart-copy",
@@ -171,7 +171,7 @@ func TestRestartJobParityAcrossBuiltInRuntimes(t *testing.T) {
 				}
 				subject.WaitForStatus(t, ctx, restartKey, swf.JobStatusCompleted)
 
-				result, err := subject.GetJobResult(ctx, restartKey)
+				result, err := jobResultForTest(subject, ctx, restartKey)
 				if err != nil {
 					t.Fatalf("get restart result via %s: %v", subject.mode, err)
 				}
@@ -214,7 +214,7 @@ func TestRestartValidationParityAcrossBuiltInRuntimes(t *testing.T) {
 		t.Run(harness.Name+"/negative-last-step", func(t *testing.T) {
 			ws := swftest.MustWorkSet(t, passthroughJob{name: "restart-negative"})
 			compareAcrossModes(t, harness, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) errorObservation {
-				_, err := subject.RestartJob(ctx, swf.RestartJob{
+				_, err := subject.SubmitRestartJob(ctx, swf.SubmitRestartJob{
 					PriorJobKey:    swf.JobKey{TenantId: "tenant", JobId: "missing"},
 					LastStepToKeep: -1,
 				})
@@ -228,7 +228,7 @@ func TestRestartValidationParityAcrossBuiltInRuntimes(t *testing.T) {
 		t.Run(harness.Name+"/missing-next-chapter", func(t *testing.T) {
 			ws := swftest.MustWorkSet(t, passthroughJob{name: "restart-missing-next"})
 			compareAcrossModes(t, harness, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) errorObservation {
-				jobKey, err := subject.StartJob(ctx, swf.StartJob{
+				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "tenant-missing-next-" + harness.Name,
 					JobType:  ws.JobWorker.Name(),
 					JobID:    "restart-base",
@@ -239,7 +239,7 @@ func TestRestartValidationParityAcrossBuiltInRuntimes(t *testing.T) {
 				}
 				subject.WaitForStatus(t, ctx, jobKey, swf.JobStatusCompleted)
 
-				_, err = subject.RestartJob(ctx, swf.RestartJob{
+				_, err = subject.SubmitRestartJob(ctx, swf.SubmitRestartJob{
 					PriorJobKey:    jobKey,
 					LastStepToKeep: 1,
 					JobID:          "restart-missing-next-copy",
@@ -257,7 +257,7 @@ func TestRestartValidationParityAcrossBuiltInRuntimes(t *testing.T) {
 				task := &retryTask{}
 				ws := swftest.MustWorkSet(t, job, task)
 				return observeViaMode(t, harness, mode, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) errorObservation {
-					jobKey, err := subject.StartJob(ctx, swf.StartJob{
+					jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 						TenantId: "tenant-retry-boundary-" + harness.Name,
 						JobType:  job.Name(),
 						JobID:    "retry-boundary",
@@ -268,7 +268,7 @@ func TestRestartValidationParityAcrossBuiltInRuntimes(t *testing.T) {
 					}
 					subject.WaitForStatus(t, ctx, jobKey, swf.JobStatusCompleted)
 
-					_, err = subject.RestartJob(ctx, swf.RestartJob{
+					_, err = subject.SubmitRestartJob(ctx, swf.SubmitRestartJob{
 						PriorJobKey:    jobKey,
 						LastStepToKeep: 1,
 						JobID:          "retry-boundary-copy",
@@ -302,7 +302,7 @@ func TestPrerequisiteParityAcrossBuiltInRuntimes(t *testing.T) {
 			}, func(t *testing.T, ctx context.Context, subject scenarioSubject) errorObservation {
 				tenantID := "tenant-prereq-" + harness.Name
 
-				successKey, err := subject.StartJob(ctx, swf.StartJob{
+				successKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: tenantID,
 					JobType:  successWorker.Name(),
 					JobID:    "success",
@@ -311,7 +311,7 @@ func TestPrerequisiteParityAcrossBuiltInRuntimes(t *testing.T) {
 				if err != nil {
 					t.Fatalf("start success prereq via %s: %v", subject.mode, err)
 				}
-				failKey, err := subject.StartJob(ctx, swf.StartJob{
+				failKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: tenantID,
 					JobType:  failWorker.Name(),
 					JobID:    "fail",
@@ -323,7 +323,7 @@ func TestPrerequisiteParityAcrossBuiltInRuntimes(t *testing.T) {
 				subject.WaitForStatus(t, ctx, successKey, swf.JobStatusCompleted)
 				subject.WaitForStatus(t, ctx, failKey, swf.JobStatusCompleted)
 
-				successDependent, err := subject.StartJob(ctx, swf.StartJob{
+				successDependent, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: tenantID,
 					JobType:  dependentWorker.Name(),
 					JobID:    "dependent-success",
@@ -335,7 +335,7 @@ func TestPrerequisiteParityAcrossBuiltInRuntimes(t *testing.T) {
 				if err != nil {
 					t.Fatalf("start dependent success via %s: %v", subject.mode, err)
 				}
-				failedDependent, err := subject.StartJob(ctx, swf.StartJob{
+				failedDependent, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: tenantID,
 					JobType:  dependentWorker.Name(),
 					JobID:    "dependent-failed",
@@ -347,7 +347,7 @@ func TestPrerequisiteParityAcrossBuiltInRuntimes(t *testing.T) {
 				if err != nil {
 					t.Fatalf("start dependent failed via %s: %v", subject.mode, err)
 				}
-				completeDependent, err := subject.StartJob(ctx, swf.StartJob{
+				completeDependent, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: tenantID,
 					JobType:  dependentWorker.Name(),
 					JobID:    "dependent-complete",
@@ -364,13 +364,13 @@ func TestPrerequisiteParityAcrossBuiltInRuntimes(t *testing.T) {
 				subject.WaitForStatus(t, ctx, failedDependent, swf.JobStatusCompleted)
 				subject.WaitForStatus(t, ctx, completeDependent, swf.JobStatusCompleted)
 
-				if _, err := subject.GetJobResult(ctx, successDependent); err != nil {
+				if _, err := jobResultForTest(subject, ctx, successDependent); err != nil {
 					t.Fatalf("expected success dependent to succeed via %s: %v", subject.mode, err)
 				}
-				if _, err := subject.GetJobResult(ctx, completeDependent); err != nil {
+				if _, err := jobResultForTest(subject, ctx, completeDependent); err != nil {
 					t.Fatalf("expected complete dependent to succeed via %s: %v", subject.mode, err)
 				}
-				_, err = subject.GetJobResult(ctx, failedDependent)
+				_, err = jobResultForTest(subject, ctx, failedDependent)
 				if err == nil {
 					t.Fatalf("expected failed dependent to fail via %s", subject.mode)
 				}

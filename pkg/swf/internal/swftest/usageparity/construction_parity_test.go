@@ -36,7 +36,7 @@ func TestEngineAndRuntimeConstructionParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) lifecycleObservation {
-				jobKey, err := subject.StartJob(ctx, swf.StartJob{
+				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "tenant-construction-" + harness.Name,
 					JobType:  swftest.SequenceJobName,
 					JobID:    "construction-parity",
@@ -47,7 +47,7 @@ func TestEngineAndRuntimeConstructionParityAcrossBuiltInRuntimes(t *testing.T) {
 				}
 				subject.WaitForStatus(t, ctx, jobKey, swf.JobStatusCompleted)
 
-				result, err := subject.GetJobResult(ctx, jobKey)
+				result, err := jobResultForTest(subject, ctx, jobKey)
 				if err != nil {
 					t.Fatalf("get job result via %s: %v", subject.mode, err)
 				}
@@ -94,7 +94,7 @@ func TestGeneratedJobIDConstructionParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			engineObs := observeViaMode(t, harness, engineMode, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) generatedStartObservation {
-				jobKey, err := subject.StartJob(ctx, swf.StartJob{
+				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "tenant-generated-" + harness.Name,
 					JobType:  swftest.SequenceJobName,
 					Data:     swftest.NumberTaskData(2),
@@ -103,11 +103,11 @@ func TestGeneratedJobIDConstructionParityAcrossBuiltInRuntimes(t *testing.T) {
 					t.Fatalf("start job via %s: %v", subject.mode, err)
 				}
 				subject.WaitForStatus(t, ctx, jobKey, swf.JobStatusCompleted)
-				result, err := subject.GetJobResult(ctx, jobKey)
+				result, err := jobResultForTest(subject, ctx, jobKey)
 				if err != nil {
 					t.Fatalf("get job result via %s: %v", subject.mode, err)
 				}
-				status, err := subject.CheckJobStatus(ctx, jobKey)
+				status, err := jobStatusForTest(subject, ctx, jobKey)
 				if err != nil {
 					t.Fatalf("check status via %s: %v", subject.mode, err)
 				}
@@ -120,7 +120,7 @@ func TestGeneratedJobIDConstructionParityAcrossBuiltInRuntimes(t *testing.T) {
 				}
 			})
 			runtimeObs := observeViaMode(t, harness, runtimeMode, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) generatedStartObservation {
-				jobKey, err := subject.StartJob(ctx, swf.StartJob{
+				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "tenant-generated-" + harness.Name,
 					JobType:  swftest.SequenceJobName,
 					Data:     swftest.NumberTaskData(2),
@@ -129,11 +129,11 @@ func TestGeneratedJobIDConstructionParityAcrossBuiltInRuntimes(t *testing.T) {
 					t.Fatalf("start job via %s: %v", subject.mode, err)
 				}
 				subject.WaitForStatus(t, ctx, jobKey, swf.JobStatusCompleted)
-				result, err := subject.GetJobResult(ctx, jobKey)
+				result, err := jobResultForTest(subject, ctx, jobKey)
 				if err != nil {
 					t.Fatalf("get job result via %s: %v", subject.mode, err)
 				}
-				status, err := subject.CheckJobStatus(ctx, jobKey)
+				status, err := jobStatusForTest(subject, ctx, jobKey)
 				if err != nil {
 					t.Fatalf("check status via %s: %v", subject.mode, err)
 				}

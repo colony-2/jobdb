@@ -59,7 +59,7 @@ type jobFailedChainParentJob struct {
 func (jobFailedChainParentJob) Name() string { return "job-failed-chain-parent" }
 
 func (j *jobFailedChainParentJob) Run(ctx swf.JobContext, data swf.JobData) (_ swf.JobData, runErr error) {
-	childKey, err := j.engine.StartJob(context.Background(), swf.StartJob{
+	childKey, err := j.engine.SubmitJob(context.Background(), swf.SubmitJob{
 		TenantId: ctx.GetJobKey().TenantId,
 		JobType:  j.child,
 		JobID:    ctx.GetJobKey().JobId + "-child",
@@ -149,7 +149,7 @@ func TestGetJobRunOutputErrorChainComparableAcrossBuiltInRuntimes(t *testing.T) 
 				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 				defer cancel()
 
-				jobKey, err := built.Engine.StartJob(ctx, swf.StartJob{
+				jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: "tenant-job-failed-chain-" + harness.Name + "-" + tc.name,
 					JobType:  parent.Name(),
 					JobID:    "parent",
@@ -159,7 +159,7 @@ func TestGetJobRunOutputErrorChainComparableAcrossBuiltInRuntimes(t *testing.T) 
 					t.Fatalf("start parent: %v", err)
 				}
 				swftest.WaitForEngineStatus(t, ctx, built.Engine, jobKey, swf.JobStatusCompleted)
-				_, err = built.Engine.GetJobResult(ctx, jobKey)
+				_, err = jobResultForTest(built.Engine, ctx, jobKey)
 				if err == nil {
 					t.Fatal("expected parent to fail")
 				}

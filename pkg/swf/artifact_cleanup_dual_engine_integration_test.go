@@ -220,7 +220,7 @@ func newFileArtifact(path, name string) swf.Artifact {
 func runArtifactCleanupScenario(t *testing.T, ctx context.Context, engine swf.SWFEngine, filePaths []string) {
 	t.Helper()
 
-	jobKey, err := engine.StartJob(ctx, swf.StartJob{
+	jobKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 		TenantId: "test-tenant",
 		JobType:  artifactCleanupJobName,
 		Data:     swf.NewTaskDataOrPanic(map[string]string{"hello": "world"}),
@@ -229,11 +229,11 @@ func runArtifactCleanupScenario(t *testing.T, ctx context.Context, engine swf.SW
 
 	require.NoError(t, swf.WaitForJobToComplete(ctx, 30*time.Second, jobKey, engine))
 
-	status, err := engine.CheckJobStatus(ctx, jobKey)
+	status, err := jobStatusForTest(engine, ctx, jobKey)
 	require.NoError(t, err)
 	require.Equal(t, swf.JobStatusCompleted, status)
 
-	_, err = engine.GetJobResult(ctx, jobKey)
+	_, err = jobResultForTest(engine, ctx, jobKey)
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {

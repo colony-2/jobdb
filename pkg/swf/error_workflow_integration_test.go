@@ -49,7 +49,7 @@ func TestTaskErrorsAreEnvelopedAndReturned(t *testing.T) {
 			go engine.Run(ctx)
 
 			tenantID := "tenant-task-" + tt.name
-			jobKey, err := engine.StartJob(ctx, swf.StartJob{
+			jobKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 				TenantId: tenantID,
 				JobType:  jobWorker.Name(),
 				Data:     swf.NewTaskDataOrPanic(map[string]interface{}{"n": 1}),
@@ -118,7 +118,7 @@ func TestJobErrorsAreEnvelopedAndReturned(t *testing.T) {
 			go engine.Run(ctx)
 
 			tenantID := "tenant-job-" + tt.name
-			jobKey, err := engine.StartJob(ctx, swf.StartJob{
+			jobKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 				TenantId: tenantID,
 				JobType:  jobWorker.Name(),
 				Data:     swf.NewTaskDataOrPanic(map[string]interface{}{"n": 1}),
@@ -205,7 +205,7 @@ func waitForJobResult(t *testing.T, engine swf.SWFEngine, dsn string, jobKey swf
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		td, err := engine.GetJobResult(context.Background(), jobKey)
+		td, err := jobResultForTest(engine, context.Background(), jobKey)
 		if err == nil {
 			t.Logf("job result succeeded unexpectedly: %+v", td)
 			return td, nil

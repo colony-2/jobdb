@@ -67,7 +67,7 @@ func TestArtifactStorageOnTaskError(t *testing.T) {
 		go engine.Run(ctx)
 
 		// Start the job
-		jobKey, err := engine.StartJob(ctx, swf.StartJob{
+		jobKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 			TenantId: "test-tenant",
 			JobType:  jobWorker.Name(),
 			Data:     swf.NewTaskDataOrPanic(map[string]string{"input": "data"}),
@@ -76,7 +76,7 @@ func TestArtifactStorageOnTaskError(t *testing.T) {
 
 		// Wait for job to complete (with error)
 		require.Eventually(t, func() bool {
-			status, _ := engine.CheckJobStatus(ctx, jobKey)
+			status, _ := jobStatusForTest(engine, ctx, jobKey)
 			return status == swf.JobStatusCompleted
 		}, 30*time.Second, 200*time.Millisecond)
 
@@ -149,7 +149,7 @@ func TestArtifactStorageOnTaskError(t *testing.T) {
 		go engine.Run(ctx)
 
 		// Start the job with retry policy
-		jobKey, err := engine.StartJob(ctx, swf.StartJob{
+		jobKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 			TenantId: "test-tenant",
 			JobType:  jobWorker.Name(),
 			Data:     swf.NewTaskDataOrPanic(map[string]string{"input": "data"}),
@@ -166,7 +166,7 @@ func TestArtifactStorageOnTaskError(t *testing.T) {
 
 		// Wait for job to complete (after all retries fail)
 		require.Eventually(t, func() bool {
-			status, _ := engine.CheckJobStatus(ctx, jobKey)
+			status, _ := jobStatusForTest(engine, ctx, jobKey)
 			return status == swf.JobStatusCompleted
 		}, 30*time.Second, 200*time.Millisecond)
 
@@ -236,7 +236,7 @@ func TestArtifactStorageOnJobError(t *testing.T) {
 		go engine.Run(ctx)
 
 		// Start the job
-		jobKey, err := engine.StartJob(ctx, swf.StartJob{
+		jobKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 			TenantId: "test-tenant",
 			JobType:  jobWorker.Name(),
 			Data:     swf.NewTaskDataOrPanic(map[string]string{"input": "data"}),
@@ -245,7 +245,7 @@ func TestArtifactStorageOnJobError(t *testing.T) {
 
 		// Wait for job to complete (with error)
 		require.Eventually(t, func() bool {
-			status, _ := engine.CheckJobStatus(ctx, jobKey)
+			status, _ := jobStatusForTest(engine, ctx, jobKey)
 			return status == swf.JobStatusCompleted
 		}, 30*time.Second, 200*time.Millisecond)
 

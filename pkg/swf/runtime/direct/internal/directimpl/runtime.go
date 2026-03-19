@@ -1,7 +1,6 @@
 package directimpl
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -11,13 +10,13 @@ import (
 	"log/slog"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
 	strataclient "github.com/colony-2/strata-go/pkg/client"
 	strataartifact "github.com/colony-2/strata-go/pkg/client/artifact"
 	"github.com/colony-2/strata-go/pkg/client/core"
+	"github.com/colony-2/strata-go/pkg/client/pagination"
 	"github.com/colony-2/strata-go/pkg/client/story"
 	"github.com/colony-2/swf-go/pkg/swf"
 	"github.com/segmentio/ksuid"
@@ -32,24 +31,9 @@ type Runtime struct {
 	strataClient *strataclient.Client
 	logger       *slog.Logger
 	workerID     string
-
-	pendingMu        sync.Mutex
-	pendingArtifacts map[pendingArtifactKey]pendingArtifact
 }
 
 var _ swf.WorkflowRuntime = (*Runtime)(nil)
-
-type pendingArtifactKey struct {
-	jobKey  swf.JobKey
-	ordinal int64
-	name    string
-	digest  string
-}
-
-type pendingArtifact struct {
-	size int64
-	art  swf.Artifact
-}
 
 func New(db *gorm.DB, strataClient *strataclient.Client) *Runtime {
 	var udb *sql.DB
@@ -61,12 +45,11 @@ func New(db *gorm.DB, strataClient *strataclient.Client) *Runtime {
 		host = "swf"
 	}
 	return &Runtime{
-		db:               db,
-		udb:              udb,
-		strataClient:     strataClient,
-		logger:           slog.Default(),
-		workerID:         fmt.Sprintf("%s:%d-%s", host, os.Getpid(), ksuid.New().String()),
-		pendingArtifacts: make(map[pendingArtifactKey]pendingArtifact),
+		db:           db,
+		udb:          udb,
+		strataClient: strataClient,
+		logger:       slog.Default(),
+		workerID:     fmt.Sprintf("%s:%d-%s", host, os.Getpid(), ksuid.New().String()),
 	}
 }
 
@@ -95,7 +78,7 @@ func NewFromConfig(postgresDSN, strataBaseURL, strataAPIKey string) (*Runtime, e
 	return New(db, strataClient), nil
 }
 
-func (r *Runtime) StartJob(ctx context.Context, req swf.StartJobRequest) (swf.JobHandle, error) {
+func (r *Runtime) SubmitJob(ctx context.Context, req swf.SubmitJobRequest) (swf.JobHandle, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -123,6 +106,7 @@ func (r *Runtime) StartJob(ctx context.Context, req swf.StartJobRequest) (swf.Jo
 	jobPolicy := normalizeRunPolicy(req.Job.RunPolicy)
 	co, err := taskDataToCreatOptions(taskData, 0, req.Job.JobType, r.requestWorkerID(req.WorkerID), chapterTypeJobStart, payloadKindApp, inputHash, time.Now().UTC(), chapterMetadata{
 		Attempt:       1,
+		RunPolicy:     &jobPolicy,
 		Prerequisites: prereqs,
 	})
 	if err != nil {
@@ -145,7 +129,7 @@ func (r *Runtime) StartJob(ctx context.Context, req swf.StartJobRequest) (swf.Jo
 	return swf.JobHandle{JobKey: jobKey}, nil
 }
 
-func (r *Runtime) RestartJob(ctx context.Context, req swf.RestartJobRequest) (swf.JobHandle, error) {
+func (r *Runtime) SubmitRestartJob(ctx context.Context, req swf.SubmitRestartJobRequest) (swf.JobHandle, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -289,45 +273,75 @@ func (r *Runtime) PollWork(ctx context.Context, req swf.PollWorkRequest) ([]swf.
 	return out, nil
 }
 
-func (r *Runtime) CheckJobStatus(ctx context.Context, jobKey swf.JobKey) (swf.JobStatus, error) {
-	status, err := pgwf.GetJobStatus(ctx, r.pgwfDB(ctx), pgwf.TenantID(jobKey.TenantId), pgwf.JobID(jobKey.JobId))
-	if errors.Is(err, pgwf.ErrJobNotFound) {
-		return "", swf.ErrJobNotFound
-	}
-	if err != nil {
-		return "", fmt.Errorf("failed to get job status: %w", err)
-	}
-	return convertPgwfStatusToSwf(status.Status, status.CancelRequested, status.ArchivedAt), nil
+type jobInfoTaskData struct {
+	taskData swf.TaskData
+	err      error
 }
 
-func (r *Runtime) GetJobResult(ctx context.Context, jobKey swf.JobKey) (swf.TaskData, error) {
-	isArchived, err := pgwf.IsJobArchived(ctx, r.pgwfDB(ctx), pgwf.TenantID(jobKey.TenantId), pgwf.JobID(jobKey.JobId))
-	if err != nil {
-		return nil, fmt.Errorf("failed to check if job is archived: %w", err)
+func (d *jobInfoTaskData) GetData() (swf.Data, error) {
+	if d.taskData == nil {
+		return nil, d.err
 	}
-	if !isArchived {
-		return nil, swf.ErrJobNotComplete
+	data, err := d.taskData.GetData()
+	if err != nil {
+		return data, err
+	}
+	return data, d.err
+}
+
+func (d *jobInfoTaskData) GetDataOrPanic() swf.Data {
+	data, err := d.GetData()
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
+
+func (d *jobInfoTaskData) GetArtifacts() ([]swf.Artifact, error) {
+	if d.taskData == nil {
+		return nil, d.err
+	}
+	return d.taskData.GetArtifacts()
+}
+
+func (d *jobInfoTaskData) TaskDataResult() (swf.TaskData, error) {
+	return d.taskData, d.err
+}
+
+func (r *Runtime) GetJob(ctx context.Context, jobKey swf.JobKey) (swf.JobInfo, error) {
+	status, err := pgwf.GetJobStatus(ctx, r.pgwfDB(ctx), pgwf.TenantID(jobKey.TenantId), pgwf.JobID(jobKey.JobId))
+	if errors.Is(err, pgwf.ErrJobNotFound) {
+		return swf.JobInfo{}, swf.ErrJobNotFound
+	}
+	if err != nil {
+		return swf.JobInfo{}, fmt.Errorf("failed to get job status: %w", err)
+	}
+	job := swf.JobInfo{
+		Status: convertPgwfStatusToSwf(status.Status, status.CancelRequested, status.ArchivedAt),
+		Data:   &jobInfoTaskData{err: swf.ErrJobNotComplete},
+	}
+	if status.ArchivedAt == nil {
+		return job, nil
 	}
 
 	st, err := r.strataClient.Story(ctx, storyKeyForJob(jobKey))
 	if err != nil {
-		return nil, err
+		return swf.JobInfo{}, err
 	}
 	chap, err := st.GetLastChapter(ctx)
 	if err != nil {
-		return nil, err
+		return swf.JobInfo{}, err
 	}
 	td, payloadErr := chapterToTaskData(chap, jobKey)
-	if payloadErr != nil {
-		return td, payloadErr
-	}
-	return td, nil
+	job.Data = &jobInfoTaskData{taskData: td, err: payloadErr}
+	return job, nil
 }
 
 func (r *Runtime) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.ListJobsResponse, error) {
 	if len(req.TenantIds) == 0 {
 		return swf.ListJobsResponse{}, fmt.Errorf("tenant_ids is required for ListJobs")
 	}
+
 	metadataPredicates, err := metadataPredicatesToPgwf(req.MetadataFilter)
 	if err != nil {
 		return swf.ListJobsResponse{}, err
@@ -359,14 +373,15 @@ func (r *Runtime) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.Li
 	for _, st := range req.Statuses {
 		requestedStatuses[st] = true
 	}
-	requestedJobIDs := make(map[string]bool, len(req.JobKeys))
+	requestedJobKeys := make(map[swf.JobKey]bool, len(req.JobKeys))
 	for _, jk := range req.JobKeys {
-		requestedJobIDs[jk.JobId] = true
+		requestedJobKeys[jk] = true
 	}
 
 	jobs := make([]swf.JobSummary, 0, len(result.Jobs))
 	for _, job := range result.Jobs {
-		if len(requestedJobIDs) > 0 && !requestedJobIDs[job.JobID] {
+		jobKey := swf.JobKey{TenantId: job.TenantID, JobId: job.JobID}
+		if len(requestedJobKeys) > 0 && !requestedJobKeys[jobKey] {
 			continue
 		}
 		swfStatus := convertPgwfStatusToSwf(job.Status, job.CancelRequested, job.ArchivedAt)
@@ -374,9 +389,10 @@ func (r *Runtime) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.Li
 			continue
 		}
 		summary := swf.JobSummary{
-			JobKey:          swf.JobKey{TenantId: job.TenantID, JobId: job.JobID},
+			JobKey:          jobKey,
 			Status:          swfStatus,
 			JobType:         swf.JobTypeFromNextNeed(job.NextNeed),
+			NextNeed:        strPtr(job.NextNeed),
 			SingletonKey:    job.SingletonKey,
 			WaitFor:         job.WaitFor,
 			AvailableAt:     job.AvailableAt,
@@ -396,6 +412,7 @@ func (r *Runtime) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.Li
 			if tw, waitErr := extractTaskWaitFromRaw(details.Payload); waitErr == nil && tw != nil {
 				summary.TaskWaitInput = &tw.InputStep
 				summary.TaskWaitOutput = &tw.OutputStep
+				summary.TaskWaitInputHash = strPtr(tw.InputHash)
 				summary.TaskWaitNext = &tw.Next
 			}
 		}
@@ -489,19 +506,65 @@ func (r *Runtime) GetChapter(ctx context.Context, ref swf.ChapterRef) (swf.Store
 	return StoredChapterFromStoryChapter(chapter)
 }
 
+func (r *Runtime) ListChapters(ctx context.Context, req swf.ListChaptersRequest) ([]swf.StoredChapter, error) {
+	if err := r.validate(); err != nil {
+		return nil, err
+	}
+	if req.StartOrdinal < 0 {
+		return nil, fmt.Errorf("start ordinal must be >= 0")
+	}
+	st, err := r.loadStory(ctx, storyKeyForJob(req.JobKey))
+	if err != nil {
+		if errors.Is(err, core.ErrNotFound) {
+			return nil, swf.ErrJobNotFound
+		}
+		return nil, err
+	}
+	iter, err := st.Chapters(ctx, story.ChaptersOptions{
+		PageSize:  defaultJobRunChaptersPageSize,
+		Direction: story.DirectionForward,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]swf.StoredChapter, 0)
+	for iter.HasNext() {
+		chapter, err := iter.Next(ctx)
+		if errors.Is(err, pagination.ErrNoMoreItems) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		stored, err := StoredChapterFromStoryChapter(chapter)
+		if err != nil {
+			return nil, err
+		}
+		if stored.Ordinal < req.StartOrdinal {
+			continue
+		}
+		if req.EndOrdinal != nil && stored.Ordinal > *req.EndOrdinal {
+			break
+		}
+		out = append(out, stored)
+	}
+	return out, nil
+}
+
 func (r *Runtime) PutChapter(ctx context.Context, req swf.PutChapterRequest) error {
 	if err := r.validate(); err != nil {
 		return err
 	}
-	body, err := EncodeStoredChapter(req.Chapter)
+	chapter, attached, err := r.prepareChapterWrite(ctx, req)
+	if err != nil {
+		return err
+	}
+	body, err := EncodeStoredChapter(chapter)
 	if err != nil {
 		return err
 	}
 	builder := story.NewChapter().WithOrdinal(req.Ref.Ordinal).WithBytes(body)
-	attached, err := r.takePendingArtifacts(req.Ref.JobKey, req.Ref.Ordinal, req.Chapter.Artifacts)
-	if err != nil {
-		return err
-	}
 	for _, art := range attached {
 		builder.AddArtifact(art)
 	}
@@ -547,52 +610,6 @@ func (r *Runtime) OpenArtifact(ctx context.Context, ref swf.ArtifactRef) (swf.Ar
 		r.strataClient.Core(),
 	)
 	return artifactReader{art: FromStrataArtifactForRuntime(art)}, nil
-}
-
-func (r *Runtime) PutArtifacts(ctx context.Context, req swf.PutArtifactsRequest) ([]swf.StoredArtifact, error) {
-	if err := r.validate(); err != nil {
-		return nil, err
-	}
-	out := make([]swf.StoredArtifact, 0, len(req.Items))
-	for _, item := range req.Items {
-		if item.Open == nil {
-			return nil, fmt.Errorf("artifact %q is missing opener", item.Name)
-		}
-		reader, err := item.Open()
-		if err != nil {
-			return nil, err
-		}
-		data, err := io.ReadAll(reader)
-		_ = reader.Close()
-		if err != nil {
-			return nil, err
-		}
-		art := swf.NewArtifact(item.Name, func() (io.ReadCloser, int64, error) {
-			return io.NopCloser(bytes.NewReader(data)), int64(len(data)), nil
-		}, func() error { return nil })
-		digest, err := art.Sha256(ctx)
-		if err != nil {
-			return nil, err
-		}
-		key := pendingArtifactKey{
-			jobKey:  req.JobKey,
-			ordinal: req.Ordinal,
-			name:    item.Name,
-			digest:  digest,
-		}
-		r.pendingMu.Lock()
-		r.pendingArtifacts[key] = pendingArtifact{
-			size: int64(len(data)),
-			art:  art,
-		}
-		r.pendingMu.Unlock()
-		out = append(out, swf.StoredArtifact{
-			Name:   item.Name,
-			Digest: digest,
-			Size:   int64(len(data)),
-		})
-	}
-	return out, nil
 }
 
 func (r *Runtime) validate() error {
@@ -650,42 +667,68 @@ func (r *Runtime) loadChapter(ctx context.Context, key story.Key, ordinal int64)
 	return r.strataClient.Chapter(ctx, key, ordinal)
 }
 
-func (r *Runtime) takePendingArtifacts(jobKey swf.JobKey, ordinal int64, refs []swf.StoredArtifact) ([]strataartifact.Artifact, error) {
-	attached := make([]strataartifact.Artifact, 0, len(refs))
-	for _, ref := range refs {
-		key := pendingArtifactKey{
-			jobKey:  jobKey,
-			ordinal: ordinal,
-			name:    ref.Name,
-			digest:  ref.Digest,
+func (r *Runtime) prepareChapterWrite(ctx context.Context, req swf.PutChapterRequest) (swf.StoredChapter, []strataartifact.Artifact, error) {
+	chapter := req.Chapter
+	if len(req.ArtifactUploads) == 0 {
+		if len(chapter.Artifacts) > 0 {
+			return swf.StoredChapter{}, nil, fmt.Errorf("put chapter with artifact descriptors but no artifact uploads")
 		}
-		r.pendingMu.Lock()
-		pending, ok := r.pendingArtifacts[key]
-		if ok {
-			delete(r.pendingArtifacts, key)
-		}
-		r.pendingMu.Unlock()
-		if ok {
-			attached = append(attached, ToStrataArtifactForRuntime(pending.art))
-			continue
-		}
-		attached = append(attached, strataartifact.FromRemote(
-			strataartifact.Descriptor{
-				Name:        ref.Name,
-				ContentType: "application/octet-stream",
-				SizeBytes:   ref.Size,
-				Sha256:      ref.Digest,
-			},
-			strataartifact.Locator{
-				AnthologyID: jobKey.TenantId,
-				StoryID:     jobKey.JobId,
-				Ordinal:     ordinal,
-				Name:        ref.Name,
-			},
-			r.strataClient.Core(),
-		))
+		return chapter, nil, nil
 	}
-	return attached, nil
+
+	stored := make([]swf.StoredArtifact, 0, len(req.ArtifactUploads))
+	attached := make([]strataartifact.Artifact, 0, len(req.ArtifactUploads))
+	for _, item := range req.ArtifactUploads {
+		if item.Open == nil {
+			return swf.StoredChapter{}, nil, fmt.Errorf("artifact %q is missing opener", item.Name)
+		}
+		reader, err := item.Open()
+		if err != nil {
+			return swf.StoredChapter{}, nil, err
+		}
+		data, err := io.ReadAll(reader)
+		_ = reader.Close()
+		if err != nil {
+			return swf.StoredChapter{}, nil, err
+		}
+		art := swf.NewArtifactFromBytes(item.Name, data)
+		digest, err := art.Sha256(ctx)
+		if err != nil {
+			return swf.StoredChapter{}, nil, err
+		}
+		stored = append(stored, swf.StoredArtifact{
+			Name:   item.Name,
+			Digest: digest,
+			Size:   int64(len(data)),
+		})
+		attached = append(attached, ToStrataArtifactForRuntime(art))
+	}
+	if err := validateChapterArtifactDescriptors(chapter.Artifacts, stored); err != nil {
+		return swf.StoredChapter{}, nil, err
+	}
+	chapter.Artifacts = stored
+	return chapter, attached, nil
+}
+
+func validateChapterArtifactDescriptors(existing []swf.StoredArtifact, computed []swf.StoredArtifact) error {
+	if len(existing) == 0 {
+		return nil
+	}
+	if len(existing) != len(computed) {
+		return fmt.Errorf("chapter artifact metadata count %d does not match uploads %d", len(existing), len(computed))
+	}
+	for i := range existing {
+		if existing[i].Name != computed[i].Name {
+			return fmt.Errorf("chapter artifact %d name %q does not match uploaded artifact %q", i, existing[i].Name, computed[i].Name)
+		}
+		if existing[i].Size != 0 && existing[i].Size != computed[i].Size {
+			return fmt.Errorf("chapter artifact %q size %d does not match uploaded size %d", existing[i].Name, existing[i].Size, computed[i].Size)
+		}
+		if existing[i].Digest != "" && existing[i].Digest != computed[i].Digest {
+			return fmt.Errorf("chapter artifact %q digest %q does not match uploaded digest %q", existing[i].Name, existing[i].Digest, computed[i].Digest)
+		}
+	}
+	return nil
 }
 
 type artifactReader struct {

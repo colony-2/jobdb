@@ -37,7 +37,7 @@ func TestJobsEventuallyComplete(t *testing.T) {
 	jobInputs := []int{1, 2, 3}
 	jobKeys := make([]swf.JobKey, 0, len(jobInputs))
 	for _, n := range jobInputs {
-		key, err := engine.StartJob(ctx, swf.StartJob{
+		key, err := engine.SubmitJob(ctx, swf.SubmitJob{
 			TenantId: tenantID,
 			JobType:  statusJobName,
 			Data:     swf.NewTaskDataOrPanic(map[string]interface{}{"n": n}),
@@ -75,7 +75,7 @@ func waitForCompletedStatus(t *testing.T, ctx context.Context, engine swf.SWFEng
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		status, err := engine.CheckJobStatus(ctx, jobKey)
+		status, err := jobStatusForTest(engine, ctx, jobKey)
 		if err == nil && status == swf.JobStatusCompleted {
 			return
 		}

@@ -33,12 +33,12 @@ func WaitForJobToComplete(ctx context.Context, timeout time.Duration, jobKey Job
 
 		case <-ticker.C:
 			// Time to check the status
-			status, err := engine.CheckJobStatus(ctx, jobKey)
+			job, err := engine.GetJob(ctx, jobKey)
 			if err != nil {
 				return fmt.Errorf("failed to check status for job %s: %v", jobKey, err)
 			}
 
-			if status == JobStatusCompleted {
+			if job.Status == JobStatusCompleted {
 				return nil
 			}
 

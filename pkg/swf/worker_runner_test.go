@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -24,6 +25,41 @@ type runnerTestRuntime struct {
 	listJobsHook       func(ListJobsRequest) (ListJobsResponse, error)
 }
 
+type runnerTestJobInfoData struct {
+	taskData TaskData
+	err      error
+}
+
+func (d *runnerTestJobInfoData) GetData() (Data, error) {
+	if d.taskData == nil {
+		return nil, d.err
+	}
+	data, err := d.taskData.GetData()
+	if err != nil {
+		return data, err
+	}
+	return data, d.err
+}
+
+func (d *runnerTestJobInfoData) GetDataOrPanic() Data {
+	data, err := d.GetData()
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
+
+func (d *runnerTestJobInfoData) GetArtifacts() ([]Artifact, error) {
+	if d.taskData == nil {
+		return nil, d.err
+	}
+	return d.taskData.GetArtifacts()
+}
+
+func (d *runnerTestJobInfoData) TaskDataResult() (TaskData, error) {
+	return d.taskData, d.err
+}
+
 func newRunnerTestRuntime() *runnerTestRuntime {
 	return &runnerTestRuntime{
 		chapters:   make(map[JobKey]map[int64]StoredChapter),
@@ -32,12 +68,12 @@ func newRunnerTestRuntime() *runnerTestRuntime {
 	}
 }
 
-func (r *runnerTestRuntime) StartJob(context.Context, StartJobRequest) (JobHandle, error) {
-	return JobHandle{}, errors.New("unexpected StartJob call")
+func (r *runnerTestRuntime) SubmitJob(context.Context, SubmitJobRequest) (JobHandle, error) {
+	return JobHandle{}, errors.New("unexpected SubmitJob call")
 }
 
-func (r *runnerTestRuntime) RestartJob(context.Context, RestartJobRequest) (JobHandle, error) {
-	return JobHandle{}, errors.New("unexpected RestartJob call")
+func (r *runnerTestRuntime) SubmitRestartJob(context.Context, SubmitRestartJobRequest) (JobHandle, error) {
+	return JobHandle{}, errors.New("unexpected SubmitRestartJob call")
 }
 
 func (r *runnerTestRuntime) CancelJob(context.Context, CancelJobRequest) error {
@@ -48,12 +84,43 @@ func (r *runnerTestRuntime) PollWork(context.Context, PollWorkRequest) ([]Execut
 	return nil, nil
 }
 
-func (r *runnerTestRuntime) CheckJobStatus(_ context.Context, jobKey JobKey) (JobStatus, error) {
-	return r.checkJobStatus(jobKey)
+func (r *runnerTestRuntime) CompleteTaskIfWaiting(context.Context, CompleteTaskIfWaitingRequest) error {
+	return errors.New("unexpected CompleteTaskIfWaiting call")
 }
 
-func (r *runnerTestRuntime) GetJobResult(context.Context, JobKey) (TaskData, error) {
-	return nil, errors.New("unexpected GetJobResult call")
+func (r *runnerTestRuntime) GetJob(_ context.Context, jobKey JobKey) (JobInfo, error) {
+	status, err := r.checkJobStatus(jobKey)
+	if err != nil {
+		return JobInfo{}, err
+	}
+	job := JobInfo{
+		Status: status,
+		Data:   &runnerTestJobInfoData{err: ErrJobNotComplete},
+	}
+	if status != JobStatusCompleted && status != JobStatusCancelled {
+		return job, nil
+	}
+
+	r.mu.Lock()
+	byOrdinal := r.chapters[jobKey]
+	r.mu.Unlock()
+	if len(byOrdinal) == 0 {
+		return job, nil
+	}
+	var latest StoredChapter
+	haveLatest := false
+	for _, chapter := range byOrdinal {
+		if !haveLatest || chapter.Ordinal > latest.Ordinal {
+			latest = cloneStoredChapterForTest(chapter)
+			haveLatest = true
+		}
+	}
+	if !haveLatest {
+		return job, nil
+	}
+	td, payloadErr := storedChapterToTaskData(r, jobKey, latest)
+	job.Data = &runnerTestJobInfoData{taskData: td, err: payloadErr}
+	return job, nil
 }
 
 func (r *runnerTestRuntime) GetJobRun(context.Context, GetJobRunRequest) (GetJobRunResponse, error) {
@@ -78,6 +145,31 @@ func (r *runnerTestRuntime) ListJobs(_ context.Context, req ListJobsRequest) (Li
 		jobs = append(jobs, summary)
 	}
 	return ListJobsResponse{Jobs: jobs}, nil
+}
+
+func (r *runnerTestRuntime) ListChapters(_ context.Context, req ListChaptersRequest) ([]StoredChapter, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	byOrdinal := r.chapters[req.JobKey]
+	if byOrdinal == nil {
+		return nil, ErrJobNotFound
+	}
+	ordinals := make([]int64, 0, len(byOrdinal))
+	for ordinal := range byOrdinal {
+		ordinals = append(ordinals, ordinal)
+	}
+	sort.Slice(ordinals, func(i, j int) bool { return ordinals[i] < ordinals[j] })
+	out := make([]StoredChapter, 0, len(ordinals))
+	for _, ordinal := range ordinals {
+		if ordinal < req.StartOrdinal {
+			continue
+		}
+		if req.EndOrdinal != nil && ordinal > *req.EndOrdinal {
+			break
+		}
+		out = append(out, cloneStoredChapterForTest(byOrdinal[ordinal]))
+	}
+	return out, nil
 }
 
 func (r *runnerTestRuntime) checkJobStatus(jobKey JobKey) (JobStatus, error) {
@@ -114,6 +206,44 @@ func (r *runnerTestRuntime) PutChapter(_ context.Context, req PutChapterRequest)
 		}
 	}
 
+	chapter := req.Chapter
+	if len(req.ArtifactUploads) > 0 {
+		stored := make([]StoredArtifact, 0, len(req.ArtifactUploads))
+		r.mu.Lock()
+		for _, item := range req.ArtifactUploads {
+			reader, err := item.Open()
+			if err != nil {
+				r.mu.Unlock()
+				return err
+			}
+			data, err := io.ReadAll(reader)
+			_ = reader.Close()
+			if err != nil {
+				r.mu.Unlock()
+				return err
+			}
+			digest, err := computeSha256(bytes.NewReader(data))
+			if err != nil {
+				r.mu.Unlock()
+				return err
+			}
+			ref := ArtifactRef{
+				JobKey:  req.Ref.JobKey,
+				Ordinal: req.Ref.Ordinal,
+				Name:    item.Name,
+				Digest:  digest,
+			}
+			r.artifacts[ref] = append([]byte(nil), data...)
+			stored = append(stored, StoredArtifact{
+				Name:   item.Name,
+				Digest: digest,
+				Size:   int64(len(data)),
+			})
+		}
+		r.mu.Unlock()
+		chapter.Artifacts = stored
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.chapters[req.Ref.JobKey] == nil {
@@ -122,8 +252,8 @@ func (r *runnerTestRuntime) PutChapter(_ context.Context, req PutChapterRequest)
 	if _, exists := r.chapters[req.Ref.JobKey][req.Ref.Ordinal]; exists {
 		return errors.New("chapter already created")
 	}
-	r.chapters[req.Ref.JobKey][req.Ref.Ordinal] = cloneStoredChapterForTest(req.Chapter)
-	if req.Chapter.ChapterType == chapterTypeJobAttemptOutcome {
+	r.chapters[req.Ref.JobKey][req.Ref.Ordinal] = cloneStoredChapterForTest(chapter)
+	if chapter.ChapterType == chapterTypeJobAttemptOutcome {
 		delete(r.activeJobs, req.Ref.JobKey)
 	}
 	return nil
@@ -137,41 +267,6 @@ func (r *runnerTestRuntime) OpenArtifact(_ context.Context, ref ArtifactRef) (Ar
 		return nil, errors.New("artifact not found")
 	}
 	return runnerTestArtifactReader{name: ref.Name, data: append([]byte(nil), data...)}, nil
-}
-
-func (r *runnerTestRuntime) PutArtifacts(_ context.Context, req PutArtifactsRequest) ([]StoredArtifact, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	stored := make([]StoredArtifact, 0, len(req.Items))
-	for _, item := range req.Items {
-		reader, err := item.Open()
-		if err != nil {
-			return nil, err
-		}
-		data, err := io.ReadAll(reader)
-		_ = reader.Close()
-		if err != nil {
-			return nil, err
-		}
-		digest, err := computeSha256(bytes.NewReader(data))
-		if err != nil {
-			return nil, err
-		}
-		ref := ArtifactRef{
-			JobKey:  req.JobKey,
-			Ordinal: req.Ordinal,
-			Name:    item.Name,
-			Digest:  digest,
-		}
-		r.artifacts[ref] = append([]byte(nil), data...)
-		stored = append(stored, StoredArtifact{
-			Name:   item.Name,
-			Digest: digest,
-			Size:   int64(len(data)),
-		})
-	}
-	return stored, nil
 }
 
 type runnerTestArtifactReader struct {
@@ -200,9 +295,11 @@ type fakeExecutionLease struct {
 	rescheduleErr      error
 }
 
-func (l *fakeExecutionLease) Job() JobHandle        { return l.job }
-func (l *fakeExecutionLease) Capability() string    { return l.capability }
-func (l *fakeExecutionLease) Payload() json.RawMessage { return append(json.RawMessage(nil), l.payload...) }
+func (l *fakeExecutionLease) Job() JobHandle     { return l.job }
+func (l *fakeExecutionLease) Capability() string { return l.capability }
+func (l *fakeExecutionLease) Payload() json.RawMessage {
+	return append(json.RawMessage(nil), l.payload...)
+}
 
 func (l *fakeExecutionLease) KeepAlive(context.Context) error {
 	l.mu.Lock()
@@ -450,8 +547,10 @@ type replayObserverRecorder struct {
 	taskEnds   []TaskEndEvent
 }
 
-func (r *replayObserverRecorder) OnJobStart(evt JobStartEvent) { r.jobStarts = append(r.jobStarts, evt) }
-func (r *replayObserverRecorder) OnJobEnd(evt JobEndEvent)     { r.jobEnds = append(r.jobEnds, evt) }
+func (r *replayObserverRecorder) OnJobStart(evt JobStartEvent) {
+	r.jobStarts = append(r.jobStarts, evt)
+}
+func (r *replayObserverRecorder) OnJobEnd(evt JobEndEvent) { r.jobEnds = append(r.jobEnds, evt) }
 func (r *replayObserverRecorder) OnTaskStart(evt TaskStartEvent) {
 	r.taskStarts = append(r.taskStarts, evt)
 }

@@ -26,11 +26,10 @@ const (
 )
 
 type jobSurface interface {
-	StartJob(ctx context.Context, start swf.StartJob) (swf.JobKey, error)
-	RestartJob(ctx context.Context, restart swf.RestartJob) (swf.JobKey, error)
+	SubmitJob(ctx context.Context, start swf.SubmitJob) (swf.JobKey, error)
+	SubmitRestartJob(ctx context.Context, restart swf.SubmitRestartJob) (swf.JobKey, error)
 	CancelJob(ctx context.Context, cancel swf.CancelJob) error
-	CheckJobStatus(ctx context.Context, jobKey swf.JobKey) (swf.JobStatus, error)
-	GetJobResult(ctx context.Context, jobKey swf.JobKey) (swf.TaskData, error)
+	GetJob(ctx context.Context, jobKey swf.JobKey) (swf.JobInfo, error)
 	GetJobRun(ctx context.Context, req swf.GetJobRunRequest) (swf.GetJobRunResponse, error)
 	ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.ListJobsResponse, error)
 }
@@ -39,24 +38,20 @@ type engineSurface struct {
 	engine swf.SWFEngine
 }
 
-func (s engineSurface) StartJob(ctx context.Context, start swf.StartJob) (swf.JobKey, error) {
-	return s.engine.StartJob(ctx, start)
+func (s engineSurface) SubmitJob(ctx context.Context, start swf.SubmitJob) (swf.JobKey, error) {
+	return s.engine.SubmitJob(ctx, start)
 }
 
-func (s engineSurface) RestartJob(ctx context.Context, restart swf.RestartJob) (swf.JobKey, error) {
-	return s.engine.RestartJob(ctx, restart)
+func (s engineSurface) SubmitRestartJob(ctx context.Context, restart swf.SubmitRestartJob) (swf.JobKey, error) {
+	return s.engine.SubmitRestartJob(ctx, restart)
 }
 
 func (s engineSurface) CancelJob(ctx context.Context, cancel swf.CancelJob) error {
 	return s.engine.CancelJob(ctx, cancel)
 }
 
-func (s engineSurface) CheckJobStatus(ctx context.Context, jobKey swf.JobKey) (swf.JobStatus, error) {
-	return s.engine.CheckJobStatus(ctx, jobKey)
-}
-
-func (s engineSurface) GetJobResult(ctx context.Context, jobKey swf.JobKey) (swf.TaskData, error) {
-	return s.engine.GetJobResult(ctx, jobKey)
+func (s engineSurface) GetJob(ctx context.Context, jobKey swf.JobKey) (swf.JobInfo, error) {
+	return s.engine.GetJob(ctx, jobKey)
 }
 
 func (s engineSurface) GetJobRun(ctx context.Context, req swf.GetJobRunRequest) (swf.GetJobRunResponse, error) {
@@ -69,10 +64,11 @@ func (s engineSurface) ListJobs(ctx context.Context, req swf.ListJobsRequest) (s
 
 type runtimeSurface struct {
 	runtime swf.WorkflowRuntime
+	engine  swf.SWFEngine
 }
 
-func (s runtimeSurface) StartJob(ctx context.Context, start swf.StartJob) (swf.JobKey, error) {
-	handle, err := s.runtime.StartJob(ctx, swf.StartJobRequest{
+func (s runtimeSurface) SubmitJob(ctx context.Context, start swf.SubmitJob) (swf.JobKey, error) {
+	handle, err := s.runtime.SubmitJob(ctx, swf.SubmitJobRequest{
 		Job:         start,
 		RequestTime: time.Now().UTC(),
 	})
@@ -82,8 +78,8 @@ func (s runtimeSurface) StartJob(ctx context.Context, start swf.StartJob) (swf.J
 	return handle.JobKey, nil
 }
 
-func (s runtimeSurface) RestartJob(ctx context.Context, restart swf.RestartJob) (swf.JobKey, error) {
-	handle, err := s.runtime.RestartJob(ctx, swf.RestartJobRequest{
+func (s runtimeSurface) SubmitRestartJob(ctx context.Context, restart swf.SubmitRestartJob) (swf.JobKey, error) {
+	handle, err := s.runtime.SubmitRestartJob(ctx, swf.SubmitRestartJobRequest{
 		Job:         restart,
 		RequestTime: time.Now().UTC(),
 	})
@@ -100,16 +96,12 @@ func (s runtimeSurface) CancelJob(ctx context.Context, cancel swf.CancelJob) err
 	})
 }
 
-func (s runtimeSurface) CheckJobStatus(ctx context.Context, jobKey swf.JobKey) (swf.JobStatus, error) {
-	return s.runtime.CheckJobStatus(ctx, jobKey)
-}
-
-func (s runtimeSurface) GetJobResult(ctx context.Context, jobKey swf.JobKey) (swf.TaskData, error) {
-	return s.runtime.GetJobResult(ctx, jobKey)
+func (s runtimeSurface) GetJob(ctx context.Context, jobKey swf.JobKey) (swf.JobInfo, error) {
+	return s.runtime.GetJob(ctx, jobKey)
 }
 
 func (s runtimeSurface) GetJobRun(ctx context.Context, req swf.GetJobRunRequest) (swf.GetJobRunResponse, error) {
-	return s.runtime.GetJobRun(ctx, req)
+	return s.engine.GetJobRun(ctx, req)
 }
 
 func (s runtimeSurface) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.ListJobsResponse, error) {
@@ -122,24 +114,33 @@ type scenarioSubject struct {
 	surface jobSurface
 }
 
-func (s scenarioSubject) StartJob(ctx context.Context, start swf.StartJob) (swf.JobKey, error) {
-	return s.surface.StartJob(ctx, start)
+func (s scenarioSubject) SubmitJob(ctx context.Context, start swf.SubmitJob) (swf.JobKey, error) {
+	return s.surface.SubmitJob(ctx, start)
 }
 
-func (s scenarioSubject) RestartJob(ctx context.Context, restart swf.RestartJob) (swf.JobKey, error) {
-	return s.surface.RestartJob(ctx, restart)
+func (s scenarioSubject) SubmitRestartJob(ctx context.Context, restart swf.SubmitRestartJob) (swf.JobKey, error) {
+	return s.surface.SubmitRestartJob(ctx, restart)
 }
 
 func (s scenarioSubject) CancelJob(ctx context.Context, cancel swf.CancelJob) error {
 	return s.surface.CancelJob(ctx, cancel)
 }
 
+func (s scenarioSubject) GetJob(ctx context.Context, jobKey swf.JobKey) (swf.JobInfo, error) {
+	return s.surface.GetJob(ctx, jobKey)
+}
+
 func (s scenarioSubject) CheckJobStatus(ctx context.Context, jobKey swf.JobKey) (swf.JobStatus, error) {
-	return s.surface.CheckJobStatus(ctx, jobKey)
+	job, err := s.GetJob(ctx, jobKey)
+	return job.Status, err
 }
 
 func (s scenarioSubject) GetJobResult(ctx context.Context, jobKey swf.JobKey) (swf.TaskData, error) {
-	return s.surface.GetJobResult(ctx, jobKey)
+	job, err := s.GetJob(ctx, jobKey)
+	if err != nil {
+		return nil, err
+	}
+	return swf.ExtractTaskDataResult(job.Data)
 }
 
 func (s scenarioSubject) GetJobRun(ctx context.Context, req swf.GetJobRunRequest) (swf.GetJobRunResponse, error) {
@@ -154,7 +155,7 @@ func (s scenarioSubject) WaitForStatus(t *testing.T, ctx context.Context, jobKey
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		status, err := s.CheckJobStatus(ctx, jobKey)
+		status, err := jobStatusForTest(s, ctx, jobKey)
 		if err == nil && status == want {
 			return
 		}
@@ -200,7 +201,7 @@ func observeViaMode[T any](
 	case engineMode:
 		subject.surface = engineSurface{engine: built.Engine}
 	case runtimeMode:
-		subject.surface = runtimeSurface{runtime: built.Runtime}
+		subject.surface = runtimeSurface{runtime: built.Runtime, engine: built.Engine}
 	default:
 		t.Fatalf("unknown parity mode %q", mode)
 	}
@@ -289,16 +290,18 @@ type normalizedJobRun struct {
 }
 
 type normalizedJobSummary struct {
-	JobKey          swf.JobKey    `json:"jobKey"`
-	Status          swf.JobStatus `json:"status"`
-	JobType         string        `json:"jobType"`
-	WaitFor         []string      `json:"waitFor,omitempty"`
-	CancelRequested bool          `json:"cancelRequested,omitempty"`
-	TaskWaitInput   *int64        `json:"taskWaitInput,omitempty"`
-	TaskWaitOutput  *int64        `json:"taskWaitOutput,omitempty"`
-	TaskWaitNext    *string       `json:"taskWaitNext,omitempty"`
-	Payload         string        `json:"payload,omitempty"`
-	Metadata        string        `json:"metadata,omitempty"`
+	JobKey            swf.JobKey    `json:"jobKey"`
+	Status            swf.JobStatus `json:"status"`
+	JobType           string        `json:"jobType"`
+	NextNeed          *string       `json:"nextNeed,omitempty"`
+	WaitFor           []string      `json:"waitFor,omitempty"`
+	CancelRequested   bool          `json:"cancelRequested,omitempty"`
+	TaskWaitInput     *int64        `json:"taskWaitInput,omitempty"`
+	TaskWaitOutput    *int64        `json:"taskWaitOutput,omitempty"`
+	TaskWaitInputHash *string       `json:"taskWaitInputHash,omitempty"`
+	TaskWaitNext      *string       `json:"taskWaitNext,omitempty"`
+	Payload           string        `json:"payload,omitempty"`
+	Metadata          string        `json:"metadata,omitempty"`
 }
 
 type normalizedStoredChapter struct {
@@ -427,16 +430,18 @@ func normalizeJobSummaries(jobs []swf.JobSummary) []normalizedJobSummary {
 	out := make([]normalizedJobSummary, 0, len(jobs))
 	for _, job := range jobs {
 		item := normalizedJobSummary{
-			JobKey:          job.JobKey,
-			Status:          job.Status,
-			JobType:         job.JobType,
-			WaitFor:         append([]string(nil), job.WaitFor...),
-			CancelRequested: job.CancelRequested,
-			TaskWaitInput:   cloneInt64Ptr(job.TaskWaitInput),
-			TaskWaitOutput:  cloneInt64Ptr(job.TaskWaitOutput),
-			TaskWaitNext:    cloneStringPtr(job.TaskWaitNext),
-			Payload:         canonicalJSON(job.Payload),
-			Metadata:        canonicalJSON(job.Metadata),
+			JobKey:            job.JobKey,
+			Status:            job.Status,
+			JobType:           job.JobType,
+			NextNeed:          cloneStringPtr(job.NextNeed),
+			WaitFor:           append([]string(nil), job.WaitFor...),
+			CancelRequested:   job.CancelRequested,
+			TaskWaitInput:     cloneInt64Ptr(job.TaskWaitInput),
+			TaskWaitOutput:    cloneInt64Ptr(job.TaskWaitOutput),
+			TaskWaitInputHash: cloneStringPtr(job.TaskWaitInputHash),
+			TaskWaitNext:      cloneStringPtr(job.TaskWaitNext),
+			Payload:           canonicalJSON(job.Payload),
+			Metadata:          canonicalJSON(job.Metadata),
 		}
 		out = append(out, item)
 	}

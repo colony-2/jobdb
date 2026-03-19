@@ -109,6 +109,12 @@ VALUES ('test-tenant', $1, $2, '{}'::text[], '{}'::jsonb, $3, $4, 'infinity', fa
 		}
 	})
 
+	t.Run("requires tenant ids", func(t *testing.T) {
+		if _, err := engine.ListJobs(ctx, swf.ListJobsRequest{}); err == nil {
+			t.Fatal("expected ListJobs to reject empty tenant ids")
+		}
+	})
+
 	t.Run("filters by job ids list", func(t *testing.T) {
 		resp, err := engine.ListJobs(ctx, swf.ListJobsRequest{
 			TenantIds: []string{"test-tenant"},

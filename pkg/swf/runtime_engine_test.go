@@ -11,39 +11,30 @@ import (
 )
 
 type fakeWorkflowRuntime struct {
-	startReq   StartJobRequest
-	restartReq RestartJobRequest
-	cancelReq  CancelJobRequest
-	statusReq  JobKey
-	resultReq  JobKey
-	jobRunReq  GetJobRunRequest
-	listReq    ListJobsRequest
-	findArgs   struct {
-		jobType   string
-		taskType  string
-		tenantIDs []string
-	}
-	waitingKey    JobKey
+	startReq      SubmitJobRequest
+	restartReq    SubmitRestartJobRequest
+	cancelReq     CancelJobRequest
+	completeReq   CompleteTaskIfWaitingRequest
+	jobReq        JobKey
+	listReq       ListJobsRequest
 	chapterRef    ChapterRef
 	artifactRef   ArtifactRef
 	startHandle   JobHandle
 	restartHandle JobHandle
-	statusResp    JobStatus
-	resultResp    TaskData
+	jobResp       JobInfo
 	jobRunResp    GetJobRunResponse
 	listResp      ListJobsResponse
-	findResp      []TaskHandle
-	waitingResp   TaskHandle
 	chapterResp   StoredChapter
+	chaptersResp  []StoredChapter
 	artifactBytes []byte
 }
 
-func (r *fakeWorkflowRuntime) StartJob(ctx context.Context, req StartJobRequest) (JobHandle, error) {
+func (r *fakeWorkflowRuntime) SubmitJob(ctx context.Context, req SubmitJobRequest) (JobHandle, error) {
 	r.startReq = req
 	return r.startHandle, nil
 }
 
-func (r *fakeWorkflowRuntime) RestartJob(ctx context.Context, req RestartJobRequest) (JobHandle, error) {
+func (r *fakeWorkflowRuntime) SubmitRestartJob(ctx context.Context, req SubmitRestartJobRequest) (JobHandle, error) {
 	r.restartReq = req
 	return r.restartHandle, nil
 }
@@ -57,19 +48,14 @@ func (r *fakeWorkflowRuntime) PollWork(ctx context.Context, req PollWorkRequest)
 	return nil, nil
 }
 
-func (r *fakeWorkflowRuntime) CheckJobStatus(ctx context.Context, jobKey JobKey) (JobStatus, error) {
-	r.statusReq = jobKey
-	return r.statusResp, nil
+func (r *fakeWorkflowRuntime) CompleteTaskIfWaiting(ctx context.Context, req CompleteTaskIfWaitingRequest) error {
+	r.completeReq = req
+	return nil
 }
 
-func (r *fakeWorkflowRuntime) GetJobResult(ctx context.Context, jobKey JobKey) (TaskData, error) {
-	r.resultReq = jobKey
-	return r.resultResp, nil
-}
-
-func (r *fakeWorkflowRuntime) GetJobRun(ctx context.Context, req GetJobRunRequest) (GetJobRunResponse, error) {
-	r.jobRunReq = req
-	return r.jobRunResp, nil
+func (r *fakeWorkflowRuntime) GetJob(ctx context.Context, jobKey JobKey) (JobInfo, error) {
+	r.jobReq = jobKey
+	return r.jobResp, nil
 }
 
 func (r *fakeWorkflowRuntime) ListJobs(ctx context.Context, req ListJobsRequest) (ListJobsResponse, error) {
@@ -86,28 +72,16 @@ func (r *fakeWorkflowRuntime) PutChapter(ctx context.Context, req PutChapterRequ
 	return nil
 }
 
+func (r *fakeWorkflowRuntime) ListChapters(ctx context.Context, req ListChaptersRequest) ([]StoredChapter, error) {
+	return append([]StoredChapter(nil), r.chaptersResp...), nil
+}
+
 func (r *fakeWorkflowRuntime) OpenArtifact(ctx context.Context, ref ArtifactRef) (ArtifactReader, error) {
 	r.artifactRef = ref
 	return fakeArtifactReader{
 		name: ref.Name,
 		data: append([]byte(nil), r.artifactBytes...),
 	}, nil
-}
-
-func (r *fakeWorkflowRuntime) PutArtifacts(ctx context.Context, req PutArtifactsRequest) ([]StoredArtifact, error) {
-	return nil, nil
-}
-
-func (r *fakeWorkflowRuntime) FindTasksWaitingForCapability(ctx context.Context, jobType string, taskType string, tenantIds []string) ([]TaskHandle, error) {
-	r.findArgs.jobType = jobType
-	r.findArgs.taskType = taskType
-	r.findArgs.tenantIDs = append([]string(nil), tenantIds...)
-	return r.findResp, nil
-}
-
-func (r *fakeWorkflowRuntime) GetWaitingTask(ctx context.Context, key JobKey) (TaskHandle, error) {
-	r.waitingKey = key
-	return r.waitingResp, nil
 }
 
 type fakeArtifactReader struct {
@@ -122,18 +96,6 @@ func (r fakeArtifactReader) Open() (io.ReadCloser, error) {
 func (r fakeArtifactReader) Size() int64 { return int64(len(r.data)) }
 
 func (r fakeArtifactReader) Name() string { return r.name }
-
-type fakeTaskHandle struct {
-	key JobKey
-}
-
-func (h fakeTaskHandle) JobKey() JobKey                                  { return h.key }
-func (h fakeTaskHandle) Data() (TaskData, error)                         { return NewTaskData(map[string]any{"ok": true}) }
-func (h fakeTaskHandle) Finish(ctx context.Context, data TaskData) error { return nil }
-func (h fakeTaskHandle) TaskOrdinalToComplete() int64                    { return 1 }
-func (h fakeTaskHandle) TaskType() string                                { return "task" }
-func (h fakeTaskHandle) CreatedAt() time.Time                            { return time.Now().UTC() }
-func (h fakeTaskHandle) Metadata() json.RawMessage                       { return json.RawMessage(`{}`) }
 
 type fakeJobWorker struct{}
 
@@ -164,17 +126,40 @@ func TestRuntimeEngineDelegatesLifecycleMethodsToRuntime(t *testing.T) {
 	runtime := &fakeWorkflowRuntime{
 		startHandle:   JobHandle{JobKey: JobKey{TenantId: "tenant-a", JobId: "job-a"}},
 		restartHandle: JobHandle{JobKey: JobKey{TenantId: "tenant-b", JobId: "job-b"}},
-		statusResp:    JobStatusCompleted,
-		resultResp:    NewTaskDataOrPanic(map[string]int{"value": 42}),
-		jobRunResp:    GetJobRunResponse{Job: JobRunSummary{JobKey: JobKey{TenantId: "tenant-c", JobId: "job-c"}}},
-		listResp:      ListJobsResponse{Jobs: []JobSummary{{JobKey: JobKey{TenantId: "tenant-d", JobId: "job-d"}}}},
+		jobResp:       JobInfo{Status: JobStatusCompleted, Data: NewTaskDataOrPanic(map[string]int{"value": 42})},
+		listResp: ListJobsResponse{Jobs: []JobSummary{
+			{JobKey: JobKey{TenantId: "tenant-d", JobId: "job-d"}},
+			{JobKey: JobKey{TenantId: "tenant-run", JobId: "job-run"}, Status: JobStatusCompleted, JobType: "job-run", CreatedAt: time.Unix(100, 0).UTC()},
+		}},
+		chaptersResp: []StoredChapter{
+			{
+				Ordinal:     0,
+				TaskType:    "job-run",
+				ChapterType: chapterTypeJobStart,
+				PayloadKind: payloadKindApp,
+				InputHash:   "hash-0",
+				CreatedAt:   time.Unix(100, 0).UTC(),
+				Metadata:    json.RawMessage(`{"version":1,"ordinal":0,"task_type":"job-run","worker_id":"worker-1","created_at":"1970-01-01T00:01:40Z","input_hash":"hash-0","attempt":1}`),
+				Data:        json.RawMessage(`{"input":true}`),
+			},
+			{
+				Ordinal:     1,
+				TaskType:    "job-run",
+				ChapterType: chapterTypeJobAttemptOutcome,
+				PayloadKind: payloadKindApp,
+				InputHash:   "hash-0",
+				CreatedAt:   time.Unix(101, 0).UTC(),
+				Metadata:    json.RawMessage(`{"version":1,"ordinal":1,"task_type":"job-run","worker_id":"worker-1","created_at":"1970-01-01T00:01:41Z","input_hash":"hash-0","attempt":1,"input_ref":{"ordinal":0,"hash":"hash-0"}}`),
+				Data:        json.RawMessage(`{"ok":true}`),
+			},
+		},
 	}
 	engine, err := NewEngineBuilder().WithRuntime(runtime).PlusWorkers(fakeJobWorker{}).BuildEngine()
 	if err != nil {
 		t.Fatalf("build engine: %v", err)
 	}
 
-	startKey, err := engine.StartJob(context.Background(), StartJob{
+	startKey, err := engine.SubmitJob(context.Background(), SubmitJob{
 		TenantId: "tenant-a",
 		JobType:  "type-a",
 		Data:     NewTaskDataOrPanic(map[string]int{"value": 1}),
@@ -189,7 +174,7 @@ func TestRuntimeEngineDelegatesLifecycleMethodsToRuntime(t *testing.T) {
 		t.Fatalf("unexpected start request %+v", runtime.startReq)
 	}
 
-	restartKey, err := engine.RestartJob(context.Background(), RestartJob{
+	restartKey, err := engine.SubmitRestartJob(context.Background(), SubmitRestartJob{
 		PriorJobKey:    JobKey{TenantId: "tenant-z", JobId: "prior"},
 		LastStepToKeep: 3,
 	})
@@ -201,20 +186,19 @@ func TestRuntimeEngineDelegatesLifecycleMethodsToRuntime(t *testing.T) {
 	}
 
 	jobKey := JobKey{TenantId: "tenant-status", JobId: "job-status"}
-	status, err := engine.CheckJobStatus(context.Background(), jobKey)
+	job, err := engine.GetJob(context.Background(), jobKey)
 	if err != nil {
-		t.Fatalf("check status: %v", err)
+		t.Fatalf("get job: %v", err)
 	}
-	if status != JobStatusCompleted || runtime.statusReq != jobKey {
-		t.Fatalf("unexpected status %q req=%+v", status, runtime.statusReq)
+	if job.Status != JobStatusCompleted || runtime.jobReq != jobKey {
+		t.Fatalf("unexpected job %+v req=%+v", job, runtime.jobReq)
 	}
 
-	result, err := engine.GetJobResult(context.Background(), jobKey)
-	if err != nil {
-		t.Fatalf("get result: %v", err)
+	if job.Data == nil {
+		t.Fatal("expected job data")
 	}
 	payload := map[string]int{}
-	if err := json.Unmarshal(result.GetDataOrPanic(), &payload); err != nil {
+	if err := json.Unmarshal(job.Data.GetDataOrPanic(), &payload); err != nil {
 		t.Fatalf("unmarshal payload: %v", err)
 	}
 	if payload["value"] != 42 {
@@ -229,11 +213,15 @@ func TestRuntimeEngineDelegatesLifecycleMethodsToRuntime(t *testing.T) {
 	}
 
 	jobRunReq := GetJobRunRequest{JobKey: JobKey{TenantId: "tenant-run", JobId: "job-run"}}
-	if _, err := engine.GetJobRun(context.Background(), jobRunReq); err != nil {
+	jobRunResp, err := engine.GetJobRun(context.Background(), jobRunReq)
+	if err != nil {
 		t.Fatalf("get job run: %v", err)
 	}
-	if runtime.jobRunReq.JobKey != jobRunReq.JobKey {
-		t.Fatalf("unexpected job run request %+v", runtime.jobRunReq)
+	if len(runtime.listReq.TenantIds) == 0 || runtime.listReq.TenantIds[0] != jobRunReq.JobKey.TenantId {
+		t.Fatalf("unexpected get job run list request %+v", runtime.listReq)
+	}
+	if jobRunResp.Job.JobKey != jobRunReq.JobKey || jobRunResp.Job.JobType != "job-run" {
+		t.Fatalf("unexpected job run response %+v", jobRunResp.Job)
 	}
 
 	listReq := ListJobsRequest{TenantIds: []string{"tenant-d"}}
@@ -247,10 +235,27 @@ func TestRuntimeEngineDelegatesLifecycleMethodsToRuntime(t *testing.T) {
 
 func TestRuntimeEngineDelegatesWaitingTaskMethodsToRuntime(t *testing.T) {
 	waitKey := JobKey{TenantId: "tenant-w", JobId: "job-w"}
-	expected := fakeTaskHandle{key: waitKey}
 	runtime := &fakeWorkflowRuntime{
-		findResp:    []TaskHandle{expected},
-		waitingResp: expected,
+		listResp: ListJobsResponse{Jobs: []JobSummary{{
+			JobKey:            waitKey,
+			JobType:           "job",
+			NextNeed:          strPtr("job:task"),
+			Status:            JobStatusReady,
+			CreatedAt:         time.Unix(100, 0).UTC(),
+			Metadata:          json.RawMessage(`{"ok":true}`),
+			TaskWaitInput:     int64Ptr(1),
+			TaskWaitOutput:    int64Ptr(2),
+			TaskWaitInputHash: strPtr("hash-1"),
+			TaskWaitNext:      strPtr("job"),
+		}}},
+		chapterResp: StoredChapter{
+			Ordinal:     1,
+			TaskType:    "task",
+			ChapterType: chapterTypeTaskAttemptOutcome,
+			PayloadKind: payloadKindApp,
+			CreatedAt:   time.Unix(99, 0).UTC(),
+			Data:        json.RawMessage(`{"value":1}`),
+		},
 	}
 	engine, err := NewEngineBuilder().WithRuntime(runtime).PlusWorkers(fakeJobWorker{}).BuildEngine()
 	if err != nil {
@@ -264,16 +269,28 @@ func TestRuntimeEngineDelegatesWaitingTaskMethodsToRuntime(t *testing.T) {
 	if len(handles) != 1 || handles[0].JobKey() != waitKey {
 		t.Fatalf("unexpected handles %+v", handles)
 	}
-	if runtime.findArgs.jobType != "job" || runtime.findArgs.taskType != "task" {
-		t.Fatalf("unexpected find args %+v", runtime.findArgs)
+	if len(runtime.listReq.JobTasks) != 1 || runtime.listReq.JobTasks[0].JobType != "job" || runtime.listReq.JobTasks[0].TaskType != "task" {
+		t.Fatalf("unexpected find request %+v", runtime.listReq)
+	}
+	if _, err := handles[0].Data(); err != nil {
+		t.Fatalf("load waiting task data: %v", err)
+	}
+	if runtime.chapterRef.JobKey != waitKey || runtime.chapterRef.Ordinal != 1 {
+		t.Fatalf("unexpected chapter ref %+v", runtime.chapterRef)
+	}
+	if err := handles[0].Finish(context.Background(), NewTaskDataOrPanic(map[string]int{"value": 2})); err != nil {
+		t.Fatalf("finish waiting task: %v", err)
+	}
+	if runtime.completeReq.JobKey != waitKey || runtime.completeReq.Capability != "job:task" || runtime.completeReq.ResumeNeed != "job" {
+		t.Fatalf("unexpected complete request %+v", runtime.completeReq)
 	}
 
 	handle, err := engine.GetWaitingTask(context.Background(), waitKey)
 	if err != nil {
 		t.Fatalf("get waiting task: %v", err)
 	}
-	if handle.JobKey() != waitKey || runtime.waitingKey != waitKey {
-		t.Fatalf("unexpected waiting task %+v req=%+v", handle.JobKey(), runtime.waitingKey)
+	if handle.JobKey() != waitKey || len(runtime.listReq.JobKeys) != 1 || runtime.listReq.JobKeys[0] != waitKey {
+		t.Fatalf("unexpected waiting task %+v req=%+v", handle.JobKey(), runtime.listReq)
 	}
 }
 

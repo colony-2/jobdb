@@ -109,22 +109,6 @@ func (e *workerEngine) lookupReplayWorkSet(req ReplayRunRequest) *replayWorkSet 
 	}
 }
 
-func (e *workerEngine) FindTasksWaitingForCapability(ctx context.Context, jobType string, taskType string, tenantIds []string) ([]TaskHandle, error) {
-	runtime, ok := e.runtime.(waitingTaskRuntime)
-	if !ok {
-		return nil, fmt.Errorf("workflow runtime does not support waiting task inspection")
-	}
-	return runtime.FindTasksWaitingForCapability(ctx, jobType, taskType, tenantIds)
-}
-
-func (e *workerEngine) GetWaitingTask(ctx context.Context, key JobKey) (TaskHandle, error) {
-	runtime, ok := e.runtime.(waitingTaskRuntime)
-	if !ok {
-		return nil, fmt.Errorf("workflow runtime does not support waiting task inspection")
-	}
-	return runtime.GetWaitingTask(ctx, key)
-}
-
 func (e *workerEngine) GetArtifact(tenantId string, key ArtifactKey) (Artifact, error) {
 	ref := ChapterRef{
 		JobKey: JobKey{
