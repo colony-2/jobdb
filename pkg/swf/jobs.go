@@ -102,9 +102,16 @@ type EngineBuilder struct {
 	runtime      WorkflowRuntime
 }
 
+type WorkRegistrationOptions struct {
+	MetadataFilter MetadataFilter
+}
+
 type WorkSet struct {
 	JobWorker   JobWorker
 	TaskWorkers map[string]TaskWorker
+	Options     WorkRegistrationOptions
+
+	metadataEquals []MetadataPredicate
 }
 
 func NewEngineBuilder() *EngineBuilder {
@@ -142,10 +149,21 @@ func (e *EngineBuilder) WithAwaitRecycleThreshold(d time.Duration) *EngineBuilde
 }
 
 func AsWorkSet(jobWorker JobWorker, taskWorkers ...TaskWorker) (*WorkSet, error) {
+	return AsWorkSetWithOptions(jobWorker, WorkRegistrationOptions{}, taskWorkers...)
+}
+
+func AsWorkSetWithOptions(jobWorker JobWorker, opts WorkRegistrationOptions, taskWorkers ...TaskWorker) (*WorkSet, error) {
 	namePattern := regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 	if !namePattern.MatchString(jobWorker.Name()) {
 		fmt.Println(jobWorker.Name())
 		return nil, fmt.Errorf("invalid job worker name %s", jobWorker.Name())
+	}
+	predicates, err := MetadataPredicates(opts.MetadataFilter)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := metadataPredicateSignature(predicates); err != nil {
+		return nil, err
 	}
 
 	tasks := make(map[string]TaskWorker)
@@ -162,19 +180,24 @@ func AsWorkSet(jobWorker JobWorker, taskWorkers ...TaskWorker) (*WorkSet, error)
 	}
 
 	return &WorkSet{
-		JobWorker:   jobWorker,
-		TaskWorkers: tasks,
+		JobWorker:      jobWorker,
+		TaskWorkers:    tasks,
+		Options:        opts,
+		metadataEquals: predicates,
 	}, nil
 
 }
 
 func (e *EngineBuilder) PlusWorkers(jobWorker JobWorker, taskWorkers ...TaskWorker) *EngineBuilder {
+	return e.PlusWorkersWithOptions(jobWorker, WorkRegistrationOptions{}, taskWorkers...)
+}
 
+func (e *EngineBuilder) PlusWorkersWithOptions(jobWorker JobWorker, opts WorkRegistrationOptions, taskWorkers ...TaskWorker) *EngineBuilder {
 	if _, ok := e.workers[jobWorker.Name()]; ok {
 		panic("job worker with name " + jobWorker.Name() + " already registered")
 	}
 
-	ws, err := AsWorkSet(jobWorker, taskWorkers...)
+	ws, err := AsWorkSetWithOptions(jobWorker, opts, taskWorkers...)
 	if err != nil {
 		panic(err)
 	}

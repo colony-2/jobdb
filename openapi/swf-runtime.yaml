@@ -1,0 +1,896 @@
+openapi: 3.1.0
+info:
+  title: SWF Runtime API
+  version: 0.1.0
+  summary: Backend-agnostic runtime protocol for SWF remote execution
+  description: |
+    This API mirrors the current `swf.WorkflowRuntime` boundary. It
+    intentionally avoids exposing direct Strata or pgwf concepts over the wire.
+
+    Artifact bytes are committed as part of a chapter-scoped write.
+    Implementations may stage uploads internally, but artifacts are not an
+    independently durable write resource.
+servers:
+  - url: https://swf-runtime.example.com
+tags:
+  - name: jobs
+    description: Job lifecycle and job-level read APIs.
+  - name: leases
+    description: Worker polling and lease lifecycle operations.
+  - name: chapters
+    description: Chapter read and commit operations.
+  - name: artifacts
+    description: Artifact byte reads for chapter-attached artifacts.
+security:
+  - bearerAuth: []
+paths:
+  /v1/tenants/{tenantId}/jobs:
+    post:
+      tags: [jobs]
+      operationId: submitJob
+      summary: Submit job
+      description: |
+        Submits a new job and writes the initial chapter (ordinal `0`). Any
+        input artifacts are attached as part of that chapter creation. The
+        server generates the job ID.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitJobRequest'
+      responses:
+        '200':
+          description: Job submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobHandle'
+  /v1/tenants/{tenantId}/jobs/restarts:
+    post:
+      tags: [jobs]
+      operationId: submitRestartJob
+      summary: Submit restart job
+      description: |
+        Submits a restart derived from a prior run. Any `extraTaskInput` or
+        `extraTaskOutput` artifacts are written as part of the restart chapter
+        they belong to. The server generates the new job ID.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitRestartJobRequest'
+      responses:
+        '200':
+          description: Job restart submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobHandle'
+  /v1/tenants/{tenantId}/jobs/query:
+    post:
+      tags: [jobs]
+      operationId: listJobs
+      summary: List jobs
+      description: |
+        Lists jobs within the tenant identified by the path.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListJobsRequest'
+      responses:
+        '200':
+          description: Listed jobs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListJobsResponse'
+  /v1/tenants/{tenantId}/jobs/poll:
+    post:
+      tags: [leases]
+      operationId: pollWork
+      summary: Poll work
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PollWorkRequest'
+      responses:
+        '200':
+          description: Work leases
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [leases]
+                properties:
+                  leases:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ExecutionLease'
+  /v1/tenants/{tenantId}/jobs/{jobId}/lease:
+    post:
+      tags: [leases]
+      operationId: getJobLease
+      summary: Get job lease
+      description: |
+        Attempts to acquire a lease for one specific job. The response always
+        succeeds at the transport level when the lookup itself succeeds; a
+        missing lease is represented as `lease: null`.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GetJobLeaseRequest'
+      responses:
+        '200':
+          description: Lease acquired or currently unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetJobLeaseResponse'
+  /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/keepalive:
+    post:
+      tags: [leases]
+      operationId: keepAliveLease
+      summary: Keep lease alive
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+      responses:
+        '204':
+          description: Lease extended
+  /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/complete:
+    post:
+      tags: [leases]
+      operationId: completeJobWithLease
+      summary: Complete job with lease
+      description: |
+        Completes the current job attempt in the context of the identified
+        lease.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteExecutionRequest'
+      responses:
+        '204':
+          description: Job completion applied
+  /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/reschedule:
+    post:
+      tags: [leases]
+      operationId: rescheduleJobWithLease
+      summary: Reschedule job with lease
+      description: |
+        Reschedules the current job in the context of the identified lease.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RescheduleExecutionRequest'
+      responses:
+        '204':
+          description: Job rescheduled
+  /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/add_chapter:
+    post:
+      tags: [leases]
+      operationId: addChapterWithLease
+      summary: Add chapter with lease
+      description: |
+        Commits a chapter in the context of the identified lease, including any
+        attached artifact bytes. The target chapter ordinal is supplied in the
+        request body as `chapter.ordinal`. Artifacts are chapter-scoped
+        attachments, not standalone durable resources.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddChapterRequest'
+      responses:
+        '204':
+          description: Chapter stored
+  /v1/tenants/{tenantId}/jobs/{jobId}:
+    get:
+      tags: [jobs]
+      operationId: getJob
+      summary: Get job
+      description: |
+        Returns the current job status and a task-data view of the terminal
+        payload when it is available. For non-terminal jobs, clients should
+        treat an absent `data` value as a lazy `TaskData` that will surface the
+        deferred runtime error when accessed.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Job info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobInfo'
+  /v1/tenants/{tenantId}/jobs/{jobId}/cancel:
+    post:
+      tags: [jobs]
+      operationId: cancelJob
+      summary: Cancel job
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelJobRequest'
+      responses:
+        '204':
+          description: Job cancelled
+  /v1/tenants/{tenantId}/jobs/{jobId}/chapters:
+    get:
+      tags: [chapters]
+      operationId: listChapters
+      summary: List chapters
+      description: |
+        Returns stored chapters ordered by ascending ordinal within the
+        requested inclusive range. Supplying an `endOrdinal` greater than the
+        highest stored ordinal is allowed and simply returns the available
+        suffix. If `startOrdinal` is above the highest stored ordinal, the
+        response is empty.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/StartOrdinal'
+        - $ref: '#/components/parameters/EndOrdinal'
+      responses:
+        '200':
+          description: Chapter range loaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListChaptersResponse'
+  /v1/tenants/{tenantId}/jobs/{jobId}/chapters/{ordinal}:
+    get:
+      tags: [chapters]
+      operationId: getChapter
+      summary: Get chapter
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/Ordinal'
+      responses:
+        '200':
+          description: Chapter loaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoredChapter'
+  /v1/tenants/{tenantId}/jobs/{jobId}/chapters/{ordinal}/commit-if-waiting:
+    post:
+      tags: [chapters]
+      operationId: commitChapterIfWaiting
+      summary: Commit chapter if waiting
+      description: |
+        Best-effort conditional chapter commit used to implement
+        `TaskHandle.Finish(...)` above the runtime. The runtime acquires the
+        necessary job-level coordination, verifies the supplied waiting-task
+        guards, writes the chapter at `{ordinal}`, and advances the job
+        atomically. If the job is no longer waiting on the described task, or
+        the supplied guard fields do not match, the runtime may no-op and still
+        return `204`.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/Ordinal'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommitChapterIfWaitingRequest'
+      responses:
+        '204':
+          description: Chapter commit applied or safely ignored
+  /v1/tenants/{tenantId}/jobs/{jobId}/chapters/{ordinal}/artifacts/{name}:
+    get:
+      tags: [artifacts]
+      operationId: openArtifact
+      summary: Open artifact
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/Ordinal'
+        - $ref: '#/components/parameters/ArtifactName'
+      responses:
+        '200':
+          description: Artifact bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    TenantId:
+      name: tenantId
+      in: path
+      required: true
+      schema:
+        type: string
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema:
+        type: string
+    Ordinal:
+      name: ordinal
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    StartOrdinal:
+      name: startOrdinal
+      in: query
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+    EndOrdinal:
+      name: endOrdinal
+      in: query
+      required: false
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+    ArtifactName:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+    LeaseId:
+      name: leaseId
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    JobStatus:
+      type: string
+      enum:
+        - READY
+        - EXPIRED
+        - PENDING_JOBS
+        - AWAITING_FUTURE
+        - ACTIVE
+        - CRASH_CONCERN
+        - CANCELLED
+        - COMPLETED
+    JobStore:
+      type: string
+      enum:
+        - ACTIVE
+        - ARCHIVED
+    PayloadKind:
+      type: string
+      enum:
+        - App
+        - AppError
+        - SystemError
+        - Timeout
+    ChapterType:
+      type: string
+      enum:
+        - JobStart
+        - JobAttemptOutcome
+        - TaskAttemptOutcome
+        - RestartExtra
+    JobKey:
+      type: object
+      required: [tenantId, jobId]
+      properties:
+        tenantId:
+          type: string
+        jobId:
+          type: string
+    JobHandle:
+      type: object
+      required: [jobKey]
+      properties:
+        jobKey:
+          $ref: '#/components/schemas/JobKey'
+    SubmitJob:
+      type: object
+      required: [jobType, data]
+      additionalProperties: false
+      properties:
+        jobType:
+          type: string
+        singletonKey:
+          type: string
+        data:
+          $ref: '#/components/schemas/TaskDataWrite'
+        runPolicy:
+          type: object
+        metadata:
+          description: Arbitrary JSON metadata persisted with the job.
+        prerequisites:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobPrerequisite'
+    JobPrerequisite:
+      type: object
+      required: [jobId, condition]
+      properties:
+        jobId:
+          type: string
+        condition:
+          type: string
+          enum: [complete, success]
+    SubmitJobRequest:
+      type: object
+      required: [job]
+      additionalProperties: false
+      properties:
+        job:
+          $ref: '#/components/schemas/SubmitJob'
+        workerId:
+          type: string
+        requestTime:
+          type: string
+          format: date-time
+    SubmitRestartJob:
+      type: object
+      required: [priorJobKey, lastStepToKeep]
+      additionalProperties: false
+      properties:
+        priorJobKey:
+          $ref: '#/components/schemas/JobKey'
+        lastStepToKeep:
+          type: integer
+          format: int64
+        extraTaskInput:
+          $ref: '#/components/schemas/TaskDataWrite'
+        extraTaskOutput:
+          $ref: '#/components/schemas/TaskDataWrite'
+        prerequisites:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobPrerequisite'
+    SubmitRestartJobRequest:
+      type: object
+      required: [job]
+      additionalProperties: false
+      properties:
+        job:
+          $ref: '#/components/schemas/SubmitRestartJob'
+        workerId:
+          type: string
+        requestTime:
+          type: string
+          format: date-time
+    CancelJobRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+        workerId:
+          type: string
+    PollWorkRequest:
+      type: object
+      additionalProperties: false
+      required: [workerId, capabilities, limit]
+      properties:
+        workerId:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        limit:
+          type: integer
+        longPollUntil:
+          type: string
+          format: date-time
+        leaseDuration:
+          type: string
+          description: Duration string controlling how long acquired leases should be held.
+        metadataEquals:
+          type: array
+          description: |
+            Metadata equality predicates applied during polling. Multiple
+            predicates mean AND across fields; multiple `values` on one
+            predicate mean OR on the same field.
+          items:
+            $ref: '#/components/schemas/MetadataPredicate'
+    GetJobLeaseRequest:
+      type: object
+      additionalProperties: false
+      required: [capabilities]
+      properties:
+        workerId:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        leaseDuration:
+          type: string
+          description: Duration string controlling how long the acquired lease should be held.
+    GetJobLeaseResponse:
+      type: object
+      additionalProperties: false
+      required: [lease]
+      properties:
+        lease:
+          anyOf:
+            - $ref: '#/components/schemas/ExecutionLease'
+            - type: 'null'
+          description: Targeted lease when the job is currently leaseable; `null` otherwise.
+    ExecutionLease:
+      type: object
+      required: [leaseId, job, capability]
+      properties:
+        leaseId:
+          type: string
+        job:
+          $ref: '#/components/schemas/JobHandle'
+        capability:
+          type: string
+        payload:
+          description: Opaque JSON payload returned by the runtime for this lease.
+    CompleteExecutionRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+        detail:
+          type: string
+    RescheduleExecutionRequest:
+      type: object
+      properties:
+        nextNeed:
+          type: string
+        waitUntil:
+          type: string
+          format: date-time
+        waitForJobIds:
+          type: array
+          items:
+            type: string
+        payload:
+          description: Opaque JSON payload replacing the current lease payload.
+        alternateNeed:
+          type: string
+        alternateAfter:
+          type: string
+          description: Duration string.
+    CommitChapterIfWaitingRequest:
+      type: object
+      required: [data]
+      properties:
+        capability:
+          type: string
+          description: Optional guard for the currently waiting capability.
+        resumeNeed:
+          type: string
+          description: Optional guard or override for the resume capability.
+        inputOrdinal:
+          type: integer
+          format: int64
+          description: Optional guard for the input chapter ordinal.
+        inputHash:
+          type: string
+          description: Optional guard for deterministic input matching.
+        data:
+          $ref: '#/components/schemas/TaskDataWrite'
+    StoredArtifact:
+      type: object
+      required: [name, digest, size]
+      properties:
+        name:
+          type: string
+        digest:
+          type: string
+        size:
+          type: integer
+          format: int64
+    StoredChapter:
+      type: object
+      required: [ordinal, chapterType, payloadKind, createdAt, data, artifacts]
+      properties:
+        ordinal:
+          type: integer
+          format: int64
+        taskType:
+          type: string
+        chapterType:
+          $ref: '#/components/schemas/ChapterType'
+        payloadKind:
+          $ref: '#/components/schemas/PayloadKind'
+        inputHash:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        metadata:
+          description: Chapter metadata envelope.
+        data:
+          description: Raw payload bytes decoded as JSON.
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/StoredArtifact'
+    ListChaptersResponse:
+      type: object
+      required: [chapters]
+      properties:
+        chapters:
+          type: array
+          items:
+            $ref: '#/components/schemas/StoredChapter'
+    WritableChapter:
+      type: object
+      required: [ordinal, chapterType, payloadKind, createdAt, data, artifacts]
+      properties:
+        ordinal:
+          type: integer
+          format: int64
+        taskType:
+          type: string
+        chapterType:
+          $ref: '#/components/schemas/ChapterType'
+        payloadKind:
+          $ref: '#/components/schemas/PayloadKind'
+        inputHash:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        metadata:
+          description: Chapter metadata envelope.
+        data:
+          description: Raw payload bytes decoded as JSON.
+        artifacts:
+          type: array
+          description: |
+            Artifact payloads attached to this chapter write. They do not exist
+            as independent durable resources until the chapter commit succeeds.
+          items:
+            $ref: '#/components/schemas/ArtifactWrite'
+    AddChapterRequest:
+      type: object
+      required: [chapter]
+      additionalProperties: false
+      properties:
+        chapter:
+          $ref: '#/components/schemas/WritableChapter'
+    ArtifactUpload:
+      type: object
+      required: [name, size, contentBase64]
+      properties:
+        name:
+          type: string
+        size:
+          type: integer
+          format: int64
+        contentBase64:
+          type: string
+          contentEncoding: base64
+          contentMediaType: application/octet-stream
+    ArtifactWrite:
+      allOf:
+        - $ref: '#/components/schemas/ArtifactUpload'
+      description: |
+        Inline artifact content written as part of a parent chapter or task-data
+        write. This is a write-only shape.
+    TaskDataWrite:
+      type: object
+      required: [data, artifacts]
+      properties:
+        data:
+          description: Arbitrary JSON payload.
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArtifactWrite'
+    StoredTaskData:
+      type: object
+      required: [payloadKind, data, artifacts]
+      description: |
+        Read-side task data view. `payloadKind` is preserved so clients can
+        rebuild `swf.TaskData` semantics, including non-success payloads, above
+        the remote transport.
+      properties:
+        payloadKind:
+          $ref: '#/components/schemas/PayloadKind'
+        data:
+          description: Arbitrary JSON payload.
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/StoredArtifact'
+    JobInfo:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        data:
+          anyOf:
+            - $ref: '#/components/schemas/StoredTaskData'
+            - type: 'null'
+          description: |
+            Terminal task data when materialized. A `null` value should be
+            treated as a lazily unavailable `TaskData`, for example when the job
+            has not completed yet.
+    JobTaskFilter:
+      type: object
+      required: [jobType, taskType]
+      properties:
+        jobType:
+          type: string
+        taskType:
+          type: string
+    MetadataPredicate:
+      type: object
+      required: [path, values]
+      properties:
+        path:
+          type: array
+          description: Metadata field path segments.
+          items:
+            type: string
+        values:
+          type: array
+          description: Equality match values for the field at `path`; multiple values mean OR on the same field.
+          minItems: 1
+          items: {}
+    ListJobsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        statuses:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobStatus'
+        stores:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobStore'
+        jobTypes:
+          type: array
+          items:
+            type: string
+        jobTasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobTaskFilter'
+        jobKeys:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobKey'
+        singletonKeys:
+          type: array
+          items:
+            type: string
+        metadataPredicates:
+          type: array
+          description: |
+            Wire-format projection of `MetadataFilter`. Each predicate is a
+            top-level equality match; multiple `values` on one predicate mean OR
+            on the same field.
+          items:
+            $ref: '#/components/schemas/MetadataPredicate'
+        createdAfter:
+          type: string
+          format: date-time
+        createdBefore:
+          type: string
+          format: date-time
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 200
+        pageToken:
+          type: string
+    JobSummary:
+      type: object
+      required: [jobKey, status, jobType, waitFor, availableAt, cancelRequested, createdAt]
+      properties:
+        jobKey:
+          $ref: '#/components/schemas/JobKey'
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        jobType:
+          type: string
+        nextNeed:
+          type: [string, 'null']
+        singletonKey:
+          type: [string, 'null']
+        waitFor:
+          type: array
+          items:
+            type: string
+        availableAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+        leaseExpiresAt:
+          type: [string, 'null']
+          format: date-time
+        cancelRequested:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        archivedAt:
+          type: [string, 'null']
+          format: date-time
+        payload:
+          description: Runtime payload snapshot used by higher-level read models.
+        metadata:
+          description: Arbitrary JSON metadata persisted with the job.
+        taskWaitInput:
+          type: [integer, 'null']
+          format: int64
+        taskWaitOutput:
+          type: [integer, 'null']
+          format: int64
+        taskWaitInputHash:
+          type: [string, 'null']
+        taskWaitNext:
+          type: [string, 'null']
+    ListJobsResponse:
+      type: object
+      required: [jobs]
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobSummary'
+        nextPageToken:
+          type: string

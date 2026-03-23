@@ -2,6 +2,8 @@ package directimpl
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"sort"
 	"sync/atomic"
@@ -43,10 +45,42 @@ func metadataPredicatesToPgwf(filter swf.MetadataFilter) ([]pgwf.MetadataPredica
 	}
 	out := make([]pgwf.MetadataPredicate, 0, len(preds))
 	for _, pred := range preds {
+		values, err := jsonEncodedMetadataValues(pred.Values)
+		if err != nil {
+			return nil, err
+		}
 		out = append(out, pgwf.MetadataPredicate{
 			Path:   pred.Path,
-			Values: pred.Values,
+			Values: values,
 		})
+	}
+	return out, nil
+}
+
+func jsonEncodedMetadataValues(values []any) ([]any, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		switch v := value.(type) {
+		case json.RawMessage:
+			if !json.Valid(v) {
+				return nil, fmt.Errorf("metadata predicate value must be valid JSON")
+			}
+			out = append(out, v)
+		case []byte:
+			if !json.Valid(v) {
+				return nil, fmt.Errorf("metadata predicate value must be valid JSON")
+			}
+			out = append(out, json.RawMessage(v))
+		default:
+			encoded, err := json.Marshal(v)
+			if err != nil {
+				return nil, fmt.Errorf("metadata predicate value must be JSON-serializable: %w", err)
+			}
+			out = append(out, json.RawMessage(encoded))
+		}
 	}
 	return out, nil
 }

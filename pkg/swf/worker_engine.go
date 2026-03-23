@@ -2,15 +2,13 @@ package swf
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/segmentio/ksuid"
 )
 
 type workerEngine struct {
@@ -23,10 +21,16 @@ type workerEngine struct {
 	mu           sync.RWMutex
 	workers      map[string]*WorkSet
 	capabilities []string
+	pollGroups   []pollGroup
+}
+
+type pollGroup struct {
+	capabilities   []string
+	metadataEquals []MetadataPredicate
 }
 
 func newWorkerEngine(runtime WorkflowRuntime, workers []WorkSet, opts RuntimeBuildOptions) (workerEngineAPI, error) {
-	host, err := os.Hostname()
+	workerID, err := newRuntimeWorkerID()
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +41,7 @@ func newWorkerEngine(runtime WorkflowRuntime, workers []WorkSet, opts RuntimeBui
 	engine := &workerEngine{
 		runtime:        runtime,
 		logger:         logger,
-		workerID:       fmt.Sprintf("%s:%d-%s", host, os.Getpid(), ksuid.New().String()),
+		workerID:       workerID,
 		maxActive:      opts.MaxActive,
 		awaitThreshold: opts.AwaitRecycleThreshold,
 		workers:        make(map[string]*WorkSet),
@@ -62,6 +66,14 @@ func (e *workerEngine) RegisterWorkers(workset *WorkSet) error {
 		return fmt.Errorf("worker %s already registered", jobType)
 	}
 	clone := *workset
+	predicates, err := MetadataPredicates(clone.Options.MetadataFilter)
+	if err != nil {
+		return err
+	}
+	if _, err := metadataPredicateSignature(predicates); err != nil {
+		return err
+	}
+	clone.metadataEquals = predicates
 	e.workers[jobType] = &clone
 	e.refreshCapabilitiesLocked()
 	return nil
@@ -69,13 +81,50 @@ func (e *workerEngine) RegisterWorkers(workset *WorkSet) error {
 
 func (e *workerEngine) refreshCapabilitiesLocked() {
 	caps := make([]string, 0, len(e.workers)*2)
+	groupMap := make(map[string]*pollGroup)
+	groupOrder := make([]string, 0, len(e.workers))
 	for jobType, ws := range e.workers {
 		caps = append(caps, jobType)
+		signature, err := metadataPredicateSignature(ws.metadataEquals)
+		if err != nil {
+			signature = ""
+		}
+		group := groupMap[signature]
+		if group == nil {
+			group = &pollGroup{
+				metadataEquals: cloneMetadataPredicates(ws.metadataEquals),
+			}
+			groupMap[signature] = group
+			groupOrder = append(groupOrder, signature)
+		}
+		group.capabilities = append(group.capabilities, jobType)
 		for taskType := range ws.TaskWorkers {
-			caps = append(caps, workerCapability(jobType, taskType))
+			capability := workerCapability(jobType, taskType)
+			caps = append(caps, capability)
+			group.capabilities = append(group.capabilities, capability)
 		}
 	}
 	e.capabilities = caps
+	sort.Strings(e.capabilities)
+	groups := make([]pollGroup, 0, len(groupOrder))
+	for _, signature := range groupOrder {
+		group := groupMap[signature]
+		if group == nil {
+			continue
+		}
+		sort.Strings(group.capabilities)
+		groups = append(groups, pollGroup{
+			capabilities:   append([]string(nil), group.capabilities...),
+			metadataEquals: cloneMetadataPredicates(group.metadataEquals),
+		})
+	}
+	sort.Slice(groups, func(i, j int) bool {
+		if len(groups[i].metadataEquals) == len(groups[j].metadataEquals) {
+			return strings.Join(groups[i].capabilities, ",") < strings.Join(groups[j].capabilities, ",")
+		}
+		return len(groups[i].metadataEquals) < len(groups[j].metadataEquals)
+	})
+	e.pollGroups = groups
 }
 
 func (e *workerEngine) capabilitiesSnapshot() []string {
@@ -84,6 +133,19 @@ func (e *workerEngine) capabilitiesSnapshot() []string {
 	caps := make([]string, len(e.capabilities))
 	copy(caps, e.capabilities)
 	return caps
+}
+
+func (e *workerEngine) pollGroupsSnapshot() []pollGroup {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	out := make([]pollGroup, 0, len(e.pollGroups))
+	for _, group := range e.pollGroups {
+		out = append(out, pollGroup{
+			capabilities:   append([]string(nil), group.capabilities...),
+			metadataEquals: cloneMetadataPredicates(group.metadataEquals),
+		})
+	}
+	return out
 }
 
 func (e *workerEngine) workSetForCapability(capability string) (*WorkSet, bool) {
@@ -159,23 +221,56 @@ func (e *workerEngine) Run(ctx context.Context) {
 		}
 
 		workerID := e.nextWorkerID(workerSeq.Add(1))
-		leases, err := e.runtime.PollWork(ctx, PollWorkRequest{
-			WorkerID:     workerID,
-			Capabilities: e.capabilitiesSnapshot(),
-			Limit:        1,
-		})
-		if err != nil {
-			if ctx.Err() != nil {
-				break
+		foundLease := false
+		hadPollError := false
+		for _, group := range e.pollGroupsSnapshot() {
+			leases, err := e.runtime.PollWork(ctx, PollWorkRequest{
+				WorkerID:       workerID,
+				Capabilities:   group.capabilities,
+				Limit:          1,
+				MetadataEquals: cloneMetadataPredicates(group.metadataEquals),
+			})
+			if err != nil {
+				if ctx.Err() != nil {
+					hadPollError = false
+					break
+				}
+				hadPollError = true
+				e.logger.Error("poll work failed", "worker", workerID, "error", err)
+				continue
 			}
-			e.logger.Error("poll work failed", "worker", workerID, "error", err)
+			if len(leases) == 0 {
+				continue
+			}
+
+			backoff = 50 * time.Millisecond
+			active <- struct{}{}
+			wg.Add(1)
+			go func(lease ExecutionLease, workerID string) {
+				defer wg.Done()
+				defer func() {
+					<-active
+					select {
+					case leaseDone <- struct{}{}:
+					default:
+					}
+				}()
+				e.runLease(ctx, lease, workerID)
+			}(leases[0], workerID)
+			foundLease = true
+			break
+		}
+		if ctx.Err() != nil {
+			break
+		}
+		if hadPollError {
 			if !sleepWithContext(ctx, backoff) {
 				break
 			}
 			backoff = minDuration(backoff*2, maxBackoff)
 			continue
 		}
-		if len(leases) == 0 {
+		if !foundLease {
 			select {
 			case <-leaseDone:
 				backoff = 50 * time.Millisecond
@@ -188,21 +283,6 @@ func (e *workerEngine) Run(ctx context.Context) {
 			backoff = minDuration(backoff*2, maxBackoff)
 			continue
 		}
-
-		backoff = 50 * time.Millisecond
-		active <- struct{}{}
-		wg.Add(1)
-		go func(lease ExecutionLease, workerID string) {
-			defer wg.Done()
-			defer func() {
-				<-active
-				select {
-				case leaseDone <- struct{}{}:
-				default:
-				}
-			}()
-			e.runLease(ctx, lease, workerID)
-		}(leases[0], workerID)
 	}
 
 	wg.Wait()
@@ -233,28 +313,31 @@ func minDuration(a, b time.Duration) time.Duration {
 	return b
 }
 
+func cloneMetadataPredicates(predicates []MetadataPredicate) []MetadataPredicate {
+	if len(predicates) == 0 {
+		return nil
+	}
+	out := make([]MetadataPredicate, 0, len(predicates))
+	for _, predicate := range predicates {
+		out = append(out, MetadataPredicate{
+			Path:   append([]string(nil), predicate.Path...),
+			Values: append([]any(nil), predicate.Values...),
+		})
+	}
+	return out
+}
+
 func (e *workerEngine) runLease(ctx context.Context, lease ExecutionLease, workerID string) {
 	workset, ok := e.workSetForCapability(lease.Capability())
 	if !ok {
 		e.logger.Error("no workset found for capability", "capability", lease.Capability(), "job", lease.Job().JobKey)
 		return
 	}
-
-	payload := workerJobPayload{}
-	if raw := lease.Payload(); len(raw) > 0 {
-		if err := json.Unmarshal(raw, &payload); err != nil {
-			e.logger.Warn("failed to decode job payload", "job", lease.Job().JobKey, "error", err)
-		}
-	}
-	payload.RunPolicy = normalizeRunPolicy(payload.RunPolicy)
-
-	runner := newWorkerRunner(e.runtime, workset, lease, workerRunnerOptions{
-		Logger:         e.logger.With("job", lease.Job().JobKey.String(), "capability", lease.Capability()),
-		JobPolicy:      payload.RunPolicy,
+	_, _ = runClaimedJobLease(ctx, e.runtime, workset, lease, claimedJobRunOptions{
+		Logger:         e.logger,
 		WorkerID:       workerID,
 		AwaitThreshold: e.awaitThreshold,
 	})
-	_, _ = runner.DoJob(ctx)
 }
 
 type replayWorkSet struct {

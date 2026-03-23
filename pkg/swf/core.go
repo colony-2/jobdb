@@ -10,11 +10,16 @@ import (
 type SWFEngine interface {
 	jobRunApi
 	taskRunApi
+	jobLeaseApi
 	loopWorkerApi
 	jobsListApi
 
 	RegisterWorkers(workset *WorkSet) error
 	GetArtifact(tenantId string, key ArtifactKey) (Artifact, error)
+}
+
+type jobLeaseApi interface {
+	GetJobLease(ctx context.Context, req GetJobLeaseRequest) (ExecutionLease, error)
 }
 
 func WaitForJobToComplete(ctx context.Context, timeout time.Duration, jobKey JobKey, engine SWFEngine) error {

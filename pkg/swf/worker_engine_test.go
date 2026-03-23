@@ -19,6 +19,7 @@ type pollTrackingRuntime struct {
 
 	mu        sync.Mutex
 	workerIDs []string
+	requests  []PollWorkRequest
 }
 
 func (r *pollTrackingRuntime) PollWork(ctx context.Context, req PollWorkRequest) ([]ExecutionLease, error) {
@@ -33,6 +34,14 @@ func (r *pollTrackingRuntime) PollWork(ctx context.Context, req PollWorkRequest)
 
 	r.mu.Lock()
 	r.workerIDs = append(r.workerIDs, req.WorkerID)
+	r.requests = append(r.requests, PollWorkRequest{
+		WorkerID:       req.WorkerID,
+		Capabilities:   append([]string(nil), req.Capabilities...),
+		Limit:          req.Limit,
+		LongPollUntil:  req.LongPollUntil,
+		LeaseDuration:  req.LeaseDuration,
+		MetadataEquals: cloneMetadataPredicates(req.MetadataEquals),
+	})
 	r.mu.Unlock()
 
 	if r.pollDelay > 0 {
@@ -57,6 +66,23 @@ func (r *pollTrackingRuntime) seenWorkerIDs() []string {
 	defer r.mu.Unlock()
 	out := make([]string, len(r.workerIDs))
 	copy(out, r.workerIDs)
+	return out
+}
+
+func (r *pollTrackingRuntime) seenRequests() []PollWorkRequest {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]PollWorkRequest, 0, len(r.requests))
+	for _, req := range r.requests {
+		out = append(out, PollWorkRequest{
+			WorkerID:       req.WorkerID,
+			Capabilities:   append([]string(nil), req.Capabilities...),
+			Limit:          req.Limit,
+			LongPollUntil:  req.LongPollUntil,
+			LeaseDuration:  req.LeaseDuration,
+			MetadataEquals: cloneMetadataPredicates(req.MetadataEquals),
+		})
+	}
 	return out
 }
 
@@ -142,5 +168,58 @@ func TestWorkerEngineSerializesPollsAndUsesDistinctWorkerIDs(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("worker engine did not stop")
+	}
+}
+
+func TestWorkerEngineBuildsPollGroupsFromWorksetMetadataFilters(t *testing.T) {
+	blueFilter, err := Metadata().EqualFilter("queue", "blue")
+	if err != nil {
+		t.Fatalf("build blue filter: %v", err)
+	}
+	greenFilter, err := Metadata().EqualFilter("queue", "green")
+	if err != nil {
+		t.Fatalf("build green filter: %v", err)
+	}
+
+	runtime := &pollTrackingRuntime{runnerTestRuntime: newRunnerTestRuntime()}
+	wsBlue, err := AsWorkSetWithOptions(blockingJobWorker{name: "blue-job"}, WorkRegistrationOptions{MetadataFilter: blueFilter})
+	if err != nil {
+		t.Fatalf("blue workset: %v", err)
+	}
+	wsGreen, err := AsWorkSetWithOptions(blockingJobWorker{name: "green-job"}, WorkRegistrationOptions{MetadataFilter: greenFilter})
+	if err != nil {
+		t.Fatalf("green workset: %v", err)
+	}
+	engineAPI, err := newWorkerEngine(runtime, []WorkSet{*wsBlue, *wsGreen}, RuntimeBuildOptions{})
+	if err != nil {
+		t.Fatalf("build worker engine: %v", err)
+	}
+	engine := engineAPI.(*workerEngine)
+
+	groups := engine.pollGroupsSnapshot()
+	if len(groups) != 2 {
+		t.Fatalf("expected 2 poll groups, got %d", len(groups))
+	}
+
+	sawBlue := false
+	sawGreen := false
+	for _, group := range groups {
+		if len(group.capabilities) != 1 {
+			t.Fatalf("unexpected group capabilities %+v", group.capabilities)
+		}
+		if len(group.metadataEquals) != 1 || len(group.metadataEquals[0].Path) != 1 || group.metadataEquals[0].Path[0] != "queue" {
+			t.Fatalf("unexpected group metadata %+v", group.metadataEquals)
+		}
+		switch group.capabilities[0] {
+		case "blue-job":
+			sawBlue = len(group.metadataEquals[0].Values) == 1 && group.metadataEquals[0].Values[0] == "blue"
+		case "green-job":
+			sawGreen = len(group.metadataEquals[0].Values) == 1 && group.metadataEquals[0].Values[0] == "green"
+		default:
+			t.Fatalf("unexpected capability group %+v", group.capabilities)
+		}
+	}
+	if !sawBlue || !sawGreen {
+		t.Fatalf("unexpected poll groups %+v", groups)
 	}
 }

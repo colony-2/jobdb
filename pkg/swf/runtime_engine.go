@@ -74,11 +74,23 @@ func (e *runtimeEngine) ListJobs(ctx context.Context, req ListJobsRequest) (List
 }
 
 func (e *runtimeEngine) FindTasksWaitingForCapability(ctx context.Context, jobType string, taskType string, tenantIds []string) ([]TaskHandle, error) {
-	return findWaitingTasksFromRuntime(ctx, e.runtime, jobType, taskType, tenantIds)
+	return e.FindTasksWaiting(ctx, FindTasksWaitingRequest{
+		JobType:   jobType,
+		TaskType:  taskType,
+		TenantIds: tenantIds,
+	})
+}
+
+func (e *runtimeEngine) FindTasksWaiting(ctx context.Context, req FindTasksWaitingRequest) ([]TaskHandle, error) {
+	return findWaitingTasksFromRuntime(ctx, e.runtime, req)
 }
 
 func (e *runtimeEngine) GetWaitingTask(ctx context.Context, key JobKey) (TaskHandle, error) {
 	return getWaitingTaskFromRuntime(ctx, e.runtime, key)
+}
+
+func (e *runtimeEngine) GetJobLease(ctx context.Context, req GetJobLeaseRequest) (ExecutionLease, error) {
+	return e.runtime.GetJobLease(ctx, req)
 }
 
 func (e *runtimeEngine) Run(ctx context.Context) {

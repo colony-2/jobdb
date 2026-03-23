@@ -12,8 +12,18 @@ type taskRunApi interface {
 	// FindTasksWaitingForCapability returns task handles for jobs waiting for the given capability.
 	// tenantIds must contain at least one tenant ID.
 	FindTasksWaitingForCapability(ctx context.Context, jobType string, taskType string, tenantIds []string) ([]TaskHandle, error)
+	// FindTasksWaiting returns task handles for jobs waiting for the given capability and optional metadata filter.
+	FindTasksWaiting(ctx context.Context, req FindTasksWaitingRequest) ([]TaskHandle, error)
 	// GetWaitingTask returns a task handle if the job is currently ready/pending that capability.
 	GetWaitingTask(ctx context.Context, key JobKey) (TaskHandle, error)
+}
+
+type FindTasksWaitingRequest struct {
+	JobType        string
+	TaskType       string
+	TenantIds      []string
+	MetadataFilter MetadataFilter
+	Limit          int
 }
 
 type TaskContext struct {

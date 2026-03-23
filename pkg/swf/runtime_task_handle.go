@@ -21,23 +21,29 @@ type runtimeListedTaskHandle struct {
 	inputHash     string
 }
 
-func findWaitingTasksFromRuntime(ctx context.Context, runtime WorkflowRuntime, jobType string, taskType string, tenantIds []string) ([]TaskHandle, error) {
+func findWaitingTasksFromRuntime(ctx context.Context, runtime WorkflowRuntime, req FindTasksWaitingRequest) ([]TaskHandle, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if len(tenantIds) == 0 {
+	if len(req.TenantIds) == 0 {
 		return nil, fmt.Errorf("tenant_ids is required for task discovery")
 	}
-	capability := workerCapability(jobType, taskType)
+	capability := workerCapability(req.JobType, req.TaskType)
 	pageToken := ""
 	handles := make([]TaskHandle, 0)
+	remaining := req.Limit
 	for {
+		pageSize := MaxListJobsPageSize
+		if remaining > 0 && remaining < pageSize {
+			pageSize = remaining
+		}
 		resp, err := runtime.ListJobs(ctx, ListJobsRequest{
-			TenantIds: tenantIds,
-			Statuses:  []JobStatus{JobStatusReady},
-			JobTasks:  []JobTaskFilter{{JobType: jobType, TaskType: taskType}},
-			PageSize:  MaxListJobsPageSize,
-			PageToken: pageToken,
+			TenantIds:      req.TenantIds,
+			Statuses:       []JobStatus{JobStatusReady},
+			JobTasks:       []JobTaskFilter{{JobType: req.JobType, TaskType: req.TaskType}},
+			MetadataFilter: req.MetadataFilter,
+			PageSize:       pageSize,
+			PageToken:      pageToken,
 		})
 		if err != nil {
 			return nil, err
@@ -51,11 +57,20 @@ func findWaitingTasksFromRuntime(ctx context.Context, runtime WorkflowRuntime, j
 				continue
 			}
 			handles = append(handles, handle)
+			if remaining > 0 && len(handles) >= req.Limit {
+				return handles, nil
+			}
 		}
 		if resp.NextPageToken == "" {
 			return handles, nil
 		}
 		pageToken = resp.NextPageToken
+		if remaining > 0 {
+			remaining = req.Limit - len(handles)
+			if remaining <= 0 {
+				return handles, nil
+			}
+		}
 	}
 }
 

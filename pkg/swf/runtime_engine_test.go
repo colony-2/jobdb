@@ -14,6 +14,7 @@ type fakeWorkflowRuntime struct {
 	startReq      SubmitJobRequest
 	restartReq    SubmitRestartJobRequest
 	cancelReq     CancelJobRequest
+	leaseReq      GetJobLeaseRequest
 	completeReq   CompleteTaskIfWaitingRequest
 	jobReq        JobKey
 	listReq       ListJobsRequest
@@ -23,6 +24,7 @@ type fakeWorkflowRuntime struct {
 	restartHandle JobHandle
 	jobResp       JobInfo
 	jobRunResp    GetJobRunResponse
+	leaseResp     ExecutionLease
 	listResp      ListJobsResponse
 	chapterResp   StoredChapter
 	chaptersResp  []StoredChapter
@@ -49,7 +51,8 @@ func (r *fakeWorkflowRuntime) PollWork(ctx context.Context, req PollWorkRequest)
 }
 
 func (r *fakeWorkflowRuntime) GetJobLease(ctx context.Context, req GetJobLeaseRequest) (ExecutionLease, error) {
-	return nil, nil
+	r.leaseReq = req
+	return r.leaseResp, nil
 }
 
 func (r *fakeWorkflowRuntime) CompleteTaskIfWaiting(ctx context.Context, req CompleteTaskIfWaitingRequest) error {
@@ -239,6 +242,10 @@ func TestRuntimeEngineDelegatesLifecycleMethodsToRuntime(t *testing.T) {
 
 func TestRuntimeEngineDelegatesWaitingTaskMethodsToRuntime(t *testing.T) {
 	waitKey := JobKey{TenantId: "tenant-w", JobId: "job-w"}
+	metaFilter, err := Metadata().EqualFilter("queue", "blue")
+	if err != nil {
+		t.Fatalf("build metadata filter: %v", err)
+	}
 	runtime := &fakeWorkflowRuntime{
 		listResp: ListJobsResponse{Jobs: []JobSummary{{
 			JobKey:            waitKey,
@@ -266,7 +273,13 @@ func TestRuntimeEngineDelegatesWaitingTaskMethodsToRuntime(t *testing.T) {
 		t.Fatalf("build engine: %v", err)
 	}
 
-	handles, err := engine.FindTasksWaitingForCapability(context.Background(), "job", "task", []string{"tenant-x"})
+	handles, err := engine.FindTasksWaiting(context.Background(), FindTasksWaitingRequest{
+		JobType:        "job",
+		TaskType:       "task",
+		TenantIds:      []string{"tenant-x"},
+		MetadataFilter: metaFilter,
+		Limit:          1,
+	})
 	if err != nil {
 		t.Fatalf("find tasks: %v", err)
 	}
@@ -275,6 +288,16 @@ func TestRuntimeEngineDelegatesWaitingTaskMethodsToRuntime(t *testing.T) {
 	}
 	if len(runtime.listReq.JobTasks) != 1 || runtime.listReq.JobTasks[0].JobType != "job" || runtime.listReq.JobTasks[0].TaskType != "task" {
 		t.Fatalf("unexpected find request %+v", runtime.listReq)
+	}
+	if runtime.listReq.PageSize != 1 {
+		t.Fatalf("unexpected find page size %d", runtime.listReq.PageSize)
+	}
+	preds, err := MetadataPredicates(runtime.listReq.MetadataFilter)
+	if err != nil {
+		t.Fatalf("metadata predicates: %v", err)
+	}
+	if len(preds) != 1 || len(preds[0].Path) != 1 || preds[0].Path[0] != "queue" || len(preds[0].Values) != 1 || preds[0].Values[0] != "blue" {
+		t.Fatalf("unexpected metadata predicates %+v", preds)
 	}
 	if _, err := handles[0].Data(); err != nil {
 		t.Fatalf("load waiting task data: %v", err)
@@ -295,6 +318,42 @@ func TestRuntimeEngineDelegatesWaitingTaskMethodsToRuntime(t *testing.T) {
 	}
 	if handle.JobKey() != waitKey || len(runtime.listReq.JobKeys) != 1 || runtime.listReq.JobKeys[0] != waitKey {
 		t.Fatalf("unexpected waiting task %+v req=%+v", handle.JobKey(), runtime.listReq)
+	}
+}
+
+func TestRuntimeEngineDelegatesGetJobLeaseToRuntime(t *testing.T) {
+	jobKey := JobKey{TenantId: "tenant-lease", JobId: "job-lease"}
+	lease := &fakeExecutionLease{
+		job:        JobHandle{JobKey: jobKey},
+		capability: "job-lease",
+		payload:    json.RawMessage(`{"ok":true}`),
+	}
+	runtime := &fakeWorkflowRuntime{leaseResp: lease}
+	engine, err := NewEngineBuilder().WithRuntime(runtime).PlusWorkers(fakeJobWorker{}).BuildEngine()
+	if err != nil {
+		t.Fatalf("build engine: %v", err)
+	}
+
+	got, err := engine.GetJobLease(context.Background(), GetJobLeaseRequest{
+		JobKey:        jobKey,
+		WorkerID:      "manual-worker",
+		Capabilities:  []string{"job-lease"},
+		LeaseDuration: 2 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("get job lease: %v", err)
+	}
+	if got != lease {
+		t.Fatalf("unexpected lease %#v", got)
+	}
+	if runtime.leaseReq.JobKey != jobKey || runtime.leaseReq.WorkerID != "manual-worker" {
+		t.Fatalf("unexpected lease request %+v", runtime.leaseReq)
+	}
+	if len(runtime.leaseReq.Capabilities) != 1 || runtime.leaseReq.Capabilities[0] != "job-lease" {
+		t.Fatalf("unexpected lease capabilities %+v", runtime.leaseReq.Capabilities)
+	}
+	if runtime.leaseReq.LeaseDuration != 2*time.Second {
+		t.Fatalf("unexpected lease duration %s", runtime.leaseReq.LeaseDuration)
 	}
 }
 

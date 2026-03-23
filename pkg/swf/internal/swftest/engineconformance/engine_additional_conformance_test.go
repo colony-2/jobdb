@@ -699,3 +699,137 @@ func TestCancelledJobReturnsCancelledOutputAcrossBuiltInRuntimes(t *testing.T) {
 		})
 	}
 }
+
+func TestEngineMetadataFilteredWorkersAndManualJobLeaseAcrossBuiltInRuntimes(t *testing.T) {
+	metaFilter, err := swf.Metadata().EqualFilter("queue", "blue")
+	if err != nil {
+		t.Fatalf("build metadata filter: %v", err)
+	}
+	ws := swftest.MustWorkSetWithOptions(t, customIDJob{}, swf.WorkRegistrationOptions{MetadataFilter: metaFilter})
+
+	for _, harness := range swftest.BuiltInRuntimeHarnesses() {
+		harness := harness
+		t.Run(harness.Name, func(t *testing.T) {
+			built := harness.New(t, ws)
+			defer built.Shutdown(t)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+
+			blueKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
+				TenantId: "tenant-worker-filter-" + harness.Name,
+				JobType:  ws.JobWorker.Name(),
+				JobID:    "blue",
+				Data:     swftest.NumberTaskData(1),
+				Metadata: json.RawMessage(`{"queue":"blue"}`),
+			})
+			if err != nil {
+				t.Fatalf("submit blue job: %v", err)
+			}
+			greenKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
+				TenantId: blueKey.TenantId,
+				JobType:  ws.JobWorker.Name(),
+				JobID:    "green",
+				Data:     swftest.NumberTaskData(2),
+				Metadata: json.RawMessage(`{"queue":"green"}`),
+			})
+			if err != nil {
+				t.Fatalf("submit green job: %v", err)
+			}
+
+			swftest.WaitForEngineStatus(t, ctx, built.Engine, blueKey, swf.JobStatusCompleted)
+
+			greenJob, err := built.Engine.GetJob(ctx, greenKey)
+			if err != nil {
+				t.Fatalf("get green job: %v", err)
+			}
+			if greenJob.Status == swf.JobStatusCompleted {
+				t.Fatalf("expected green job to remain unprocessed by metadata-filtered worker")
+			}
+
+			lease, err := built.Engine.GetJobLease(ctx, swf.GetJobLeaseRequest{
+				JobKey:        greenKey,
+				WorkerID:      "manual-worker",
+				Capabilities:  []string{ws.JobWorker.Name()},
+				LeaseDuration: time.Second,
+			})
+			if err != nil {
+				t.Fatalf("manual job lease: %v", err)
+			}
+			if lease == nil {
+				t.Fatal("expected manual job lease")
+			}
+			if lease.Job().JobKey != greenKey {
+				t.Fatalf("unexpected leased job %+v", lease.Job().JobKey)
+			}
+			if err := lease.Complete(ctx, swf.CompleteExecutionRequest{Status: "succeeded"}); err != nil {
+				t.Fatalf("complete manual lease: %v", err)
+			}
+			swftest.WaitForEngineStatus(t, ctx, built.Engine, greenKey, swf.JobStatusCompleted)
+		})
+	}
+}
+
+func TestFindTasksWaitingWithMetadataFilterAcrossBuiltInRuntimes(t *testing.T) {
+	ws := swftest.MustWorkSet(t, pendingJob{})
+	metaFilter, err := swf.Metadata().EqualFilter("rank", 1)
+	if err != nil {
+		t.Fatalf("build metadata filter: %v", err)
+	}
+
+	for _, harness := range swftest.BuiltInRuntimeHarnesses() {
+		harness := harness
+		t.Run(harness.Name, func(t *testing.T) {
+			built := harness.New(t, ws)
+			defer built.Shutdown(t)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+
+			blueKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
+				TenantId: "tenant-find-meta-" + harness.Name,
+				JobType:  ws.JobWorker.Name(),
+				JobID:    "blue-pending",
+				Data:     swftest.NumberTaskData(3),
+				Metadata: json.RawMessage(`{"rank":1}`),
+			})
+			if err != nil {
+				t.Fatalf("submit blue pending job: %v", err)
+			}
+			if _, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
+				TenantId: blueKey.TenantId,
+				JobType:  ws.JobWorker.Name(),
+				JobID:    "green-pending",
+				Data:     swftest.NumberTaskData(4),
+				Metadata: json.RawMessage(`{"rank":2}`),
+			}); err != nil {
+				t.Fatalf("submit green pending job: %v", err)
+			}
+
+			var handles []swf.TaskHandle
+			deadline := time.Now().Add(5 * time.Second)
+			for time.Now().Before(deadline) {
+				handles, err = built.Engine.FindTasksWaiting(ctx, swf.FindTasksWaitingRequest{
+					JobType:        ws.JobWorker.Name(),
+					TaskType:       "pending-task",
+					TenantIds:      []string{blueKey.TenantId},
+					MetadataFilter: metaFilter,
+					Limit:          1,
+				})
+				if err != nil {
+					t.Fatalf("find tasks waiting: %v", err)
+				}
+				if len(handles) > 0 {
+					break
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+			if len(handles) != 1 {
+				t.Fatalf("expected 1 filtered pending handle, got %d", len(handles))
+			}
+			if handles[0].JobKey() != blueKey {
+				t.Fatalf("unexpected filtered handle job %+v", handles[0].JobKey())
+			}
+		})
+	}
+}

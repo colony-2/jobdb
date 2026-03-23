@@ -349,3 +349,14 @@ func DecodeListJobsPageToken(tok string) (time.Time, JobKey, error) {
 	cur, err := decodePageToken(tok)
 	return cur.CreatedAt, JobKey{TenantId: cur.TenantId, JobId: cur.JobID}, err
 }
+
+func metadataPredicateSignature(predicates []MetadataPredicate) (string, error) {
+	if len(predicates) == 0 {
+		return "", nil
+	}
+	raw, err := json.Marshal(predicates)
+	if err != nil {
+		return "", fmt.Errorf("metadata predicates must be JSON-serializable: %w", err)
+	}
+	return string(raw), nil
+}

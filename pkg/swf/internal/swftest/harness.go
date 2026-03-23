@@ -80,6 +80,15 @@ func MustWorkSet(t *testing.T, job swf.JobWorker, tasks ...swf.TaskWorker) swf.W
 	return *ws
 }
 
+func MustWorkSetWithOptions(t *testing.T, job swf.JobWorker, opts swf.WorkRegistrationOptions, tasks ...swf.TaskWorker) swf.WorkSet {
+	t.Helper()
+	ws, err := swf.AsWorkSetWithOptions(job, opts, tasks...)
+	if err != nil {
+		t.Fatalf("build workset: %v", err)
+	}
+	return *ws
+}
+
 func WaitForEngineStatus(t *testing.T, ctx context.Context, engine swf.SWFEngine, jobKey swf.JobKey, want swf.JobStatus) {
 	t.Helper()
 	waitForStatus(t, ctx, func(ctx context.Context) (swf.JobStatus, error) {
@@ -280,7 +289,7 @@ func buildHarness(t *testing.T, name string, runtime swf.WorkflowRuntime, startL
 		for _, task := range ws.TaskWorkers {
 			tasks = append(tasks, task)
 		}
-		builder.PlusWorkers(ws.JobWorker, tasks...)
+		builder.PlusWorkersWithOptions(ws.JobWorker, ws.Options, tasks...)
 	}
 	engine, err := builder.BuildEngine()
 	if err != nil {

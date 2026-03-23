@@ -500,3 +500,244 @@ func TestWorkflowRuntimeGetJobLeaseAcrossBuiltInRuntimes(t *testing.T) {
 		})
 	}
 }
+
+func TestGetJobForRunAcrossBuiltInRuntimes(t *testing.T) {
+	for _, harness := range swftest.BuiltInRuntimeHarnesses() {
+		harness := harness
+		t.Run(harness.Name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+
+			t.Run("completed", func(t *testing.T) {
+				built := harness.New(t)
+				defer built.Shutdown(t)
+
+				handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
+					Job: swf.SubmitJob{
+						TenantId: "tenant-run-job-complete-" + harness.Name,
+						JobID:    "run-job-complete-" + harness.Name,
+						JobType:  swftest.SequenceJobName,
+						Data:     swftest.NumberTaskData(7),
+					},
+					RequestTime: time.Now().UTC(),
+				})
+				if err != nil {
+					t.Fatalf("submit direct-run complete job: %v", err)
+				}
+
+				runnable, err := swf.GetJobForRun(ctx, built.Runtime, swf.GetJobForRunRequest{
+					JobKey:    handle.JobKey,
+					JobWorker: swftest.SequenceJob{},
+					WorkerID:  "run-job-complete-worker",
+				})
+				if err != nil {
+					t.Fatalf("get job for run: %v", err)
+				}
+				if !runnable.LeaseAcquired() {
+					t.Fatal("expected runnable to hold a lease")
+				}
+				if _, ok := runnable.Outcome(); ok {
+					t.Fatal("expected leased runnable to have no cached outcome before run")
+				}
+
+				outcome, err := runnable.Run(nil)
+				if err != nil {
+					t.Fatalf("run job runnable: %v", err)
+				}
+				if outcome.Status != swf.JobRunCompleted {
+					t.Fatalf("unexpected outcome status %q", outcome.Status)
+				}
+				if !outcome.LeaseAcquired {
+					t.Fatal("expected helper to acquire the lease")
+				}
+				if got := swftest.MustDecodeNumberTaskData(t, outcome.Output); got != 7 {
+					t.Fatalf("unexpected output: got %d want 7", got)
+				}
+
+				replayed, err := swf.GetJobForRun(ctx, built.Runtime, swf.GetJobForRunRequest{
+					JobKey:    handle.JobKey,
+					JobWorker: swftest.SequenceJob{},
+					WorkerID:  "run-job-complete-worker-2",
+				})
+				if err != nil {
+					t.Fatalf("get completed job for run: %v", err)
+				}
+				if replayed.LeaseAcquired() {
+					t.Fatal("expected completed job not to reacquire a lease")
+				}
+				cached, ok := replayed.Outcome()
+				if !ok {
+					t.Fatal("expected completed job runnable to expose a cached outcome")
+				}
+				if cached.Status != swf.JobRunCompleted {
+					t.Fatalf("unexpected cached outcome status %q", cached.Status)
+				}
+				replayedOutcome, err := replayed.Run(nil)
+				if err != nil {
+					t.Fatalf("run completed job runnable: %v", err)
+				}
+				if got := swftest.MustDecodeNumberTaskData(t, replayedOutcome.Output); got != 7 {
+					t.Fatalf("unexpected replayed output: got %d want 7", got)
+				}
+			})
+
+			t.Run("failed", func(t *testing.T) {
+				built := harness.New(t)
+				defer built.Shutdown(t)
+
+				handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
+					Job: swf.SubmitJob{
+						TenantId: "tenant-run-job-fail-" + harness.Name,
+						JobID:    "run-job-fail-" + harness.Name,
+						JobType:  swftest.FailingJobName,
+						Data:     swftest.NumberTaskData(1),
+					},
+					RequestTime: time.Now().UTC(),
+				})
+				if err != nil {
+					t.Fatalf("submit direct-run failing job: %v", err)
+				}
+
+				runnable, err := swf.GetJobForRun(ctx, built.Runtime, swf.GetJobForRunRequest{
+					JobKey:    handle.JobKey,
+					JobWorker: swftest.FailingJob{},
+					WorkerID:  "run-job-fail-worker",
+				})
+				if err != nil {
+					t.Fatalf("get failing job for run: %v", err)
+				}
+				if !runnable.LeaseAcquired() {
+					t.Fatal("expected runnable to hold a lease")
+				}
+
+				outcome, err := runnable.Run(nil)
+				if err != nil {
+					t.Fatalf("run failing job runnable: %v", err)
+				}
+				if outcome.Status != swf.JobRunFailed {
+					t.Fatalf("unexpected outcome status %q", outcome.Status)
+				}
+				if !outcome.LeaseAcquired {
+					t.Fatal("expected helper to acquire the lease")
+				}
+				if outcome.JobError == nil || outcome.JobError.Error() != "intentional failure" {
+					t.Fatalf("unexpected job error %v", outcome.JobError)
+				}
+			})
+
+			t.Run("suspended_missing_capability", func(t *testing.T) {
+				built := harness.New(t)
+				defer built.Shutdown(t)
+
+				handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
+					Job: swf.SubmitJob{
+						TenantId: "tenant-run-job-suspended-" + harness.Name,
+						JobID:    "run-job-suspended-" + harness.Name,
+						JobType:  swftest.SequenceJobName,
+						Data:     swftest.NumberTaskData(3),
+					},
+					RequestTime: time.Now().UTC(),
+				})
+				if err != nil {
+					t.Fatalf("submit direct-run suspended job: %v", err)
+				}
+
+				runnable, err := swf.GetJobForRun(ctx, built.Runtime, swf.GetJobForRunRequest{
+					JobKey:    handle.JobKey,
+					JobWorker: swftest.SequenceJob{Steps: []string{swftest.MissingTaskName}},
+					WorkerID:  "run-job-suspended-worker",
+				})
+				if err != nil {
+					t.Fatalf("get suspended job for run: %v", err)
+				}
+				if !runnable.LeaseAcquired() {
+					t.Fatal("expected runnable to hold a lease")
+				}
+
+				outcome, err := runnable.Run(nil)
+				if err != nil {
+					t.Fatalf("run suspended job runnable: %v", err)
+				}
+				if outcome.Status != swf.JobRunSuspended {
+					t.Fatalf("unexpected outcome status %q", outcome.Status)
+				}
+				if !outcome.LeaseAcquired {
+					t.Fatal("expected helper to acquire the lease")
+				}
+				wantCapability := swftest.SequenceJobName + ":" + swftest.MissingTaskName
+				if outcome.NextNeed == nil || *outcome.NextNeed != wantCapability {
+					t.Fatalf("unexpected next need %+v", outcome.NextNeed)
+				}
+				if outcome.MissingCapability == nil || *outcome.MissingCapability != wantCapability {
+					t.Fatalf("unexpected missing capability %+v", outcome.MissingCapability)
+				}
+			})
+
+			t.Run("not_leaseable_while_active", func(t *testing.T) {
+				built := harness.New(t)
+				defer built.Shutdown(t)
+
+				handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
+					Job: swf.SubmitJob{
+						TenantId: "tenant-run-job-active-" + harness.Name,
+						JobID:    "run-job-active-" + harness.Name,
+						JobType:  swftest.SequenceJobName,
+						Data:     swftest.NumberTaskData(9),
+					},
+					RequestTime: time.Now().UTC(),
+				})
+				if err != nil {
+					t.Fatalf("submit direct-run active job: %v", err)
+				}
+
+				lease, err := built.Runtime.GetJobLease(ctx, swf.GetJobLeaseRequest{
+					JobKey:       handle.JobKey,
+					WorkerID:     "held-lease-worker",
+					Capabilities: []string{swftest.SequenceJobName},
+				})
+				if err != nil {
+					t.Fatalf("hold targeted lease: %v", err)
+				}
+				if lease == nil {
+					t.Fatal("expected targeted lease to be acquired")
+				}
+
+				runnable, err := swf.GetJobForRun(ctx, built.Runtime, swf.GetJobForRunRequest{
+					JobKey:    handle.JobKey,
+					JobWorker: swftest.SequenceJob{},
+					WorkerID:  "run-job-active-worker",
+				})
+				if err != nil {
+					t.Fatalf("get active job for run: %v", err)
+				}
+				if runnable.LeaseAcquired() {
+					t.Fatal("expected held job not to reacquire a lease")
+				}
+				cached, ok := runnable.Outcome()
+				if !ok {
+					t.Fatal("expected active job runnable to expose a cached outcome")
+				}
+				if cached.Status != swf.JobRunNotLeaseable {
+					t.Fatalf("unexpected cached outcome status %q", cached.Status)
+				}
+				outcome, err := runnable.Run(nil)
+				if err != nil {
+					t.Fatalf("run active job runnable: %v", err)
+				}
+				if outcome.Status != swf.JobRunNotLeaseable {
+					t.Fatalf("unexpected outcome status %q", outcome.Status)
+				}
+				if outcome.LeaseAcquired {
+					t.Fatal("expected helper not to acquire the held lease")
+				}
+				if outcome.JobStatus == nil || *outcome.JobStatus != swf.JobStatusActive {
+					t.Fatalf("unexpected job status %+v", outcome.JobStatus)
+				}
+
+				if err := lease.Complete(ctx, swf.CompleteExecutionRequest{Status: "succeeded"}); err != nil {
+					t.Fatalf("complete held lease: %v", err)
+				}
+			})
+		})
+	}
+}

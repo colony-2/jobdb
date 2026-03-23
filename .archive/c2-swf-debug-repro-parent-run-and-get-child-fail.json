@@ -1,0 +1,1578 @@
+{
+  "scenario": "repro-parent-run-and-get-child-fail",
+  "wait_error": "job default/3B5jSJayQVb5zRfb3vDwlwUannI did not complete within the specified timeout of 10s",
+  "started_jobs": [
+    {
+      "recipe_name": "repro-parent-run-and-get-child-fail",
+      "key": {
+        "tenantId": "default",
+        "jobId": "3B5jSJayQVb5zRfb3vDwlwUannI"
+      }
+    },
+    {
+      "recipe_name": "repro-child-fail",
+      "key": {
+        "tenantId": "default",
+        "jobId": "3B5jSGpZAbDXFdt2haU0c5reqpI"
+      }
+    },
+    {
+      "recipe_name": "repro-child-fail",
+      "key": {
+        "tenantId": "default",
+        "jobId": "3B5jSRinZH1rUgqWhGjVJxirinc"
+      }
+    }
+  ],
+  "list_jobs": [
+    {
+      "JobKey": {
+        "tenantId": "default",
+        "jobId": "3B5jSRinZH1rUgqWhGjVJxirinc"
+      },
+      "Status": "COMPLETED",
+      "JobType": "recipe",
+      "SingletonKey": null,
+      "WaitFor": null,
+      "AvailableAt": "2026-03-17T22:17:04.120144053Z",
+      "ExpiresAt": null,
+      "LeaseExpiresAt": null,
+      "CancelRequested": false,
+      "CreatedAt": "2026-03-17T22:17:04.120144053Z",
+      "ArchivedAt": "2026-03-17T22:17:04.700175679Z",
+      "Payload": {
+        "run_policy": {
+          "Retry": {
+            "InitialInterval": 100000000,
+            "BackoffCoefficient": 2,
+            "MaximumInterval": 30000000000,
+            "MaximumAttempts": 3,
+            "NonRetryableErrorTypes": [
+              "SystemError"
+            ]
+          },
+          "InvocationTimeout": 600000000000,
+          "TotalTimeout": 1800000000000
+        }
+      },
+      "Metadata": {
+        "v": 1,
+        "recipe": "repro-child-fail",
+        "cell_name": "cells/test-cell",
+        "git_ref": "3a332010be449cda26e008866d83f203d7e84c28"
+      },
+      "TaskWaitInput": null,
+      "TaskWaitOutput": null,
+      "TaskWaitNext": "recipe"
+    },
+    {
+      "JobKey": {
+        "tenantId": "default",
+        "jobId": "3B5jSGpZAbDXFdt2haU0c5reqpI"
+      },
+      "Status": "COMPLETED",
+      "JobType": "recipe",
+      "SingletonKey": null,
+      "WaitFor": null,
+      "AvailableAt": "2026-03-17T22:17:03.151452053Z",
+      "ExpiresAt": null,
+      "LeaseExpiresAt": null,
+      "CancelRequested": false,
+      "CreatedAt": "2026-03-17T22:17:03.151452053Z",
+      "ArchivedAt": "2026-03-17T22:17:03.576729345Z",
+      "Payload": {
+        "run_policy": {
+          "Retry": {
+            "InitialInterval": 100000000,
+            "BackoffCoefficient": 2,
+            "MaximumInterval": 30000000000,
+            "MaximumAttempts": 3,
+            "NonRetryableErrorTypes": [
+              "SystemError"
+            ]
+          },
+          "InvocationTimeout": 600000000000,
+          "TotalTimeout": 1800000000000
+        }
+      },
+      "Metadata": {
+        "v": 1,
+        "recipe": "repro-child-fail",
+        "cell_name": "cells/test-cell",
+        "git_ref": "3a332010be449cda26e008866d83f203d7e84c28"
+      },
+      "TaskWaitInput": null,
+      "TaskWaitOutput": null,
+      "TaskWaitNext": "recipe"
+    },
+    {
+      "JobKey": {
+        "tenantId": "default",
+        "jobId": "3B5jSJayQVb5zRfb3vDwlwUannI"
+      },
+      "Status": "ACTIVE",
+      "JobType": "recipe",
+      "SingletonKey": null,
+      "WaitFor": null,
+      "AvailableAt": "2026-03-17T22:17:03.085849053Z",
+      "ExpiresAt": null,
+      "LeaseExpiresAt": null,
+      "CancelRequested": false,
+      "CreatedAt": "2026-03-17T22:17:03.085849053Z",
+      "ArchivedAt": null,
+      "Payload": {
+        "run_policy": {
+          "Retry": {
+            "InitialInterval": 100000000,
+            "BackoffCoefficient": 2,
+            "MaximumInterval": 30000000000,
+            "MaximumAttempts": 3,
+            "NonRetryableErrorTypes": [
+              "SystemError"
+            ]
+          },
+          "InvocationTimeout": 600000000000,
+          "TotalTimeout": 1800000000000
+        }
+      },
+      "Metadata": {
+        "v": 1,
+        "recipe": "repro-parent-run-and-get-child-fail",
+        "ticket_id": "TEST-TICKET",
+        "cell_name": "cells/test-cell",
+        "actor_email": "test-actor@colony2",
+        "git_ref": "3a332010be449cda26e008866d83f203d7e84c28"
+      },
+      "TaskWaitInput": null,
+      "TaskWaitOutput": null,
+      "TaskWaitNext": "recipe"
+    }
+  ],
+  "parent": {
+    "key": {
+      "tenantId": "default",
+      "jobId": "3B5jSJayQVb5zRfb3vDwlwUannI"
+    },
+    "run": {
+      "Job": {
+        "JobKey": {
+          "tenantId": "default",
+          "jobId": "3B5jSJayQVb5zRfb3vDwlwUannI"
+        },
+        "JobType": "recipe",
+        "Status": "ACTIVE",
+        "CreatedAt": "2026-03-17T22:17:03.085849053Z",
+        "ArchivedAt": null,
+        "Metadata": {
+          "v": 1,
+          "recipe": "repro-parent-run-and-get-child-fail",
+          "ticket_id": "TEST-TICKET",
+          "cell_name": "cells/test-cell",
+          "actor_email": "test-actor@colony2",
+          "git_ref": "3a332010be449cda26e008866d83f203d7e84c28"
+        }
+      },
+      "Start": {
+        "Ordinal": 0,
+        "WorkerID": "",
+        "CreatedAt": "2026-03-17T22:17:03.085849053Z",
+        "Input": {
+          "Data": {
+            "tenantId": "default",
+            "recipe": "repro-parent-run-and-get-child-fail",
+            "context": {
+              "actor": {
+                "ticket_id": "TEST-TICKET",
+                "actor_name": "test-actor",
+                "actor_email": "test-actor@colony2"
+              },
+              "ticket": {
+                "creator": {},
+                "created_at": "0001-01-01T00:00:00Z",
+                "updated_at": "0001-01-01T00:00:00Z"
+              },
+              "environment": {},
+              "workflow": {
+                "cell": "cells/test-cell",
+                "cell_path": "cells/test-cell"
+              },
+              "git": {
+                "repo": "/tmp/recipe-worker-test-repo-4215340988",
+                "ref": "3a332010be449cda26e008866d83f203d7e84c28",
+                "resolved_hash": "3a332010be449cda26e008866d83f203d7e84c28"
+              }
+            },
+            "git": "3a332010be449cda26e008866d83f203d7e84c28"
+          },
+          "Artifacts": [
+            {
+              "ID": "",
+              "Name": "repro-parent-run-and-get-child-fail.recipe.yaml",
+              "ContentType": "application/octet-stream",
+              "SizeBytes": 322,
+              "Sha256": "a8717358ae8e1e52fd4ed2f8d89bd6beef40163466b4f2a0e9d8a8b1b7f488ff",
+              "Key": {
+                "jobId": "3B5jSJayQVb5zRfb3vDwlwUannI",
+                "taskOrdinal": 0,
+                "name": "repro-parent-run-and-get-child-fail.recipe.yaml",
+                "sizeBytes": 322
+              }
+            }
+          ]
+        }
+      },
+      "Attempts": [
+        {
+          "Ordinal": 0,
+          "Attempt": 1,
+          "WorkerID": "",
+          "CreatedAt": "2026-03-17T22:17:03.085849053Z",
+          "InputRef": null,
+          "Output": null,
+          "Outcome": {
+            "Status": "",
+            "PayloadKind": "",
+            "Error": null
+          },
+          "Tasks": [
+            {
+              "TaskRunID": "recipe.run_and_get_result:start:1",
+              "TaskType": "recipe.run_and_get_result:start",
+              "Attempts": [
+                {
+                  "Ordinal": 1,
+                  "Attempt": 1,
+                  "WorkerID": "",
+                  "CreatedAt": "0001-01-01T00:00:00Z",
+                  "InputHash": "",
+                  "InputRef": null,
+                  "RunPolicy": null,
+                  "Retryable": null,
+                  "MaxAttempts": null,
+                  "NextAttemptAt": null,
+                  "BackoffMillis": null,
+                  "Input": {
+                    "Data": {
+                      "v": 1,
+                      "kind": "activity_output",
+                      "payload": {
+                        "git": {
+                          "parent_ref": "3a332010be449cda26e008866d83f203d7e84c28",
+                          "parent_hash": "3a332010be449cda26e008866d83f203d7e84c28"
+                        },
+                        "nextTaskType": "recipe.run_and_get_result:finish",
+                        "output": {
+                          "job_id": "3B5jSGpZAbDXFdt2haU0c5reqpI"
+                        }
+                      }
+                    },
+                    "Artifacts": null
+                  },
+                  "Output": {
+                    "Data": {
+                      "v": 1,
+                      "kind": "activity_output",
+                      "payload": {
+                        "git": {
+                          "parent_ref": "3a332010be449cda26e008866d83f203d7e84c28",
+                          "parent_hash": "3a332010be449cda26e008866d83f203d7e84c28"
+                        },
+                        "nextTaskType": "recipe.run_and_get_result:finish",
+                        "output": {
+                          "job_id": "3B5jSGpZAbDXFdt2haU0c5reqpI"
+                        }
+                      }
+                    },
+                    "Artifacts": null
+                  },
+                  "State": "SUCCEEDED",
+                  "Runtime": null,
+                  "Outcome": {
+                    "Status": "SUCCEEDED",
+                    "PayloadKind": "App",
+                    "Error": null
+                  }
+                }
+              ]
+            },
+            {
+              "TaskRunID": "recipe.run_and_get_result:start:4",
+              "TaskType": "recipe.run_and_get_result:start",
+              "Attempts": [
+                {
+                  "Ordinal": 4,
+                  "Attempt": 1,
+                  "WorkerID": "",
+                  "CreatedAt": "0001-01-01T00:00:00Z",
+                  "InputHash": "",
+                  "InputRef": null,
+                  "RunPolicy": null,
+                  "Retryable": null,
+                  "MaxAttempts": null,
+                  "NextAttemptAt": null,
+                  "BackoffMillis": null,
+                  "Input": {
+                    "Data": {
+                      "v": 1,
+                      "kind": "activity_output",
+                      "payload": {
+                        "git": {
+                          "parent_ref": "3a332010be449cda26e008866d83f203d7e84c28",
+                          "parent_hash": "3a332010be449cda26e008866d83f203d7e84c28"
+                        },
+                        "nextTaskType": "recipe.run_and_get_result:finish",
+                        "output": {
+                          "job_id": "3B5jSRinZH1rUgqWhGjVJxirinc"
+                        }
+                      }
+                    },
+                    "Artifacts": null
+                  },
+                  "Output": {
+                    "Data": {
+                      "v": 1,
+                      "kind": "activity_output",
+                      "payload": {
+                        "git": {
+                          "parent_ref": "3a332010be449cda26e008866d83f203d7e84c28",
+                          "parent_hash": "3a332010be449cda26e008866d83f203d7e84c28"
+                        },
+                        "nextTaskType": "recipe.run_and_get_result:finish",
+                        "output": {
+                          "job_id": "3B5jSRinZH1rUgqWhGjVJxirinc"
+                        }
+                      }
+                    },
+                    "Artifacts": null
+                  },
+                  "State": "SUCCEEDED",
+                  "Runtime": null,
+                  "Outcome": {
+                    "Status": "SUCCEEDED",
+                    "PayloadKind": "App",
+                    "Error": null
+                  }
+                }
+              ]
+            },
+            {
+              "TaskRunID": "recipe:0",
+              "TaskType": "recipe",
+              "Attempts": [
+                {
+                  "Ordinal": 0,
+                  "Attempt": 1,
+                  "WorkerID": "",
+                  "CreatedAt": "0001-01-01T00:00:00Z",
+                  "InputHash": "",
+                  "InputRef": null,
+                  "RunPolicy": null,
+                  "Retryable": null,
+                  "MaxAttempts": null,
+                  "NextAttemptAt": null,
+                  "BackoffMillis": null,
+                  "Input": {
+                    "Data": {
+                      "tenantId": "default",
+                      "recipe": "repro-parent-run-and-get-child-fail",
+                      "context": {
+                        "actor": {
+                          "ticket_id": "TEST-TICKET",
+                          "actor_name": "test-actor",
+                          "actor_email": "test-actor@colony2"
+                        },
+                        "ticket": {
+                          "creator": {},
+                          "created_at": "0001-01-01T00:00:00Z",
+                          "updated_at": "0001-01-01T00:00:00Z"
+                        },
+                        "environment": {},
+                        "workflow": {
+                          "cell": "cells/test-cell",
+                          "cell_path": "cells/test-cell"
+                        },
+                        "git": {
+                          "repo": "/tmp/recipe-worker-test-repo-4215340988",
+                          "ref": "3a332010be449cda26e008866d83f203d7e84c28",
+                          "resolved_hash": "3a332010be449cda26e008866d83f203d7e84c28"
+                        }
+                      },
+                      "git": "3a332010be449cda26e008866d83f203d7e84c28"
+                    },
+                    "Artifacts": [
+                      {
+                        "ID": "",
+                        "Name": "repro-parent-run-and-get-child-fail.recipe.yaml",
+                        "ContentType": "application/octet-stream",
+                        "SizeBytes": 322,
+                        "Sha256": "a8717358ae8e1e52fd4ed2f8d89bd6beef40163466b4f2a0e9d8a8b1b7f488ff",
+                        "Key": {
+                          "jobId": "3B5jSJayQVb5zRfb3vDwlwUannI",
+                          "taskOrdinal": 0,
+                          "name": "repro-parent-run-and-get-child-fail.recipe.yaml",
+                          "sizeBytes": 322
+                        }
+                      }
+                    ]
+                  },
+                  "Output": null,
+                  "State": "RUNNING",
+                  "Runtime": {
+                    "LeaseOwner": null,
+                    "LeaseExpiresAt": null,
+                    "NextNeed": "recipe",
+                    "AvailableAt": null,
+                    "WaitFor": null
+                  },
+                  "Outcome": {
+                    "Status": "",
+                    "PayloadKind": "",
+                    "Error": null
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "get_output_err": "job not complete",
+    "result_err": "job not complete",
+    "replay_err": "workflow was not deterministic: unexpected chapter type \"TaskAttemptOutcome\" at ordinal 4",
+    "chapters": [
+      {
+        "Ordinal": 0,
+        "TaskType": "recipe",
+        "ChapterType": "JobStart",
+        "PayloadKind": "App",
+        "InputHash": "ecbf5e273151bceaa2d65e163a5260cf31ec02f85f29de58f814e3a1dad65f2a",
+        "CreatedAt": "2026-03-17T22:17:03.085849053Z",
+        "Metadata": {
+          "attempt": 1,
+          "created_at": "2026-03-17T22:17:03.085849053Z",
+          "input_hash": "ecbf5e273151bceaa2d65e163a5260cf31ec02f85f29de58f814e3a1dad65f2a",
+          "ordinal": 0,
+          "prereqs": null,
+          "run_policy": {
+            "Retry": {
+              "InitialInterval": 100000000,
+              "BackoffCoefficient": 2,
+              "MaximumInterval": 30000000000,
+              "MaximumAttempts": 3,
+              "NonRetryableErrorTypes": [
+                "SystemError"
+              ]
+            },
+            "InvocationTimeout": 600000000000,
+            "TotalTimeout": 1800000000000
+          },
+          "task_type": "recipe",
+          "version": 1
+        },
+        "Data": {
+          "tenantId": "default",
+          "recipe": "repro-parent-run-and-get-child-fail",
+          "context": {
+            "actor": {
+              "ticket_id": "TEST-TICKET",
+              "actor_name": "test-actor",
+              "actor_email": "test-actor@colony2"
+            },
+            "ticket": {
+              "creator": {},
+              "created_at": "0001-01-01T00:00:00Z",
+              "updated_at": "0001-01-01T00:00:00Z"
+            },
+            "environment": {},
+            "workflow": {
+              "cell": "cells/test-cell",
+              "cell_path": "cells/test-cell"
+            },
+            "git": {
+              "repo": "/tmp/recipe-worker-test-repo-4215340988",
+              "ref": "3a332010be449cda26e008866d83f203d7e84c28",
+              "resolved_hash": "3a332010be449cda26e008866d83f203d7e84c28"
+            }
+          },
+          "git": "3a332010be449cda26e008866d83f203d7e84c28"
+        },
+        "Artifacts": [
+          {
+            "Name": "repro-parent-run-and-get-child-fail.recipe.yaml",
+            "Digest": "a8717358ae8e1e52fd4ed2f8d89bd6beef40163466b4f2a0e9d8a8b1b7f488ff",
+            "Size": 322
+          }
+        ]
+      },
+      {
+        "Ordinal": 1,
+        "TaskType": "recipe.run_and_get_result:start",
+        "ChapterType": "TaskAttemptOutcome",
+        "PayloadKind": "App",
+        "InputHash": "5520195f25ea4a963959d7ddd45d0ffeacdfefc8d4c83c37b8ff90ee7a0363d3",
+        "CreatedAt": "2026-03-17T22:17:03.160509928Z",
+        "Metadata": {
+          "version": 1,
+          "ordinal": 1,
+          "task_type": "recipe.run_and_get_result:start",
+          "worker_id": "",
+          "created_at": "2026-03-17T22:17:03.160509928Z",
+          "started_at": "2026-03-17T22:17:03.132333053Z",
+          "finished_at": "2026-03-17T22:17:03.160509595Z",
+          "input_hash": "5520195f25ea4a963959d7ddd45d0ffeacdfefc8d4c83c37b8ff90ee7a0363d3",
+          "input": {
+            "input": {
+              "artifacts": [],
+              "cell_name": "cells/test-cell",
+              "cell_path": "cells/test-cell",
+              "git": {
+                "author": "",
+                "base_hash": "3a332010be449cda26e008866d83f203d7e84c28",
+                "base_ref": "3a332010be449cda26e008866d83f203d7e84c28",
+                "base_repo": "/tmp/recipe-worker-test-repo-4215340988"
+              },
+              "git_ref": "3a332010be449cda26e008866d83f203d7e84c28",
+              "inputs": {},
+              "name": "repro-child-fail"
+            },
+            "context": {
+              "BaseRepo": "/tmp/recipe-worker-test-repo-4215340988",
+              "BaseRef": "3a332010be449cda26e008866d83f203d7e84c28",
+              "ResolvedBaseHash": "3a332010be449cda26e008866d83f203d7e84c28",
+              "PersistHash": "",
+              "ParentHash": "",
+              "TicketID": "TEST-TICKET",
+              "CellName": "cells/test-cell",
+              "CellPath": "cells/test-cell",
+              "GitAuthor": "",
+              "NodePath": "repro-parent-run-and-get-child-fail/child",
+              "InvokeSeq": 0,
+              "InvokeHash": ""
+            }
+          },
+          "attempt": 1,
+          "input_ref": {
+            "ordinal": 0,
+            "hash": "5520195f25ea4a963959d7ddd45d0ffeacdfefc8d4c83c37b8ff90ee7a0363d3"
+          }
+        },
+        "Data": {
+          "v": 1,
+          "kind": "activity_output",
+          "payload": {
+            "git": {
+              "parent_ref": "3a332010be449cda26e008866d83f203d7e84c28",
+              "parent_hash": "3a332010be449cda26e008866d83f203d7e84c28"
+            },
+            "nextTaskType": "recipe.run_and_get_result:finish",
+            "output": {
+              "job_id": "3B5jSGpZAbDXFdt2haU0c5reqpI"
+            }
+          }
+        },
+        "Artifacts": []
+      },
+      {
+        "Ordinal": 2,
+        "TaskType": "recipe.run_and_get_result:finish",
+        "ChapterType": "TaskAttemptOutcome",
+        "PayloadKind": "AppError",
+        "InputHash": "05ab631e085738b57f8394f64d554d38c9b8d2da0536254c90e220e89b97b65f",
+        "CreatedAt": "2026-03-17T22:17:03.981708762Z",
+        "Metadata": {
+          "version": 1,
+          "ordinal": 2,
+          "task_type": "recipe.run_and_get_result:finish",
+          "worker_id": "",
+          "created_at": "2026-03-17T22:17:03.981708762Z",
+          "started_at": "2026-03-17T22:17:03.943002678Z",
+          "finished_at": "2026-03-17T22:17:03.981707762Z",
+          "input_hash": "05ab631e085738b57f8394f64d554d38c9b8d2da0536254c90e220e89b97b65f",
+          "input": {
+            "input": {
+              "job_id": "3B5jSGpZAbDXFdt2haU0c5reqpI"
+            },
+            "context": {
+              "BaseRepo": "/tmp/recipe-worker-test-repo-4215340988",
+              "BaseRef": "3a332010be449cda26e008866d83f203d7e84c28",
+              "ResolvedBaseHash": "3a332010be449cda26e008866d83f203d7e84c28",
+              "PersistHash": "",
+              "ParentHash": "",
+              "TicketID": "TEST-TICKET",
+              "CellName": "cells/test-cell",
+              "CellPath": "cells/test-cell",
+              "GitAuthor": "",
+              "NodePath": "repro-parent-run-and-get-child-fail/child",
+              "InvokeSeq": 0,
+              "InvokeHash": ""
+            }
+          },
+          "attempt": 1,
+          "input_ref": {
+            "ordinal": 1,
+            "hash": "05ab631e085738b57f8394f64d554d38c9b8d2da0536254c90e220e89b97b65f"
+          }
+        },
+        "Data": {
+          "message": "error executing step: job failed: error executing step: command execution failed: exit status 1",
+          "level": "error",
+          "input_ref": {
+            "ordinal": 1,
+            "hash": "05ab631e085738b57f8394f64d554d38c9b8d2da0536254c90e220e89b97b65f"
+          }
+        },
+        "Artifacts": []
+      },
+      {
+        "Ordinal": 3,
+        "TaskType": "recipe",
+        "ChapterType": "JobAttemptOutcome",
+        "PayloadKind": "AppError",
+        "InputHash": "ecbf5e273151bceaa2d65e163a5260cf31ec02f85f29de58f814e3a1dad65f2a",
+        "CreatedAt": "2026-03-17T22:17:03.981758178Z",
+        "Metadata": {
+          "version": 1,
+          "ordinal": 3,
+          "task_type": "recipe",
+          "worker_id": "",
+          "created_at": "2026-03-17T22:17:03.981758178Z",
+          "started_at": "2026-03-17T22:17:03.085849053Z",
+          "finished_at": "2026-03-17T22:17:03.981754303Z",
+          "input_hash": "ecbf5e273151bceaa2d65e163a5260cf31ec02f85f29de58f814e3a1dad65f2a",
+          "attempt": 1,
+          "input_ref": {
+            "ordinal": 0,
+            "hash": "ecbf5e273151bceaa2d65e163a5260cf31ec02f85f29de58f814e3a1dad65f2a"
+          }
+        },
+        "Data": {
+          "message": "error executing step: job failed: error executing step: command execution failed: exit status 1",
+          "level": "error",
+          "input_ref": {
+            "ordinal": 0,
+            "hash": "ecbf5e273151bceaa2d65e163a5260cf31ec02f85f29de58f814e3a1dad65f2a"
+          }
+        },
+        "Artifacts": []
+      },
+      {
+        "Ordinal": 4,
+        "TaskType": "recipe.run_and_get_result:start",
+        "ChapterType": "TaskAttemptOutcome",
+        "PayloadKind": "App",
+        "InputHash": "5520195f25ea4a963959d7ddd45d0ffeacdfefc8d4c83c37b8ff90ee7a0363d3",
+        "CreatedAt": "2026-03-17T22:17:04.133374845Z",
+        "Metadata": {
+          "version": 1,
+          "ordinal": 4,
+          "task_type": "recipe.run_and_get_result:start",
+          "worker_id": "",
+          "created_at": "2026-03-17T22:17:04.133374845Z",
+          "started_at": "2026-03-17T22:17:04.08744522Z",
+          "finished_at": "2026-03-17T22:17:04.133373345Z",
+          "input_hash": "5520195f25ea4a963959d7ddd45d0ffeacdfefc8d4c83c37b8ff90ee7a0363d3",
+          "input": {
+            "input": {
+              "artifacts": [],
+              "cell_name": "cells/test-cell",
+              "cell_path": "cells/test-cell",
+              "git": {
+                "author": "",
+                "base_hash": "3a332010be449cda26e008866d83f203d7e84c28",
+                "base_ref": "3a332010be449cda26e008866d83f203d7e84c28",
+                "base_repo": "/tmp/recipe-worker-test-repo-4215340988"
+              },
+              "git_ref": "3a332010be449cda26e008866d83f203d7e84c28",
+              "inputs": {},
+              "name": "repro-child-fail"
+            },
+            "context": {
+              "BaseRepo": "/tmp/recipe-worker-test-repo-4215340988",
+              "BaseRef": "3a332010be449cda26e008866d83f203d7e84c28",
+              "ResolvedBaseHash": "3a332010be449cda26e008866d83f203d7e84c28",
+              "PersistHash": "",
+              "ParentHash": "",
+              "TicketID": "TEST-TICKET",
+              "CellName": "cells/test-cell",
+              "CellPath": "cells/test-cell",
+              "GitAuthor": "",
+              "NodePath": "repro-parent-run-and-get-child-fail/child",
+              "InvokeSeq": 0,
+              "InvokeHash": ""
+            }
+          },
+          "attempt": 1,
+          "input_ref": {
+            "ordinal": 3,
+            "hash": "5520195f25ea4a963959d7ddd45d0ffeacdfefc8d4c83c37b8ff90ee7a0363d3"
+          }
+        },
+        "Data": {
+          "v": 1,
+          "kind": "activity_output",
+          "payload": {
+            "git": {
+              "parent_ref": "3a332010be449cda26e008866d83f203d7e84c28",
+              "parent_hash": "3a332010be449cda26e008866d83f203d7e84c28"
+            },
+            "nextTaskType": "recipe.run_and_get_result:finish",
+            "output": {
+              "job_id": "3B5jSRinZH1rUgqWhGjVJxirinc"
+            }
+          }
+        },
+        "Artifacts": []
+      }
+    ]
+  },
+  "children": [
+    {
+      "key": {
+        "tenantId": "default",
+        "jobId": "3B5jSGpZAbDXFdt2haU0c5reqpI"
+      },
+      "run": {
+        "Job": {
+          "JobKey": {
+            "tenantId": "default",
+            "jobId": "3B5jSGpZAbDXFdt2haU0c5reqpI"
+          },
+          "JobType": "recipe",
+          "Status": "COMPLETED",
+          "CreatedAt": "2026-03-17T22:17:03.151452053Z",
+          "ArchivedAt": "2026-03-17T22:17:03.576729345Z",
+          "Metadata": {
+            "v": 1,
+            "recipe": "repro-child-fail",
+            "cell_name": "cells/test-cell",
+            "git_ref": "3a332010be449cda26e008866d83f203d7e84c28"
+          }
+        },
+        "Start": {
+          "Ordinal": 0,
+          "WorkerID": "",
+          "CreatedAt": "2026-03-17T22:17:03.151452053Z",
+          "Input": {
+            "Data": {
+              "tenantId": "default",
+              "recipe": "repro-child-fail",
+              "context": {
+                "actor": {},
+                "ticket": {
+                  "creator": {},
+                  "created_at": "0001-01-01T00:00:00Z",
+                  "updated_at": "0001-01-01T00:00:00Z"
+                },
+                "environment": {},
+                "workflow": {
+                  "cell": "cells/test-cell",
+                  "cell_path": "cells/test-cell"
+                },
+                "git": {
+                  "repo": "/tmp/recipe-worker-test-repo-4215340988",
+                  "ref": "3a332010be449cda26e008866d83f203d7e84c28",
+                  "resolved_hash": "3a332010be449cda26e008866d83f203d7e84c28"
+                }
+              },
+              "git": "3a332010be449cda26e008866d83f203d7e84c28"
+            },
+            "Artifacts": [
+              {
+                "ID": "",
+                "Name": "repro-child-fail.recipe.yaml",
+                "ContentType": "application/octet-stream",
+                "SizeBytes": 226,
+                "Sha256": "05b5c857d59b7e4ff4ec74dc37683368e69667a5ccbf8c7874eaf1b2c9513d19",
+                "Key": {
+                  "jobId": "3B5jSGpZAbDXFdt2haU0c5reqpI",
+                  "taskOrdinal": 0,
+                  "name": "repro-child-fail.recipe.yaml",
+                  "sizeBytes": 226
+                }
+              }
+            ]
+          }
+        },
+        "Attempts": [
+          {
+            "Ordinal": 1,
+            "Attempt": 1,
+            "WorkerID": "",
+            "CreatedAt": "0001-01-01T00:00:00Z",
+            "InputRef": null,
+            "Output": {
+              "Data": {
+                "message": "error executing step: command execution failed: exit status 1",
+                "level": "error",
+                "input_ref": {
+                  "ordinal": 0,
+                  "hash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6"
+                }
+              },
+              "Artifacts": null
+            },
+            "Outcome": {
+              "Status": "FAILED",
+              "PayloadKind": "AppError",
+              "Error": {
+                "Kind": "APP",
+                "Message": "error executing step: command execution failed: exit status 1",
+                "Level": "",
+                "Attrs": null,
+                "Component": "",
+                "Code": "",
+                "Retryable": null,
+                "Scope": "",
+                "After": null,
+                "InputRef": null,
+                "Stacktrace": null
+              }
+            },
+            "Tasks": null
+          }
+        ]
+      },
+      "get_output_err": "job failed: error executing step: command execution failed: exit status 1",
+      "result_err": "error executing step: command execution failed: exit status 1",
+      "replay_err": "workflow was not deterministic: unexpected chapter type \"TaskAttemptOutcome\" at ordinal 3",
+      "chapters": [
+        {
+          "Ordinal": 0,
+          "TaskType": "recipe",
+          "ChapterType": "JobStart",
+          "PayloadKind": "App",
+          "InputHash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6",
+          "CreatedAt": "2026-03-17T22:17:03.151452053Z",
+          "Metadata": {
+            "attempt": 1,
+            "created_at": "2026-03-17T22:17:03.151452053Z",
+            "input_hash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6",
+            "ordinal": 0,
+            "prereqs": null,
+            "run_policy": {
+              "Retry": {
+                "InitialInterval": 100000000,
+                "BackoffCoefficient": 2,
+                "MaximumInterval": 30000000000,
+                "MaximumAttempts": 3,
+                "NonRetryableErrorTypes": [
+                  "SystemError"
+                ]
+              },
+              "InvocationTimeout": 600000000000,
+              "TotalTimeout": 1800000000000
+            },
+            "task_type": "recipe",
+            "version": 1
+          },
+          "Data": {
+            "tenantId": "default",
+            "recipe": "repro-child-fail",
+            "context": {
+              "actor": {},
+              "ticket": {
+                "creator": {},
+                "created_at": "0001-01-01T00:00:00Z",
+                "updated_at": "0001-01-01T00:00:00Z"
+              },
+              "environment": {},
+              "workflow": {
+                "cell": "cells/test-cell",
+                "cell_path": "cells/test-cell"
+              },
+              "git": {
+                "repo": "/tmp/recipe-worker-test-repo-4215340988",
+                "ref": "3a332010be449cda26e008866d83f203d7e84c28",
+                "resolved_hash": "3a332010be449cda26e008866d83f203d7e84c28"
+              }
+            },
+            "git": "3a332010be449cda26e008866d83f203d7e84c28"
+          },
+          "Artifacts": [
+            {
+              "Name": "repro-child-fail.recipe.yaml",
+              "Digest": "05b5c857d59b7e4ff4ec74dc37683368e69667a5ccbf8c7874eaf1b2c9513d19",
+              "Size": 226
+            }
+          ]
+        },
+        {
+          "Ordinal": 1,
+          "TaskType": "command_execution:command_execution",
+          "ChapterType": "TaskAttemptOutcome",
+          "PayloadKind": "AppError",
+          "InputHash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e",
+          "CreatedAt": "2026-03-17T22:17:03.200133928Z",
+          "Metadata": {
+            "version": 1,
+            "ordinal": 1,
+            "task_type": "command_execution:command_execution",
+            "worker_id": "",
+            "created_at": "2026-03-17T22:17:03.200133928Z",
+            "started_at": "2026-03-17T22:17:03.181433595Z",
+            "finished_at": "2026-03-17T22:17:03.200133261Z",
+            "input_hash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e",
+            "input": {
+              "input": {
+                "run": "echo \"child failing\"\nexit 1\n",
+                "working_directory": "__C2_SENTINEL_WORKTREE__"
+              },
+              "context": {
+                "BaseRepo": "/tmp/recipe-worker-test-repo-4215340988",
+                "BaseRef": "3a332010be449cda26e008866d83f203d7e84c28",
+                "ResolvedBaseHash": "3a332010be449cda26e008866d83f203d7e84c28",
+                "PersistHash": "",
+                "ParentHash": "",
+                "TicketID": "",
+                "CellName": "cells/test-cell",
+                "CellPath": "cells/test-cell",
+                "GitAuthor": "",
+                "NodePath": "repro-child-fail/boom",
+                "InvokeSeq": 0,
+                "InvokeHash": ""
+              }
+            },
+            "attempt": 1,
+            "input_ref": {
+              "ordinal": 0,
+              "hash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e"
+            }
+          },
+          "Data": {
+            "message": "error executing step: command execution failed: exit status 1",
+            "level": "error",
+            "input_ref": {
+              "ordinal": 0,
+              "hash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e"
+            }
+          },
+          "Artifacts": []
+        },
+        {
+          "Ordinal": 2,
+          "TaskType": "recipe",
+          "ChapterType": "JobAttemptOutcome",
+          "PayloadKind": "AppError",
+          "InputHash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6",
+          "CreatedAt": "2026-03-17T22:17:03.200176761Z",
+          "Metadata": {
+            "version": 1,
+            "ordinal": 2,
+            "task_type": "recipe",
+            "worker_id": "",
+            "created_at": "2026-03-17T22:17:03.200176761Z",
+            "started_at": "2026-03-17T22:17:03.151452053Z",
+            "finished_at": "2026-03-17T22:17:03.200173553Z",
+            "input_hash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6",
+            "attempt": 1,
+            "input_ref": {
+              "ordinal": 0,
+              "hash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6"
+            }
+          },
+          "Data": {
+            "message": "error executing step: command execution failed: exit status 1",
+            "level": "error",
+            "input_ref": {
+              "ordinal": 0,
+              "hash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6"
+            }
+          },
+          "Artifacts": []
+        },
+        {
+          "Ordinal": 3,
+          "TaskType": "command_execution:command_execution",
+          "ChapterType": "TaskAttemptOutcome",
+          "PayloadKind": "AppError",
+          "InputHash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e",
+          "CreatedAt": "2026-03-17T22:17:03.328741636Z",
+          "Metadata": {
+            "version": 1,
+            "ordinal": 3,
+            "task_type": "command_execution:command_execution",
+            "worker_id": "",
+            "created_at": "2026-03-17T22:17:03.328741636Z",
+            "started_at": "2026-03-17T22:17:03.304037261Z",
+            "finished_at": "2026-03-17T22:17:03.328741053Z",
+            "input_hash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e",
+            "input": {
+              "input": {
+                "run": "echo \"child failing\"\nexit 1\n",
+                "working_directory": "__C2_SENTINEL_WORKTREE__"
+              },
+              "context": {
+                "BaseRepo": "/tmp/recipe-worker-test-repo-4215340988",
+                "BaseRef": "3a332010be449cda26e008866d83f203d7e84c28",
+                "ResolvedBaseHash": "3a332010be449cda26e008866d83f203d7e84c28",
+                "PersistHash": "",
+                "ParentHash": "",
+                "TicketID": "",
+                "CellName": "cells/test-cell",
+                "CellPath": "cells/test-cell",
+                "GitAuthor": "",
+                "NodePath": "repro-child-fail/boom",
+                "InvokeSeq": 0,
+                "InvokeHash": ""
+              }
+            },
+            "attempt": 1,
+            "input_ref": {
+              "ordinal": 2,
+              "hash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e"
+            }
+          },
+          "Data": {
+            "message": "error executing step: command execution failed: exit status 1",
+            "level": "error",
+            "input_ref": {
+              "ordinal": 2,
+              "hash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e"
+            }
+          },
+          "Artifacts": []
+        },
+        {
+          "Ordinal": 4,
+          "TaskType": "recipe",
+          "ChapterType": "JobAttemptOutcome",
+          "PayloadKind": "AppError",
+          "InputHash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6",
+          "CreatedAt": "2026-03-17T22:17:03.328774178Z",
+          "Metadata": {
+            "version": 1,
+            "ordinal": 4,
+            "task_type": "recipe",
+            "worker_id": "",
+            "created_at": "2026-03-17T22:17:03.328774178Z",
+            "started_at": "2026-03-17T22:17:03.200173553Z",
+            "finished_at": "2026-03-17T22:17:03.328771053Z",
+            "input_hash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6",
+            "attempt": 2,
+            "input_ref": {
+              "ordinal": 0,
+              "hash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6"
+            }
+          },
+          "Data": {
+            "message": "error executing step: command execution failed: exit status 1",
+            "level": "error",
+            "input_ref": {
+              "ordinal": 0,
+              "hash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6"
+            }
+          },
+          "Artifacts": []
+        },
+        {
+          "Ordinal": 5,
+          "TaskType": "command_execution:command_execution",
+          "ChapterType": "TaskAttemptOutcome",
+          "PayloadKind": "AppError",
+          "InputHash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e",
+          "CreatedAt": "2026-03-17T22:17:03.576671011Z",
+          "Metadata": {
+            "version": 1,
+            "ordinal": 5,
+            "task_type": "command_execution:command_execution",
+            "worker_id": "",
+            "created_at": "2026-03-17T22:17:03.576671011Z",
+            "started_at": "2026-03-17T22:17:03.535391261Z",
+            "finished_at": "2026-03-17T22:17:03.576670345Z",
+            "input_hash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e",
+            "input": {
+              "input": {
+                "run": "echo \"child failing\"\nexit 1\n",
+                "working_directory": "__C2_SENTINEL_WORKTREE__"
+              },
+              "context": {
+                "BaseRepo": "/tmp/recipe-worker-test-repo-4215340988",
+                "BaseRef": "3a332010be449cda26e008866d83f203d7e84c28",
+                "ResolvedBaseHash": "3a332010be449cda26e008866d83f203d7e84c28",
+                "PersistHash": "",
+                "ParentHash": "",
+                "TicketID": "",
+                "CellName": "cells/test-cell",
+                "CellPath": "cells/test-cell",
+                "GitAuthor": "",
+                "NodePath": "repro-child-fail/boom",
+                "InvokeSeq": 0,
+                "InvokeHash": ""
+              }
+            },
+            "attempt": 1,
+            "input_ref": {
+              "ordinal": 4,
+              "hash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e"
+            }
+          },
+          "Data": {
+            "message": "error executing step: command execution failed: exit status 1",
+            "level": "error",
+            "input_ref": {
+              "ordinal": 4,
+              "hash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e"
+            }
+          },
+          "Artifacts": []
+        },
+        {
+          "Ordinal": 6,
+          "TaskType": "recipe",
+          "ChapterType": "JobAttemptOutcome",
+          "PayloadKind": "AppError",
+          "InputHash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6",
+          "CreatedAt": "2026-03-17T22:17:03.576708803Z",
+          "Metadata": {
+            "version": 1,
+            "ordinal": 6,
+            "task_type": "recipe",
+            "worker_id": "",
+            "created_at": "2026-03-17T22:17:03.576708803Z",
+            "started_at": "2026-03-17T22:17:03.328771053Z",
+            "finished_at": "2026-03-17T22:17:03.576705345Z",
+            "input_hash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6",
+            "attempt": 3,
+            "input_ref": {
+              "ordinal": 0,
+              "hash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6"
+            }
+          },
+          "Data": {
+            "message": "error executing step: command execution failed: exit status 1",
+            "level": "error",
+            "input_ref": {
+              "ordinal": 0,
+              "hash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6"
+            }
+          },
+          "Artifacts": []
+        }
+      ]
+    },
+    {
+      "key": {
+        "tenantId": "default",
+        "jobId": "3B5jSRinZH1rUgqWhGjVJxirinc"
+      },
+      "run": {
+        "Job": {
+          "JobKey": {
+            "tenantId": "default",
+            "jobId": "3B5jSRinZH1rUgqWhGjVJxirinc"
+          },
+          "JobType": "recipe",
+          "Status": "COMPLETED",
+          "CreatedAt": "2026-03-17T22:17:04.120144053Z",
+          "ArchivedAt": "2026-03-17T22:17:04.700175679Z",
+          "Metadata": {
+            "v": 1,
+            "recipe": "repro-child-fail",
+            "cell_name": "cells/test-cell",
+            "git_ref": "3a332010be449cda26e008866d83f203d7e84c28"
+          }
+        },
+        "Start": {
+          "Ordinal": 0,
+          "WorkerID": "",
+          "CreatedAt": "2026-03-17T22:17:04.120144053Z",
+          "Input": {
+            "Data": {
+              "tenantId": "default",
+              "recipe": "repro-child-fail",
+              "context": {
+                "actor": {},
+                "ticket": {
+                  "creator": {},
+                  "created_at": "0001-01-01T00:00:00Z",
+                  "updated_at": "0001-01-01T00:00:00Z"
+                },
+                "environment": {},
+                "workflow": {
+                  "cell": "cells/test-cell",
+                  "cell_path": "cells/test-cell"
+                },
+                "git": {
+                  "repo": "/tmp/recipe-worker-test-repo-4215340988",
+                  "ref": "3a332010be449cda26e008866d83f203d7e84c28",
+                  "resolved_hash": "3a332010be449cda26e008866d83f203d7e84c28"
+                }
+              },
+              "git": "3a332010be449cda26e008866d83f203d7e84c28"
+            },
+            "Artifacts": [
+              {
+                "ID": "",
+                "Name": "repro-child-fail.recipe.yaml",
+                "ContentType": "application/octet-stream",
+                "SizeBytes": 226,
+                "Sha256": "05b5c857d59b7e4ff4ec74dc37683368e69667a5ccbf8c7874eaf1b2c9513d19",
+                "Key": {
+                  "jobId": "3B5jSRinZH1rUgqWhGjVJxirinc",
+                  "taskOrdinal": 0,
+                  "name": "repro-child-fail.recipe.yaml",
+                  "sizeBytes": 226
+                }
+              }
+            ]
+          }
+        },
+        "Attempts": [
+          {
+            "Ordinal": 1,
+            "Attempt": 1,
+            "WorkerID": "",
+            "CreatedAt": "0001-01-01T00:00:00Z",
+            "InputRef": null,
+            "Output": {
+              "Data": {
+                "message": "error executing step: command execution failed: exit status 1",
+                "level": "error",
+                "input_ref": {
+                  "ordinal": 0,
+                  "hash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6"
+                }
+              },
+              "Artifacts": null
+            },
+            "Outcome": {
+              "Status": "FAILED",
+              "PayloadKind": "AppError",
+              "Error": {
+                "Kind": "APP",
+                "Message": "error executing step: command execution failed: exit status 1",
+                "Level": "",
+                "Attrs": null,
+                "Component": "",
+                "Code": "",
+                "Retryable": null,
+                "Scope": "",
+                "After": null,
+                "InputRef": null,
+                "Stacktrace": null
+              }
+            },
+            "Tasks": null
+          }
+        ]
+      },
+      "get_output_err": "job failed: error executing step: command execution failed: exit status 1",
+      "result_err": "error executing step: command execution failed: exit status 1",
+      "replay_err": "workflow was not deterministic: unexpected chapter type \"TaskAttemptOutcome\" at ordinal 3",
+      "chapters": [
+        {
+          "Ordinal": 0,
+          "TaskType": "recipe",
+          "ChapterType": "JobStart",
+          "PayloadKind": "App",
+          "InputHash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6",
+          "CreatedAt": "2026-03-17T22:17:04.120144053Z",
+          "Metadata": {
+            "attempt": 1,
+            "created_at": "2026-03-17T22:17:04.120144053Z",
+            "input_hash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6",
+            "ordinal": 0,
+            "prereqs": null,
+            "run_policy": {
+              "Retry": {
+                "InitialInterval": 100000000,
+                "BackoffCoefficient": 2,
+                "MaximumInterval": 30000000000,
+                "MaximumAttempts": 3,
+                "NonRetryableErrorTypes": [
+                  "SystemError"
+                ]
+              },
+              "InvocationTimeout": 600000000000,
+              "TotalTimeout": 1800000000000
+            },
+            "task_type": "recipe",
+            "version": 1
+          },
+          "Data": {
+            "tenantId": "default",
+            "recipe": "repro-child-fail",
+            "context": {
+              "actor": {},
+              "ticket": {
+                "creator": {},
+                "created_at": "0001-01-01T00:00:00Z",
+                "updated_at": "0001-01-01T00:00:00Z"
+              },
+              "environment": {},
+              "workflow": {
+                "cell": "cells/test-cell",
+                "cell_path": "cells/test-cell"
+              },
+              "git": {
+                "repo": "/tmp/recipe-worker-test-repo-4215340988",
+                "ref": "3a332010be449cda26e008866d83f203d7e84c28",
+                "resolved_hash": "3a332010be449cda26e008866d83f203d7e84c28"
+              }
+            },
+            "git": "3a332010be449cda26e008866d83f203d7e84c28"
+          },
+          "Artifacts": [
+            {
+              "Name": "repro-child-fail.recipe.yaml",
+              "Digest": "05b5c857d59b7e4ff4ec74dc37683368e69667a5ccbf8c7874eaf1b2c9513d19",
+              "Size": 226
+            }
+          ]
+        },
+        {
+          "Ordinal": 1,
+          "TaskType": "command_execution:command_execution",
+          "ChapterType": "TaskAttemptOutcome",
+          "PayloadKind": "AppError",
+          "InputHash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e",
+          "CreatedAt": "2026-03-17T22:17:04.324070595Z",
+          "Metadata": {
+            "version": 1,
+            "ordinal": 1,
+            "task_type": "command_execution:command_execution",
+            "worker_id": "",
+            "created_at": "2026-03-17T22:17:04.324070595Z",
+            "started_at": "2026-03-17T22:17:04.29391522Z",
+            "finished_at": "2026-03-17T22:17:04.324069803Z",
+            "input_hash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e",
+            "input": {
+              "input": {
+                "run": "echo \"child failing\"\nexit 1\n",
+                "working_directory": "__C2_SENTINEL_WORKTREE__"
+              },
+              "context": {
+                "BaseRepo": "/tmp/recipe-worker-test-repo-4215340988",
+                "BaseRef": "3a332010be449cda26e008866d83f203d7e84c28",
+                "ResolvedBaseHash": "3a332010be449cda26e008866d83f203d7e84c28",
+                "PersistHash": "",
+                "ParentHash": "",
+                "TicketID": "",
+                "CellName": "cells/test-cell",
+                "CellPath": "cells/test-cell",
+                "GitAuthor": "",
+                "NodePath": "repro-child-fail/boom",
+                "InvokeSeq": 0,
+                "InvokeHash": ""
+              }
+            },
+            "attempt": 1,
+            "input_ref": {
+              "ordinal": 0,
+              "hash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e"
+            }
+          },
+          "Data": {
+            "message": "error executing step: command execution failed: exit status 1",
+            "level": "error",
+            "input_ref": {
+              "ordinal": 0,
+              "hash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e"
+            }
+          },
+          "Artifacts": []
+        },
+        {
+          "Ordinal": 2,
+          "TaskType": "recipe",
+          "ChapterType": "JobAttemptOutcome",
+          "PayloadKind": "AppError",
+          "InputHash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6",
+          "CreatedAt": "2026-03-17T22:17:04.324112595Z",
+          "Metadata": {
+            "version": 1,
+            "ordinal": 2,
+            "task_type": "recipe",
+            "worker_id": "",
+            "created_at": "2026-03-17T22:17:04.324112595Z",
+            "started_at": "2026-03-17T22:17:04.120144053Z",
+            "finished_at": "2026-03-17T22:17:04.324109012Z",
+            "input_hash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6",
+            "attempt": 1,
+            "input_ref": {
+              "ordinal": 0,
+              "hash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6"
+            }
+          },
+          "Data": {
+            "message": "error executing step: command execution failed: exit status 1",
+            "level": "error",
+            "input_ref": {
+              "ordinal": 0,
+              "hash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6"
+            }
+          },
+          "Artifacts": []
+        },
+        {
+          "Ordinal": 3,
+          "TaskType": "command_execution:command_execution",
+          "ChapterType": "TaskAttemptOutcome",
+          "PayloadKind": "AppError",
+          "InputHash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e",
+          "CreatedAt": "2026-03-17T22:17:04.456486345Z",
+          "Metadata": {
+            "version": 1,
+            "ordinal": 3,
+            "task_type": "command_execution:command_execution",
+            "worker_id": "",
+            "created_at": "2026-03-17T22:17:04.456486345Z",
+            "started_at": "2026-03-17T22:17:04.425231137Z",
+            "finished_at": "2026-03-17T22:17:04.456485553Z",
+            "input_hash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e",
+            "input": {
+              "input": {
+                "run": "echo \"child failing\"\nexit 1\n",
+                "working_directory": "__C2_SENTINEL_WORKTREE__"
+              },
+              "context": {
+                "BaseRepo": "/tmp/recipe-worker-test-repo-4215340988",
+                "BaseRef": "3a332010be449cda26e008866d83f203d7e84c28",
+                "ResolvedBaseHash": "3a332010be449cda26e008866d83f203d7e84c28",
+                "PersistHash": "",
+                "ParentHash": "",
+                "TicketID": "",
+                "CellName": "cells/test-cell",
+                "CellPath": "cells/test-cell",
+                "GitAuthor": "",
+                "NodePath": "repro-child-fail/boom",
+                "InvokeSeq": 0,
+                "InvokeHash": ""
+              }
+            },
+            "attempt": 1,
+            "input_ref": {
+              "ordinal": 2,
+              "hash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e"
+            }
+          },
+          "Data": {
+            "message": "error executing step: command execution failed: exit status 1",
+            "level": "error",
+            "input_ref": {
+              "ordinal": 2,
+              "hash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e"
+            }
+          },
+          "Artifacts": []
+        },
+        {
+          "Ordinal": 4,
+          "TaskType": "recipe",
+          "ChapterType": "JobAttemptOutcome",
+          "PayloadKind": "AppError",
+          "InputHash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6",
+          "CreatedAt": "2026-03-17T22:17:04.456541928Z",
+          "Metadata": {
+            "version": 1,
+            "ordinal": 4,
+            "task_type": "recipe",
+            "worker_id": "",
+            "created_at": "2026-03-17T22:17:04.456541928Z",
+            "started_at": "2026-03-17T22:17:04.324109012Z",
+            "finished_at": "2026-03-17T22:17:04.456537803Z",
+            "input_hash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6",
+            "attempt": 2,
+            "input_ref": {
+              "ordinal": 0,
+              "hash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6"
+            }
+          },
+          "Data": {
+            "message": "error executing step: command execution failed: exit status 1",
+            "level": "error",
+            "input_ref": {
+              "ordinal": 0,
+              "hash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6"
+            }
+          },
+          "Artifacts": []
+        },
+        {
+          "Ordinal": 5,
+          "TaskType": "command_execution:command_execution",
+          "ChapterType": "TaskAttemptOutcome",
+          "PayloadKind": "AppError",
+          "InputHash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e",
+          "CreatedAt": "2026-03-17T22:17:04.700108387Z",
+          "Metadata": {
+            "version": 1,
+            "ordinal": 5,
+            "task_type": "command_execution:command_execution",
+            "worker_id": "",
+            "created_at": "2026-03-17T22:17:04.700108387Z",
+            "started_at": "2026-03-17T22:17:04.659858012Z",
+            "finished_at": "2026-03-17T22:17:04.700107637Z",
+            "input_hash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e",
+            "input": {
+              "input": {
+                "run": "echo \"child failing\"\nexit 1\n",
+                "working_directory": "__C2_SENTINEL_WORKTREE__"
+              },
+              "context": {
+                "BaseRepo": "/tmp/recipe-worker-test-repo-4215340988",
+                "BaseRef": "3a332010be449cda26e008866d83f203d7e84c28",
+                "ResolvedBaseHash": "3a332010be449cda26e008866d83f203d7e84c28",
+                "PersistHash": "",
+                "ParentHash": "",
+                "TicketID": "",
+                "CellName": "cells/test-cell",
+                "CellPath": "cells/test-cell",
+                "GitAuthor": "",
+                "NodePath": "repro-child-fail/boom",
+                "InvokeSeq": 0,
+                "InvokeHash": ""
+              }
+            },
+            "attempt": 1,
+            "input_ref": {
+              "ordinal": 4,
+              "hash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e"
+            }
+          },
+          "Data": {
+            "message": "error executing step: command execution failed: exit status 1",
+            "level": "error",
+            "input_ref": {
+              "ordinal": 4,
+              "hash": "b5859565fa11c5ee31faa597674b2f1b4c906eedf2f63f285367f68c5a50d79e"
+            }
+          },
+          "Artifacts": []
+        },
+        {
+          "Ordinal": 6,
+          "TaskType": "recipe",
+          "ChapterType": "JobAttemptOutcome",
+          "PayloadKind": "AppError",
+          "InputHash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6",
+          "CreatedAt": "2026-03-17T22:17:04.700158262Z",
+          "Metadata": {
+            "version": 1,
+            "ordinal": 6,
+            "task_type": "recipe",
+            "worker_id": "",
+            "created_at": "2026-03-17T22:17:04.700158262Z",
+            "started_at": "2026-03-17T22:17:04.456537803Z",
+            "finished_at": "2026-03-17T22:17:04.700153929Z",
+            "input_hash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6",
+            "attempt": 3,
+            "input_ref": {
+              "ordinal": 0,
+              "hash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6"
+            }
+          },
+          "Data": {
+            "message": "error executing step: command execution failed: exit status 1",
+            "level": "error",
+            "input_ref": {
+              "ordinal": 0,
+              "hash": "c6168f127784e03b764fb09ff0764867f4b6845b8ce381c86a96bdc2d12328d6"
+            }
+          },
+          "Artifacts": []
+        }
+      ]
+    }
+  ]
+}
