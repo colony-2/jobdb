@@ -12,7 +12,29 @@ var (
 	ErrJobNotFound              = errors.New("job not found")
 	ErrExecutionLeaseLost       = errors.New("execution lease lost")
 	ErrConflict                 = errors.New("workflow state conflict")
+	ErrExistingJobMismatch      = errors.New("existing job does not match request")
 )
+
+type existingJobMismatchError struct {
+	message string
+}
+
+func (e *existingJobMismatchError) Error() string {
+	if e == nil || e.message == "" {
+		return ErrExistingJobMismatch.Error()
+	}
+	return e.message
+}
+
+func (e *existingJobMismatchError) Is(target error) bool {
+	return target == ErrExistingJobMismatch || target == ErrConflict
+}
+
+// NewExistingJobMismatchError reports that a custom job ID already exists but
+// its durable state does not match the requested submit/restart operation.
+func NewExistingJobMismatchError(message string) error {
+	return &existingJobMismatchError{message: message}
+}
 
 // NonRetryableError marks an error as not eligible for retries.
 // Implementors should return true when retries should stop immediately.
@@ -122,4 +144,10 @@ func IsExecutionLeaseLost(err error) bool {
 // conflicting runtime state transition.
 func IsConflict(err error) bool {
 	return errors.Is(err, ErrConflict)
+}
+
+// IsExistingJobMismatch reports whether err represents a custom job ID that
+// already exists with durable state inconsistent with the current request.
+func IsExistingJobMismatch(err error) bool {
+	return errors.Is(err, ErrExistingJobMismatch)
 }

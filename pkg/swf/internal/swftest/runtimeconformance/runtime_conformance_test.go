@@ -493,6 +493,100 @@ func TestWorkflowRuntimeConflictBehaviorAcrossBuiltInRuntimes(t *testing.T) {
 	}
 }
 
+func TestWorkflowRuntimeExplicitJobIDIdempotencyAcrossBuiltInRuntimes(t *testing.T) {
+	ws := swftest.MustWorkSet(t,
+		swftest.SequenceJob{Steps: []string{swftest.AddOneTaskName, swftest.DoubleTaskName}},
+		swftest.AddOneTask{},
+		swftest.DoubleTask{},
+	)
+
+	for _, harness := range swftest.BuiltInRuntimeHarnesses() {
+		harness := harness
+		t.Run(harness.Name, func(t *testing.T) {
+			built := harness.New(t, ws)
+			defer built.Shutdown(t)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+
+			submitReq := swf.SubmitJobRequest{
+				Job: swf.SubmitJob{
+					TenantId: "tenant-explicit-id-" + harness.Name,
+					JobID:    "explicit-id-job",
+					JobType:  swftest.SequenceJobName,
+					Data:     swftest.NumberTaskData(1),
+				},
+				RequestTime: time.Now().UTC(),
+			}
+			handle, err := built.Runtime.SubmitJob(ctx, submitReq)
+			if err != nil {
+				t.Fatalf("submit explicit job id: %v", err)
+			}
+			matching, err := built.Runtime.SubmitJob(ctx, submitReq)
+			if err != nil {
+				t.Fatalf("repeat submit explicit job id: %v", err)
+			}
+			if matching.JobKey != handle.JobKey {
+				t.Fatalf("unexpected matching handle %+v", matching.JobKey)
+			}
+			_, err = built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
+				Job: swf.SubmitJob{
+					TenantId: submitReq.Job.TenantId,
+					JobID:    submitReq.Job.JobID,
+					JobType:  submitReq.Job.JobType,
+					Data:     swftest.NumberTaskData(2),
+				},
+				RequestTime: time.Now().UTC(),
+			})
+			if !errors.Is(err, swf.ErrExistingJobMismatch) {
+				t.Fatalf("expected explicit submit mismatch, got %v", err)
+			}
+
+			originalKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
+				TenantId: "tenant-explicit-restart-" + harness.Name,
+				JobID:    "explicit-restart-source",
+				JobType:  swftest.SequenceJobName,
+				Data:     swftest.NumberTaskData(1),
+			})
+			if err != nil {
+				t.Fatalf("submit restart source: %v", err)
+			}
+			swftest.WaitForEngineStatus(t, ctx, built.Engine, originalKey, swf.JobStatusCompleted)
+
+			restartReq := swf.SubmitRestartJobRequest{
+				Job: swf.SubmitRestartJob{
+					PriorJobKey:    originalKey,
+					LastStepToKeep: 0,
+					JobID:          "explicit-restart-copy",
+				},
+				RequestTime: time.Now().UTC(),
+			}
+			restartHandle, err := built.Runtime.SubmitRestartJob(ctx, restartReq)
+			if err != nil {
+				t.Fatalf("submit explicit restart id: %v", err)
+			}
+			restartMatching, err := built.Runtime.SubmitRestartJob(ctx, restartReq)
+			if err != nil {
+				t.Fatalf("repeat submit explicit restart id: %v", err)
+			}
+			if restartMatching.JobKey != restartHandle.JobKey {
+				t.Fatalf("unexpected matching restart handle %+v", restartMatching.JobKey)
+			}
+			_, err = built.Runtime.SubmitRestartJob(ctx, swf.SubmitRestartJobRequest{
+				Job: swf.SubmitRestartJob{
+					PriorJobKey:    originalKey,
+					LastStepToKeep: 1,
+					JobID:          restartReq.Job.JobID,
+				},
+				RequestTime: time.Now().UTC(),
+			})
+			if !errors.Is(err, swf.ErrExistingJobMismatch) {
+				t.Fatalf("expected explicit restart mismatch, got %v", err)
+			}
+		})
+	}
+}
+
 func TestWorkflowRuntimePollWorkMetadataFilteringAcrossBuiltInRuntimes(t *testing.T) {
 	for _, harness := range swftest.BuiltInRuntimeHarnesses() {
 		harness := harness

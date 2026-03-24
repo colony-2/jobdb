@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"sync"
@@ -69,6 +70,13 @@ func NewServer(runtime swf.WorkflowRuntime) http.Handler {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		},
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
+			if errors.Is(err, swf.ErrExistingJobMismatch) {
+				writeAPIError(w, http.StatusConflict, runtimeapi.ErrorResponse{
+					Code:    runtimeapi.ExistingJobMismatch,
+					Message: err.Error(),
+				})
+				return
+			}
 			status := http.StatusInternalServerError
 			var statusErr *httpStatusError
 			if errors.As(err, &statusErr) {
@@ -158,6 +166,41 @@ func (s *proxyServer) SubmitJob(ctx context.Context, request runtimeapi.SubmitJo
 		return nil, err
 	}
 	return runtimeapi.SubmitJob200JSONResponse(toAPIJobHandle(handle)), nil
+}
+
+func (s *proxyServer) PutJob(ctx context.Context, request runtimeapi.PutJobRequestObject) (runtimeapi.PutJobResponseObject, error) {
+	if request.Body == nil {
+		return nil, badRequest("submit job body is required")
+	}
+	data, err := taskDataFromAPIWrite(request.Body.Job.Data)
+	if err != nil {
+		return nil, badRequest(err.Error())
+	}
+	metadata, err := unmarshalJSONValueOptional(request.Body.Job.Metadata)
+	if err != nil {
+		return nil, badRequest(err.Error())
+	}
+	runPolicy, err := runPolicyFromAPI(request.Body.Job.RunPolicy)
+	if err != nil {
+		return nil, badRequest(err.Error())
+	}
+	handle, err := s.runtime.SubmitJob(ctx, swf.SubmitJobRequest{
+		Job: swf.SubmitJob{
+			TenantId:      request.TenantId,
+			JobID:         request.JobId,
+			JobType:       request.Body.Job.JobType,
+			Data:          swf.JobData(data),
+			RunPolicy:     runPolicy,
+			Metadata:      metadata,
+			Prerequisites: fromAPIPrerequisites(request.Body.Job.Prerequisites),
+		},
+		RequestTime: derefTime(request.Body.RequestTime),
+		WorkerID:    stringValue(request.Body.WorkerId),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return runtimeapi.PutJob200JSONResponse(toAPIJobHandle(handle)), nil
 }
 
 func (s *proxyServer) ListJobs(ctx context.Context, request runtimeapi.ListJobsRequestObject) (runtimeapi.ListJobsResponseObject, error) {
@@ -258,6 +301,44 @@ func (s *proxyServer) SubmitRestartJob(ctx context.Context, request runtimeapi.S
 		return nil, err
 	}
 	return runtimeapi.SubmitRestartJob200JSONResponse(toAPIJobHandle(handle)), nil
+}
+
+func (s *proxyServer) PutRestartJob(ctx context.Context, request runtimeapi.PutRestartJobRequestObject) (runtimeapi.PutRestartJobResponseObject, error) {
+	if request.Body == nil {
+		return nil, badRequest("submit restart job body is required")
+	}
+	job := swf.SubmitRestartJob{
+		PriorJobKey:    fromAPIJobKey(request.Body.Job.PriorJobKey),
+		LastStepToKeep: request.Body.Job.LastStepToKeep,
+		JobID:          request.JobId,
+		Prerequisites:  fromAPIPrerequisites(request.Body.Job.Prerequisites),
+	}
+	if job.PriorJobKey.TenantId != request.TenantId {
+		return nil, badRequest("priorJobKey tenantId must match path tenantId")
+	}
+	if request.Body.Job.ExtraTaskInput != nil {
+		data, err := taskDataFromAPIWrite(*request.Body.Job.ExtraTaskInput)
+		if err != nil {
+			return nil, badRequest(err.Error())
+		}
+		job.ExtraTaskInput = data
+	}
+	if request.Body.Job.ExtraTaskOutput != nil {
+		data, err := taskDataFromAPIWrite(*request.Body.Job.ExtraTaskOutput)
+		if err != nil {
+			return nil, badRequest(err.Error())
+		}
+		job.ExtraTaskOutput = data
+	}
+	handle, err := s.runtime.SubmitRestartJob(ctx, swf.SubmitRestartJobRequest{
+		Job:         job,
+		RequestTime: derefTime(request.Body.RequestTime),
+		WorkerID:    stringValue(request.Body.WorkerId),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return runtimeapi.PutRestartJob200JSONResponse(toAPIJobHandle(handle)), nil
 }
 
 func (s *proxyServer) GetJob(ctx context.Context, request runtimeapi.GetJobRequestObject) (runtimeapi.GetJobResponseObject, error) {
@@ -582,6 +663,12 @@ func badRequest(message string) error {
 		status: http.StatusBadRequest,
 		err:    errors.New(message),
 	}
+}
+
+func writeAPIError(w http.ResponseWriter, status int, payload runtimeapi.ErrorResponse) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
 }
 
 func derefInt(value *int) int {

@@ -53,6 +53,60 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JobHandle'
+  /v1/tenants/{tenantId}/jobs/{jobId}:
+    put:
+      tags: [jobs]
+      operationId: putJob
+      summary: Submit job with explicit job ID
+      description: |
+        Submits a new job with the path-supplied job ID and writes the initial
+        chapter (ordinal `0`). This operation is idempotent for equivalent
+        requests: when the job already exists with matching durable state, the
+        runtime returns success; when the durable story exists but the internal
+        runtime record is missing, the runtime repairs that record and returns
+        success. If the existing job's durable state does not match the
+        request, the runtime returns `409 existing_job_mismatch`.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitJobRequest'
+      responses:
+        '200':
+          description: Job submitted or confirmed/recovered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobHandle'
+        '409':
+          description: Existing job does not match the requested durable state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      tags: [jobs]
+      operationId: getJob
+      summary: Get job
+      description: |
+        Returns the current job status and a task-data view of the terminal
+        payload when it is available. For non-terminal jobs, clients should
+        treat an absent `data` value as a lazy `TaskData` that will surface the
+        deferred runtime error when accessed.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Job info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobInfo'
   /v1/tenants/{tenantId}/jobs/restarts:
     post:
       tags: [jobs]
@@ -77,6 +131,42 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JobHandle'
+  /v1/tenants/{tenantId}/jobs/{jobId}/restart:
+    put:
+      tags: [jobs]
+      operationId: putRestartJob
+      summary: Submit restart job with explicit job ID
+      description: |
+        Submits a restart using the path-supplied destination job ID. This
+        operation is idempotent for equivalent requests: when the target job
+        already exists with the same copied restart prefix (and restart extra
+        chapter when requested), the runtime returns success; when that durable
+        state exists but the internal runtime record is missing, the runtime
+        repairs that record and returns success. If the existing durable state
+        does not match the request, the runtime returns
+        `409 existing_job_mismatch`.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitRestartJobRequest'
+      responses:
+        '200':
+          description: Job restart submitted or confirmed/recovered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobHandle'
+        '409':
+          description: Existing job does not match the requested durable state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/tenants/{tenantId}/jobs/query:
     post:
       tags: [jobs]
@@ -228,26 +318,6 @@ paths:
           description: Chapter stored
         '409':
           description: Conflicting chapter write
-  /v1/tenants/{tenantId}/jobs/{jobId}:
-    get:
-      tags: [jobs]
-      operationId: getJob
-      summary: Get job
-      description: |
-        Returns the current job status and a task-data view of the terminal
-        payload when it is available. For non-terminal jobs, clients should
-        treat an absent `data` value as a lazy `TaskData` that will surface the
-        deferred runtime error when accessed.
-      parameters:
-        - $ref: '#/components/parameters/TenantId'
-        - $ref: '#/components/parameters/JobId'
-      responses:
-        '200':
-          description: Job info
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/JobInfo'
   /v1/tenants/{tenantId}/jobs/{jobId}/cancel:
     post:
       tags: [jobs]
@@ -404,6 +474,19 @@ components:
       schema:
         type: string
   schemas:
+    ErrorCode:
+      type: string
+      enum:
+        - existing_job_mismatch
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      additionalProperties: false
+      properties:
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        message:
+          type: string
     JobStatus:
       type: string
       enum:

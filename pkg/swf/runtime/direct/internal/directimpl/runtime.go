@@ -113,6 +113,11 @@ func (r *Runtime) SubmitJob(ctx context.Context, req swf.SubmitJobRequest) (swf.
 		return swf.JobHandle{}, err
 	}
 	if _, err := r.strataClient.CreateStory(ctx, storyKeyForJob(jobKey), co); err != nil {
+		if req.Job.JobID != "" && errors.Is(err, core.ErrConflict) {
+			if handle, handled, reconcileErr := r.reconcileExistingSubmitJob(ctx, req, jobKey, inputHash, prereqs, waitFor, jobPolicy); handled || reconcileErr != nil {
+				return handle, reconcileErr
+			}
+		}
 		return swf.JobHandle{}, err
 	}
 	if artifacts, _ := taskData.GetArtifacts(); len(artifacts) > 0 {
@@ -123,7 +128,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req swf.SubmitJobRequest) (swf.
 			}
 		}
 	}
-	if err := r.startJob(ctx, jobKey, req.Job.JobType, req.Job.Metadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID); err != nil {
+	if err := r.ensureSubmittedJobRecord(ctx, jobKey, req.Job.JobType, req.Job.Metadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID); err != nil {
 		return swf.JobHandle{}, err
 	}
 	return swf.JobHandle{JobKey: jobKey}, nil
@@ -186,6 +191,11 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req swf.SubmitRestartJob
 		return swf.JobHandle{}, fmt.Errorf("LastStepToKeep %d cuts into retry chain: next ordinal %d is attempt %d of %s", job.LastStepToKeep, nextOrdinal, nextAttempt, nextEnv.Meta.TaskType)
 	}
 
+	extra, err := buildRestartExtraExpectation(ctx, job, prereqs)
+	if err != nil {
+		return swf.JobHandle{}, err
+	}
+
 	createOptions := story.CreateOptions{RequestID: ksuid.New().String()}
 	if job.ExtraTaskOutput != nil {
 		hashInput := job.ExtraTaskInput
@@ -212,9 +222,14 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req swf.SubmitRestartJob
 		LastOrdinal:    job.LastStepToKeep,
 		CreateOptions:  createOptions,
 	}); err != nil {
+		if job.JobID != "" && errors.Is(err, core.ErrConflict) {
+			if handle, handled, reconcileErr := r.reconcileExistingRestartJob(ctx, req, jobKey, prereqs, waitFor, jobType, jobPolicy, extra); handled || reconcileErr != nil {
+				return handle, reconcileErr
+			}
+		}
 		return swf.JobHandle{}, err
 	}
-	if err := r.startJob(ctx, jobKey, jobType, nil, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID); err != nil {
+	if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, nil, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID); err != nil {
 		return swf.JobHandle{}, err
 	}
 	return swf.JobHandle{JobKey: jobKey}, nil

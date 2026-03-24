@@ -31,6 +31,11 @@ const (
 	TaskAttemptOutcome ChapterType = "TaskAttemptOutcome"
 )
 
+// Defines values for ErrorCode.
+const (
+	ExistingJobMismatch ErrorCode = "existing_job_mismatch"
+)
+
 // Defines values for JobPrerequisiteCondition.
 const (
 	Complete JobPrerequisiteCondition = "complete"
@@ -110,6 +115,15 @@ type CommitChapterIfWaitingRequest struct {
 type CompleteExecutionRequest struct {
 	Detail *string `json:"detail,omitempty"`
 	Status string  `json:"status"`
+}
+
+// ErrorCode defines model for ErrorCode.
+type ErrorCode string
+
+// ErrorResponse defines model for ErrorResponse.
+type ErrorResponse struct {
+	Code    ErrorCode `json:"code"`
+	Message string    `json:"message"`
 }
 
 // ExecutionLease defines model for ExecutionLease.
@@ -411,6 +425,9 @@ type ListJobsJSONRequestBody = ListJobsRequest
 // SubmitRestartJobJSONRequestBody defines body for SubmitRestartJob for application/json ContentType.
 type SubmitRestartJobJSONRequestBody = SubmitRestartJobRequest
 
+// PutJobJSONRequestBody defines body for PutJob for application/json ContentType.
+type PutJobJSONRequestBody = SubmitJobRequest
+
 // CancelJobJSONRequestBody defines body for CancelJob for application/json ContentType.
 type CancelJobJSONRequestBody = CancelJobRequest
 
@@ -428,6 +445,9 @@ type CompleteJobWithLeaseJSONRequestBody = CompleteExecutionRequest
 
 // RescheduleJobWithLeaseJSONRequestBody defines body for RescheduleJobWithLease for application/json ContentType.
 type RescheduleJobWithLeaseJSONRequestBody = RescheduleExecutionRequest
+
+// PutRestartJobJSONRequestBody defines body for PutRestartJob for application/json ContentType.
+type PutRestartJobJSONRequestBody = SubmitRestartJobRequest
 
 // RequestEditorFn  is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -525,6 +545,11 @@ type ClientInterface interface {
 	// GetJob request
 	GetJob(ctx context.Context, tenantId TenantId, jobId JobId, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// PutJobWithBody request with any body
+	PutJobWithBody(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PutJob(ctx context.Context, tenantId TenantId, jobId JobId, body PutJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// CancelJobWithBody request with any body
 	CancelJobWithBody(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -566,6 +591,11 @@ type ClientInterface interface {
 	RescheduleJobWithLeaseWithBody(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	RescheduleJobWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, body RescheduleJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutRestartJobWithBody request with any body
+	PutRestartJobWithBody(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PutRestartJob(ctx context.Context, tenantId TenantId, jobId JobId, body PutRestartJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) PollWorkWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -666,6 +696,30 @@ func (c *Client) SubmitRestartJob(ctx context.Context, tenantId TenantId, body S
 
 func (c *Client) GetJob(ctx context.Context, tenantId TenantId, jobId JobId, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetJobRequest(c.Server, tenantId, jobId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PutJobWithBody(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutJobRequestWithBody(c.Server, tenantId, jobId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PutJob(ctx context.Context, tenantId TenantId, jobId JobId, body PutJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutJobRequest(c.Server, tenantId, jobId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -858,6 +912,30 @@ func (c *Client) RescheduleJobWithLeaseWithBody(ctx context.Context, tenantId Te
 
 func (c *Client) RescheduleJobWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, body RescheduleJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewRescheduleJobWithLeaseRequest(c.Server, tenantId, jobId, leaseId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PutRestartJobWithBody(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutRestartJobRequestWithBody(c.Server, tenantId, jobId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PutRestartJob(ctx context.Context, tenantId TenantId, jobId JobId, body PutRestartJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutRestartJobRequest(c.Server, tenantId, jobId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1086,6 +1164,60 @@ func NewGetJobRequest(server string, tenantId TenantId, jobId JobId) (*http.Requ
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewPutJobRequest calls the generic PutJob builder with application/json body
+func NewPutJobRequest(server string, tenantId TenantId, jobId JobId, body PutJobJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutJobRequestWithBody(server, tenantId, jobId, "application/json", bodyReader)
+}
+
+// NewPutJobRequestWithBody generates requests for PutJob with any type of body
+func NewPutJobRequestWithBody(server string, tenantId TenantId, jobId JobId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "jobId", runtime.ParamLocationPath, jobId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PUT", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -1668,6 +1800,60 @@ func NewRescheduleJobWithLeaseRequestWithBody(server string, tenantId TenantId, 
 	return req, nil
 }
 
+// NewPutRestartJobRequest calls the generic PutRestartJob builder with application/json body
+func NewPutRestartJobRequest(server string, tenantId TenantId, jobId JobId, body PutRestartJobJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutRestartJobRequestWithBody(server, tenantId, jobId, "application/json", bodyReader)
+}
+
+// NewPutRestartJobRequestWithBody generates requests for PutRestartJob with any type of body
+func NewPutRestartJobRequestWithBody(server string, tenantId TenantId, jobId JobId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "jobId", runtime.ParamLocationPath, jobId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs/%s/restart", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PUT", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -1734,6 +1920,11 @@ type ClientWithResponsesInterface interface {
 	// GetJobWithResponse request
 	GetJobWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, reqEditors ...RequestEditorFn) (*GetJobHTTPResponse, error)
 
+	// PutJobWithBodyWithResponse request with any body
+	PutJobWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutJobHTTPResponse, error)
+
+	PutJobWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, body PutJobJSONRequestBody, reqEditors ...RequestEditorFn) (*PutJobHTTPResponse, error)
+
 	// CancelJobWithBodyWithResponse request with any body
 	CancelJobWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CancelJobHTTPResponse, error)
 
@@ -1775,6 +1966,11 @@ type ClientWithResponsesInterface interface {
 	RescheduleJobWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RescheduleJobWithLeaseHTTPResponse, error)
 
 	RescheduleJobWithLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, body RescheduleJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*RescheduleJobWithLeaseHTTPResponse, error)
+
+	// PutRestartJobWithBodyWithResponse request with any body
+	PutRestartJobWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutRestartJobHTTPResponse, error)
+
+	PutRestartJobWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, body PutRestartJobJSONRequestBody, reqEditors ...RequestEditorFn) (*PutRestartJobHTTPResponse, error)
 }
 
 type PollWorkHTTPResponse struct {
@@ -1883,6 +2079,29 @@ func (r GetJobHTTPResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r GetJobHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PutJobHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *JobHandle
+	JSON409      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r PutJobHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutJobHTTPResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -2102,6 +2321,29 @@ func (r RescheduleJobWithLeaseHTTPResponse) StatusCode() int {
 	return 0
 }
 
+type PutRestartJobHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *JobHandle
+	JSON409      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r PutRestartJobHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutRestartJobHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 // PollWorkWithBodyWithResponse request with arbitrary body returning *PollWorkHTTPResponse
 func (c *ClientWithResponses) PollWorkWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PollWorkHTTPResponse, error) {
 	rsp, err := c.PollWorkWithBody(ctx, contentType, body, reqEditors...)
@@ -2177,6 +2419,23 @@ func (c *ClientWithResponses) GetJobWithResponse(ctx context.Context, tenantId T
 		return nil, err
 	}
 	return ParseGetJobHTTPResponse(rsp)
+}
+
+// PutJobWithBodyWithResponse request with arbitrary body returning *PutJobHTTPResponse
+func (c *ClientWithResponses) PutJobWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutJobHTTPResponse, error) {
+	rsp, err := c.PutJobWithBody(ctx, tenantId, jobId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutJobHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) PutJobWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, body PutJobJSONRequestBody, reqEditors ...RequestEditorFn) (*PutJobHTTPResponse, error) {
+	rsp, err := c.PutJob(ctx, tenantId, jobId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutJobHTTPResponse(rsp)
 }
 
 // CancelJobWithBodyWithResponse request with arbitrary body returning *CancelJobHTTPResponse
@@ -2317,6 +2576,23 @@ func (c *ClientWithResponses) RescheduleJobWithLeaseWithResponse(ctx context.Con
 	return ParseRescheduleJobWithLeaseHTTPResponse(rsp)
 }
 
+// PutRestartJobWithBodyWithResponse request with arbitrary body returning *PutRestartJobHTTPResponse
+func (c *ClientWithResponses) PutRestartJobWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutRestartJobHTTPResponse, error) {
+	rsp, err := c.PutRestartJobWithBody(ctx, tenantId, jobId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutRestartJobHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) PutRestartJobWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, body PutRestartJobJSONRequestBody, reqEditors ...RequestEditorFn) (*PutRestartJobHTTPResponse, error) {
+	rsp, err := c.PutRestartJob(ctx, tenantId, jobId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutRestartJobHTTPResponse(rsp)
+}
+
 // ParsePollWorkHTTPResponse parses an HTTP response from a PollWorkWithResponse call
 func ParsePollWorkHTTPResponse(rsp *http.Response) (*PollWorkHTTPResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -2443,6 +2719,39 @@ func ParseGetJobHTTPResponse(rsp *http.Response) (*GetJobHTTPResponse, error) {
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePutJobHTTPResponse parses an HTTP response from a PutJobWithResponse call
+func ParsePutJobHTTPResponse(rsp *http.Response) (*PutJobHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutJobHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest JobHandle
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	}
 
@@ -2639,6 +2948,39 @@ func ParseRescheduleJobWithLeaseHTTPResponse(rsp *http.Response) (*RescheduleJob
 	return response, nil
 }
 
+// ParsePutRestartJobHTTPResponse parses an HTTP response from a PutRestartJobWithResponse call
+func ParsePutRestartJobHTTPResponse(rsp *http.Response) (*PutRestartJobHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutRestartJobHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest JobHandle
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// Poll work
@@ -2656,6 +2998,9 @@ type ServerInterface interface {
 	// Get job
 	// (GET /v1/tenants/{tenantId}/jobs/{jobId})
 	GetJob(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId)
+	// Submit job with explicit job ID
+	// (PUT /v1/tenants/{tenantId}/jobs/{jobId})
+	PutJob(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId)
 	// Cancel job
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/cancel)
 	CancelJob(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId)
@@ -2686,6 +3031,9 @@ type ServerInterface interface {
 	// Reschedule job with lease
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/reschedule)
 	RescheduleJobWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId)
+	// Submit restart job with explicit job ID
+	// (PUT /v1/tenants/{tenantId}/jobs/{jobId}/restart)
+	PutRestartJob(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -2719,6 +3067,12 @@ func (_ Unimplemented) SubmitRestartJob(w http.ResponseWriter, r *http.Request, 
 // Get job
 // (GET /v1/tenants/{tenantId}/jobs/{jobId})
 func (_ Unimplemented) GetJob(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Submit job with explicit job ID
+// (PUT /v1/tenants/{tenantId}/jobs/{jobId})
+func (_ Unimplemented) PutJob(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2779,6 +3133,12 @@ func (_ Unimplemented) KeepAliveLease(w http.ResponseWriter, r *http.Request, te
 // Reschedule job with lease
 // (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/reschedule)
 func (_ Unimplemented) RescheduleJobWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Submit restart job with explicit job ID
+// (PUT /v1/tenants/{tenantId}/jobs/{jobId}/restart)
+func (_ Unimplemented) PutRestartJob(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2935,6 +3295,46 @@ func (siw *ServerInterfaceWrapper) GetJob(w http.ResponseWriter, r *http.Request
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetJob(w, r, tenantId, jobId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutJob operation middleware
+func (siw *ServerInterfaceWrapper) PutJob(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "jobId" -------------
+	var jobId JobId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobId", chi.URLParam(r, "jobId"), &jobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutJob(w, r, tenantId, jobId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3442,6 +3842,46 @@ func (siw *ServerInterfaceWrapper) RescheduleJobWithLease(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
+// PutRestartJob operation middleware
+func (siw *ServerInterfaceWrapper) PutRestartJob(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "jobId" -------------
+	var jobId JobId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobId", chi.URLParam(r, "jobId"), &jobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutRestartJob(w, r, tenantId, jobId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -3571,6 +4011,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}", wrapper.GetJob)
 	})
 	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}", wrapper.PutJob)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/cancel", wrapper.CancelJob)
 	})
 	r.Group(func(r chi.Router) {
@@ -3599,6 +4042,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/reschedule", wrapper.RescheduleJobWithLease)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/restart", wrapper.PutRestartJob)
 	})
 
 	return r
@@ -3691,6 +4137,34 @@ type GetJob200JSONResponse JobInfo
 func (response GetJob200JSONResponse) VisitGetJobResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PutJobRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	JobId    JobId    `json:"jobId"`
+	Body     *PutJobJSONRequestBody
+}
+
+type PutJobResponseObject interface {
+	VisitPutJobResponse(w http.ResponseWriter) error
+}
+
+type PutJob200JSONResponse JobHandle
+
+func (response PutJob200JSONResponse) VisitPutJobResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PutJob409JSONResponse ErrorResponse
+
+func (response PutJob409JSONResponse) VisitPutJobResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -3910,6 +4384,34 @@ func (response RescheduleJobWithLease204Response) VisitRescheduleJobWithLeaseRes
 	return nil
 }
 
+type PutRestartJobRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	JobId    JobId    `json:"jobId"`
+	Body     *PutRestartJobJSONRequestBody
+}
+
+type PutRestartJobResponseObject interface {
+	VisitPutRestartJobResponse(w http.ResponseWriter) error
+}
+
+type PutRestartJob200JSONResponse JobHandle
+
+func (response PutRestartJob200JSONResponse) VisitPutRestartJobResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PutRestartJob409JSONResponse ErrorResponse
+
+func (response PutRestartJob409JSONResponse) VisitPutRestartJobResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// Poll work
@@ -3927,6 +4429,9 @@ type StrictServerInterface interface {
 	// Get job
 	// (GET /v1/tenants/{tenantId}/jobs/{jobId})
 	GetJob(ctx context.Context, request GetJobRequestObject) (GetJobResponseObject, error)
+	// Submit job with explicit job ID
+	// (PUT /v1/tenants/{tenantId}/jobs/{jobId})
+	PutJob(ctx context.Context, request PutJobRequestObject) (PutJobResponseObject, error)
 	// Cancel job
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/cancel)
 	CancelJob(ctx context.Context, request CancelJobRequestObject) (CancelJobResponseObject, error)
@@ -3957,6 +4462,9 @@ type StrictServerInterface interface {
 	// Reschedule job with lease
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/reschedule)
 	RescheduleJobWithLease(ctx context.Context, request RescheduleJobWithLeaseRequestObject) (RescheduleJobWithLeaseResponseObject, error)
+	// Submit restart job with explicit job ID
+	// (PUT /v1/tenants/{tenantId}/jobs/{jobId}/restart)
+	PutRestartJob(ctx context.Context, request PutRestartJobRequestObject) (PutRestartJobResponseObject, error)
 }
 
 type StrictHandlerFunc = strictnethttp.StrictHTTPHandlerFunc
@@ -4138,6 +4646,40 @@ func (sh *strictHandler) GetJob(w http.ResponseWriter, r *http.Request, tenantId
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetJobResponseObject); ok {
 		if err := validResponse.VisitGetJobResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutJob operation middleware
+func (sh *strictHandler) PutJob(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId) {
+	var request PutJobRequestObject
+
+	request.TenantId = tenantId
+	request.JobId = jobId
+
+	var body PutJobJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutJob(ctx, request.(PutJobRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutJob")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutJobResponseObject); ok {
+		if err := validResponse.VisitPutJobResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -4459,6 +5001,40 @@ func (sh *strictHandler) RescheduleJobWithLease(w http.ResponseWriter, r *http.R
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RescheduleJobWithLeaseResponseObject); ok {
 		if err := validResponse.VisitRescheduleJobWithLeaseResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutRestartJob operation middleware
+func (sh *strictHandler) PutRestartJob(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId) {
+	var request PutRestartJobRequestObject
+
+	request.TenantId = tenantId
+	request.JobId = jobId
+
+	var body PutRestartJobJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutRestartJob(ctx, request.(PutRestartJobRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutRestartJob")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutRestartJobResponseObject); ok {
+		if err := validResponse.VisitPutRestartJobResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

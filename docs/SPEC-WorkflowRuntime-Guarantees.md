@@ -139,6 +139,19 @@ The restart boundary must obey these rules:
 
 If `extraTaskOutput` is supplied, it is appended as the next chapter after the kept prefix and participates in the normal determinism rules. It is not a mutable patch to an earlier chapter.
 
+## Explicit Job ID Guarantees
+
+When the caller supplies an explicit destination job ID for submit or restart, creation is defined against that logical job identity rather than against an auto-generated ID.
+
+The runtime must obey all of the following:
+
+- An equivalent repeat of the same explicit-ID submit or restart request must return success for the existing job.
+- For submit, equivalence is defined by the durable initial job chapter and any immutable create-time metadata the runtime persists alongside it.
+- For restart, equivalence is defined by the copied source prefix through `lastStepToKeep`, plus the restart-extra chapter when one is requested.
+- If the durable job history matches the request but an internal runtime coordination record is missing, the runtime must recreate the missing record and return success.
+- That recovery behavior is only valid while the durable history still reflects the initial submitted or restarted shape. If later durable progress is visible but the internal coordination record is missing, the runtime must fail rather than silently manufacturing a new initial state.
+- If the target job ID already exists but the durable state does not match the request, the runtime must fail with a distinguishable conflict outcome.
+
 ## Read Guarantees
 
 Read-side operations must preserve the following behavior:
@@ -164,6 +177,7 @@ Additional operation-specific behavior:
 - `commit-if-waiting` returns HTTP `204` only when the completion is applied.
 - `commit-if-waiting` returns HTTP `409` when the job is no longer waiting on the described slot or when the guards do not match.
 - `add_chapter` returns HTTP `409` when the target ordinal already exists or is not appendable in the visible chapter sequence.
+- Explicit-ID submit and restart return HTTP `409` with error code `existing_job_mismatch` when the destination job already exists with different durable state.
 
 For chapter writes specifically, the important interoperability rule is not the exact error code. It is that a second conflicting write must never become a second successful visible commit.
 

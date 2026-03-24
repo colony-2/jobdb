@@ -42,9 +42,6 @@ func (r *Runtime) SubmitJob(ctx context.Context, req swf.SubmitJobRequest) (swf.
 	if req.Job.TenantId == "" {
 		return swf.JobHandle{}, fmt.Errorf("tenantId is required")
 	}
-	if req.Job.JobID != "" {
-		return swf.JobHandle{}, fmt.Errorf("custom job IDs are not supported")
-	}
 	data, err := taskDataToAPIWrite(ctx, swf.TaskData(req.Job.Data))
 	if err != nil {
 		return swf.JobHandle{}, err
@@ -68,6 +65,16 @@ func (r *Runtime) SubmitJob(ctx context.Context, req swf.SubmitJobRequest) (swf.
 		RequestTime: timePtr(req.RequestTime),
 		WorkerId:    stringPtrOrNil(req.WorkerID),
 	}
+	if req.Job.JobID != "" {
+		resp, err := r.client.PutJobWithResponse(ctx, req.Job.TenantId, req.Job.JobID, body)
+		if err != nil {
+			return swf.JobHandle{}, err
+		}
+		if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
+			return swf.JobHandle{}, explicitJobCreateError("put job", resp.StatusCode(), resp.Body, resp.JSON409)
+		}
+		return fromAPIJobHandle(*resp.JSON200), nil
+	}
 	resp, err := r.client.SubmitJobWithResponse(ctx, req.Job.TenantId, body)
 	if err != nil {
 		return swf.JobHandle{}, err
@@ -81,9 +88,6 @@ func (r *Runtime) SubmitJob(ctx context.Context, req swf.SubmitJobRequest) (swf.
 func (r *Runtime) SubmitRestartJob(ctx context.Context, req swf.SubmitRestartJobRequest) (swf.JobHandle, error) {
 	if req.Job.PriorJobKey.TenantId == "" {
 		return swf.JobHandle{}, fmt.Errorf("prior job tenantId is required")
-	}
-	if req.Job.JobID != "" {
-		return swf.JobHandle{}, fmt.Errorf("custom job IDs are not supported")
 	}
 	body := runtimeapi.SubmitRestartJobRequest{
 		Job: runtimeapi.SubmitRestartJob{
@@ -107,6 +111,16 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req swf.SubmitRestartJob
 			return swf.JobHandle{}, err
 		}
 		body.Job.ExtraTaskOutput = &output
+	}
+	if req.Job.JobID != "" {
+		resp, err := r.client.PutRestartJobWithResponse(ctx, req.Job.PriorJobKey.TenantId, req.Job.JobID, body)
+		if err != nil {
+			return swf.JobHandle{}, err
+		}
+		if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
+			return swf.JobHandle{}, explicitJobCreateError("put restart job", resp.StatusCode(), resp.Body, resp.JSON409)
+		}
+		return fromAPIJobHandle(*resp.JSON200), nil
 	}
 	resp, err := r.client.SubmitRestartJobWithResponse(ctx, req.Job.PriorJobKey.TenantId, body)
 	if err != nil {
@@ -528,6 +542,27 @@ func responseErrorWithConflict(operation string, status int, body []byte, notFou
 		}
 	}
 	return fmt.Errorf("%s: http %d: %s", operation, status, message)
+}
+
+func explicitJobCreateError(operation string, status int, body []byte, conflict *runtimeapi.ErrorResponse) error {
+	message := strings.TrimSpace(string(body))
+	if conflict != nil && conflict.Message != "" {
+		message = conflict.Message
+	}
+	if message == "" {
+		message = http.StatusText(status)
+	}
+	switch status {
+	case http.StatusBadRequest:
+		return fmt.Errorf("%s: %s", operation, message)
+	case http.StatusConflict:
+		if conflict != nil && conflict.Code == runtimeapi.ExistingJobMismatch {
+			return fmt.Errorf("%w: %s", swf.ErrExistingJobMismatch, message)
+		}
+		return fmt.Errorf("%w: %s", swf.ErrConflict, message)
+	default:
+		return fmt.Errorf("%s: http %d: %s", operation, status, message)
+	}
 }
 
 func predicatesFilter(predicates []swf.MetadataPredicate) swf.MetadataFilter {

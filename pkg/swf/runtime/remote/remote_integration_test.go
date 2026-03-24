@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -335,8 +334,9 @@ func TestRemoteRuntimeChapterAndArtifactRoundTrip(t *testing.T) {
 	}
 }
 
-func TestRemoteRuntimeRejectsCustomJobIDs(t *testing.T) {
-	server := httptest.NewServer(NewServer(toyruntime.New()))
+func TestRemoteRuntimeSupportsExplicitJobIDs(t *testing.T) {
+	underlying := toyruntime.New()
+	server := httptest.NewServer(NewServer(underlying))
 	defer server.Close()
 
 	runtime, err := New(server.URL, server.Client())
@@ -344,20 +344,134 @@ func TestRemoteRuntimeRejectsCustomJobIDs(t *testing.T) {
 		t.Fatalf("new remote runtime: %v", err)
 	}
 
-	_, err = runtime.SubmitJob(context.Background(), swf.SubmitJobRequest{
+	handle, err := runtime.SubmitJob(context.Background(), swf.SubmitJobRequest{
 		Job: swf.SubmitJob{
 			TenantId: "tenant-custom-id",
-			JobID:    "not-supported",
+			JobID:    "custom-job-id",
 			JobType:  "custom-id-job",
 			Data:     swf.NewTaskDataOrPanic(map[string]int{"n": 1}),
 		},
 		RequestTime: time.Now().UTC(),
 	})
-	if err == nil {
-		t.Fatal("expected custom job id submit to fail")
+	if err != nil {
+		t.Fatalf("submit explicit job id: %v", err)
 	}
-	if !strings.Contains(err.Error(), "custom job IDs are not supported") {
-		t.Fatalf("unexpected error: %v", err)
+	if handle.JobKey.JobId != "custom-job-id" {
+		t.Fatalf("unexpected job key %+v", handle.JobKey)
+	}
+
+	matching, err := runtime.SubmitJob(context.Background(), swf.SubmitJobRequest{
+		Job: swf.SubmitJob{
+			TenantId: "tenant-custom-id",
+			JobID:    "custom-job-id",
+			JobType:  "custom-id-job",
+			Data:     swf.NewTaskDataOrPanic(map[string]int{"n": 1}),
+		},
+		RequestTime: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("repeat explicit job id submit: %v", err)
+	}
+	if matching.JobKey != handle.JobKey {
+		t.Fatalf("unexpected matching handle %+v", matching.JobKey)
+	}
+
+	_, err = runtime.SubmitJob(context.Background(), swf.SubmitJobRequest{
+		Job: swf.SubmitJob{
+			TenantId: "tenant-custom-id",
+			JobID:    "custom-job-id",
+			JobType:  "custom-id-job",
+			Data:     swf.NewTaskDataOrPanic(map[string]int{"n": 2}),
+		},
+		RequestTime: time.Now().UTC(),
+	})
+	if !errors.Is(err, swf.ErrExistingJobMismatch) {
+		t.Fatalf("expected existing job mismatch, got %v", err)
+	}
+}
+
+func TestRemoteRuntimeSupportsExplicitRestartJobIDs(t *testing.T) {
+	underlying := toyruntime.New()
+	builder := swf.NewEngineBuilder().WithRuntime(underlying)
+	builder.PlusWorkers(remoteSequenceJob{}, remoteAddOneTask{}, remoteDoubleTask{})
+	engine, err := builder.BuildEngine()
+	if err != nil {
+		t.Fatalf("build engine: %v", err)
+	}
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		engine.Run(runCtx)
+	}()
+	defer func() {
+		cancelRun()
+		<-done
+	}()
+
+	server := httptest.NewServer(NewServer(underlying))
+	defer server.Close()
+
+	runtime, err := New(server.URL, server.Client())
+	if err != nil {
+		t.Fatalf("new remote runtime: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	originalKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
+		TenantId: "tenant-restart-id",
+		JobID:    "restart-source",
+		JobType:  remoteSequenceJobName,
+		Data:     swf.NewTaskDataOrPanic(map[string]int{"n": 1}),
+	})
+	if err != nil {
+		t.Fatalf("submit source job: %v", err)
+	}
+	waitForEngineStatus(t, ctx, engine, originalKey, swf.JobStatusCompleted)
+
+	handle, err := runtime.SubmitRestartJob(ctx, swf.SubmitRestartJobRequest{
+		Job: swf.SubmitRestartJob{
+			PriorJobKey:    originalKey,
+			LastStepToKeep: 0,
+			JobID:          "restart-copy",
+		},
+		RequestTime: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("submit explicit restart job id: %v", err)
+	}
+	if handle.JobKey.JobId != "restart-copy" {
+		t.Fatalf("unexpected restart job key %+v", handle.JobKey)
+	}
+
+	matching, err := runtime.SubmitRestartJob(ctx, swf.SubmitRestartJobRequest{
+		Job: swf.SubmitRestartJob{
+			PriorJobKey:    originalKey,
+			LastStepToKeep: 0,
+			JobID:          "restart-copy",
+		},
+		RequestTime: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("repeat explicit restart job id submit: %v", err)
+	}
+	if matching.JobKey != handle.JobKey {
+		t.Fatalf("unexpected matching restart handle %+v", matching.JobKey)
+	}
+
+	_, err = runtime.SubmitRestartJob(ctx, swf.SubmitRestartJobRequest{
+		Job: swf.SubmitRestartJob{
+			PriorJobKey:    originalKey,
+			LastStepToKeep: 1,
+			JobID:          "restart-copy",
+		},
+		RequestTime: time.Now().UTC(),
+	})
+	if !errors.Is(err, swf.ErrExistingJobMismatch) {
+		t.Fatalf("expected existing restart job mismatch, got %v", err)
 	}
 }
 
@@ -379,4 +493,78 @@ func waitForRuntimeStatus(t *testing.T, ctx context.Context, runtime swf.Workflo
 		}
 	}
 	t.Fatalf("job %s did not reach status %s", jobKey, want)
+}
+
+const (
+	remoteSequenceJobName = "remote-seq"
+	remoteAddOneTaskName  = "remote-add"
+	remoteDoubleTaskName  = "remote-double"
+)
+
+type remoteSequenceJob struct{}
+
+func (remoteSequenceJob) Name() string { return remoteSequenceJobName }
+
+func (remoteSequenceJob) Run(ctx swf.JobContext, data swf.JobData) (swf.JobData, error) {
+	first, err := ctx.DoTask(swf.RunPolicy{}, remoteAddOneTaskName, data)
+	if err != nil {
+		return nil, err
+	}
+	second, err := ctx.DoTask(swf.RunPolicy{}, remoteDoubleTaskName, first)
+	if err != nil {
+		return nil, err
+	}
+	return second, nil
+}
+
+type remoteAddOneTask struct{}
+
+func (remoteAddOneTask) Name() string { return remoteAddOneTaskName }
+
+func (remoteAddOneTask) Run(_ swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
+	raw, err := input.GetData()
+	if err != nil {
+		return nil, err
+	}
+	payload := map[string]int{}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, err
+	}
+	return swf.NewTaskDataOrPanic(map[string]int{"n": payload["n"] + 1}), nil
+}
+
+type remoteDoubleTask struct{}
+
+func (remoteDoubleTask) Name() string { return remoteDoubleTaskName }
+
+func (remoteDoubleTask) Run(_ swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
+	raw, err := input.GetData()
+	if err != nil {
+		return nil, err
+	}
+	payload := map[string]int{}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, err
+	}
+	return swf.NewTaskDataOrPanic(map[string]int{"n": payload["n"] * 2}), nil
+}
+
+func waitForEngineStatus(t *testing.T, ctx context.Context, engine swf.SWFEngine, jobKey swf.JobKey, want swf.JobStatus) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		job, err := engine.GetJob(ctx, jobKey)
+		if err == nil && job.Status == want {
+			return
+		}
+		if err != nil && !errors.Is(err, swf.ErrJobNotFound) && !errors.Is(err, context.Canceled) {
+			t.Fatalf("check engine status: %v", err)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("wait for engine status: %v", ctx.Err())
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	t.Fatalf("job %s did not reach engine status %s", jobKey, want)
 }

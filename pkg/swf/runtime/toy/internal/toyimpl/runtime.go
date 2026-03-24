@@ -154,30 +154,30 @@ func (r *Runtime) existingEquivalentJob(jobKey swf.JobKey, job swf.SubmitJob, in
 	}
 	start, ok := r.engine.runtimeChapters[jobKey][0]
 	if !ok {
-		return swf.JobHandle{}, false, fmt.Errorf("job %s already exists without start chapter", jobKey)
+		return swf.JobHandle{}, false, swf.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists without start chapter", jobKey))
 	}
 	if start.TaskType != job.JobType {
-		return swf.JobHandle{}, false, fmt.Errorf("job %s already exists with different job type", jobKey)
+		return swf.JobHandle{}, false, swf.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different job type", jobKey))
 	}
 	if start.InputHash != inputHash {
-		return swf.JobHandle{}, false, fmt.Errorf("job %s already exists with different input", jobKey)
+		return swf.JobHandle{}, false, swf.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different input", jobKey))
 	}
 	if !bytes.Equal(record.metadata, job.Metadata) {
-		return swf.JobHandle{}, false, fmt.Errorf("job %s already exists with different metadata", jobKey)
+		return swf.JobHandle{}, false, swf.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different metadata", jobKey))
 	}
 	runPolicy, err := extractRunPolicyFromMetadata(start.Metadata)
 	if err != nil {
 		return swf.JobHandle{}, false, err
 	}
 	if !reflect.DeepEqual(runPolicy, job.RunPolicy) {
-		return swf.JobHandle{}, false, fmt.Errorf("job %s already exists with different run policy", jobKey)
+		return swf.JobHandle{}, false, swf.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different run policy", jobKey))
 	}
 	prereqs, err := extractPrerequisitesFromMetadata(start.Metadata)
 	if err != nil {
 		return swf.JobHandle{}, false, err
 	}
 	if !reflect.DeepEqual(prereqs, job.Prerequisites) {
-		return swf.JobHandle{}, false, fmt.Errorf("job %s already exists with different prerequisites", jobKey)
+		return swf.JobHandle{}, false, swf.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different prerequisites", jobKey))
 	}
 	return swf.JobHandle{JobKey: jobKey}, true, nil
 }
@@ -239,6 +239,11 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req swf.SubmitRestartJob
 	if _, ok := targetChapters[0]; !ok {
 		return swf.JobHandle{}, swf.ErrJobNotFound
 	}
+	if req.Job.JobID != "" {
+		if handle, ok, err := r.existingEquivalentRestartJob(jobKey, req.Job, targetChapters); ok || err != nil {
+			return handle, err
+		}
+	}
 
 	chap0 := targetChapters[0]
 	jobType := chap0.TaskType
@@ -276,6 +281,37 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req swf.SubmitRestartJob
 	r.engine.jobRecords[jobKey] = record
 	r.engine.runtimeChapters[jobKey] = targetChapters
 	return swf.JobHandle{JobKey: jobKey}, nil
+}
+
+func (r *Runtime) existingEquivalentRestartJob(jobKey swf.JobKey, job swf.SubmitRestartJob, expected map[int64]swf.StoredChapter) (swf.JobHandle, bool, error) {
+	record, ok := r.engine.jobRecords[jobKey]
+	if !ok {
+		return swf.JobHandle{}, false, nil
+	}
+	if record == nil {
+		return swf.JobHandle{}, false, swf.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists without state", jobKey))
+	}
+	existing := r.engine.runtimeChapters[jobKey]
+	if existing == nil {
+		return swf.JobHandle{}, false, swf.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists without runtime chapters", jobKey))
+	}
+	for ordinal := int64(0); ordinal <= job.LastStepToKeep; ordinal++ {
+		want, ok := expected[ordinal]
+		if !ok {
+			return swf.JobHandle{}, false, swf.NewExistingJobMismatchError(fmt.Sprintf("job %s is missing expected restart chapter %d", jobKey, ordinal))
+		}
+		got, ok := existing[ordinal]
+		if !ok {
+			return swf.JobHandle{}, false, swf.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different restart history at ordinal %d", jobKey, ordinal))
+		}
+		if !reflect.DeepEqual(cloneStoredChapter(got), cloneStoredChapter(want)) {
+			return swf.JobHandle{}, false, swf.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different restart history at ordinal %d", jobKey, ordinal))
+		}
+	}
+	if next, ok := existing[job.LastStepToKeep+1]; ok && next.ChapterType == "RestartExtra" && job.ExtraTaskOutput == nil {
+		return swf.JobHandle{}, false, swf.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with restart extra output that was not requested", jobKey))
+	}
+	return swf.JobHandle{JobKey: jobKey}, true, nil
 }
 
 func (r *Runtime) CancelJob(ctx context.Context, req swf.CancelJobRequest) error {
