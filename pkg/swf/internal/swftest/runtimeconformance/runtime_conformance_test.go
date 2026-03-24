@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"testing"
 	"time"
@@ -356,6 +357,138 @@ func TestWorkflowRuntimeLeaseOperationsOnSupportingRuntimes(t *testing.T) {
 			}
 
 			swftest.WaitForRuntimeStatus(t, ctx, built.Runtime, handle.JobKey, swf.JobStatusCompleted)
+		})
+	}
+}
+
+func TestWorkflowRuntimeConflictBehaviorAcrossBuiltInRuntimes(t *testing.T) {
+	for _, harness := range swftest.BuiltInRuntimeHarnesses() {
+		harness := harness
+		t.Run(harness.Name, func(t *testing.T) {
+			t.Run("duplicate_and_non_appendable_chapters_conflict", func(t *testing.T) {
+				if !harness.SupportsRuntimeStorage {
+					t.Skip("runtime does not support chapter/artifact storage")
+				}
+
+				built := harness.New(t)
+				defer built.Shutdown(t)
+
+				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel()
+
+				handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
+					Job: swf.SubmitJob{
+						TenantId: "tenant-runtime-conflict-" + harness.Name,
+						JobType:  "manual-storage",
+						Data:     swftest.NumberTaskData(1),
+					},
+					RequestTime: time.Now().UTC(),
+				})
+				if err != nil {
+					t.Fatalf("submit manual storage job: %v", err)
+				}
+
+				lease, err := built.Runtime.GetJobLease(ctx, swf.GetJobLeaseRequest{
+					JobKey:        handle.JobKey,
+					WorkerID:      "runtime-conflict-writer",
+					Capabilities:  []string{"manual-storage"},
+					LeaseDuration: 2 * time.Second,
+				})
+				if err != nil {
+					t.Fatalf("get job lease: %v", err)
+				}
+				if lease == nil {
+					t.Fatal("expected runtime conflict test lease")
+				}
+
+				put := func(ordinal int64) error {
+					return built.Runtime.PutChapter(ctx, swf.PutChapterRequest{
+						LeaseID: lease.LeaseID(),
+						Ref: swf.ChapterRef{
+							JobKey:  handle.JobKey,
+							Ordinal: ordinal,
+						},
+						Chapter: swf.StoredChapter{
+							Ordinal:     ordinal,
+							TaskType:    "manual",
+							ChapterType: "Manual",
+							PayloadKind: "App",
+							InputHash:   "conflict-hash",
+							CreatedAt:   time.Now().UTC(),
+							Data:        json.RawMessage(`{"n":1}`),
+						},
+					})
+				}
+
+				if err := put(1); err != nil {
+					t.Fatalf("put chapter 1: %v", err)
+				}
+				if err := put(1); !errors.Is(err, swf.ErrConflict) {
+					t.Fatalf("expected duplicate chapter conflict, got %v", err)
+				}
+				if err := put(3); !errors.Is(err, swf.ErrConflict) {
+					t.Fatalf("expected non-appendable chapter conflict, got %v", err)
+				}
+
+				if err := lease.Complete(ctx, swf.CompleteExecutionRequest{Status: "succeeded"}); err != nil {
+					t.Fatalf("complete conflict test lease: %v", err)
+				}
+			})
+
+			t.Run("commit_if_waiting_conflicts_after_completion", func(t *testing.T) {
+				ws := swftest.MustWorkSet(t,
+					swftest.SequenceJob{Steps: []string{swftest.MissingTaskName}},
+				)
+				built := harness.New(t, ws)
+				defer built.Shutdown(t)
+
+				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel()
+
+				jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
+					TenantId: "tenant-runtime-wait-conflict-" + harness.Name,
+					JobType:  swftest.SequenceJobName,
+					Data:     swftest.NumberTaskData(1),
+				})
+				if err != nil {
+					t.Fatalf("submit waiting job: %v", err)
+				}
+
+				_ = swftest.WaitForTaskHandle(t, ctx, built.Engine, swftest.SequenceJobName, swftest.MissingTaskName, []string{jobKey.TenantId})
+
+				listed, err := built.Runtime.ListJobs(ctx, swf.ListJobsRequest{
+					TenantIds: []string{jobKey.TenantId},
+					JobKeys:   []swf.JobKey{jobKey},
+					PageSize:  10,
+				})
+				if err != nil {
+					t.Fatalf("list waiting job: %v", err)
+				}
+				if len(listed.Jobs) != 1 {
+					t.Fatalf("expected 1 waiting job summary, got %d", len(listed.Jobs))
+				}
+				summary := listed.Jobs[0]
+				if summary.NextNeed == nil || summary.TaskWaitNext == nil || summary.TaskWaitInput == nil || summary.TaskWaitOutput == nil || summary.TaskWaitInputHash == nil {
+					t.Fatalf("missing waiting-task metadata in summary %+v", summary)
+				}
+
+				req := swf.CompleteTaskIfWaitingRequest{
+					JobKey:        jobKey,
+					Capability:    *summary.NextNeed,
+					ResumeNeed:    *summary.TaskWaitNext,
+					InputOrdinal:  *summary.TaskWaitInput,
+					OutputOrdinal: *summary.TaskWaitOutput,
+					InputHash:     *summary.TaskWaitInputHash,
+					Data:          swftest.NumberTaskData(2),
+				}
+
+				if err := built.Runtime.CompleteTaskIfWaiting(ctx, req); err != nil {
+					t.Fatalf("complete task if waiting: %v", err)
+				}
+				if err := built.Runtime.CompleteTaskIfWaiting(ctx, req); !errors.Is(err, swf.ErrConflict) {
+					t.Fatalf("expected second completion to conflict, got %v", err)
+				}
+			})
 		})
 	}
 }

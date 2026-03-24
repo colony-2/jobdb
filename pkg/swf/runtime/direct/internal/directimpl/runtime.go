@@ -123,7 +123,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req swf.SubmitJobRequest) (swf.
 			}
 		}
 	}
-	if err := r.startJob(ctx, jobKey, req.Job.JobType, req.Job.SingletonKey, req.Job.Metadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID); err != nil {
+	if err := r.startJob(ctx, jobKey, req.Job.JobType, req.Job.Metadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID); err != nil {
 		return swf.JobHandle{}, err
 	}
 	return swf.JobHandle{JobKey: jobKey}, nil
@@ -214,20 +214,20 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req swf.SubmitRestartJob
 	}); err != nil {
 		return swf.JobHandle{}, err
 	}
-	if err := r.startJob(ctx, jobKey, jobType, "", nil, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID); err != nil {
+	if err := r.startJob(ctx, jobKey, jobType, nil, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID); err != nil {
 		return swf.JobHandle{}, err
 	}
 	return swf.JobHandle{JobKey: jobKey}, nil
 }
 
-func (r *Runtime) startJob(ctx context.Context, jobKey swf.JobKey, jobType string, singletonKey string, metadata json.RawMessage, waitFor []pgwf.JobID, payload jobPayload, workerID string) error {
+func (r *Runtime) startJob(ctx context.Context, jobKey swf.JobKey, jobType string, metadata json.RawMessage, waitFor []pgwf.JobID, payload jobPayload, workerID string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	return pgwf.SubmitJob(ctx, r.pgwfDB(ctx), pgwf.TenantID(jobKey.TenantId), pgwf.JobID(jobKey.JobId), pgwf.JobDependencies{
 		NextNeed: pgwf.Capability(jobType),
 		WaitFor:  waitFor,
-	}, payload, metadata, pgwf.WorkerID(r.requestWorkerID(workerID)), singletonKey, time.Time{})
+	}, payload, metadata, pgwf.WorkerID(r.requestWorkerID(workerID)), "", time.Time{})
 }
 
 func (r *Runtime) CancelJob(ctx context.Context, req swf.CancelJobRequest) error {
@@ -410,10 +410,6 @@ func (r *Runtime) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.Li
 		SortBy:          pgwf.SortByCreatedAt,
 		SortOrder:       pgwf.SortDesc,
 	}
-	if len(req.SingletonKeys) > 0 {
-		opts.SingletonKey = req.SingletonKeys[0]
-	}
-
 	result, err := pgwf.ListJobs(ctx, r.pgwfDB(ctx), opts)
 	if err != nil {
 		return swf.ListJobsResponse{}, fmt.Errorf("failed to list jobs: %w", err)
@@ -443,7 +439,6 @@ func (r *Runtime) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.Li
 			Status:          swfStatus,
 			JobType:         swf.JobTypeFromNextNeed(job.NextNeed),
 			NextNeed:        strPtr(job.NextNeed),
-			SingletonKey:    job.SingletonKey,
 			WaitFor:         job.WaitFor,
 			AvailableAt:     job.AvailableAt,
 			ExpiresAt:       job.ExpiresAt,
@@ -609,6 +604,12 @@ func (r *Runtime) PutChapter(ctx context.Context, req swf.PutChapterRequest) err
 	if req.LeaseID == "" {
 		return fmt.Errorf("lease id is required for PutChapter")
 	}
+	if req.Ref.Ordinal < 0 {
+		return fmt.Errorf("chapter ordinal must be >= 0")
+	}
+	if req.Chapter.Ordinal != req.Ref.Ordinal {
+		return fmt.Errorf("chapter ordinal %d does not match target ordinal %d", req.Chapter.Ordinal, req.Ref.Ordinal)
+	}
 	job, err := pgwf.GetJob(ctx, r.pgwfDB(ctx), pgwf.TenantID(req.Ref.JobKey.TenantId), pgwf.JobID(req.Ref.JobKey.JobId), pgwf.GetJobOptions{})
 	if err != nil {
 		if errors.Is(err, pgwf.ErrJobNotFound) {
@@ -618,6 +619,9 @@ func (r *Runtime) PutChapter(ctx context.Context, req swf.PutChapterRequest) err
 	}
 	if job.LeaseID == nil || *job.LeaseID != req.LeaseID {
 		return swf.ErrExecutionLeaseLost
+	}
+	if err := r.ensureNextVisibleChapterOrdinal(ctx, req.Ref.JobKey, req.Ref.Ordinal); err != nil {
+		return err
 	}
 	chapter, attached, err := r.prepareChapterWrite(ctx, req)
 	if err != nil {
@@ -631,7 +635,14 @@ func (r *Runtime) PutChapter(ctx context.Context, req swf.PutChapterRequest) err
 	for _, art := range attached {
 		builder.AddArtifact(art)
 	}
-	return r.strataClient.SaveChapter(ctx, StoryKeyForJob(req.Ref.JobKey), builder)
+	err = r.strataClient.SaveChapter(ctx, StoryKeyForJob(req.Ref.JobKey), builder)
+	if err != nil {
+		if errors.Is(err, core.ErrConflict) {
+			return fmt.Errorf("%w: chapter ordinal %d already exists or is not appendable", swf.ErrConflict, req.Ref.Ordinal)
+		}
+		return err
+	}
+	return nil
 }
 
 func (r *Runtime) OpenArtifact(ctx context.Context, ref swf.ArtifactRef) (swf.ArtifactReader, error) {
@@ -728,6 +739,35 @@ func (r *Runtime) loadStory(ctx context.Context, key story.Key) (story.Story, er
 
 func (r *Runtime) loadChapter(ctx context.Context, key story.Key, ordinal int64) (story.Chapter, error) {
 	return r.strataClient.Chapter(ctx, key, ordinal)
+}
+
+func (r *Runtime) ensureNextVisibleChapterOrdinal(ctx context.Context, jobKey swf.JobKey, ordinal int64) error {
+	st, err := r.loadStory(ctx, storyKeyForJob(jobKey))
+	if err != nil {
+		if errors.Is(err, core.ErrNotFound) {
+			return swf.ErrJobNotFound
+		}
+		return err
+	}
+	last, err := st.GetLastChapter(ctx)
+	if err != nil {
+		if errors.Is(err, core.ErrNotFound) {
+			if ordinal == 0 {
+				return nil
+			}
+			return fmt.Errorf("%w: chapter ordinal %d is not appendable; expected 0", swf.ErrConflict, ordinal)
+		}
+		return err
+	}
+	lastOrdinal := last.Ordinal()
+	switch {
+	case ordinal <= lastOrdinal:
+		return fmt.Errorf("%w: chapter ordinal %d already exists", swf.ErrConflict, ordinal)
+	case ordinal != lastOrdinal+1:
+		return fmt.Errorf("%w: chapter ordinal %d is not appendable; expected %d", swf.ErrConflict, ordinal, lastOrdinal+1)
+	default:
+		return nil
+	}
 }
 
 func (r *Runtime) prepareChapterWrite(ctx context.Context, req swf.PutChapterRequest) (swf.StoredChapter, []strataartifact.Artifact, error) {

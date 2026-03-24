@@ -426,19 +426,6 @@ func (j ParentJob) Run(ctx swf.JobContext, input swf.JobData) (swf.JobData, erro
 }
 ```
 
-### Singleton Jobs
-
-Ensure only one instance of a job runs at a time using singleton keys:
-
-```go
-jobKey, err := engine.StartJob(ctx, swf.StartJob{
-    TenantId:     "my-tenant",
-    JobType:      "daily-report",
-    SingletonKey: "daily-report-2024-01-05",  // Only one job with this key
-    Data:         input,
-})
-```
-
 ### Job Restart
 
 Restart a failed job from a specific step:

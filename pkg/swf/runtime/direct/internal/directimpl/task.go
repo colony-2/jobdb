@@ -118,22 +118,22 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req swf.CompleteTas
 		return err
 	}
 	if tw == nil {
-		return nil
+		return fmt.Errorf("%w: job is not waiting on an external task", swf.ErrConflict)
 	}
 	if req.Capability != "" && job.NextNeed != req.Capability {
-		return nil
+		return fmt.Errorf("%w: waiting capability %q does not match requested capability %q", swf.ErrConflict, job.NextNeed, req.Capability)
 	}
 	if req.ResumeNeed != "" && tw.Next != req.ResumeNeed {
-		return nil
+		return fmt.Errorf("%w: resume need %q does not match requested resume need %q", swf.ErrConflict, tw.Next, req.ResumeNeed)
 	}
 	if req.InputOrdinal != 0 && tw.InputStep != req.InputOrdinal {
-		return nil
+		return fmt.Errorf("%w: waiting input ordinal %d does not match requested input ordinal %d", swf.ErrConflict, tw.InputStep, req.InputOrdinal)
 	}
 	if tw.OutputStep != req.OutputOrdinal {
-		return nil
+		return fmt.Errorf("%w: waiting output ordinal %d does not match requested output ordinal %d", swf.ErrConflict, tw.OutputStep, req.OutputOrdinal)
 	}
 	if req.InputHash != "" && tw.InputHash != req.InputHash {
-		return nil
+		return fmt.Errorf("%w: waiting input hash does not match requested input hash", swf.ErrConflict)
 	}
 
 	var inputChapter story.Chapter
@@ -186,10 +186,13 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req swf.CompleteTas
 	if err != nil {
 		return err
 	}
+	if err := r.ensureNextVisibleChapterOrdinal(ctx, jobKey, tw.OutputStep); err != nil {
+		return err
+	}
 	err = r.strataClient.SaveChapter(ctx, storyKeyForJob(jobKey), chap)
 	if err != nil {
 		if errors.Is(err, core.ErrConflict) {
-			return nil
+			return fmt.Errorf("%w: output chapter %d already exists or is not appendable", swf.ErrConflict, tw.OutputStep)
 		}
 		return err
 	}
@@ -201,13 +204,24 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req swf.CompleteTas
 		resumeNeed = req.ResumeNeed
 	}
 
-	return pgwf.RescheduleUnheldJob(
+	err = pgwf.RescheduleUnheldJob(
 		ctx,
 		r.pgwfDB(ctx),
 		tenantID,
 		pgwf.JobID(jobKey.JobId),
 		pgwf.WorkerID(workerID), pgwf.JobDependencies{NextNeed: pgwf.Capability(resumeNeed)},
 		jobPayload{RunPolicy: payload.RunPolicy})
+	if err != nil {
+		switch {
+		case errors.Is(err, pgwf.ErrJobNotFound):
+			return swf.ErrJobNotFound
+		case errors.Is(err, pgwf.ErrLeaseMismatch), errors.Is(err, pgwf.ErrLeaseExpired):
+			return fmt.Errorf("%w: job is no longer in a commit-if-waiting state", swf.ErrConflict)
+		default:
+			return err
+		}
+	}
+	return nil
 }
 
 var _ swf.TaskHandle = &taskHandleImpl{}

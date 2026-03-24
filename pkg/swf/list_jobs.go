@@ -15,7 +15,6 @@ type JobSummary struct {
 	Status            JobStatus
 	JobType           string
 	NextNeed          *string
-	SingletonKey      *string
 	WaitFor           []string // JobIds only - all WaitFor jobs must be in same tenant
 	AvailableAt       time.Time
 	ExpiresAt         *time.Time
@@ -55,7 +54,6 @@ type ListJobsRequest struct {
 	JobTypes       []string
 	JobTasks       []JobTaskFilter
 	JobKeys        []JobKey
-	SingletonKeys  []string
 	MetadataFilter MetadataFilter
 	CreatedAfter   *time.Time
 	CreatedBefore  *time.Time

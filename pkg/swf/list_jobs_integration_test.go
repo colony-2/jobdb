@@ -78,11 +78,11 @@ VALUES ('test-tenant', $1, $2, '{}'::text[], '{}'::jsonb, $3, $4, 'infinity', fa
 		}
 	})
 
-	t.Run("filters by job type and singleton on active", func(t *testing.T) {
+	t.Run("filters by job type on active", func(t *testing.T) {
 		resp, err := engine.ListJobs(ctx, swf.ListJobsRequest{
-			TenantIds:     []string{"test-tenant"},
-			JobTypes:      []string{"alpha"},
-			SingletonKeys: []string{sk},
+			TenantIds: []string{"test-tenant"},
+			JobTypes:  []string{"alpha"},
+			Stores:    []swf.JobStore{swf.JobStoreActive},
 		})
 		if err != nil {
 			t.Fatalf("ListJobs: %v", err)

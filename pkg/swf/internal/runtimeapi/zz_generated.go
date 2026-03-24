@@ -189,7 +189,6 @@ type JobSummary struct {
 
 	// Payload Runtime payload snapshot used by higher-level read models.
 	Payload           interface{} `json:"payload,omitempty"`
-	SingletonKey      *string     `json:"singletonKey"`
 	Status            JobStatus   `json:"status"`
 	TaskWaitInput     *int64      `json:"taskWaitInput"`
 	TaskWaitInputHash *string     `json:"taskWaitInputHash"`
@@ -223,7 +222,6 @@ type ListJobsRequest struct {
 	MetadataPredicates *[]MetadataPredicate `json:"metadataPredicates,omitempty"`
 	PageSize           *int                 `json:"pageSize,omitempty"`
 	PageToken          *string              `json:"pageToken,omitempty"`
-	SingletonKeys      *[]string            `json:"singletonKeys,omitempty"`
 	Statuses           *[]JobStatus         `json:"statuses,omitempty"`
 	Stores             *[]JobStore          `json:"stores,omitempty"`
 }
@@ -322,7 +320,6 @@ type SubmitJob struct {
 	Metadata      interface{}             `json:"metadata,omitempty"`
 	Prerequisites *[]JobPrerequisite      `json:"prerequisites,omitempty"`
 	RunPolicy     *map[string]interface{} `json:"runPolicy,omitempty"`
-	SingletonKey  *string                 `json:"singletonKey,omitempty"`
 }
 
 // SubmitJobRequest defines model for SubmitJobRequest.
@@ -3803,6 +3800,14 @@ func (response CommitChapterIfWaiting204Response) VisitCommitChapterIfWaitingRes
 	return nil
 }
 
+type CommitChapterIfWaiting409Response struct {
+}
+
+func (response CommitChapterIfWaiting409Response) VisitCommitChapterIfWaitingResponse(w http.ResponseWriter) error {
+	w.WriteHeader(409)
+	return nil
+}
+
 type GetJobLeaseRequestObject struct {
 	TenantId TenantId `json:"tenantId"`
 	JobId    JobId    `json:"jobId"`
@@ -3838,6 +3843,14 @@ type AddChapterWithLease204Response struct {
 
 func (response AddChapterWithLease204Response) VisitAddChapterWithLeaseResponse(w http.ResponseWriter) error {
 	w.WriteHeader(204)
+	return nil
+}
+
+type AddChapterWithLease409Response struct {
+}
+
+func (response AddChapterWithLease409Response) VisitAddChapterWithLeaseResponse(w http.ResponseWriter) error {
+	w.WriteHeader(409)
 	return nil
 }
 

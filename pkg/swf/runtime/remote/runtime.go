@@ -64,7 +64,6 @@ func (r *Runtime) SubmitJob(ctx context.Context, req swf.SubmitJobRequest) (swf.
 			Metadata:      metadata,
 			Prerequisites: toAPIPrerequisites(req.Job.Prerequisites),
 			RunPolicy:     runPolicy,
-			SingletonKey:  stringPtrOrNil(req.Job.SingletonKey),
 		},
 		RequestTime: timePtr(req.RequestTime),
 		WorkerId:    stringPtrOrNil(req.WorkerID),
@@ -212,7 +211,7 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req swf.CompleteTas
 	if resp.StatusCode() == http.StatusNoContent {
 		return nil
 	}
-	return responseError("complete task if waiting", resp.StatusCode(), resp.Body, swf.ErrJobNotFound)
+	return responseErrorWithConflict("complete task if waiting", resp.StatusCode(), resp.Body, swf.ErrJobNotFound, swf.ErrConflict)
 }
 
 func (r *Runtime) GetJob(ctx context.Context, jobKey swf.JobKey) (swf.JobInfo, error) {
@@ -261,10 +260,6 @@ func (r *Runtime) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.Li
 	if len(req.JobTypes) > 0 {
 		jobTypes := append([]string(nil), req.JobTypes...)
 		body.JobTypes = &jobTypes
-	}
-	if len(req.SingletonKeys) > 0 {
-		keys := append([]string(nil), req.SingletonKeys...)
-		body.SingletonKeys = &keys
 	}
 	if len(req.Statuses) > 0 {
 		statuses := make([]runtimeapi.JobStatus, 0, len(req.Statuses))
@@ -355,7 +350,7 @@ func (r *Runtime) PutChapter(ctx context.Context, req swf.PutChapterRequest) err
 	if resp.StatusCode() == http.StatusNoContent {
 		return nil
 	}
-	return responseError("put chapter", resp.StatusCode(), resp.Body, swf.ErrJobNotFound)
+	return responseErrorWithConflict("put chapter", resp.StatusCode(), resp.Body, swf.ErrJobNotFound, swf.ErrConflict)
 }
 
 func (r *Runtime) OpenArtifact(ctx context.Context, ref swf.ArtifactRef) (swf.ArtifactReader, error) {
@@ -511,6 +506,26 @@ func responseError(operation string, status int, body []byte, sentinel error) er
 	}
 	if sentinel != nil && (status == http.StatusNotFound || status == http.StatusConflict) {
 		return fmt.Errorf("%w: %s", sentinel, message)
+	}
+	return fmt.Errorf("%s: http %d: %s", operation, status, message)
+}
+
+func responseErrorWithConflict(operation string, status int, body []byte, notFoundSentinel error, conflictSentinel error) error {
+	message := strings.TrimSpace(string(body))
+	if message == "" {
+		message = http.StatusText(status)
+	}
+	switch status {
+	case http.StatusBadRequest:
+		return fmt.Errorf("%s: %s", operation, message)
+	case http.StatusNotFound:
+		if notFoundSentinel != nil {
+			return fmt.Errorf("%w: %s", notFoundSentinel, message)
+		}
+	case http.StatusConflict:
+		if conflictSentinel != nil {
+			return fmt.Errorf("%w: %s", conflictSentinel, message)
+		}
 	}
 	return fmt.Errorf("%s: http %d: %s", operation, status, message)
 }

@@ -63,7 +63,6 @@ type jobRecord struct {
 	cancelled   bool
 	finished    time.Time
 	jobType     string
-	singleton   *string
 	createdAt   time.Time
 	archived    *time.Time
 	payload     []byte
@@ -764,14 +763,6 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.
 			rec.mu.Unlock()
 			continue
 		}
-		if rec.singleton != nil && len(req.SingletonKeys) > 0 && !containsString(req.SingletonKeys, *rec.singleton) {
-			rec.mu.Unlock()
-			continue
-		}
-		if len(req.SingletonKeys) > 0 && rec.singleton == nil {
-			rec.mu.Unlock()
-			continue
-		}
 		if !jobTypeAllowed(rec.jobType) {
 			rec.mu.Unlock()
 			continue
@@ -816,7 +807,6 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.
 			Status:            status,
 			JobType:           rec.jobType,
 			NextNeed:          cloneString(rec.capability),
-			SingletonKey:      rec.singleton,
 			WaitFor:           append([]string(nil), rec.waitFor...),
 			AvailableAt:       rec.createdAt,
 			ExpiresAt:         nil,

@@ -114,15 +114,10 @@ func (r *Runtime) SubmitJob(ctx context.Context, req swf.SubmitJobRequest) (swf.
 	if err != nil {
 		return swf.JobHandle{}, err
 	}
-	var singleton *string
-	if req.Job.SingletonKey != "" {
-		singleton = &req.Job.SingletonKey
-	}
 
 	record := &jobRecord{
 		status:      swf.JobStatusReady,
 		jobType:     req.Job.JobType,
-		singleton:   singleton,
 		createdAt:   now,
 		metadata:    cloneJSON(req.Job.Metadata),
 		payload:     payloadJSON,
@@ -170,9 +165,6 @@ func (r *Runtime) existingEquivalentJob(jobKey swf.JobKey, job swf.SubmitJob, in
 	if !bytes.Equal(record.metadata, job.Metadata) {
 		return swf.JobHandle{}, false, fmt.Errorf("job %s already exists with different metadata", jobKey)
 	}
-	if !sameSingletonKey(record.singleton, job.SingletonKey) {
-		return swf.JobHandle{}, false, fmt.Errorf("job %s already exists with different singleton key", jobKey)
-	}
 	runPolicy, err := extractRunPolicyFromMetadata(start.Metadata)
 	if err != nil {
 		return swf.JobHandle{}, false, err
@@ -188,13 +180,6 @@ func (r *Runtime) existingEquivalentJob(jobKey swf.JobKey, job swf.SubmitJob, in
 		return swf.JobHandle{}, false, fmt.Errorf("job %s already exists with different prerequisites", jobKey)
 	}
 	return swf.JobHandle{JobKey: jobKey}, true, nil
-}
-
-func sameSingletonKey(existing *string, requested string) bool {
-	if existing == nil {
-		return requested == ""
-	}
-	return *existing == requested
 }
 
 func (r *Runtime) SubmitRestartJob(ctx context.Context, req swf.SubmitRestartJobRequest) (swf.JobHandle, error) {
@@ -543,6 +528,12 @@ func (r *Runtime) PutChapter(ctx context.Context, req swf.PutChapterRequest) err
 	if req.LeaseID == "" {
 		return fmt.Errorf("lease id is required for PutChapter")
 	}
+	if req.Ref.Ordinal < 0 {
+		return fmt.Errorf("chapter ordinal must be >= 0")
+	}
+	if req.Chapter.Ordinal != req.Ref.Ordinal {
+		return fmt.Errorf("chapter ordinal %d does not match target ordinal %d", req.Chapter.Ordinal, req.Ref.Ordinal)
+	}
 	record := r.engine.getJobRecord(req.Ref.JobKey)
 	if record == nil {
 		return swf.ErrJobNotFound
@@ -563,10 +554,30 @@ func (r *Runtime) PutChapter(ctx context.Context, req swf.PutChapterRequest) err
 
 func (r *Runtime) storeRuntimeChapter(jobKey swf.JobKey, ordinal int64, chapter swf.StoredChapter) error {
 	r.engine.mu.Lock()
-	if r.engine.runtimeChapters[jobKey] == nil {
-		r.engine.runtimeChapters[jobKey] = make(map[int64]swf.StoredChapter)
+	chapters := r.engine.runtimeChapters[jobKey]
+	if chapters == nil {
+		r.engine.mu.Unlock()
+		return swf.ErrJobNotFound
 	}
-	r.engine.runtimeChapters[jobKey][ordinal] = cloneStoredChapter(chapter)
+	if ordinal < 0 {
+		r.engine.mu.Unlock()
+		return fmt.Errorf("chapter ordinal must be >= 0")
+	}
+	if chapter.Ordinal != ordinal {
+		r.engine.mu.Unlock()
+		return fmt.Errorf("chapter ordinal %d does not match target ordinal %d", chapter.Ordinal, ordinal)
+	}
+	if _, exists := chapters[ordinal]; exists {
+		r.engine.mu.Unlock()
+		return fmt.Errorf("%w: chapter ordinal %d already exists", swf.ErrConflict, ordinal)
+	}
+	if ordinal > 0 {
+		if _, exists := chapters[ordinal-1]; !exists {
+			r.engine.mu.Unlock()
+			return fmt.Errorf("%w: chapter ordinal %d is not appendable", swf.ErrConflict, ordinal)
+		}
+	}
+	chapters[ordinal] = cloneStoredChapter(chapter)
 	record := r.engine.jobRecords[jobKey]
 	r.engine.mu.Unlock()
 
@@ -1027,22 +1038,22 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req swf.CompleteTas
 		return err
 	}
 	if wait == nil {
-		return nil
+		return fmt.Errorf("%w: job is not waiting on an external task", swf.ErrConflict)
 	}
 	if req.Capability != "" && currentCapability != req.Capability {
-		return nil
+		return fmt.Errorf("%w: waiting capability %q does not match requested capability %q", swf.ErrConflict, currentCapability, req.Capability)
 	}
 	if req.ResumeNeed != "" && wait.Next != req.ResumeNeed {
-		return nil
+		return fmt.Errorf("%w: resume need %q does not match requested resume need %q", swf.ErrConflict, wait.Next, req.ResumeNeed)
 	}
 	if req.InputOrdinal != 0 && wait.InputStep != req.InputOrdinal {
-		return nil
+		return fmt.Errorf("%w: waiting input ordinal %d does not match requested input ordinal %d", swf.ErrConflict, wait.InputStep, req.InputOrdinal)
 	}
 	if wait.OutputStep != req.OutputOrdinal {
-		return nil
+		return fmt.Errorf("%w: waiting output ordinal %d does not match requested output ordinal %d", swf.ErrConflict, wait.OutputStep, req.OutputOrdinal)
 	}
 	if req.InputHash != "" && wait.InputHash != req.InputHash {
-		return nil
+		return fmt.Errorf("%w: waiting input hash does not match requested input hash", swf.ErrConflict)
 	}
 
 	td, storedArtifacts, err := r.materializeTaskData(ctx, req.JobKey, wait.OutputStep, req.Data)

@@ -15,14 +15,13 @@ type listJobsObservation struct {
 }
 
 type filteredListObservation struct {
-	JobTypeFilter   []normalizedJobSummary `json:"jobTypeFilter,omitempty"`
-	JobTaskFilter   []normalizedJobSummary `json:"jobTaskFilter,omitempty"`
-	SingletonFilter []normalizedJobSummary `json:"singletonFilter,omitempty"`
-	MetadataFilter  []normalizedJobSummary `json:"metadataFilter,omitempty"`
-	PageOne         []normalizedJobSummary `json:"pageOne,omitempty"`
-	PageTwo         []normalizedJobSummary `json:"pageTwo,omitempty"`
-	PageOneHasNext  bool                   `json:"pageOneHasNext"`
-	PageTwoHasNext  bool                   `json:"pageTwoHasNext"`
+	JobTypeFilter  []normalizedJobSummary `json:"jobTypeFilter,omitempty"`
+	JobTaskFilter  []normalizedJobSummary `json:"jobTaskFilter,omitempty"`
+	MetadataFilter []normalizedJobSummary `json:"metadataFilter,omitempty"`
+	PageOne        []normalizedJobSummary `json:"pageOne,omitempty"`
+	PageTwo        []normalizedJobSummary `json:"pageTwo,omitempty"`
+	PageOneHasNext bool                   `json:"pageOneHasNext"`
+	PageTwoHasNext bool                   `json:"pageTwoHasNext"`
 }
 
 func TestListJobsStatusParityAcrossBuiltInRuntimes(t *testing.T) {
@@ -94,7 +93,6 @@ func TestListJobsFilterParityAcrossBuiltInRuntimes(t *testing.T) {
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{alphaWS, betaWS}, func(t *testing.T, ctx context.Context, subject scenarioSubject) filteredListObservation {
 				tenantID := "tenant-list-filters-" + harness.Name
-				singletonKey := "singleton-alpha"
 
 				alphaMeta, err := json.Marshal(map[string]any{"rank": 1, "team": "alpha"})
 				if err != nil {
@@ -106,12 +104,11 @@ func TestListJobsFilterParityAcrossBuiltInRuntimes(t *testing.T) {
 				}
 
 				alphaKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
-					TenantId:     tenantID,
-					JobType:      alphaWS.JobWorker.Name(),
-					JobID:        "alpha-job",
-					SingletonKey: singletonKey,
-					Metadata:     alphaMeta,
-					Data:         swftest.NumberTaskData(1),
+					TenantId: tenantID,
+					JobType:  alphaWS.JobWorker.Name(),
+					JobID:    "alpha-job",
+					Metadata: alphaMeta,
+					Data:     swftest.NumberTaskData(1),
 				})
 				if err != nil {
 					t.Fatalf("start alpha via %s: %v", subject.mode, err)
@@ -151,14 +148,6 @@ func TestListJobsFilterParityAcrossBuiltInRuntimes(t *testing.T) {
 				if err != nil {
 					t.Fatalf("list job task filter via %s: %v", subject.mode, err)
 				}
-				singletonResp, err := subject.ListJobs(ctx, swf.ListJobsRequest{
-					TenantIds:     []string{tenantID},
-					SingletonKeys: []string{singletonKey},
-					PageSize:      10,
-				})
-				if err != nil {
-					t.Fatalf("list singleton filter via %s: %v", subject.mode, err)
-				}
 				metadataResp, err := subject.ListJobs(ctx, swf.ListJobsRequest{
 					TenantIds:      []string{tenantID},
 					MetadataFilter: metaFilter,
@@ -185,14 +174,13 @@ func TestListJobsFilterParityAcrossBuiltInRuntimes(t *testing.T) {
 				}
 
 				return filteredListObservation{
-					JobTypeFilter:   normalizeJobSummaries(jobTypeResp.Jobs),
-					JobTaskFilter:   normalizeJobSummaries(jobTaskResp.Jobs),
-					SingletonFilter: normalizeJobSummaries(singletonResp.Jobs),
-					MetadataFilter:  normalizeJobSummaries(metadataResp.Jobs),
-					PageOne:         normalizeJobSummaries(pageOne.Jobs),
-					PageTwo:         normalizeJobSummaries(pageTwo.Jobs),
-					PageOneHasNext:  pageOne.NextPageToken != "",
-					PageTwoHasNext:  pageTwo.NextPageToken != "",
+					JobTypeFilter:  normalizeJobSummaries(jobTypeResp.Jobs),
+					JobTaskFilter:  normalizeJobSummaries(jobTaskResp.Jobs),
+					MetadataFilter: normalizeJobSummaries(metadataResp.Jobs),
+					PageOne:        normalizeJobSummaries(pageOne.Jobs),
+					PageTwo:        normalizeJobSummaries(pageTwo.Jobs),
+					PageOneHasNext: pageOne.NextPageToken != "",
+					PageTwoHasNext: pageTwo.NextPageToken != "",
 				}
 			})
 		})

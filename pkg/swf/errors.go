@@ -11,6 +11,7 @@ var (
 	ErrJobCancelled             = errors.New("job cancelled")
 	ErrJobNotFound              = errors.New("job not found")
 	ErrExecutionLeaseLost       = errors.New("execution lease lost")
+	ErrConflict                 = errors.New("workflow state conflict")
 )
 
 // NonRetryableError marks an error as not eligible for retries.
@@ -115,4 +116,10 @@ func IsSystemError(err error) bool {
 // leased execution and should stop without treating it as a workflow failure.
 func IsExecutionLeaseLost(err error) bool {
 	return errors.Is(err, ErrExecutionLeaseLost)
+}
+
+// IsConflict reports whether err represents a conflicting conditional write or
+// conflicting runtime state transition.
+func IsConflict(err error) bool {
+	return errors.Is(err, ErrConflict)
 }

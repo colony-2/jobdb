@@ -116,10 +116,10 @@ func TestRuntimeArtifactRoundTripParityAcrossBuiltInRuntimes(t *testing.T) {
 				LeaseID: lease.LeaseID(),
 				Ref: swf.ChapterRef{
 					JobKey:  jobKey,
-					Ordinal: 50,
+					Ordinal: 1,
 				},
 				Chapter: swf.StoredChapter{
-					Ordinal:     50,
+					Ordinal:     1,
 					TaskType:    "manual",
 					ChapterType: "Manual",
 					PayloadKind: "App",
@@ -152,13 +152,13 @@ func TestRuntimeArtifactRoundTripParityAcrossBuiltInRuntimes(t *testing.T) {
 
 			runtimeArtifact := mustReadRuntimeArtifactBytes(t, ctx, built.Runtime, swf.ArtifactRef{
 				JobKey:  jobKey,
-				Ordinal: 50,
+				Ordinal: 1,
 				Name:    stored[0].Name,
 				Digest:  stored[0].Digest,
 			})
 			engineArtifact := mustReadEngineArtifactBytes(t, ctx, built.Engine, jobKey.TenantId, swf.ArtifactKey{
 				JobId:       jobKey.JobId,
-				TaskOrdinal: 50,
+				TaskOrdinal: 1,
 				Name:        stored[0].Name,
 				SizeBytes:   stored[0].Size,
 			})
@@ -192,9 +192,9 @@ func TestStoredChapterRoundTripParityAcrossBuiltInRuntimes(t *testing.T) {
 				artifactBytes := []byte("chapter roundtrip artifact")
 				req := swf.PutChapterRequest{
 					LeaseID: lease.LeaseID(),
-					Ref:     swf.ChapterRef{JobKey: jobKey, Ordinal: 50},
+					Ref:     swf.ChapterRef{JobKey: jobKey, Ordinal: 1},
 					Chapter: swf.StoredChapter{
-						Ordinal:     50,
+						Ordinal:     1,
 						TaskType:    "manual",
 						ChapterType: "Manual",
 						PayloadKind: "App",
@@ -226,13 +226,13 @@ func TestStoredChapterRoundTripParityAcrossBuiltInRuntimes(t *testing.T) {
 
 				runtimeArtifact := mustReadRuntimeArtifactBytes(t, ctx, subject.Runtime(), swf.ArtifactRef{
 					JobKey:  jobKey,
-					Ordinal: 50,
+					Ordinal: 1,
 					Name:    stored[0].Name,
 					Digest:  stored[0].Digest,
 				})
 				engineArtifact := mustReadEngineArtifactBytes(t, ctx, subject.Engine(), jobKey.TenantId, swf.ArtifactKey{
 					JobId:       jobKey.JobId,
-					TaskOrdinal: 50,
+					TaskOrdinal: 1,
 					Name:        stored[0].Name,
 					SizeBytes:   stored[0].Size,
 				})
@@ -257,9 +257,9 @@ func TestChapterMetadataRoundTripParityAcrossBuiltInRuntimes(t *testing.T) {
 				jobKey, lease := startManualStorageJob(t, ctx, subject.SubmitJob, subject.Runtime(), "tenant-chapter-metadata-"+harness.Name, "chapter-metadata")
 				req := swf.PutChapterRequest{
 					LeaseID: lease.LeaseID(),
-					Ref:     swf.ChapterRef{JobKey: jobKey, Ordinal: 77},
+					Ref:     swf.ChapterRef{JobKey: jobKey, Ordinal: 1},
 					Chapter: swf.StoredChapter{
-						Ordinal:     77,
+						Ordinal:     1,
 						TaskType:    "manual",
 						ChapterType: "Manual",
 						PayloadKind: "App",

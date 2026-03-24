@@ -77,7 +77,7 @@ func NewServer(runtime swf.WorkflowRuntime) http.Handler {
 				switch {
 				case errors.Is(err, swf.ErrJobNotFound), errors.Is(err, swf.ErrChapterNotFound):
 					status = http.StatusNotFound
-				case errors.Is(err, swf.ErrExecutionLeaseLost):
+				case errors.Is(err, swf.ErrExecutionLeaseLost), errors.Is(err, swf.ErrConflict):
 					status = http.StatusConflict
 				}
 			}
@@ -147,7 +147,6 @@ func (s *proxyServer) SubmitJob(ctx context.Context, request runtimeapi.SubmitJo
 			TenantId:      request.TenantId,
 			JobType:       request.Body.Job.JobType,
 			Data:          swf.JobData(data),
-			SingletonKey:  stringValue(request.Body.Job.SingletonKey),
 			RunPolicy:     runPolicy,
 			Metadata:      metadata,
 			Prerequisites: fromAPIPrerequisites(request.Body.Job.Prerequisites),
@@ -192,9 +191,6 @@ func (s *proxyServer) ListJobs(ctx context.Context, request runtimeapi.ListJobsR
 	}
 	if request.Body.JobTypes != nil {
 		req.JobTypes = append(req.JobTypes, (*request.Body.JobTypes)...)
-	}
-	if request.Body.SingletonKeys != nil {
-		req.SingletonKeys = append(req.SingletonKeys, (*request.Body.SingletonKeys)...)
 	}
 	if request.Body.Statuses != nil {
 		for _, status := range *request.Body.Statuses {
@@ -365,6 +361,9 @@ func (s *proxyServer) CommitChapterIfWaiting(ctx context.Context, request runtim
 	if request.Body == nil {
 		return nil, badRequest("commit chapter body is required")
 	}
+	if request.Body.OutputOrdinal != nil && *request.Body.OutputOrdinal != request.Ordinal {
+		return nil, badRequest("outputOrdinal must match the path ordinal")
+	}
 	data, err := taskDataFromAPIWrite(request.Body.Data)
 	if err != nil {
 		return nil, badRequest(err.Error())
@@ -426,6 +425,9 @@ func (s *proxyServer) AddChapterWithLease(ctx context.Context, request runtimeap
 	chapter, uploads, err := writableChapterToRuntimeChapter(request.Body.Chapter)
 	if err != nil {
 		return nil, badRequest(err.Error())
+	}
+	if chapter.Ordinal < 0 {
+		return nil, badRequest("chapter ordinal must be >= 0")
 	}
 	err = s.runtime.PutChapter(ctx, swf.PutChapterRequest{
 		LeaseID: request.LeaseId,

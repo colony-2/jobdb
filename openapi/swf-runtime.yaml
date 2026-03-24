@@ -10,6 +10,11 @@ info:
     Artifact bytes are committed as part of a chapter-scoped write.
     Implementations may stage uploads internally, but artifacts are not an
     independently durable write resource.
+
+    The normative runtime guarantees for chapter ordering, chapter
+    single-assignment, lease and short-lock coordination, restart boundaries,
+    and artifact visibility are documented in
+    `docs/SPEC-WorkflowRuntime-Guarantees.md`.
 servers:
   - url: https://swf-runtime.example.com
 tags:
@@ -205,7 +210,9 @@ paths:
         Commits a chapter in the context of the identified lease, including any
         attached artifact bytes. The target chapter ordinal is supplied in the
         request body as `chapter.ordinal`. Artifacts are chapter-scoped
-        attachments, not standalone durable resources.
+        attachments, not standalone durable resources. Conflicting writes, such
+        as duplicate ordinals or non-appendable ordinals, must fail rather than
+        being treated as successful no-ops.
       parameters:
         - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/JobId'
@@ -219,6 +226,8 @@ paths:
       responses:
         '204':
           description: Chapter stored
+        '409':
+          description: Conflicting chapter write
   /v1/tenants/{tenantId}/jobs/{jobId}:
     get:
       tags: [jobs]
@@ -301,13 +310,13 @@ paths:
       operationId: commitChapterIfWaiting
       summary: Commit chapter if waiting
       description: |
-        Best-effort conditional chapter commit used to implement
+        Conditional chapter commit used to implement
         `TaskHandle.Finish(...)` above the runtime. The runtime acquires the
         necessary job-level coordination, verifies the supplied waiting-task
         guards, writes the chapter at `{ordinal}`, and advances the job
         atomically. If the job is no longer waiting on the described task, or
-        the supplied guard fields do not match, the runtime may no-op and still
-        return `204`.
+        the supplied guard fields do not match, the runtime must fail with a
+        conflict response rather than silently succeeding.
       parameters:
         - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/JobId'
@@ -320,7 +329,9 @@ paths:
               $ref: '#/components/schemas/CommitChapterIfWaitingRequest'
       responses:
         '204':
-          description: Chapter commit applied or safely ignored
+          description: Chapter commit applied
+        '409':
+          description: Waiting-task conflict
   /v1/tenants/{tenantId}/jobs/{jobId}/chapters/{ordinal}/artifacts/{name}:
     get:
       tags: [artifacts]
@@ -443,8 +454,6 @@ components:
       additionalProperties: false
       properties:
         jobType:
-          type: string
-        singletonKey:
           type: string
         data:
           $ref: '#/components/schemas/TaskDataWrite'
@@ -819,10 +828,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/JobKey'
-        singletonKeys:
-          type: array
-          items:
-            type: string
         metadataPredicates:
           type: array
           description: |
@@ -854,9 +859,6 @@ components:
         jobType:
           type: string
         nextNeed:
-          type: string
-          nullable: true
-        singletonKey:
           type: string
           nullable: true
         waitFor:
