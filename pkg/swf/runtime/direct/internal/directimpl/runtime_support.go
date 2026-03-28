@@ -35,6 +35,7 @@ type chapterMetadata struct {
 	Retryable     *bool
 	InputRef      *swf.InputReference
 	RunPolicy     *swf.RunPolicy
+	Metadata      json.RawMessage
 	InputPayload  json.RawMessage
 	StartedAt     *time.Time
 	FinishedAt    *time.Time
@@ -196,6 +197,9 @@ func payloadToChapter(payload json.RawMessage, artifacts []swf.Artifact, ordinal
 	}
 	if metaOpts.RunPolicy != nil {
 		meta.RunPolicy = metaOpts.RunPolicy
+	}
+	if len(metaOpts.Metadata) > 0 {
+		meta.Metadata = append(json.RawMessage(nil), metaOpts.Metadata...)
 	}
 	if metaOpts.InputPayload != nil {
 		meta.Input = metaOpts.InputPayload

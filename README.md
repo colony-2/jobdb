@@ -22,6 +22,25 @@ swf-go is a workflow orchestration library that helps you build reliable, distri
 go get github.com/colony-2/swf-go
 ```
 
+## Local Runtime CLI
+
+The repo includes a Cobra-based local runtime server at `cmd/swfd`.
+
+Run the in-memory toy runtime. `swfd` with no subcommand defaults to `toy`:
+
+```bash
+go run ./cmd/swfd --listen 127.0.0.1:9047
+```
+
+Run the direct runtime with embedded Strata and postgres-backed pgwf state:
+
+```bash
+SWF_POSTGRES_DSN='postgres://user:pass@localhost/db?sslmode=disable' \
+go run ./cmd/swfd direct --listen 127.0.0.1:9047
+```
+
+You can also pass the postgres connection string with `--postgres-dsn`.
+
 ## Quick Start
 
 Here's a simple workflow that processes data through multiple tasks:

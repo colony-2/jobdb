@@ -46,7 +46,7 @@ func (r *Runtime) reconcileExistingSubmitJob(ctx context.Context, req swf.Submit
 		return swf.JobHandle{}, false, nil
 	}
 
-	if err := compareSubmitStartChapter(jobKey, start, req.Job.JobType, inputHash, prereqs, jobPolicy); err != nil {
+	if err := compareSubmitStartChapter(jobKey, start, req.Job.JobType, inputHash, req.Job.Metadata, prereqs, jobPolicy); err != nil {
 		return swf.JobHandle{}, true, err
 	}
 
@@ -201,7 +201,7 @@ func (r *Runtime) pgwfJobExists(ctx context.Context, jobKey swf.JobKey) (bool, e
 	return false, err
 }
 
-func compareSubmitStartChapter(jobKey swf.JobKey, chapter story.Chapter, jobType string, inputHash string, prereqs []swf.JobPrerequisite, jobPolicy swf.RunPolicy) error {
+func compareSubmitStartChapter(jobKey swf.JobKey, chapter story.Chapter, jobType string, inputHash string, metadata json.RawMessage, prereqs []swf.JobPrerequisite, jobPolicy swf.RunPolicy) error {
 	env, err := decodeChapterEnvelope(chapter.Body())
 	if err != nil {
 		return swf.NewExistingJobMismatchError(fmt.Sprintf("job %s start chapter could not be decoded: %v", jobKey, err))
@@ -214,6 +214,11 @@ func compareSubmitStartChapter(jobKey swf.JobKey, chapter story.Chapter, jobType
 	}
 	if env.Meta.InputHash != inputHash {
 		return swf.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different input", jobKey))
+	}
+	// Legacy start chapters may not carry metadata. When present, compare it so
+	// partial-submit recovery can validate the full submit shape before pgwf exists.
+	if len(bytes.TrimSpace(env.Meta.Metadata)) > 0 && !jsonObjectsEqual(env.Meta.Metadata, metadata) {
+		return swf.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different metadata", jobKey))
 	}
 	existingPolicy := swf.RunPolicy{}
 	if env.Meta.RunPolicy != nil {
@@ -423,6 +428,13 @@ func normalizePrereqSlice(prereqs []swf.JobPrerequisite) []swf.JobPrerequisite {
 		return nil
 	}
 	return append([]swf.JobPrerequisite(nil), prereqs...)
+}
+
+func metadataForStartChapter(raw json.RawMessage) json.RawMessage {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return json.RawMessage(`{}`)
+	}
+	return append(json.RawMessage(nil), raw...)
 }
 
 func jsonObjectsEqual(left json.RawMessage, right json.RawMessage) bool {

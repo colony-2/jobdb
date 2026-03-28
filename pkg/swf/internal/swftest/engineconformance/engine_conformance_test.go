@@ -2,6 +2,7 @@ package engineconformance_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -10,6 +11,16 @@ import (
 	"github.com/colony-2/swf-go/pkg/swf"
 	swftest "github.com/colony-2/swf-go/pkg/swf/internal/swftest"
 )
+
+type explicitIDEngineEchoJob struct {
+	name string
+}
+
+func (j explicitIDEngineEchoJob) Name() string { return j.name }
+
+func (j explicitIDEngineEchoJob) Run(_ swf.JobContext, data swf.JobData) (swf.JobData, error) {
+	return data, nil
+}
 
 func TestRestartJobWithoutExtraOutputAcrossBuiltInRuntimes(t *testing.T) {
 	ws := swftest.MustWorkSet(t,
@@ -53,6 +64,78 @@ func TestRestartJobWithoutExtraOutputAcrossBuiltInRuntimes(t *testing.T) {
 			if got := swftest.MustDecodeNumberTaskData(t, result); got != 4 {
 				t.Fatalf("unexpected restart result: got %d want 4", got)
 			}
+		})
+	}
+}
+
+func TestEngineExplicitJobIDDuplicateSubmitAcrossBuiltInRuntimes(t *testing.T) {
+	ws := swftest.MustWorkSet(t, explicitIDEngineEchoJob{name: "engine-explicit-id-job"})
+
+	for _, harness := range swftest.BuiltInRuntimeHarnesses() {
+		harness := harness
+		t.Run(harness.Name, func(t *testing.T) {
+			built := harness.New(t, ws)
+			defer built.Shutdown(t)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+
+			base := swf.SubmitJob{
+				TenantId: "tenant-engine-explicit-a-" + harness.Name,
+				JobID:    "engine-explicit-id",
+				JobType:  ws.JobWorker.Name(),
+				Data:     swftest.NumberTaskData(7),
+				Metadata: json.RawMessage(`{"queue":"blue"}`),
+			}
+			jobKey, err := built.Engine.SubmitJob(ctx, base)
+			if err != nil {
+				t.Fatalf("submit engine explicit job id: %v", err)
+			}
+			swftest.WaitForEngineStatus(t, ctx, built.Engine, jobKey, swf.JobStatusCompleted)
+
+			matching, err := built.Engine.SubmitJob(ctx, base)
+			if err != nil {
+				t.Fatalf("repeat engine explicit job id: %v", err)
+			}
+			if matching != jobKey {
+				t.Fatalf("unexpected matching engine job key %+v", matching)
+			}
+
+			result, err := jobResultForTest(built.Engine, ctx, jobKey)
+			if err != nil {
+				t.Fatalf("get engine explicit job result: %v", err)
+			}
+			if got := swftest.MustDecodeNumberTaskData(t, result); got != 7 {
+				t.Fatalf("unexpected engine explicit result: got %d want 7", got)
+			}
+			listed, err := built.Engine.ListJobs(ctx, swf.ListJobsRequest{
+				TenantIds: []string{jobKey.TenantId},
+				JobKeys:   []swf.JobKey{jobKey},
+				PageSize:  10,
+			})
+			if err != nil {
+				t.Fatalf("list engine explicit job id: %v", err)
+			}
+			if len(listed.Jobs) != 1 {
+				t.Fatalf("expected 1 engine logical job, got %d", len(listed.Jobs))
+			}
+
+			conflicting := base
+			conflicting.Metadata = json.RawMessage(`{"queue":"green"}`)
+			if _, err := built.Engine.SubmitJob(ctx, conflicting); !errors.Is(err, swf.ErrConflict) {
+				t.Fatalf("expected engine explicit metadata conflict, got %v", err)
+			}
+
+			otherTenant := base
+			otherTenant.TenantId = "tenant-engine-explicit-b-" + harness.Name
+			otherKey, err := built.Engine.SubmitJob(ctx, otherTenant)
+			if err != nil {
+				t.Fatalf("submit engine explicit job id in other tenant: %v", err)
+			}
+			if otherKey == jobKey {
+				t.Fatalf("expected tenant-scoped engine job keys, got %+v and %+v", jobKey, otherKey)
+			}
+			swftest.WaitForEngineStatus(t, ctx, built.Engine, otherKey, swf.JobStatusCompleted)
 		})
 	}
 }

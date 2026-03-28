@@ -6,12 +6,42 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/colony-2/swf-go/pkg/swf"
 	swftest "github.com/colony-2/swf-go/pkg/swf/internal/swftest"
 )
+
+type explicitIDEchoJob struct {
+	name string
+}
+
+func (j explicitIDEchoJob) Name() string { return j.name }
+
+func (j explicitIDEchoJob) Run(_ swf.JobContext, data swf.JobData) (swf.JobData, error) {
+	return data, nil
+}
+
+type explicitIDBlockingJob struct {
+	name    string
+	started chan<- struct{}
+	release <-chan struct{}
+}
+
+func (j explicitIDBlockingJob) Name() string { return j.name }
+
+func (j explicitIDBlockingJob) Run(_ swf.JobContext, data swf.JobData) (swf.JobData, error) {
+	if j.started != nil {
+		select {
+		case j.started <- struct{}{}:
+		default:
+		}
+	}
+	<-j.release
+	return data, nil
+}
 
 func TestBuiltInRuntimesConstructAndExecuteThroughBuilder(t *testing.T) {
 	ws := swftest.MustWorkSet(t,
@@ -582,6 +612,363 @@ func TestWorkflowRuntimeExplicitJobIDIdempotencyAcrossBuiltInRuntimes(t *testing
 			})
 			if !errors.Is(err, swf.ErrExistingJobMismatch) {
 				t.Fatalf("expected explicit restart mismatch, got %v", err)
+			}
+		})
+	}
+}
+
+func TestWorkflowRuntimeExplicitJobIDDuplicateSubmitStatePreservingAcrossBuiltInRuntimes(t *testing.T) {
+	for _, harness := range swftest.BuiltInRuntimeHarnesses() {
+		harness := harness
+		t.Run(harness.Name, func(t *testing.T) {
+			t.Run("ready", func(t *testing.T) {
+				built := harness.New(t)
+				defer built.Shutdown(t)
+
+				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel()
+
+				req := swf.SubmitJobRequest{
+					Job: swf.SubmitJob{
+						TenantId: "tenant-explicit-ready-" + harness.Name,
+						JobID:    "explicit-state-ready",
+						JobType:  "ready-job",
+						Data:     swftest.NumberTaskData(1),
+					},
+					RequestTime: time.Now().UTC(),
+				}
+				handle, err := built.Runtime.SubmitJob(ctx, req)
+				if err != nil {
+					t.Fatalf("submit ready explicit job id: %v", err)
+				}
+				matching, err := built.Runtime.SubmitJob(ctx, req)
+				if err != nil {
+					t.Fatalf("repeat ready explicit job id: %v", err)
+				}
+				if matching.JobKey != handle.JobKey {
+					t.Fatalf("unexpected ready matching handle %+v", matching.JobKey)
+				}
+				status, err := jobStatusForTest(built.Runtime, ctx, handle.JobKey)
+				if err != nil {
+					t.Fatalf("get ready job status: %v", err)
+				}
+				if status != swf.JobStatusReady {
+					t.Fatalf("expected ready status, got %s", status)
+				}
+				listed, err := built.Runtime.ListJobs(ctx, swf.ListJobsRequest{
+					TenantIds: []string{handle.JobKey.TenantId},
+					JobKeys:   []swf.JobKey{handle.JobKey},
+					PageSize:  10,
+				})
+				if err != nil {
+					t.Fatalf("list ready explicit job id: %v", err)
+				}
+				if len(listed.Jobs) != 1 {
+					t.Fatalf("expected 1 ready logical job, got %d", len(listed.Jobs))
+				}
+			})
+
+			t.Run("active", func(t *testing.T) {
+				started := make(chan struct{}, 2)
+				release := make(chan struct{})
+				ws := swftest.MustWorkSet(t, explicitIDBlockingJob{
+					name:    "explicit-active-job",
+					started: started,
+					release: release,
+				})
+				built := harness.New(t, ws)
+				defer built.Shutdown(t)
+
+				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel()
+
+				req := swf.SubmitJobRequest{
+					Job: swf.SubmitJob{
+						TenantId: "tenant-explicit-active-" + harness.Name,
+						JobID:    "explicit-state-active",
+						JobType:  ws.JobWorker.Name(),
+						Data:     swftest.NumberTaskData(1),
+					},
+					RequestTime: time.Now().UTC(),
+				}
+				handle, err := built.Runtime.SubmitJob(ctx, req)
+				if err != nil {
+					t.Fatalf("submit active explicit job id: %v", err)
+				}
+				select {
+				case <-started:
+				case <-ctx.Done():
+					t.Fatalf("wait for active job start: %v", ctx.Err())
+				}
+				swftest.WaitForRuntimeStatus(t, ctx, built.Runtime, handle.JobKey, swf.JobStatusActive)
+
+				matching, err := built.Runtime.SubmitJob(ctx, req)
+				if err != nil {
+					t.Fatalf("repeat active explicit job id: %v", err)
+				}
+				if matching.JobKey != handle.JobKey {
+					t.Fatalf("unexpected active matching handle %+v", matching.JobKey)
+				}
+				select {
+				case <-started:
+					t.Fatal("duplicate submit started a second active job")
+				case <-time.After(150 * time.Millisecond):
+				}
+				listed, err := built.Runtime.ListJobs(ctx, swf.ListJobsRequest{
+					TenantIds: []string{handle.JobKey.TenantId},
+					JobKeys:   []swf.JobKey{handle.JobKey},
+					PageSize:  10,
+				})
+				if err != nil {
+					t.Fatalf("list active explicit job id: %v", err)
+				}
+				if len(listed.Jobs) != 1 {
+					t.Fatalf("expected 1 active logical job, got %d", len(listed.Jobs))
+				}
+
+				close(release)
+				swftest.WaitForRuntimeStatus(t, ctx, built.Runtime, handle.JobKey, swf.JobStatusCompleted)
+			})
+
+			t.Run("terminal", func(t *testing.T) {
+				ws := swftest.MustWorkSet(t, explicitIDEchoJob{name: "explicit-terminal-job"})
+				built := harness.New(t, ws)
+				defer built.Shutdown(t)
+
+				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel()
+
+				req := swf.SubmitJobRequest{
+					Job: swf.SubmitJob{
+						TenantId: "tenant-explicit-terminal-" + harness.Name,
+						JobID:    "explicit-state-terminal",
+						JobType:  ws.JobWorker.Name(),
+						Data:     swftest.NumberTaskData(9),
+					},
+					RequestTime: time.Now().UTC(),
+				}
+				handle, err := built.Runtime.SubmitJob(ctx, req)
+				if err != nil {
+					t.Fatalf("submit terminal explicit job id: %v", err)
+				}
+				swftest.WaitForRuntimeStatus(t, ctx, built.Runtime, handle.JobKey, swf.JobStatusCompleted)
+
+				matching, err := built.Runtime.SubmitJob(ctx, req)
+				if err != nil {
+					t.Fatalf("repeat terminal explicit job id: %v", err)
+				}
+				if matching.JobKey != handle.JobKey {
+					t.Fatalf("unexpected terminal matching handle %+v", matching.JobKey)
+				}
+				result, err := jobResultForTest(built.Runtime, ctx, handle.JobKey)
+				if err != nil {
+					t.Fatalf("get terminal explicit job result: %v", err)
+				}
+				if got := swftest.MustDecodeNumberTaskData(t, result); got != 9 {
+					t.Fatalf("unexpected terminal result: got %d want 9", got)
+				}
+				listed, err := built.Runtime.ListJobs(ctx, swf.ListJobsRequest{
+					TenantIds: []string{handle.JobKey.TenantId},
+					JobKeys:   []swf.JobKey{handle.JobKey},
+					PageSize:  10,
+				})
+				if err != nil {
+					t.Fatalf("list terminal explicit job id: %v", err)
+				}
+				if len(listed.Jobs) != 1 {
+					t.Fatalf("expected 1 terminal logical job, got %d", len(listed.Jobs))
+				}
+			})
+		})
+	}
+}
+
+func TestWorkflowRuntimeExplicitJobIDConflictClassesAcrossBuiltInRuntimes(t *testing.T) {
+	baseRunPolicy := swf.RunPolicy{
+		Retry: swf.RetryPolicy{
+			MaximumAttempts: 3,
+			InitialInterval: swf.Duration(250 * time.Millisecond),
+		},
+	}
+	basePrereqs := []swf.JobPrerequisite{{JobID: "dep-a", Condition: swf.JobPrereqSuccess}}
+
+	testCases := []struct {
+		name            string
+		expectedMessage string
+		mutate          func(swf.SubmitJob) swf.SubmitJob
+	}{
+		{
+			name:            "job-type",
+			expectedMessage: "different job type",
+			mutate: func(job swf.SubmitJob) swf.SubmitJob {
+				job.JobType = "shape-other"
+				return job
+			},
+		},
+		{
+			name:            "input",
+			expectedMessage: "different input",
+			mutate: func(job swf.SubmitJob) swf.SubmitJob {
+				job.Data = swftest.NumberTaskData(2)
+				return job
+			},
+		},
+		{
+			name:            "metadata",
+			expectedMessage: "different metadata",
+			mutate: func(job swf.SubmitJob) swf.SubmitJob {
+				job.Metadata = json.RawMessage(`{"queue":"green"}`)
+				return job
+			},
+		},
+		{
+			name:            "run-policy",
+			expectedMessage: "different run policy",
+			mutate: func(job swf.SubmitJob) swf.SubmitJob {
+				job.RunPolicy.Retry.MaximumAttempts = 5
+				return job
+			},
+		},
+		{
+			name:            "prerequisites",
+			expectedMessage: "different prerequisites",
+			mutate: func(job swf.SubmitJob) swf.SubmitJob {
+				job.Prerequisites = []swf.JobPrerequisite{{JobID: "dep-b", Condition: swf.JobPrereqComplete}}
+				return job
+			},
+		},
+	}
+
+	for _, harness := range swftest.BuiltInRuntimeHarnesses() {
+		harness := harness
+		t.Run(harness.Name, func(t *testing.T) {
+			for _, tc := range testCases {
+				tc := tc
+				t.Run(tc.name, func(t *testing.T) {
+					built := harness.New(t)
+					defer built.Shutdown(t)
+
+					ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+					defer cancel()
+
+					base := swf.SubmitJob{
+						TenantId:  "tenant-explicit-shape-" + harness.Name,
+						JobID:     "explicit-shape-" + tc.name,
+						JobType:   "shape-base",
+						Data:      swftest.NumberTaskData(1),
+						Metadata:  json.RawMessage(`{"queue":"blue"}`),
+						RunPolicy: baseRunPolicy,
+						Prerequisites: append([]swf.JobPrerequisite(nil),
+							basePrereqs...,
+						),
+					}
+					for _, depID := range []string{"dep-a", "dep-b"} {
+						if _, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
+							Job: swf.SubmitJob{
+								TenantId: base.TenantId,
+								JobID:    depID,
+								JobType:  "dep-job",
+								Data:     swftest.NumberTaskData(0),
+							},
+							RequestTime: time.Now().UTC(),
+						}); err != nil {
+							t.Fatalf("seed prerequisite %s: %v", depID, err)
+						}
+					}
+					if _, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
+						Job:         base,
+						RequestTime: time.Now().UTC(),
+					}); err != nil {
+						t.Fatalf("submit base explicit job id: %v", err)
+					}
+
+					_, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
+						Job:         tc.mutate(base),
+						RequestTime: time.Now().UTC(),
+					})
+					if !errors.Is(err, swf.ErrConflict) {
+						t.Fatalf("expected %s conflict, got %v", tc.name, err)
+					}
+					if !strings.Contains(err.Error(), tc.expectedMessage) {
+						t.Fatalf("expected %s message %q, got %v", tc.name, tc.expectedMessage, err)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestWorkflowRuntimeExplicitJobIDTenantScopedAcrossBuiltInRuntimes(t *testing.T) {
+	for _, harness := range swftest.BuiltInRuntimeHarnesses() {
+		harness := harness
+		t.Run(harness.Name, func(t *testing.T) {
+			built := harness.New(t)
+			defer built.Shutdown(t)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+
+			reqA := swf.SubmitJobRequest{
+				Job: swf.SubmitJob{
+					TenantId: "tenant-explicit-scope-a-" + harness.Name,
+					JobID:    "shared-explicit-id",
+					JobType:  "tenant-scope-job",
+					Data:     swftest.NumberTaskData(1),
+				},
+				RequestTime: time.Now().UTC(),
+			}
+			reqB := swf.SubmitJobRequest{
+				Job: swf.SubmitJob{
+					TenantId: "tenant-explicit-scope-b-" + harness.Name,
+					JobID:    reqA.Job.JobID,
+					JobType:  reqA.Job.JobType,
+					Data:     reqA.Job.Data,
+				},
+				RequestTime: time.Now().UTC(),
+			}
+
+			handleA, err := built.Runtime.SubmitJob(ctx, reqA)
+			if err != nil {
+				t.Fatalf("submit tenant A explicit job id: %v", err)
+			}
+			handleB, err := built.Runtime.SubmitJob(ctx, reqB)
+			if err != nil {
+				t.Fatalf("submit tenant B explicit job id: %v", err)
+			}
+			if handleA.JobKey == handleB.JobKey {
+				t.Fatalf("expected tenant-scoped job keys, got %+v and %+v", handleA.JobKey, handleB.JobKey)
+			}
+
+			repeatA, err := built.Runtime.SubmitJob(ctx, reqA)
+			if err != nil {
+				t.Fatalf("repeat tenant A explicit job id: %v", err)
+			}
+			if repeatA.JobKey != handleA.JobKey {
+				t.Fatalf("unexpected tenant A matching handle %+v", repeatA.JobKey)
+			}
+
+			listedA, err := built.Runtime.ListJobs(ctx, swf.ListJobsRequest{
+				TenantIds: []string{reqA.Job.TenantId},
+				JobKeys:   []swf.JobKey{handleA.JobKey},
+				PageSize:  10,
+			})
+			if err != nil {
+				t.Fatalf("list tenant A explicit job id: %v", err)
+			}
+			if len(listedA.Jobs) != 1 {
+				t.Fatalf("expected 1 tenant A logical job, got %d", len(listedA.Jobs))
+			}
+
+			listedB, err := built.Runtime.ListJobs(ctx, swf.ListJobsRequest{
+				TenantIds: []string{reqB.Job.TenantId},
+				JobKeys:   []swf.JobKey{handleB.JobKey},
+				PageSize:  10,
+			})
+			if err != nil {
+				t.Fatalf("list tenant B explicit job id: %v", err)
+			}
+			if len(listedB.Jobs) != 1 {
+				t.Fatalf("expected 1 tenant B logical job, got %d", len(listedB.Jobs))
 			}
 		})
 	}

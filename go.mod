@@ -3,14 +3,16 @@ module github.com/colony-2/swf-go
 go 1.25.5
 
 require (
-	github.com/cenkalti/backoff v2.2.1+incompatible
 	github.com/colony-2/pgwf-go v0.0.0-20260322202536-e4196e94806e
 	github.com/colony-2/strata-go v0.0.0-20251215181525-c51f2cd6b43e
 	github.com/fergusstrange/embedded-postgres v1.32.0
+	github.com/go-chi/chi/v5 v5.0.10
 	github.com/google/uuid v1.6.0
 	github.com/invopop/jsonschema v0.13.0
 	github.com/lib/pq v1.10.9
+	github.com/oapi-codegen/runtime v1.1.2
 	github.com/segmentio/ksuid v1.0.4
+	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.11.1
 	gorm.io/driver/postgres v1.5.11
 	gorm.io/gorm v1.30.0
@@ -30,10 +32,10 @@ require (
 	github.com/cockroachdb/sentry-go v0.6.1-cockroachdb.2 // indirect
 	github.com/colony-2/pgwf v0.0.0-20260322202125-4a9450d5502e // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/go-chi/chi/v5 v5.0.10 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20231201235250-de7065d80cb9 // indirect
 	github.com/jackc/pgx/v5 v5.5.5 // indirect
@@ -46,7 +48,6 @@ require (
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.2-0.20181231171920-c182affec369 // indirect
 	github.com/oapi-codegen/nullable v1.1.0 // indirect
-	github.com/oapi-codegen/runtime v1.1.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_golang v1.12.0 // indirect
@@ -54,6 +55,7 @@ require (
 	github.com/prometheus/common v0.32.1 // indirect
 	github.com/prometheus/procfs v0.7.3 // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
+	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	golang.org/x/crypto v0.23.0 // indirect

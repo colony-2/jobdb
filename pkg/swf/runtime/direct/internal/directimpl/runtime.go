@@ -107,6 +107,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req swf.SubmitJobRequest) (swf.
 	co, err := taskDataToCreatOptions(taskData, 0, req.Job.JobType, r.requestWorkerID(req.WorkerID), chapterTypeJobStart, payloadKindApp, inputHash, time.Now().UTC(), chapterMetadata{
 		Attempt:       1,
 		RunPolicy:     &jobPolicy,
+		Metadata:      metadataForStartChapter(req.Job.Metadata),
 		Prerequisites: prereqs,
 	})
 	if err != nil {

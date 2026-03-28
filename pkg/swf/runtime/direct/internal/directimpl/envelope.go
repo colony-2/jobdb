@@ -37,6 +37,7 @@ type chapterMeta struct {
 	StartedAt     *time.Time            `json:"started_at,omitempty"`
 	FinishedAt    *time.Time            `json:"finished_at,omitempty"`
 	InputHash     string                `json:"input_hash"`
+	Metadata      json.RawMessage       `json:"metadata,omitempty"`
 	Input         json.RawMessage       `json:"input,omitempty"`
 	Attempt       int                   `json:"attempt,omitempty"`
 	MaxAttempts   int                   `json:"max_attempts,omitempty"`
