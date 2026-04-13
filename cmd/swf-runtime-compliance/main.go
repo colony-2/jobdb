@@ -70,6 +70,11 @@ func run(ctx context.Context, cfg config) error {
 		return fmt.Errorf("create wrangler persistence dir: %w", err)
 	}
 	defer os.RemoveAll(persistDir)
+	cleanupDevVars, err := ensureWranglerDevVars(workerDir)
+	if err != nil {
+		return err
+	}
+	defer cleanupDevVars()
 
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", cfg.port)
 	workerLogs := &bytes.Buffer{}
@@ -194,4 +199,24 @@ func stopProcessGroup(cmd *exec.Cmd) {
 	case <-time.After(5 * time.Second):
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
+}
+
+func ensureWranglerDevVars(workerDir string) (func(), error) {
+	path := filepath.Join(workerDir, ".dev.vars")
+	if _, err := os.Stat(path); err == nil {
+		return func() {}, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("stat %s: %w", path, err)
+	}
+
+	secret := os.Getenv("LEASE_TOKEN_SECRET")
+	if strings.TrimSpace(secret) == "" {
+		secret = "dev-lease-token-secret"
+	}
+	if err := os.WriteFile(path, []byte("LEASE_TOKEN_SECRET="+secret+"\n"), 0600); err != nil {
+		return nil, fmt.Errorf("write %s: %w", path, err)
+	}
+	return func() {
+		_ = os.Remove(path)
+	}, nil
 }

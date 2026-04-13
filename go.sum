@@ -86,10 +86,10 @@ github.com/cockroachdb/redact v1.0.8/go.mod h1:BVNblN9mBWFyMyqK1k3AAiSxhvhfK2oOZ
 github.com/cockroachdb/sentry-go v0.6.1-cockroachdb.2 h1:IKgmqgMQlVJIZj19CdocBeSfSaiCbEBZGKODaixqtHM=
 github.com/cockroachdb/sentry-go v0.6.1-cockroachdb.2/go.mod h1:8BT+cPK6xvFOcRlk0R8eg+OTkcqI6baNH4xAkpiYVvQ=
 github.com/codegangsta/inject v0.0.0-20150114235600-33e0aa1cb7c0/go.mod h1:4Zcjuz89kmFXt9morQgcfYZAYZ5n8WHjt81YYWIwtTM=
-github.com/colony-2/pgwf v0.0.0-20260322202125-4a9450d5502e h1:V5XFJf8cc6BYEqor2GA/JHKW0w5EEAKBIHz0qNvmScQ=
-github.com/colony-2/pgwf v0.0.0-20260322202125-4a9450d5502e/go.mod h1:QJKHOf9Ybwm9V+74tls15xhPVbcDLBwkZ2dcVNAkLuw=
-github.com/colony-2/pgwf-go v0.0.0-20260322202536-e4196e94806e h1:UNEDi7VQc75iPbh6ju2XiQYjqWuYZ+GnA7JYf3mXUFk=
-github.com/colony-2/pgwf-go v0.0.0-20260322202536-e4196e94806e/go.mod h1:+EBMgziSPUC4QL5pxksdLFoc7NuzKgYOUHaSV5+cyRc=
+github.com/colony-2/pgwf v0.0.0-20260324185146-00a58a45f7d8 h1:l5/GoKzi6SBaTxX7R8X73FDijxmrM9RN4Lf/53icIEw=
+github.com/colony-2/pgwf v0.0.0-20260324185146-00a58a45f7d8/go.mod h1:QJKHOf9Ybwm9V+74tls15xhPVbcDLBwkZ2dcVNAkLuw=
+github.com/colony-2/pgwf-go v0.0.0-20260324185252-7a5ae14f742a h1:MQ3w/5TEgAsnnRM9GRoCL/QPv02/leEoagy9TVhgGXs=
+github.com/colony-2/pgwf-go v0.0.0-20260324185252-7a5ae14f742a/go.mod h1:CIOJuCmKvspsg16qE7dOCLFIynveIdJ/PGoJ/2JHEpE=
 github.com/colony-2/strata-go v0.0.0-20251215181525-c51f2cd6b43e h1:LMGtkMsm5TrQ6ydZndJjka6J38p8BEthFEMAvLwvMOY=
 github.com/colony-2/strata-go v0.0.0-20251215181525-c51f2cd6b43e/go.mod h1:JV8xTWRS2RFm4I1A9Qtn246hnyNnSL0S2iO+jmeUfWs=
 github.com/coreos/etcd v3.3.10+incompatible/go.mod h1:uF7uidLiAD3TWHmW31ZFd/JWoc32PjwdhPthX9715RE=

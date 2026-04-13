@@ -243,7 +243,7 @@ func (r *Runtime) startJob(ctx context.Context, jobKey swf.JobKey, jobType strin
 	return pgwf.SubmitJob(ctx, r.pgwfDB(ctx), pgwf.TenantID(jobKey.TenantId), pgwf.JobID(jobKey.JobId), pgwf.JobDependencies{
 		NextNeed: pgwf.Capability(jobType),
 		WaitFor:  waitFor,
-	}, payload, metadata, pgwf.WorkerID(r.requestWorkerID(workerID)), "", time.Time{})
+	}, payload, metadata, pgwf.WorkerID(r.requestWorkerID(workerID)), time.Time{})
 }
 
 func (r *Runtime) CancelJob(ctx context.Context, req swf.CancelJobRequest) error {
