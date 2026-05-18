@@ -31,7 +31,7 @@ func TestExplicitJobIDParityAcrossBuiltInRuntimes(t *testing.T) {
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) lifecycleObservation {
 				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
-					TenantId: "tenant-custom-id-" + harness.Name,
+					TenantId: subject.built.WorkerTenantID,
 					JobType:  ws.JobWorker.Name(),
 					JobID:    "custom-job-id",
 					Data:     swftest.NumberTaskData(7),
@@ -82,7 +82,7 @@ func TestCancelJobParityAcrossBuiltInRuntimes(t *testing.T) {
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) cancelObservation {
 				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
-					TenantId: "tenant-cancel-" + harness.Name,
+					TenantId: subject.built.WorkerTenantID,
 					JobType:  ws.JobWorker.Name(),
 					JobID:    "cancel-parity",
 					Data:     swftest.NumberTaskData(1),
@@ -151,7 +151,7 @@ func TestRestartJobParityAcrossBuiltInRuntimes(t *testing.T) {
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) lifecycleObservation {
 				origKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
-					TenantId: "tenant-restart-" + harness.Name,
+					TenantId: subject.built.WorkerTenantID,
 					JobType:  swftest.SequenceJobName,
 					JobID:    "restart-original",
 					Data:     swftest.NumberTaskData(1),
@@ -229,7 +229,7 @@ func TestRestartValidationParityAcrossBuiltInRuntimes(t *testing.T) {
 			ws := swftest.MustWorkSet(t, passthroughJob{name: "restart-missing-next"})
 			compareAcrossModes(t, harness, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) errorObservation {
 				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
-					TenantId: "tenant-missing-next-" + harness.Name,
+					TenantId: subject.built.WorkerTenantID,
 					JobType:  ws.JobWorker.Name(),
 					JobID:    "restart-base",
 					Data:     swftest.NumberTaskData(1),
@@ -258,7 +258,7 @@ func TestRestartValidationParityAcrossBuiltInRuntimes(t *testing.T) {
 				ws := swftest.MustWorkSet(t, job, task)
 				return observeViaMode(t, harness, mode, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) errorObservation {
 					jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
-						TenantId: "tenant-retry-boundary-" + harness.Name,
+						TenantId: subject.built.WorkerTenantID,
 						JobType:  job.Name(),
 						JobID:    "retry-boundary",
 						Data:     swftest.NumberTaskData(1),
@@ -300,7 +300,7 @@ func TestPrerequisiteParityAcrossBuiltInRuntimes(t *testing.T) {
 				swftest.MustWorkSet(t, failWorker),
 				swftest.MustWorkSet(t, dependentWorker),
 			}, func(t *testing.T, ctx context.Context, subject scenarioSubject) errorObservation {
-				tenantID := "tenant-prereq-" + harness.Name
+				tenantID := subject.built.WorkerTenantID
 
 				successKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
 					TenantId: tenantID,

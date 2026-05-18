@@ -39,7 +39,7 @@ func TestRestartJobWithoutExtraOutputAcrossBuiltInRuntimes(t *testing.T) {
 			defer cancel()
 
 			origKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
-				TenantId: "tenant-restart-" + harness.Name,
+				TenantId: built.WorkerTenantID,
 				JobType:  swftest.SequenceJobName,
 				Data:     swftest.NumberTaskData(1),
 			})
@@ -81,7 +81,7 @@ func TestEngineExplicitJobIDDuplicateSubmitAcrossBuiltInRuntimes(t *testing.T) {
 			defer cancel()
 
 			base := swf.SubmitJob{
-				TenantId: "tenant-engine-explicit-a-" + harness.Name,
+				TenantId: built.WorkerTenantID,
 				JobID:    "engine-explicit-id",
 				JobType:  ws.JobWorker.Name(),
 				Data:     swftest.NumberTaskData(7),
@@ -135,7 +135,6 @@ func TestEngineExplicitJobIDDuplicateSubmitAcrossBuiltInRuntimes(t *testing.T) {
 			if otherKey == jobKey {
 				t.Fatalf("expected tenant-scoped engine job keys, got %+v and %+v", jobKey, otherKey)
 			}
-			swftest.WaitForEngineStatus(t, ctx, built.Engine, otherKey, swf.JobStatusCompleted)
 		})
 	}
 }
@@ -157,7 +156,7 @@ func TestGetJobRunCompletedAcrossBuiltInRuntimes(t *testing.T) {
 			defer cancel()
 
 			jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
-				TenantId: "tenant-run-complete-" + harness.Name,
+				TenantId: built.WorkerTenantID,
 				JobType:  swftest.SequenceJobName,
 				Data:     swftest.NumberTaskData(1),
 			})
@@ -234,7 +233,7 @@ func TestGetJobRunLazilyLoadsOutputAcrossBuiltInRuntimes(t *testing.T) {
 			defer cancel()
 
 			jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
-				TenantId: "tenant-run-output-" + harness.Name,
+				TenantId: built.WorkerTenantID,
 				JobType:  swftest.SequenceJobName,
 				Data:     swftest.NumberTaskData(1),
 			})
@@ -275,7 +274,7 @@ func TestGetJobRunGetOutputFailedAcrossBuiltInRuntimes(t *testing.T) {
 			defer cancel()
 
 			jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
-				TenantId: "tenant-run-failed-" + harness.Name,
+				TenantId: built.WorkerTenantID,
 				JobType:  swftest.FailingJobName,
 				Data:     swftest.NumberTaskData(1),
 			})
@@ -310,7 +309,7 @@ func TestGetJobRunGetOutputCancelledAcrossBuiltInRuntimes(t *testing.T) {
 			defer cancel()
 
 			jobKey := swf.JobKey{
-				TenantId: "tenant-run-cancelled-" + harness.Name,
+				TenantId: built.WorkerTenantID,
 				JobId:    "cancelled-job",
 			}
 			done := swftest.MustStartJobAsync(t, built.Engine, swf.SubmitJob{
@@ -354,7 +353,7 @@ func TestGetJobRunPendingRuntimeAcrossBuiltInRuntimes(t *testing.T) {
 			defer cancel()
 
 			jobKey := swf.JobKey{
-				TenantId: "tenant-run-pending-" + harness.Name,
+				TenantId: built.WorkerTenantID,
 				JobId:    "pending-runtime",
 			}
 			done := swftest.MustStartJobAsync(t, built.Engine, swf.SubmitJob{

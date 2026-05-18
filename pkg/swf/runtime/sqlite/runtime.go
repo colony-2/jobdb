@@ -219,11 +219,8 @@ func (r *Runtime) PollWork(ctx context.Context, req swf.PollWorkRequest) ([]swf.
 	if req.LeaseDuration < 0 {
 		return nil, fmt.Errorf("lease duration must be >= 0")
 	}
-	if len(req.TenantIds) > 1 {
-		return nil, fmt.Errorf("at most one tenant_id may be supplied for PollWork")
-	}
-	if len(req.TenantIds) == 1 && req.TenantIds[0] == "" {
-		return nil, fmt.Errorf("tenant_id must be non-empty when supplied for PollWork")
+	if req.TenantId == "" {
+		return nil, fmt.Errorf("tenant_id is required for PollWork")
 	}
 	if len(req.Capabilities) == 0 {
 		return nil, nil
@@ -261,10 +258,6 @@ func (r *Runtime) pollOnce(ctx context.Context, req swf.PollWorkRequest) ([]swf.
 	if len(capSet) == 0 {
 		return nil, nil
 	}
-	tenantFilter := ""
-	if len(req.TenantIds) == 1 {
-		tenantFilter = req.TenantIds[0]
-	}
 	var out []swf.ExecutionLease
 	err = r.withTx(ctx, func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx, `SELECT `+jobColumns+` FROM swf_jobs WHERE archived_at_ns IS NULL ORDER BY created_at_ns ASC, job_id ASC`)
@@ -290,7 +283,7 @@ func (r *Runtime) pollOnce(ctx context.Context, req swf.PollWorkRequest) ([]swf.
 		now := time.Now().UTC()
 		workerID := r.requestWorkerID(req.WorkerID)
 		for _, row := range candidates {
-			if tenantFilter != "" && row.tenantID != tenantFilter {
+			if row.tenantID != req.TenantId {
 				continue
 			}
 			if row.cancelRequested {

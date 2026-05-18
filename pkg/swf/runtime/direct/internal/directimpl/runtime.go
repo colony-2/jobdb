@@ -260,11 +260,8 @@ func (r *Runtime) PollWork(ctx context.Context, req swf.PollWorkRequest) ([]swf.
 	if err := r.validate(); err != nil {
 		return nil, err
 	}
-	if len(req.TenantIds) > 1 {
-		return nil, fmt.Errorf("at most one tenant_id may be supplied for PollWork")
-	}
-	if len(req.TenantIds) == 1 && req.TenantIds[0] == "" {
-		return nil, fmt.Errorf("tenant_id must be non-empty when supplied for PollWork")
+	if req.TenantId == "" {
+		return nil, fmt.Errorf("tenant_id is required for PollWork")
 	}
 	caps := make([]pgwf.Capability, 0, len(req.Capabilities))
 	for _, capName := range req.Capabilities {
@@ -282,9 +279,7 @@ func (r *Runtime) PollWork(ctx context.Context, req swf.PollWorkRequest) ([]swf.
 	}
 	opts := pgwf.GetWorkOptions{
 		MetadataEquals: concreteMetadataPredicatesToPgwf(req.MetadataEquals),
-	}
-	if len(req.TenantIds) == 1 {
-		opts.TenantIDs = []pgwf.TenantID{pgwf.TenantID(req.TenantIds[0])}
+		TenantIDs:      []pgwf.TenantID{pgwf.TenantID(req.TenantId)},
 	}
 	if req.LeaseDuration != 0 {
 		opts.LeaseSeconds = durationToLeaseSeconds(req.LeaseDuration)

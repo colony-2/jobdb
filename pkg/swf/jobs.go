@@ -98,6 +98,7 @@ type EngineBuilder struct {
 	maxActive    int
 	logger       *slog.Logger
 	awaitRecycle time.Duration
+	pollTenantId string
 	runtime      WorkflowRuntime
 }
 
@@ -136,6 +137,13 @@ func (e *EngineBuilder) WithLogger(logger *slog.Logger) *EngineBuilder {
 	if logger != nil {
 		e.logger = logger
 	}
+	return e
+}
+
+// WithWorkerTenantId configures the tenant polled by the worker loop.
+// Engines with registered workers must set this before BuildEngine.
+func (e *EngineBuilder) WithWorkerTenantId(tenantId string) *EngineBuilder {
+	e.pollTenantId = tenantId
 	return e
 }
 
@@ -221,6 +229,7 @@ func (b *EngineBuilder) BuildEngine() (SWFEngine, error) {
 		Logger:                b.logger,
 		MaxActive:             b.maxActive,
 		AwaitRecycleThreshold: b.awaitRecycle,
+		PollTenantId:          b.pollTenantId,
 	})
 	if err != nil {
 		return nil, err

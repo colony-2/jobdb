@@ -33,7 +33,7 @@ func TestListJobsStatusParityAcrossBuiltInRuntimes(t *testing.T) {
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{completedWS, cancelWS}, func(t *testing.T, ctx context.Context, subject scenarioSubject) listJobsObservation {
 				completeKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
-					TenantId: "tenant-list-" + harness.Name,
+					TenantId: subject.built.WorkerTenantID,
 					JobType:  completedWS.JobWorker.Name(),
 					JobID:    "completed",
 					Data:     swftest.NumberTaskData(3),
@@ -92,7 +92,7 @@ func TestListJobsFilterParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{alphaWS, betaWS}, func(t *testing.T, ctx context.Context, subject scenarioSubject) filteredListObservation {
-				tenantID := "tenant-list-filters-" + harness.Name
+				tenantID := subject.built.WorkerTenantID
 
 				alphaMeta, err := json.Marshal(map[string]any{"rank": 1, "team": "alpha"})
 				if err != nil {

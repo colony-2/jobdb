@@ -37,7 +37,7 @@ func TestRemoteRuntimesConstructAndExecuteThroughBuilder(t *testing.T) {
 			defer cancel()
 
 			jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
-				TenantId: "tenant-builder-" + harness.Name,
+				TenantId: built.WorkerTenantID,
 				JobType:  swftest.SequenceJobName,
 				Data:     swftest.NumberTaskData(1),
 			})
@@ -74,7 +74,7 @@ func TestRemoteRuntimeChapterAndArtifactRoundTripAcrossExistingRuntimes(t *testi
 
 			handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
 				Job: swf.SubmitJob{
-					TenantId: "tenant-artifacts-" + harness.Name,
+					TenantId: built.WorkerTenantID,
 					JobType:  "manual-storage",
 					Data:     swftest.NumberTaskData(1),
 				},
@@ -186,7 +186,7 @@ func TestRemoteRuntimeLeaseOperationsAcrossExistingRuntimes(t *testing.T) {
 
 			handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
 				Job: swf.SubmitJob{
-					TenantId: "tenant-lease-" + harness.Name,
+					TenantId: built.WorkerTenantID,
 					JobType:  "lease-job",
 					Data:     swftest.NumberTaskData(7),
 				},
@@ -197,7 +197,7 @@ func TestRemoteRuntimeLeaseOperationsAcrossExistingRuntimes(t *testing.T) {
 			}
 
 			leases, err := built.Runtime.PollWork(ctx, swf.PollWorkRequest{
-				TenantIds:    []string{handle.JobKey.TenantId},
+				TenantId:     handle.JobKey.TenantId,
 				WorkerID:     "lease-worker",
 				Capabilities: []string{"lease-job"},
 				Limit:        1,
@@ -219,7 +219,7 @@ func TestRemoteRuntimeLeaseOperationsAcrossExistingRuntimes(t *testing.T) {
 			}
 
 			leases, err = built.Runtime.PollWork(ctx, swf.PollWorkRequest{
-				TenantIds:    []string{handle.JobKey.TenantId},
+				TenantId:     handle.JobKey.TenantId,
 				WorkerID:     "lease-worker",
 				Capabilities: []string{"lease-job"},
 				Limit:        1,
@@ -263,7 +263,7 @@ func TestRemoteRuntimeConflictBehaviorAcrossExistingRuntimes(t *testing.T) {
 
 				handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
 					Job: swf.SubmitJob{
-						TenantId: "tenant-remote-runtime-conflict-" + harness.Name,
+						TenantId: built.WorkerTenantID,
 						JobType:  "manual-storage",
 						Data:     swftest.NumberTaskData(1),
 					},
@@ -332,7 +332,7 @@ func TestRemoteRuntimeConflictBehaviorAcrossExistingRuntimes(t *testing.T) {
 				defer cancel()
 
 				jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
-					TenantId: "tenant-remote-runtime-wait-conflict-" + harness.Name,
+					TenantId: built.WorkerTenantID,
 					JobType:  swftest.SequenceJobName,
 					Data:     swftest.NumberTaskData(1),
 				})
@@ -391,7 +391,7 @@ func TestRemoteRuntimePollWorkMetadataFilteringAcrossExistingRuntimes(t *testing
 
 			matching, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
 				Job: swf.SubmitJob{
-					TenantId: "tenant-metadata-" + harness.Name,
+					TenantId: built.WorkerTenantID,
 					JobType:  "metadata-job",
 					Data:     swftest.NumberTaskData(11),
 					Metadata: json.RawMessage(`{"queue":"blue"}`),
@@ -403,7 +403,7 @@ func TestRemoteRuntimePollWorkMetadataFilteringAcrossExistingRuntimes(t *testing
 			}
 			if _, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
 				Job: swf.SubmitJob{
-					TenantId: "tenant-metadata-" + harness.Name,
+					TenantId: built.WorkerTenantID,
 					JobType:  "metadata-job",
 					Data:     swftest.NumberTaskData(13),
 					Metadata: json.RawMessage(`{"queue":"green"}`),
@@ -414,7 +414,7 @@ func TestRemoteRuntimePollWorkMetadataFilteringAcrossExistingRuntimes(t *testing
 			}
 
 			leases, err := built.Runtime.PollWork(ctx, swf.PollWorkRequest{
-				TenantIds:     []string{matching.JobKey.TenantId},
+				TenantId:      matching.JobKey.TenantId,
 				WorkerID:      "metadata-worker",
 				Capabilities:  []string{"metadata-job"},
 				Limit:         1,
@@ -438,7 +438,7 @@ func TestRemoteRuntimePollWorkMetadataFilteringAcrossExistingRuntimes(t *testing
 			}
 
 			misses, err := built.Runtime.PollWork(ctx, swf.PollWorkRequest{
-				TenantIds:    []string{matching.JobKey.TenantId},
+				TenantId:     matching.JobKey.TenantId,
 				WorkerID:     "metadata-worker",
 				Capabilities: []string{"metadata-job"},
 				Limit:        1,

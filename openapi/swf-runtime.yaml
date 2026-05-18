@@ -623,15 +623,12 @@ components:
     PollWorkRequest:
       type: object
       additionalProperties: false
-      required: [workerId, capabilities, limit]
+      required: [tenantId, workerId, capabilities, limit]
       properties:
-        tenantIds:
-          type: array
-          description: Optional single-tenant filter for polling. When omitted, polling spans all tenants visible to the runtime.
-          minItems: 1
-          maxItems: 1
-          items:
-            type: string
+        tenantId:
+          type: string
+          minLength: 1
+          description: Required tenant polling target. Polling is scoped only to this tenant.
         workerId:
           type: string
         capabilities:

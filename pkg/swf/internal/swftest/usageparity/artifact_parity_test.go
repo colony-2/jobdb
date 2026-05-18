@@ -308,7 +308,7 @@ func TestArtifactStorageOnTaskErrorParityAcrossBuiltInRuntimes(t *testing.T) {
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) artifactErrorObservation {
 				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
-					TenantId: "tenant-artifact-task-error-" + harness.Name,
+					TenantId: subject.built.WorkerTenantID,
 					JobType:  ws.JobWorker.Name(),
 					JobID:    "task-error-artifact",
 					Data:     swftest.NumberTaskData(1),
@@ -383,7 +383,7 @@ func TestArtifactStorageOnJobErrorParityAcrossBuiltInRuntimes(t *testing.T) {
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) artifactErrorObservation {
 				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
-					TenantId: "tenant-artifact-job-error-" + harness.Name,
+					TenantId: subject.built.WorkerTenantID,
 					JobType:  ws.JobWorker.Name(),
 					JobID:    "job-error-artifact",
 					Data:     swftest.NumberTaskData(1),
@@ -473,7 +473,7 @@ func TestArtifactCleanupVisibleBehaviorParityAcrossBuiltInRuntimes(t *testing.T)
 
 				return observeViaMode(t, harness, mode, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) artifactCleanupObservation {
 					jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
-						TenantId: "tenant-artifact-cleanup-" + harness.Name,
+						TenantId: subject.built.WorkerTenantID,
 						JobType:  job.Name(),
 						JobID:    "cleanup-visible",
 						Data:     swftest.NumberTaskData(1),

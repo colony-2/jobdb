@@ -61,8 +61,10 @@ func TestCompletionStatusAndDetail(t *testing.T) {
 	defer strata.Shutdown()
 	waitForStrataReady(t, baseURL)
 
+	tenantID := "completion-status-tenant"
 	engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
-		b.PlusWorkers(completionSuccessWorker{}).
+		b.WithWorkerTenantId(tenantID).
+			PlusWorkers(completionSuccessWorker{}).
 			PlusWorkers(completionAppErrorWorker{}).
 			PlusWorkers(completionSystemErrorWorker{}).
 			PlusWorkers(completionTimeoutWorker{})
@@ -70,7 +72,6 @@ func TestCompletionStatusAndDetail(t *testing.T) {
 
 	go engine.Run(ctx)
 
-	tenantID := "completion-status-tenant"
 	successKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 		TenantId: tenantID,
 		JobType:  completionSuccessJobName,

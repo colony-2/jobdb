@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -76,7 +77,7 @@ func TestRemoteRuntimeLeaseAndMetadataRoundTrip(t *testing.T) {
 			}
 
 			leases, err := runtime.PollWork(ctx, swf.PollWorkRequest{
-				TenantIds:     []string{tenantID},
+				TenantId:      tenantID,
 				WorkerID:      "worker-a",
 				Capabilities:  []string{"lease-job"},
 				Limit:         1,
@@ -107,7 +108,7 @@ func TestRemoteRuntimeLeaseAndMetadataRoundTrip(t *testing.T) {
 			}
 
 			leases, err = runtime.PollWork(ctx, swf.PollWorkRequest{
-				TenantIds:    []string{tenantID},
+				TenantId:     tenantID,
 				WorkerID:     "worker-b",
 				Capabilities: []string{"lease-job"},
 				Limit:        1,
@@ -134,76 +135,7 @@ func TestRemoteRuntimeLeaseAndMetadataRoundTrip(t *testing.T) {
 	}
 }
 
-func TestRemoteRuntimePollWorkWithoutTenantFilter(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		new  func(t *testing.T) (swf.WorkflowRuntime, func())
-	}{
-		{
-			name: "toy",
-			new: func(t *testing.T) (swf.WorkflowRuntime, func()) {
-				return toyruntime.New(), func() {}
-			},
-		},
-		{
-			name: "direct",
-			new: func(t *testing.T) (swf.WorkflowRuntime, func()) {
-				t.Helper()
-				embedded, err := directruntime.StartEmbeddedRuntime(context.Background())
-				if err != nil {
-					t.Fatalf("start embedded direct runtime: %v", err)
-				}
-				return embedded.Runtime, embedded.Shutdown
-			},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			underlying, shutdown := tc.new(t)
-			defer shutdown()
-
-			server := httptest.NewServer(NewServer(underlying))
-			defer server.Close()
-
-			runtime, err := New(server.URL, server.Client())
-			if err != nil {
-				t.Fatalf("new remote runtime: %v", err)
-			}
-
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			defer cancel()
-
-			capability := "global-poll-" + tc.name
-			handle, err := runtime.SubmitJob(ctx, swf.SubmitJobRequest{
-				Job: swf.SubmitJob{
-					TenantId: "tenant-global-" + tc.name,
-					JobType:  capability,
-					Data:     swf.NewTaskDataOrPanic(map[string]int{"n": 1}),
-				},
-				RequestTime: time.Now().UTC(),
-			})
-			if err != nil {
-				t.Fatalf("submit job: %v", err)
-			}
-
-			leases, err := runtime.PollWork(ctx, swf.PollWorkRequest{
-				WorkerID:     "worker-global",
-				Capabilities: []string{capability},
-				Limit:        1,
-			})
-			if err != nil {
-				t.Fatalf("poll work without tenant filter: %v", err)
-			}
-			if len(leases) != 1 {
-				t.Fatalf("expected 1 lease, got %d", len(leases))
-			}
-			if leases[0].Job().JobKey != handle.JobKey {
-				t.Fatalf("unexpected lease job key %+v", leases[0].Job().JobKey)
-			}
-		})
-	}
-}
-
-func TestRemoteRuntimePollWorkWithoutKnownTenantsIsLocalNoop(t *testing.T) {
+func TestRemoteRuntimePollWorkRequiresTenantId(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
@@ -219,19 +151,55 @@ func TestRemoteRuntimePollWorkWithoutKnownTenantsIsLocalNoop(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	leases, err := runtime.PollWork(ctx, swf.PollWorkRequest{
+	if _, err := runtime.PollWork(ctx, swf.PollWorkRequest{
 		WorkerID:     "worker-startup",
 		Capabilities: []string{"startup-job"},
 		Limit:        1,
-	})
-	if err != nil {
-		t.Fatalf("poll work without known tenants: %v", err)
-	}
-	if len(leases) != 0 {
-		t.Fatalf("expected no leases, got %d", len(leases))
+	}); err == nil {
+		t.Fatal("expected tenant-less poll work to fail")
 	}
 	if got := requests.Load(); got != 0 {
 		t.Fatalf("expected no server requests, got %d", got)
+	}
+}
+
+func TestRemoteServerPollWorkRejectsInvalidTenantId(t *testing.T) {
+	server := httptest.NewServer(NewServer(toyruntime.New()))
+	defer server.Close()
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "missing tenantId",
+			body: `{"workerId":"worker","capabilities":["job"],"limit":1}`,
+		},
+		{
+			name: "empty tenantId",
+			body: `{"tenantId":"","workerId":"worker","capabilities":["job"],"limit":1}`,
+		},
+		{
+			name: "legacy tenantIds",
+			body: `{"tenantIds":["tenant-a"],"workerId":"worker","capabilities":["job"],"limit":1}`,
+		},
+		{
+			name: "tenantId with legacy tenantIds",
+			body: `{"tenantId":"tenant-a","tenantIds":["tenant-a"],"workerId":"worker","capabilities":["job"],"limit":1}`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, err := server.Client().Post(server.URL+"/v1/jobs/poll", "application/json", strings.NewReader(tc.body))
+			if err != nil {
+				t.Fatalf("post poll work: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusBadRequest {
+				body, _ := io.ReadAll(resp.Body)
+				t.Fatalf("expected 400, got %d body=%s", resp.StatusCode, string(body))
+			}
+		})
 	}
 }
 
@@ -434,7 +402,8 @@ func TestRemoteRuntimeSupportsExplicitJobIDs(t *testing.T) {
 
 func TestRemoteRuntimeSupportsExplicitRestartJobIDs(t *testing.T) {
 	underlying := toyruntime.New()
-	builder := swf.NewEngineBuilder().WithRuntime(underlying)
+	tenantID := "tenant-restart-id"
+	builder := swf.NewEngineBuilder().WithRuntime(underlying).WithWorkerTenantId(tenantID)
 	builder.PlusWorkers(remoteSequenceJob{}, remoteAddOneTask{}, remoteDoubleTask{})
 	engine, err := builder.BuildEngine()
 	if err != nil {
@@ -464,7 +433,7 @@ func TestRemoteRuntimeSupportsExplicitRestartJobIDs(t *testing.T) {
 	defer cancel()
 
 	originalKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
-		TenantId: "tenant-restart-id",
+		TenantId: tenantID,
 		JobID:    "restart-source",
 		JobType:  remoteSequenceJobName,
 		Data:     swf.NewTaskDataOrPanic(map[string]int{"n": 1}),

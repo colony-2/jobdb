@@ -35,7 +35,7 @@ func TestArtifactCleanupAcrossEngines(t *testing.T) {
 		}
 		taskWorker := &artifactCleanupTask{dir: tempDir, fileNames: fileNames}
 		engine, cancel := buildToyEngine(t, func(b *swf.EngineBuilder) {
-			b.PlusWorkers(jobWorker, taskWorker)
+			b.WithWorkerTenantId("test-tenant").PlusWorkers(jobWorker, taskWorker)
 		})
 		defer cancel()
 		runArtifactCleanupScenario(t, ctx, engine, filePaths)
@@ -69,7 +69,7 @@ func TestArtifactCleanupAcrossEngines(t *testing.T) {
 		}
 		taskWorker := &artifactCleanupTask{dir: tempDir, fileNames: fileNames}
 		engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
-			b.PlusWorkers(jobWorker, taskWorker)
+			b.WithWorkerTenantId("test-tenant").PlusWorkers(jobWorker, taskWorker)
 		})
 
 		go engine.Run(ctx)

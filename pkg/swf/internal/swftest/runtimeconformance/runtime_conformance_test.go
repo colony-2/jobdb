@@ -67,7 +67,7 @@ func TestBuiltInRuntimesConstructAndExecuteThroughBuilder(t *testing.T) {
 			defer cancel()
 
 			jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
-				TenantId: "tenant-builder-" + harness.Name,
+				TenantId: built.WorkerTenantID,
 				JobType:  swftest.SequenceJobName,
 				Data:     swftest.NumberTaskData(1),
 			})
@@ -106,7 +106,7 @@ func TestWorkflowRuntimeLifecycleAcrossBuiltInRuntimes(t *testing.T) {
 
 			handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
 				Job: swf.SubmitJob{
-					TenantId: "tenant-runtime-" + harness.Name,
+					TenantId: built.WorkerTenantID,
 					JobType:  swftest.SequenceJobName,
 					Data:     swftest.NumberTaskData(1),
 				},
@@ -160,7 +160,7 @@ func TestWorkflowRuntimeChapterAndArtifactRoundTripAcrossBuiltInRuntimes(t *test
 
 			handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
 				Job: swf.SubmitJob{
-					TenantId: "tenant-artifacts-" + harness.Name,
+					TenantId: built.WorkerTenantID,
 					JobType:  "manual-storage",
 					Data:     swftest.NumberTaskData(1),
 				},
@@ -274,7 +274,7 @@ func TestWorkflowRuntimeListChaptersRangeAcrossBuiltInRuntimes(t *testing.T) {
 
 			handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
 				Job: swf.SubmitJob{
-					TenantId: "tenant-chapter-range-" + harness.Name,
+					TenantId: built.WorkerTenantID,
 					JobType:  swftest.SequenceJobName,
 					Data:     swftest.NumberTaskData(1),
 				},
@@ -335,7 +335,7 @@ func TestWorkflowRuntimeLeaseOperationsOnSupportingRuntimes(t *testing.T) {
 
 			handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
 				Job: swf.SubmitJob{
-					TenantId: "tenant-lease-" + harness.Name,
+					TenantId: built.WorkerTenantID,
 					JobType:  "lease-job",
 					Data:     swftest.NumberTaskData(7),
 				},
@@ -346,6 +346,7 @@ func TestWorkflowRuntimeLeaseOperationsOnSupportingRuntimes(t *testing.T) {
 			}
 
 			leases, err := built.Runtime.PollWork(ctx, swf.PollWorkRequest{
+				TenantId:     handle.JobKey.TenantId,
 				WorkerID:     "lease-worker",
 				Capabilities: []string{"lease-job"},
 				Limit:        1,
@@ -373,6 +374,7 @@ func TestWorkflowRuntimeLeaseOperationsOnSupportingRuntimes(t *testing.T) {
 			}
 
 			leases, err = built.Runtime.PollWork(ctx, swf.PollWorkRequest{
+				TenantId:     handle.JobKey.TenantId,
 				WorkerID:     "lease-worker",
 				Capabilities: []string{"lease-job"},
 				Limit:        1,
@@ -399,6 +401,28 @@ func TestWorkflowRuntimeLeaseOperationsOnSupportingRuntimes(t *testing.T) {
 	}
 }
 
+func TestWorkflowRuntimePollWorkRequiresTenantAcrossBuiltInRuntimes(t *testing.T) {
+	for _, harness := range swftest.BuiltInRuntimeHarnesses() {
+		harness := harness
+		t.Run(harness.Name, func(t *testing.T) {
+			built := harness.New(t)
+			defer built.Shutdown(t)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			_, err := built.Runtime.PollWork(ctx, swf.PollWorkRequest{
+				WorkerID:     "tenant-required-worker",
+				Capabilities: []string{"tenant-required-job"},
+				Limit:        1,
+			})
+			if err == nil {
+				t.Fatal("expected PollWork without tenantId to fail")
+			}
+		})
+	}
+}
+
 func TestWorkflowRuntimeConflictBehaviorAcrossBuiltInRuntimes(t *testing.T) {
 	for _, harness := range swftest.BuiltInRuntimeHarnesses() {
 		harness := harness
@@ -416,7 +440,7 @@ func TestWorkflowRuntimeConflictBehaviorAcrossBuiltInRuntimes(t *testing.T) {
 
 				handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
 					Job: swf.SubmitJob{
-						TenantId: "tenant-runtime-conflict-" + harness.Name,
+						TenantId: built.WorkerTenantID,
 						JobType:  "manual-storage",
 						Data:     swftest.NumberTaskData(1),
 					},
@@ -485,7 +509,7 @@ func TestWorkflowRuntimeConflictBehaviorAcrossBuiltInRuntimes(t *testing.T) {
 				defer cancel()
 
 				jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
-					TenantId: "tenant-runtime-wait-conflict-" + harness.Name,
+					TenantId: built.WorkerTenantID,
 					JobType:  swftest.SequenceJobName,
 					Data:     swftest.NumberTaskData(1),
 				})
@@ -550,7 +574,7 @@ func TestWorkflowRuntimeExplicitJobIDIdempotencyAcrossBuiltInRuntimes(t *testing
 
 			submitReq := swf.SubmitJobRequest{
 				Job: swf.SubmitJob{
-					TenantId: "tenant-explicit-id-" + harness.Name,
+					TenantId: built.WorkerTenantID,
 					JobID:    "explicit-id-job",
 					JobType:  swftest.SequenceJobName,
 					Data:     swftest.NumberTaskData(1),
@@ -582,7 +606,7 @@ func TestWorkflowRuntimeExplicitJobIDIdempotencyAcrossBuiltInRuntimes(t *testing
 			}
 
 			originalKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
-				TenantId: "tenant-explicit-restart-" + harness.Name,
+				TenantId: built.WorkerTenantID,
 				JobID:    "explicit-restart-source",
 				JobType:  swftest.SequenceJobName,
 				Data:     swftest.NumberTaskData(1),
@@ -639,7 +663,7 @@ func TestWorkflowRuntimeExplicitJobIDDuplicateSubmitStatePreservingAcrossBuiltIn
 
 				req := swf.SubmitJobRequest{
 					Job: swf.SubmitJob{
-						TenantId: "tenant-explicit-ready-" + harness.Name,
+						TenantId: built.WorkerTenantID,
 						JobID:    "explicit-state-ready",
 						JobType:  "ready-job",
 						Data:     swftest.NumberTaskData(1),
@@ -693,7 +717,7 @@ func TestWorkflowRuntimeExplicitJobIDDuplicateSubmitStatePreservingAcrossBuiltIn
 
 				req := swf.SubmitJobRequest{
 					Job: swf.SubmitJob{
-						TenantId: "tenant-explicit-active-" + harness.Name,
+						TenantId: built.WorkerTenantID,
 						JobID:    "explicit-state-active",
 						JobType:  ws.JobWorker.Name(),
 						Data:     swftest.NumberTaskData(1),
@@ -749,7 +773,7 @@ func TestWorkflowRuntimeExplicitJobIDDuplicateSubmitStatePreservingAcrossBuiltIn
 
 				req := swf.SubmitJobRequest{
 					Job: swf.SubmitJob{
-						TenantId: "tenant-explicit-terminal-" + harness.Name,
+						TenantId: built.WorkerTenantID,
 						JobID:    "explicit-state-terminal",
 						JobType:  ws.JobWorker.Name(),
 						Data:     swftest.NumberTaskData(9),
@@ -861,7 +885,7 @@ func TestWorkflowRuntimeExplicitJobIDConflictClassesAcrossBuiltInRuntimes(t *tes
 					defer cancel()
 
 					base := swf.SubmitJob{
-						TenantId:  "tenant-explicit-shape-" + harness.Name,
+						TenantId:  built.WorkerTenantID,
 						JobID:     "explicit-shape-" + tc.name,
 						JobType:   "shape-base",
 						Data:      swftest.NumberTaskData(1),
@@ -995,7 +1019,7 @@ func TestWorkflowRuntimePollWorkMetadataFilteringAcrossBuiltInRuntimes(t *testin
 
 			matching, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
 				Job: swf.SubmitJob{
-					TenantId: "tenant-metadata-" + harness.Name,
+					TenantId: built.WorkerTenantID,
 					JobID:    "metadata-blue-" + harness.Name,
 					JobType:  "metadata-job",
 					Data:     swftest.NumberTaskData(11),
@@ -1008,7 +1032,7 @@ func TestWorkflowRuntimePollWorkMetadataFilteringAcrossBuiltInRuntimes(t *testin
 			}
 			if _, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
 				Job: swf.SubmitJob{
-					TenantId: "tenant-metadata-" + harness.Name,
+					TenantId: built.WorkerTenantID,
 					JobID:    "metadata-green-" + harness.Name,
 					JobType:  "metadata-job",
 					Data:     swftest.NumberTaskData(13),
@@ -1020,6 +1044,7 @@ func TestWorkflowRuntimePollWorkMetadataFilteringAcrossBuiltInRuntimes(t *testin
 			}
 
 			leases, err := built.Runtime.PollWork(ctx, swf.PollWorkRequest{
+				TenantId:      matching.JobKey.TenantId,
 				WorkerID:      "metadata-worker",
 				Capabilities:  []string{"metadata-job"},
 				Limit:         1,
@@ -1043,6 +1068,7 @@ func TestWorkflowRuntimePollWorkMetadataFilteringAcrossBuiltInRuntimes(t *testin
 			}
 
 			misses, err := built.Runtime.PollWork(ctx, swf.PollWorkRequest{
+				TenantId:     matching.JobKey.TenantId,
 				WorkerID:     "metadata-worker",
 				Capabilities: []string{"metadata-job"},
 				Limit:        1,
@@ -1073,7 +1099,7 @@ func TestWorkflowRuntimeGetJobLeaseAcrossBuiltInRuntimes(t *testing.T) {
 
 			handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
 				Job: swf.SubmitJob{
-					TenantId: "tenant-targeted-" + harness.Name,
+					TenantId: built.WorkerTenantID,
 					JobID:    "targeted-job-" + harness.Name,
 					JobType:  "targeted-job",
 					Data:     swftest.NumberTaskData(5),
@@ -1148,7 +1174,7 @@ func TestGetJobForRunAcrossBuiltInRuntimes(t *testing.T) {
 
 				handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
 					Job: swf.SubmitJob{
-						TenantId: "tenant-run-job-complete-" + harness.Name,
+						TenantId: built.WorkerTenantID,
 						JobID:    "run-job-complete-" + harness.Name,
 						JobType:  swftest.SequenceJobName,
 						Data:     swftest.NumberTaskData(7),
@@ -1221,7 +1247,7 @@ func TestGetJobForRunAcrossBuiltInRuntimes(t *testing.T) {
 
 				handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
 					Job: swf.SubmitJob{
-						TenantId: "tenant-run-job-fail-" + harness.Name,
+						TenantId: built.WorkerTenantID,
 						JobID:    "run-job-fail-" + harness.Name,
 						JobType:  swftest.FailingJobName,
 						Data:     swftest.NumberTaskData(1),
@@ -1265,7 +1291,7 @@ func TestGetJobForRunAcrossBuiltInRuntimes(t *testing.T) {
 
 				handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
 					Job: swf.SubmitJob{
-						TenantId: "tenant-run-job-suspended-" + harness.Name,
+						TenantId: built.WorkerTenantID,
 						JobID:    "run-job-suspended-" + harness.Name,
 						JobType:  swftest.SequenceJobName,
 						Data:     swftest.NumberTaskData(3),
@@ -1313,7 +1339,7 @@ func TestGetJobForRunAcrossBuiltInRuntimes(t *testing.T) {
 
 				handle, err := built.Runtime.SubmitJob(ctx, swf.SubmitJobRequest{
 					Job: swf.SubmitJob{
-						TenantId: "tenant-run-job-active-" + harness.Name,
+						TenantId: built.WorkerTenantID,
 						JobID:    "run-job-active-" + harness.Name,
 						JobType:  swftest.SequenceJobName,
 						Data:     swftest.NumberTaskData(9),

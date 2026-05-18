@@ -35,6 +35,7 @@ func (r *pollTrackingRuntime) PollWork(ctx context.Context, req PollWorkRequest)
 	r.mu.Lock()
 	r.workerIDs = append(r.workerIDs, req.WorkerID)
 	r.requests = append(r.requests, PollWorkRequest{
+		TenantId:       req.TenantId,
 		WorkerID:       req.WorkerID,
 		Capabilities:   append([]string(nil), req.Capabilities...),
 		Limit:          req.Limit,
@@ -75,6 +76,7 @@ func (r *pollTrackingRuntime) seenRequests() []PollWorkRequest {
 	out := make([]PollWorkRequest, 0, len(r.requests))
 	for _, req := range r.requests {
 		out = append(out, PollWorkRequest{
+			TenantId:       req.TenantId,
 			WorkerID:       req.WorkerID,
 			Capabilities:   append([]string(nil), req.Capabilities...),
 			Limit:          req.Limit,
@@ -129,7 +131,7 @@ func TestWorkerEngineSerializesPollsAndUsesDistinctWorkerIDs(t *testing.T) {
 		started: started,
 		release: release,
 	})
-	engine, err := newWorkerEngine(runtime, []WorkSet{*ws}, RuntimeBuildOptions{MaxActive: 2})
+	engine, err := newWorkerEngine(runtime, []WorkSet{*ws}, RuntimeBuildOptions{MaxActive: 2, PollTenantId: "tenant-a"})
 	if err != nil {
 		t.Fatalf("build worker engine: %v", err)
 	}
@@ -190,7 +192,7 @@ func TestWorkerEngineBuildsPollGroupsFromWorksetMetadataFilters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("green workset: %v", err)
 	}
-	engineAPI, err := newWorkerEngine(runtime, []WorkSet{*wsBlue, *wsGreen}, RuntimeBuildOptions{})
+	engineAPI, err := newWorkerEngine(runtime, []WorkSet{*wsBlue, *wsGreen}, RuntimeBuildOptions{PollTenantId: "tenant-a"})
 	if err != nil {
 		t.Fatalf("build worker engine: %v", err)
 	}

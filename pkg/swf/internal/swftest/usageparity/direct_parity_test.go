@@ -24,7 +24,7 @@ func TestDirectGetJobRunRetryRepresentationParity(t *testing.T) {
 				ws := swftest.MustWorkSet(t, job)
 				return observeViaMode(t, harness, mode, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) normalizedJobRun {
 					jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
-						TenantId: "tenant-job-run-job-" + harness.Name,
+						TenantId: subject.built.WorkerTenantID,
 						JobType:  job.Name(),
 						JobID:    "job-retry-shape",
 						Data:     swftest.NumberTaskData(1),
@@ -61,7 +61,7 @@ func TestDirectGetJobRunRetryRepresentationParity(t *testing.T) {
 				ws := swftest.MustWorkSet(t, job, task)
 				return observeViaMode(t, harness, mode, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) normalizedJobRun {
 					jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
-						TenantId: "tenant-job-run-task-" + harness.Name,
+						TenantId: subject.built.WorkerTenantID,
 						JobType:  job.Name(),
 						JobID:    "task-retry-shape",
 						Data:     swftest.NumberTaskData(1),
@@ -105,7 +105,7 @@ func TestDirectGetJobRunSynthesizedNextAttemptParity(t *testing.T) {
 				ws := swftest.MustWorkSet(t, job)
 				return observeViaMode(t, harness, mode, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) normalizedJobRun {
 					jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
-						TenantId: "tenant-synth-next-" + harness.Name,
+						TenantId: subject.built.WorkerTenantID,
 						JobType:  job.Name(),
 						JobID:    "synth-next",
 						Data:     swftest.NumberTaskData(1),
@@ -159,7 +159,7 @@ func TestDirectRestartWithExtraOutputDeterminismErrorParity(t *testing.T) {
 				return observeViaMode(t, harness, mode, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) errorObservation {
 					origInput := swf.NewTaskDataOrPanic(map[string]string{"hello": "world"})
 					jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
-						TenantId: "tenant-restart-extra-" + harness.Name,
+						TenantId: subject.built.WorkerTenantID,
 						JobType:  ws.JobWorker.Name(),
 						JobID:    "restart-extra-base",
 						Data:     origInput,

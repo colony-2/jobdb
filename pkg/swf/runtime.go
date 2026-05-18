@@ -40,6 +40,7 @@ type RuntimeBuildOptions struct {
 	Logger                *slog.Logger
 	MaxActive             int
 	AwaitRecycleThreshold time.Duration
+	PollTenantId          string
 }
 
 // JobHandle identifies a job owned by a runtime implementation.
@@ -79,7 +80,7 @@ type CancelJobRequest struct {
 }
 
 type PollWorkRequest struct {
-	TenantIds      []string
+	TenantId       string
 	WorkerID       string
 	Capabilities   []string
 	Limit          int

@@ -17,6 +17,7 @@ type workerEngine struct {
 	workerID       string
 	maxActive      int
 	awaitThreshold time.Duration
+	pollTenantId   string
 
 	mu           sync.RWMutex
 	workers      map[string]*WorkSet
@@ -34,6 +35,9 @@ func newWorkerEngine(runtime WorkflowRuntime, workers []WorkSet, opts RuntimeBui
 	if err != nil {
 		return nil, err
 	}
+	if len(workers) > 0 && opts.PollTenantId == "" {
+		return nil, fmt.Errorf("worker poll tenantId is required when workers are registered")
+	}
 	logger := opts.Logger
 	if logger == nil {
 		logger = slog.Default()
@@ -44,6 +48,7 @@ func newWorkerEngine(runtime WorkflowRuntime, workers []WorkSet, opts RuntimeBui
 		workerID:       workerID,
 		maxActive:      opts.MaxActive,
 		awaitThreshold: opts.AwaitRecycleThreshold,
+		pollTenantId:   opts.PollTenantId,
 		workers:        make(map[string]*WorkSet),
 	}
 	for i := range workers {
@@ -64,6 +69,9 @@ func (e *workerEngine) RegisterWorkers(workset *WorkSet) error {
 	jobType := workset.JobWorker.Name()
 	if _, ok := e.workers[jobType]; ok {
 		return fmt.Errorf("worker %s already registered", jobType)
+	}
+	if e.pollTenantId == "" {
+		return fmt.Errorf("worker poll tenantId is required when workers are registered")
 	}
 	clone := *workset
 	predicates, err := MetadataPredicates(clone.Options.MetadataFilter)
@@ -225,6 +233,7 @@ func (e *workerEngine) Run(ctx context.Context) {
 		hadPollError := false
 		for _, group := range e.pollGroupsSnapshot() {
 			leases, err := e.runtime.PollWork(ctx, PollWorkRequest{
+				TenantId:       e.pollTenantId,
 				WorkerID:       workerID,
 				Capabilities:   group.capabilities,
 				Limit:          1,

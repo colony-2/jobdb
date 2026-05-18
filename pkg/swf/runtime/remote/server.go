@@ -1,9 +1,12 @@
 package remote
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -59,7 +62,33 @@ func NewServer(runtime swf.WorkflowRuntime) http.Handler {
 		},
 	})
 	router := chi.NewRouter()
-	return runtimeapi.HandlerFromMux(strict, router)
+	handler := runtimeapi.HandlerFromMux(strict, router)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/jobs/poll" {
+			if err := rejectLegacyPollWorkFields(r); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+		handler.ServeHTTP(w, r)
+	})
+}
+
+func rejectLegacyPollWorkFields(r *http.Request) error {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return err
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+
+	fields := make(map[string]json.RawMessage)
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return nil
+	}
+	if _, ok := fields["tenantIds"]; ok {
+		return fmt.Errorf("tenantIds is not supported; use tenantId")
+	}
+	return nil
 }
 
 func (s *proxyServer) PollWork(ctx context.Context, request runtimeapi.PollWorkRequestObject) (runtimeapi.PollWorkResponseObject, error) {
@@ -67,13 +96,14 @@ func (s *proxyServer) PollWork(ctx context.Context, request runtimeapi.PollWorkR
 		return nil, badRequest("poll work body is required")
 	}
 	req := swf.PollWorkRequest{
+		TenantId:      request.Body.TenantId,
 		WorkerID:      request.Body.WorkerId,
 		Capabilities:  append([]string(nil), request.Body.Capabilities...),
 		Limit:         request.Body.Limit,
 		LongPollUntil: request.Body.LongPollUntil,
 	}
-	if request.Body.TenantIds != nil {
-		req.TenantIds = append([]string(nil), (*request.Body.TenantIds)...)
+	if req.TenantId == "" {
+		return nil, badRequest("tenantId is required")
 	}
 	var err error
 	req.LeaseDuration, err = fromAPIDurationPointer(request.Body.LeaseDuration)

@@ -67,7 +67,7 @@ func TestArtifactCleanupAfterUpload(t *testing.T) {
 
 		// Build engine with the job and task worker
 		engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
-			b.PlusWorkers(jobWorker, taskWorker)
+			b.WithWorkerTenantId("test-tenant").PlusWorkers(jobWorker, taskWorker)
 		})
 
 		// Run engine in background
@@ -155,7 +155,7 @@ func TestArtifactCleanupAfterUpload(t *testing.T) {
 
 		// Build engine with the job and task worker
 		engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
-			b.PlusWorkers(jobWorker, taskWorker)
+			b.WithWorkerTenantId("test-tenant").PlusWorkers(jobWorker, taskWorker)
 		})
 
 		// Run engine in background
@@ -215,7 +215,7 @@ func TestArtifactCleanupAfterUpload(t *testing.T) {
 		}
 
 		engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
-			b.PlusWorkers(jobWorker, taskWorker)
+			b.WithWorkerTenantId("test-tenant").PlusWorkers(jobWorker, taskWorker)
 		})
 
 		go engine.Run(ctx)

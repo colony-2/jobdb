@@ -60,7 +60,7 @@ func TestArtifactStorageOnTaskError(t *testing.T) {
 
 		// Build engine with the job and task worker
 		engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
-			b.PlusWorkers(jobWorker, taskWorker)
+			b.WithWorkerTenantId("test-tenant").PlusWorkers(jobWorker, taskWorker)
 		})
 
 		// Run engine in background
@@ -142,7 +142,7 @@ func TestArtifactStorageOnTaskError(t *testing.T) {
 
 		// Build engine with retry policy
 		engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
-			b.PlusWorkers(jobWorker, taskWorker)
+			b.WithWorkerTenantId("test-tenant").PlusWorkers(jobWorker, taskWorker)
 		})
 
 		// Run engine in background
@@ -229,7 +229,7 @@ func TestArtifactStorageOnJobError(t *testing.T) {
 
 		// Build engine
 		engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
-			b.PlusWorkers(jobWorker)
+			b.WithWorkerTenantId("test-tenant").PlusWorkers(jobWorker)
 		})
 
 		// Run engine in background

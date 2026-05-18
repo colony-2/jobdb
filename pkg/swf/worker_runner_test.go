@@ -1114,7 +1114,7 @@ func TestReplayObserverUsesCachedChapterTimes(t *testing.T) {
 		t.Fatalf("do job: %v", err)
 	}
 
-	engine, err := newWorkerEngine(runtime, []WorkSet{*ws}, RuntimeBuildOptions{})
+	engine, err := newWorkerEngine(runtime, []WorkSet{*ws}, RuntimeBuildOptions{PollTenantId: jobKey.TenantId})
 	if err != nil {
 		t.Fatalf("new worker engine: %v", err)
 	}

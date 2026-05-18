@@ -72,6 +72,7 @@ func StartEmbeddedEngine(ctx context.Context, job swf.JobWorker, tasks ...swf.Ta
 		WithLogger(slog.Default()).
 		WithMaxActive(100)
 	if job != nil {
+		b.WithWorkerTenantId("default")
 		b.PlusWorkers(job, tasks...)
 	}
 	engine, err := b.BuildEngine()

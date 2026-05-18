@@ -27,13 +27,13 @@ func TestJobsEventuallyComplete(t *testing.T) {
 	defer strata.Shutdown()
 	waitForStrataReady(t, baseURL)
 
+	tenantID := "job-status-tenant"
 	engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
-		b.PlusWorkers(statusJobWorker{}, statusTaskWorker{})
+		b.WithWorkerTenantId(tenantID).PlusWorkers(statusJobWorker{}, statusTaskWorker{})
 	})
 
 	go engine.Run(ctx)
 
-	tenantID := "job-status-tenant"
 	jobInputs := []int{1, 2, 3}
 	jobKeys := make([]swf.JobKey, 0, len(jobInputs))
 	for _, n := range jobInputs {

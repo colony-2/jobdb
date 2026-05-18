@@ -37,7 +37,7 @@ func TestEngineAndRuntimeConstructionParityAcrossBuiltInRuntimes(t *testing.T) {
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) lifecycleObservation {
 				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
-					TenantId: "tenant-construction-" + harness.Name,
+					TenantId: subject.built.WorkerTenantID,
 					JobType:  swftest.SequenceJobName,
 					JobID:    "construction-parity",
 					Data:     swftest.NumberTaskData(1),
@@ -95,7 +95,7 @@ func TestGeneratedJobIDConstructionParityAcrossBuiltInRuntimes(t *testing.T) {
 		t.Run(harness.Name, func(t *testing.T) {
 			engineObs := observeViaMode(t, harness, engineMode, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) generatedStartObservation {
 				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
-					TenantId: "tenant-generated-" + harness.Name,
+					TenantId: subject.built.WorkerTenantID,
 					JobType:  swftest.SequenceJobName,
 					Data:     swftest.NumberTaskData(2),
 				})
@@ -121,7 +121,7 @@ func TestGeneratedJobIDConstructionParityAcrossBuiltInRuntimes(t *testing.T) {
 			})
 			runtimeObs := observeViaMode(t, harness, runtimeMode, []swf.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) generatedStartObservation {
 				jobKey, err := subject.SubmitJob(ctx, swf.SubmitJob{
-					TenantId: "tenant-generated-" + harness.Name,
+					TenantId: subject.built.WorkerTenantID,
 					JobType:  swftest.SequenceJobName,
 					Data:     swftest.NumberTaskData(2),
 				})

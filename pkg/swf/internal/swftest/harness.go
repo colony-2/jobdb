@@ -29,9 +29,10 @@ type RuntimeHarness struct {
 }
 
 type BuiltRuntimeHarness struct {
-	Name    string
-	Runtime swf.WorkflowRuntime
-	Engine  swf.SWFEngine
+	Name           string
+	Runtime        swf.WorkflowRuntime
+	Engine         swf.SWFEngine
+	WorkerTenantID string
 
 	cancel   context.CancelFunc
 	runDone  <-chan struct{}
@@ -411,6 +412,10 @@ func newExternalRemoteHarness(t *testing.T, workers ...swf.WorkSet) *BuiltRuntim
 func buildHarness(t *testing.T, name string, runtime swf.WorkflowRuntime, startLoop bool, shutdown func(), workers ...swf.WorkSet) *BuiltRuntimeHarness {
 	t.Helper()
 	builder := swf.NewEngineBuilder().WithRuntime(runtime)
+	workerTenantID := "tenant-worker-" + name
+	if len(workers) > 0 {
+		builder.WithWorkerTenantId(workerTenantID)
+	}
 	for _, ws := range workers {
 		tasks := make([]swf.TaskWorker, 0, len(ws.TaskWorkers))
 		for _, task := range ws.TaskWorkers {
@@ -440,12 +445,13 @@ func buildHarness(t *testing.T, name string, runtime swf.WorkflowRuntime, startL
 	}
 
 	return &BuiltRuntimeHarness{
-		Name:     name,
-		Runtime:  runtime,
-		Engine:   engine,
-		cancel:   cancel,
-		runDone:  runDone,
-		shutdown: shutdown,
+		Name:           name,
+		Runtime:        runtime,
+		Engine:         engine,
+		WorkerTenantID: workerTenantID,
+		cancel:         cancel,
+		runDone:        runDone,
+		shutdown:       shutdown,
 	}
 }
 
@@ -531,8 +537,8 @@ func (r *tenantNamespacedRuntime) CancelJob(ctx context.Context, req swf.CancelJ
 }
 
 func (r *tenantNamespacedRuntime) PollWork(ctx context.Context, req swf.PollWorkRequest) ([]swf.ExecutionLease, error) {
-	if len(req.TenantIds) > 0 {
-		req.TenantIds = r.prefixTenantIDs(req.TenantIds)
+	if req.TenantId != "" {
+		req.TenantId = r.prefixTenant(req.TenantId)
 	}
 	leases, err := r.runtime.PollWork(ctx, req)
 	if err != nil {

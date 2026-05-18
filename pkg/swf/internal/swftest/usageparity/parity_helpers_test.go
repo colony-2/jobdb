@@ -115,6 +115,9 @@ type scenarioSubject struct {
 }
 
 func (s scenarioSubject) SubmitJob(ctx context.Context, start swf.SubmitJob) (swf.JobKey, error) {
+	if s.built != nil && s.built.WorkerTenantID != "" {
+		start.TenantId = s.built.WorkerTenantID
+	}
 	return s.surface.SubmitJob(ctx, start)
 }
 

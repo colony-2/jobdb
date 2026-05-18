@@ -66,16 +66,16 @@ func TestPrerequisitesSuccessAndComplete(t *testing.T) {
 	defer strata.Shutdown()
 	waitForStrataReady(t, baseURL)
 
+	tenantID := "prereq-tenant"
 	engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
-		b.PlusWorkers(prereqSuccessWorker{}).
+		b.WithWorkerTenantId(tenantID).
+			PlusWorkers(prereqSuccessWorker{}).
 			PlusWorkers(prereqFailWorker{}).
 			PlusWorkers(prereqDependentWorker{}).
 			PlusWorkers(prereqRestartJobWorker{}, prereqRestartTaskWorker{})
 	})
 
 	go engine.Run(ctx)
-
-	tenantID := "prereq-tenant"
 
 	successJobID := "prereq-success"
 	successKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
@@ -173,8 +173,10 @@ func TestRestartPrerequisitesCheckedAtRestartExtra(t *testing.T) {
 	defer strata.Shutdown()
 	waitForStrataReady(t, baseURL)
 
+	tenantID := "restart-prereq-tenant"
 	engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
-		b.PlusWorkers(prereqSuccessWorker{}).
+		b.WithWorkerTenantId(tenantID).
+			PlusWorkers(prereqSuccessWorker{}).
 			PlusWorkers(prereqFailWorker{}).
 			PlusWorkers(prereqDependentWorker{}).
 			PlusWorkers(prereqRestartJobWorker{}, prereqRestartTaskWorker{})
@@ -182,7 +184,6 @@ func TestRestartPrerequisitesCheckedAtRestartExtra(t *testing.T) {
 
 	go engine.Run(ctx)
 
-	tenantID := "restart-prereq-tenant"
 	baseInput := map[string]interface{}{"n": 1}
 	baseKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 		TenantId: tenantID,

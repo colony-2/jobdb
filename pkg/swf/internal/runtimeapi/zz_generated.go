@@ -278,9 +278,9 @@ type PollWorkRequest struct {
 	// predicate mean OR on the same field.
 	MetadataEquals *[]MetadataPredicate `json:"metadataEquals,omitempty"`
 
-	// TenantIds Optional single-tenant filter for polling. When omitted, polling spans all tenants visible to the runtime.
-	TenantIds *[]string `json:"tenantIds,omitempty"`
-	WorkerId  string    `json:"workerId"`
+	// TenantId Required tenant polling target. Polling is scoped only to this tenant.
+	TenantId string `json:"tenantId"`
+	WorkerId string `json:"workerId"`
 }
 
 // RescheduleExecutionRequest defines model for RescheduleExecutionRequest.

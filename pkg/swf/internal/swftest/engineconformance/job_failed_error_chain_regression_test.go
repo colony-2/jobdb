@@ -150,7 +150,7 @@ func TestGetJobRunOutputErrorChainComparableAcrossBuiltInRuntimes(t *testing.T) 
 				defer cancel()
 
 				jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
-					TenantId: "tenant-job-failed-chain-" + harness.Name + "-" + tc.name,
+					TenantId: built.WorkerTenantID,
 					JobType:  parent.Name(),
 					JobID:    "parent",
 					Data:     swftest.NumberTaskData(1),

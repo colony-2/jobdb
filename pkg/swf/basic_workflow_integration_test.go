@@ -36,11 +36,11 @@ func TestBasicWorkflowIntegration(t *testing.T) {
 	logger := slog.New(logCapture)
 
 	engine1 := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
-		b.WithLogger(logger).PlusWorkers(pipeJob{}, addOneTask{})
+		b.WithLogger(logger).WithWorkerTenantId(tenantID).PlusWorkers(pipeJob{}, addOneTask{})
 	})
 
 	engine2 := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
-		b.WithLogger(logger).PlusWorkers(pipeJob{}, doubleTask{})
+		b.WithLogger(logger).WithWorkerTenantId(tenantID).PlusWorkers(pipeJob{}, doubleTask{})
 	})
 
 	go engine1.Run(ctx)

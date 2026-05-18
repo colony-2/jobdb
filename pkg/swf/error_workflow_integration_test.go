@@ -41,14 +41,14 @@ func TestTaskErrorsAreEnvelopedAndReturned(t *testing.T) {
 
 			jobWorker := singleTaskJob{taskType: "err_task"}
 			taskWorker := errorTaskWorker{err: tt.taskErr}
+			tenantID := "tenant-task-" + tt.name
 
 			engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
-				b.PlusWorkers(jobWorker, taskWorker)
+				b.WithWorkerTenantId(tenantID).PlusWorkers(jobWorker, taskWorker)
 			})
 
 			go engine.Run(ctx)
 
-			tenantID := "tenant-task-" + tt.name
 			jobKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 				TenantId: tenantID,
 				JobType:  jobWorker.Name(),
@@ -110,14 +110,14 @@ func TestJobErrorsAreEnvelopedAndReturned(t *testing.T) {
 			waitForStrataReady(t, baseURL)
 
 			jobWorker := errorJobWorker{err: tt.jobErr}
+			tenantID := "tenant-job-" + tt.name
 
 			engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
-				b.PlusWorkers(jobWorker)
+				b.WithWorkerTenantId(tenantID).PlusWorkers(jobWorker)
 			})
 
 			go engine.Run(ctx)
 
-			tenantID := "tenant-job-" + tt.name
 			jobKey, err := engine.SubmitJob(ctx, swf.SubmitJob{
 				TenantId: tenantID,
 				JobType:  jobWorker.Name(),

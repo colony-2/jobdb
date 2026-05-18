@@ -119,6 +119,7 @@ func TestBuildEngineWithWorkflowRuntime(t *testing.T) {
 		WithLogger(logger).
 		WithMaxActive(17).
 		WithAwaitRecycleThreshold(9 * time.Second).
+		WithWorkerTenantId("tenant-a").
 		PlusWorkers(fakeJobWorker{}).
 		BuildEngine()
 	if err != nil {
@@ -161,7 +162,7 @@ func TestRuntimeEngineDelegatesLifecycleMethodsToRuntime(t *testing.T) {
 			},
 		},
 	}
-	engine, err := NewEngineBuilder().WithRuntime(runtime).PlusWorkers(fakeJobWorker{}).BuildEngine()
+	engine, err := NewEngineBuilder().WithRuntime(runtime).WithWorkerTenantId("tenant-a").PlusWorkers(fakeJobWorker{}).BuildEngine()
 	if err != nil {
 		t.Fatalf("build engine: %v", err)
 	}
@@ -268,7 +269,7 @@ func TestRuntimeEngineDelegatesWaitingTaskMethodsToRuntime(t *testing.T) {
 			Data:        json.RawMessage(`{"value":1}`),
 		},
 	}
-	engine, err := NewEngineBuilder().WithRuntime(runtime).PlusWorkers(fakeJobWorker{}).BuildEngine()
+	engine, err := NewEngineBuilder().WithRuntime(runtime).WithWorkerTenantId("tenant-x").PlusWorkers(fakeJobWorker{}).BuildEngine()
 	if err != nil {
 		t.Fatalf("build engine: %v", err)
 	}
@@ -329,7 +330,7 @@ func TestRuntimeEngineDelegatesGetJobLeaseToRuntime(t *testing.T) {
 		payload:    json.RawMessage(`{"ok":true}`),
 	}
 	runtime := &fakeWorkflowRuntime{leaseResp: lease}
-	engine, err := NewEngineBuilder().WithRuntime(runtime).PlusWorkers(fakeJobWorker{}).BuildEngine()
+	engine, err := NewEngineBuilder().WithRuntime(runtime).WithWorkerTenantId("tenant-lease").PlusWorkers(fakeJobWorker{}).BuildEngine()
 	if err != nil {
 		t.Fatalf("build engine: %v", err)
 	}
@@ -367,7 +368,7 @@ func TestRuntimeEngineLoadsArtifactsThroughRuntimeStorage(t *testing.T) {
 		},
 		artifactBytes: []byte("artifact"),
 	}
-	engine, err := NewEngineBuilder().WithRuntime(runtime).PlusWorkers(fakeJobWorker{}).BuildEngine()
+	engine, err := NewEngineBuilder().WithRuntime(runtime).WithWorkerTenantId("tenant-artifact").PlusWorkers(fakeJobWorker{}).BuildEngine()
 	if err != nil {
 		t.Fatalf("build engine: %v", err)
 	}

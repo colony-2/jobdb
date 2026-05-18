@@ -101,6 +101,7 @@ func main() {
         WithPostgresDSN("postgres://user:pass@localhost/db").
         WithStrata("http://strata-server:8080").
         WithStrataAPIKey("your-api-key").
+        WithWorkerTenantId("my-tenant").
         PlusWorkers(DataProcessingJob{}, ValidateTask{}, TransformTask{}).
         Build(impl.Builder)
     if err != nil {
@@ -599,7 +600,7 @@ engine, err := builder.Build(impl.Builder)
 Workers can also be registered after the engine has started:
 
 ```go
-// Engine is already running
+// Engine was built with WithWorkerTenantId("my-tenant") and is already running.
 go engine.Run(ctx)
 
 // Create a workset
@@ -645,6 +646,10 @@ go engine.Run(ctx)
 // ... do work ...
 cancel() // Gracefully stop the engine
 ```
+
+Engines with registered workers must be built with `WithWorkerTenantId`.
+The worker loop polls only that tenant; run a separate engine for another
+tenant.
 
 ## Best Practices
 

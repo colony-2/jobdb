@@ -228,7 +228,7 @@ func TestArtifactPassthroughAcrossBuiltInRuntimes(t *testing.T) {
 			defer cancel()
 
 			jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
-				TenantId: "tenant-artifact-passthrough-" + harness.Name,
+				TenantId: built.WorkerTenantID,
 				JobType:  ws.JobWorker.Name(),
 				JobID:    "artifact-passthrough",
 				Data:     swftest.NumberTaskData(1),
@@ -292,7 +292,7 @@ func TestAwaitFailedChildReplayAcrossBuiltInRuntimes(t *testing.T) {
 			defer cancel()
 
 			childKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
-				TenantId: "tenant-await-failed-child-" + harness.Name,
+				TenantId: built.WorkerTenantID,
 				JobType:  child.Name(),
 				JobID:    parent.childID,
 				Data:     swftest.NumberTaskData(1),
@@ -370,7 +370,7 @@ func TestToyAwaitFailedChildViaGetJobRunOutputCompletes(t *testing.T) {
 	defer cancel()
 
 	parentKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
-		TenantId: "tenant-await-failed-child-run-output",
+		TenantId: built.WorkerTenantID,
 		JobType:  parent.Name(),
 		JobID:    "parent-await-failed-child-run-output",
 		Data:     swftest.NumberTaskData(1),
@@ -427,7 +427,7 @@ func TestGetJobRunOutputErrorShapeStableAcrossBuiltInRuntimes(t *testing.T) {
 			defer cancel()
 
 			jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
-				TenantId:  "tenant-job-run-output-shape-" + harness.Name,
+				TenantId:  built.WorkerTenantID,
 				JobType:   parent.Name(),
 				Data:      swftest.NumberTaskData(1),
 				RunPolicy: swf.DefaultRunPolicy(),
@@ -479,7 +479,7 @@ func TestToyGetJobRunIncludesFailedTaskAttemptForChildOutputFailure(t *testing.T
 	defer cancel()
 
 	jobKey, err := built.Engine.SubmitJob(ctx, swf.SubmitJob{
-		TenantId:  "tenant-toy-run-projection",
+		TenantId:  built.WorkerTenantID,
 		JobType:   parent.Name(),
 		Data:      swftest.NumberTaskData(1),
 		RunPolicy: swf.DefaultRunPolicy(),

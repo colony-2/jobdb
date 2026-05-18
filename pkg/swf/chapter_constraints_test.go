@@ -26,7 +26,7 @@ func TestChapterConstraintsAcrossEngines(t *testing.T) {
 			name: "toy",
 			setupEngine: func(t *testing.T) (swf.SWFEngine, func()) {
 				engine, cancel := buildToyEngine(t, func(b *swf.EngineBuilder) {
-					b.PlusWorkers(&deterministicJob{}, &incrementTask{})
+					b.WithWorkerTenantId("test-tenant").PlusWorkers(&deterministicJob{}, &incrementTask{})
 				})
 				return engine, func() { cancel() }
 			},
@@ -48,7 +48,7 @@ func TestChapterConstraintsAcrossEngines(t *testing.T) {
 				logCapture := newCaptureHandler()
 				logger := slog.New(logCapture)
 				engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *swf.EngineBuilder) {
-					b.WithLogger(logger).PlusWorkers(&deterministicJob{}, &incrementTask{})
+					b.WithLogger(logger).WithWorkerTenantId("test-tenant").PlusWorkers(&deterministicJob{}, &incrementTask{})
 				})
 
 				cleanup := func() {

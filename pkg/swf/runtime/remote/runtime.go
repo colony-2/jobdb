@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -19,10 +18,6 @@ import (
 type Runtime struct {
 	raw    *runtimeapi.Client
 	client *runtimeapi.ClientWithResponses
-
-	mu           sync.Mutex
-	knownTenants map[string]struct{}
-	pollCursor   int
 }
 
 func New(baseURL string, httpClient *http.Client) (*Runtime, error) {
@@ -39,9 +34,8 @@ func New(baseURL string, httpClient *http.Client) (*Runtime, error) {
 		return nil, err
 	}
 	return &Runtime{
-		raw:          raw,
-		client:       client,
-		knownTenants: make(map[string]struct{}),
+		raw:    raw,
+		client: client,
 	}, nil
 }
 
@@ -80,9 +74,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req swf.SubmitJobRequest) (swf.
 		if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 			return swf.JobHandle{}, explicitJobCreateError("put job", resp.StatusCode(), resp.Body, resp.JSON409)
 		}
-		handle := fromAPIJobHandle(*resp.JSON200)
-		r.rememberTenant(handle.JobKey.TenantId)
-		return handle, nil
+		return fromAPIJobHandle(*resp.JSON200), nil
 	}
 	resp, err := r.client.SubmitJobWithResponse(ctx, req.Job.TenantId, body)
 	if err != nil {
@@ -91,9 +83,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req swf.SubmitJobRequest) (swf.
 	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 		return swf.JobHandle{}, responseError("submit job", resp.StatusCode(), resp.Body, nil)
 	}
-	handle := fromAPIJobHandle(*resp.JSON200)
-	r.rememberTenant(handle.JobKey.TenantId)
-	return handle, nil
+	return fromAPIJobHandle(*resp.JSON200), nil
 }
 
 func (r *Runtime) SubmitRestartJob(ctx context.Context, req swf.SubmitRestartJobRequest) (swf.JobHandle, error) {
@@ -131,9 +121,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req swf.SubmitRestartJob
 		if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 			return swf.JobHandle{}, explicitJobCreateError("put restart job", resp.StatusCode(), resp.Body, resp.JSON409)
 		}
-		handle := fromAPIJobHandle(*resp.JSON200)
-		r.rememberTenant(handle.JobKey.TenantId)
-		return handle, nil
+		return fromAPIJobHandle(*resp.JSON200), nil
 	}
 	resp, err := r.client.SubmitRestartJobWithResponse(ctx, req.Job.PriorJobKey.TenantId, body)
 	if err != nil {
@@ -142,9 +130,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req swf.SubmitRestartJob
 	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 		return swf.JobHandle{}, responseError("submit restart job", resp.StatusCode(), resp.Body, nil)
 	}
-	handle := fromAPIJobHandle(*resp.JSON200)
-	r.rememberTenant(handle.JobKey.TenantId)
-	return handle, nil
+	return fromAPIJobHandle(*resp.JSON200), nil
 }
 
 func (r *Runtime) CancelJob(ctx context.Context, req swf.CancelJobRequest) error {
@@ -162,22 +148,8 @@ func (r *Runtime) CancelJob(ctx context.Context, req swf.CancelJobRequest) error
 }
 
 func (r *Runtime) PollWork(ctx context.Context, req swf.PollWorkRequest) ([]swf.ExecutionLease, error) {
-	if len(req.TenantIds) > 1 {
-		return nil, fmt.Errorf("at most one tenantId may be supplied for PollWork")
-	}
-	if len(req.TenantIds) == 1 && req.TenantIds[0] == "" {
-		return nil, fmt.Errorf("tenantId must be non-empty when supplied for PollWork")
-	}
-	if len(req.TenantIds) == 0 {
-		known := r.knownTenantOrder()
-		if len(known) == 0 {
-			// Some runtimes intentionally reject tenant-less polling. When the
-			// client has not yet observed any tenant IDs, treat that as "no work
-			// known yet" rather than sending an invalid request and triggering
-			// worker-loop backoff.
-			return nil, nil
-		}
-		return r.pollWorkKnownTenants(ctx, req, known)
+	if req.TenantId == "" {
+		return nil, fmt.Errorf("tenantId is required for PollWork")
 	}
 	return r.pollWorkOnce(ctx, req)
 }
@@ -188,16 +160,13 @@ func (r *Runtime) pollWorkOnce(ctx context.Context, req swf.PollWorkRequest) ([]
 		return nil, err
 	}
 	body := runtimeapi.PollWorkRequest{
+		TenantId:       req.TenantId,
 		WorkerId:       req.WorkerID,
 		Capabilities:   append([]string(nil), req.Capabilities...),
 		Limit:          req.Limit,
 		LongPollUntil:  req.LongPollUntil,
 		LeaseDuration:  toAPIDurationPointer(req.LeaseDuration),
 		MetadataEquals: metadataEquals,
-	}
-	if len(req.TenantIds) == 1 {
-		tenantIDs := append([]string(nil), req.TenantIds...)
-		body.TenantIds = &tenantIDs
 	}
 	resp, err := r.client.PollWorkWithResponse(ctx, body)
 	if err != nil {
@@ -217,28 +186,6 @@ func (r *Runtime) pollWorkOnce(ctx context.Context, req swf.PollWorkRequest) ([]
 	return out, nil
 }
 
-func (r *Runtime) pollWorkKnownTenants(ctx context.Context, req swf.PollWorkRequest, tenants []string) ([]swf.ExecutionLease, error) {
-	var firstErr error
-	for _, tenantID := range tenants {
-		pollReq := req
-		pollReq.TenantIds = []string{tenantID}
-		leases, err := r.pollWorkOnce(ctx, pollReq)
-		if err != nil {
-			if firstErr == nil {
-				firstErr = err
-			}
-			continue
-		}
-		if len(leases) > 0 {
-			return leases, nil
-		}
-	}
-	if firstErr != nil {
-		return nil, firstErr
-	}
-	return nil, nil
-}
-
 func (r *Runtime) GetJobLease(ctx context.Context, req swf.GetJobLeaseRequest) (swf.ExecutionLease, error) {
 	resp, err := r.client.GetJobLeaseWithResponse(ctx, req.JobKey.TenantId, req.JobKey.JobId, runtimeapi.GetJobLeaseRequest{
 		Capabilities:  append([]string(nil), req.Capabilities...),
@@ -254,36 +201,7 @@ func (r *Runtime) GetJobLease(ctx context.Context, req swf.GetJobLeaseRequest) (
 	if resp.JSON200.Lease == nil {
 		return nil, nil
 	}
-	r.rememberTenant(req.JobKey.TenantId)
 	return r.executionLeaseFromAPI(*resp.JSON200.Lease)
-}
-
-func (r *Runtime) rememberTenant(tenantID string) {
-	if tenantID == "" {
-		return
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.knownTenants[tenantID] = struct{}{}
-}
-
-func (r *Runtime) knownTenantOrder() []string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if len(r.knownTenants) == 0 {
-		return nil
-	}
-	tenants := make([]string, 0, len(r.knownTenants))
-	for tenantID := range r.knownTenants {
-		tenants = append(tenants, tenantID)
-	}
-	sort.Strings(tenants)
-	if len(tenants) == 1 {
-		return tenants
-	}
-	start := r.pollCursor % len(tenants)
-	r.pollCursor = (r.pollCursor + 1) % len(tenants)
-	return append(append([]string(nil), tenants[start:]...), tenants[:start]...)
 }
 
 func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req swf.CompleteTaskIfWaitingRequest) error {

@@ -335,11 +335,8 @@ func (r *Runtime) PollWork(ctx context.Context, req swf.PollWorkRequest) ([]swf.
 	if req.LeaseDuration < 0 {
 		return nil, fmt.Errorf("lease duration must be >= 0")
 	}
-	if len(req.TenantIds) > 1 {
-		return nil, fmt.Errorf("at most one tenant_id may be supplied for PollWork")
-	}
-	if len(req.TenantIds) == 1 && req.TenantIds[0] == "" {
-		return nil, fmt.Errorf("tenant_id must be non-empty when supplied for PollWork")
+	if req.TenantId == "" {
+		return nil, fmt.Errorf("tenant_id is required for PollWork")
 	}
 	metadataPredicates, err := normalizeMetadataPredicates(req.MetadataEquals)
 	if err != nil {
@@ -361,12 +358,8 @@ func (r *Runtime) PollWork(ctx context.Context, req swf.PollWorkRequest) ([]swf.
 	}
 	now := time.Now().UTC()
 	out := make([]swf.ExecutionLease, 0, limit)
-	tenantFilter := ""
-	if len(req.TenantIds) == 1 {
-		tenantFilter = req.TenantIds[0]
-	}
 	for key, record := range r.engine.jobRecords {
-		if tenantFilter != "" && key.TenantId != tenantFilter {
+		if key.TenantId != req.TenantId {
 			continue
 		}
 		record.mu.Lock()
