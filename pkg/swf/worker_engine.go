@@ -360,8 +360,9 @@ func replayRuntimeJob(ctx context.Context, runtime WorkflowRuntime, spec *replay
 	if spec == nil || spec.engine == nil {
 		return nil, fmt.Errorf("replay workset is required")
 	}
+	replayRuntime := newReplayReadOnlyRuntime(runtime)
 	jobKey := spec.jobKey
-	chapter, err := runtime.GetChapter(ctx, ChapterRef{JobKey: jobKey, Ordinal: 0})
+	chapter, err := replayRuntime.GetChapter(ctx, ChapterRef{JobKey: jobKey, Ordinal: 0})
 	if err != nil {
 		if err == ErrChapterNotFound {
 			return nil, ErrJobNotFound
@@ -387,7 +388,7 @@ func replayRuntimeJob(ctx context.Context, runtime WorkflowRuntime, spec *replay
 		}
 	}
 
-	runner := newWorkerRunner(runtime, ws, nil, workerRunnerOptions{
+	runner := newWorkerRunner(replayRuntime, ws, nil, workerRunnerOptions{
 		JobKey:         jobKey,
 		Logger:         spec.engine.logger.With("job", jobKey.String(), "capability", jobType),
 		WorkerID:       spec.engine.workerID,

@@ -1,6 +1,7 @@
 package swf
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -37,6 +38,66 @@ func (e ReplayCacheMissError) Error() string {
 
 // ErrReplayShouldNeverMutate signals replay attempted to mutate state.
 var ErrReplayShouldNeverMutate = errors.New("replay run should never mutate state")
+
+type replayReadOnlyRuntime struct {
+	runtime WorkflowRuntime
+}
+
+func newReplayReadOnlyRuntime(runtime WorkflowRuntime) WorkflowRuntime {
+	return replayReadOnlyRuntime{runtime: runtime}
+}
+
+func replayMutationError(operation string) error {
+	return fmt.Errorf("%w: %s", ErrReplayShouldNeverMutate, operation)
+}
+
+func (r replayReadOnlyRuntime) SubmitJob(context.Context, SubmitJobRequest) (JobHandle, error) {
+	return JobHandle{}, replayMutationError("submit job")
+}
+
+func (r replayReadOnlyRuntime) SubmitRestartJob(context.Context, SubmitRestartJobRequest) (JobHandle, error) {
+	return JobHandle{}, replayMutationError("submit restart job")
+}
+
+func (r replayReadOnlyRuntime) CancelJob(context.Context, CancelJobRequest) error {
+	return replayMutationError("cancel job")
+}
+
+func (r replayReadOnlyRuntime) PollWork(context.Context, PollWorkRequest) ([]ExecutionLease, error) {
+	return nil, replayMutationError("poll work")
+}
+
+func (r replayReadOnlyRuntime) GetJobLease(context.Context, GetJobLeaseRequest) (ExecutionLease, error) {
+	return nil, replayMutationError("get job lease")
+}
+
+func (r replayReadOnlyRuntime) CompleteTaskIfWaiting(context.Context, CompleteTaskIfWaitingRequest) error {
+	return replayMutationError("complete waiting task")
+}
+
+func (r replayReadOnlyRuntime) GetJob(ctx context.Context, jobKey JobKey) (JobInfo, error) {
+	return r.runtime.GetJob(ctx, jobKey)
+}
+
+func (r replayReadOnlyRuntime) ListJobs(ctx context.Context, req ListJobsRequest) (ListJobsResponse, error) {
+	return r.runtime.ListJobs(ctx, req)
+}
+
+func (r replayReadOnlyRuntime) GetChapter(ctx context.Context, ref ChapterRef) (StoredChapter, error) {
+	return r.runtime.GetChapter(ctx, ref)
+}
+
+func (r replayReadOnlyRuntime) ListChapters(ctx context.Context, req ListChaptersRequest) ([]StoredChapter, error) {
+	return r.runtime.ListChapters(ctx, req)
+}
+
+func (r replayReadOnlyRuntime) PutChapter(context.Context, PutChapterRequest) error {
+	return replayMutationError("put chapter")
+}
+
+func (r replayReadOnlyRuntime) OpenArtifact(ctx context.Context, ref ArtifactRef) (ArtifactReader, error) {
+	return r.runtime.OpenArtifact(ctx, ref)
+}
 
 // ReplayObserver receives lifecycle events during replay.
 type ReplayObserver interface {

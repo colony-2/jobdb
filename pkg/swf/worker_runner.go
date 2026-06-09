@@ -577,6 +577,9 @@ func (r *workerRunner) failJobPrerequisites(ctx context.Context, inputData JobDa
 }
 
 func (r *workerRunner) persistJobOutcome(ctx context.Context, ordinal int64, payload json.RawMessage, artifacts []Artifact, payloadKind string, inputHash string, attempt int, inputRef *InputReference, startedAt *time.Time, finishedAt *time.Time) (TaskData, error) {
+	if r.replay {
+		return nil, ErrReplayShouldNeverMutate
+	}
 	meta := chapterMeta{
 		Attempt:    attempt,
 		InputRef:   inputRef,
@@ -587,6 +590,15 @@ func (r *workerRunner) persistJobOutcome(ctx context.Context, ordinal int64, pay
 		JobKey:  r.GetJobKey(),
 		Ordinal: ordinal,
 	}, r.worker.JobWorker.Name(), chapterTypeJobAttemptOutcome, payloadKind, inputHash, time.Now().UTC(), meta, payload, artifacts)
+}
+
+func (r *workerRunner) replayJobResultMissing(ordinal int64, attempt int) ReplayCacheMissError {
+	return ReplayCacheMissError{
+		JobKey:  r.GetJobKey(),
+		Ordinal: ordinal,
+		Attempt: attempt,
+		Reason:  ReplayCacheMissJobResultMissing,
+	}
 }
 
 func (r *workerRunner) checkCachedJobResult(ctx context.Context, ordinal int64, inputHash string, retryCfg RetryPolicy, totalDeadline time.Time, totalTimeout time.Duration, inputRef *InputReference) (JobData, int, bool, bool, error, error, *time.Time, *time.Time) {
@@ -767,6 +779,15 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 		}
 		if err != nil && !errors.Is(err, ErrChapterNotFound) {
 			return nil, fmt.Errorf("failed to get chapter %d: %w", ordinal, err)
+		}
+		if r.replay {
+			return nil, ReplayCacheMissError{
+				JobKey:   r.GetJobKey(),
+				TaskType: taskType,
+				Ordinal:  ordinal,
+				Attempt:  attempt,
+				Reason:   ReplayCacheMissTaskResultMissing,
+			}
 		}
 
 		worker, local := r.worker.TaskWorkers[taskType]
@@ -962,6 +983,9 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 			StartedAt:  &attemptStartAt,
 			FinishedAt: &finishedAt,
 		}
+		if r.replay {
+			return nil, ErrReplayShouldNeverMutate
+		}
 		persistedOutput, err := persistTaskDataChapter(context.TODO(), r.runtime, r.lease, ChapterRef{
 			JobKey:  r.GetJobKey(),
 			Ordinal: ordinal,
@@ -1054,6 +1078,11 @@ func (r *workerRunner) DoJob(ctx context.Context) (JobData, error) {
 		r.emitJobStart(attempt, inputData, startAt)
 
 		if err := r.checkTotalTimeoutExceeded(config.totalDeadline, config.totalTimeout, config.inputRef); err != nil {
+			if r.replay {
+				miss := r.replayJobResultMissing(r.storyCounter, attempt)
+				r.emitJobEnd(attempt, nil, miss, startAt)
+				return nil, miss
+			}
 			payload, artifacts, payloadKind, prepErr := r.prepareJobResultPayload(nil, err, config.inputRef)
 			if prepErr != nil {
 				return nil, prepErr
@@ -1154,6 +1183,15 @@ func (r *workerRunner) DoJob(ctx context.Context) (JobData, error) {
 			nextAttemptStartAt = nextStartAt
 			attempt = nextAttempt
 			continue
+		}
+		if r.replay {
+			if jobErr != nil {
+				r.emitJobEnd(attempt, nil, jobErr, attemptFinishedAt)
+				return nil, jobErr
+			}
+			miss := r.replayJobResultMissing(ordinal, attempt)
+			r.emitJobEnd(attempt, nil, miss, attemptFinishedAt)
+			return nil, miss
 		}
 
 		payload, artifacts, payloadKind, err := r.prepareJobResultPayload(output, jobErr, config.inputRef)
