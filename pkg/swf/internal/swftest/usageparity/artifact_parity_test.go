@@ -129,7 +129,7 @@ func TestRuntimeArtifactRoundTripParityAcrossBuiltInRuntimes(t *testing.T) {
 				Chapter: swf.StoredChapter{
 					Ordinal:     1,
 					TaskType:    "manual",
-					ChapterType: "Manual",
+					ChapterType: "TaskAttemptOutcome",
 					PayloadKind: "App",
 					InputHash:   "manual-input",
 					CreatedAt:   time.Now().UTC(),
@@ -205,7 +205,7 @@ func TestStoredChapterRoundTripParityAcrossBuiltInRuntimes(t *testing.T) {
 					Chapter: swf.StoredChapter{
 						Ordinal:     1,
 						TaskType:    "manual",
-						ChapterType: "Manual",
+						ChapterType: "TaskAttemptOutcome",
 						PayloadKind: "App",
 						InputHash:   "manual-input",
 						CreatedAt:   time.Now().UTC(),
@@ -271,7 +271,7 @@ func TestChapterMetadataRoundTripParityAcrossBuiltInRuntimes(t *testing.T) {
 					Chapter: swf.StoredChapter{
 						Ordinal:     1,
 						TaskType:    "manual",
-						ChapterType: "Manual",
+						ChapterType: "TaskAttemptOutcome",
 						PayloadKind: "App",
 						InputHash:   "manual-input",
 						CreatedAt:   time.Now().UTC(),

@@ -15,8 +15,8 @@ message ChapterRecord {
   google.protobuf.Timestamp started_at = 5;
   google.protobuf.Timestamp finished_at = 6;
   string input_hash = 7;
-  bytes metadata_json = 8;
-  bytes input_json = 9;
+  Metadata metadata = 8;
+  ApplicationInputBytes input = 9;
   int32 attempt = 10;
   int32 max_attempts = 11;
   google.protobuf.Timestamp next_attempt_at = 12;
@@ -31,12 +31,11 @@ message ChapterRecord {
     JobAttemptOutcomeChapter job_attempt_outcome = 31;
     TaskAttemptOutcomeChapter task_attempt_outcome = 32;
     RestartExtraChapter restart_extra = 33;
-    CustomChapter custom = 34;
   }
 }
 
 message JobStartChapter {
-  bytes payload_json = 1;
+  ApplicationInputBytes input = 1;
 }
 
 message JobAttemptOutcomeChapter {
@@ -48,28 +47,80 @@ message TaskAttemptOutcomeChapter {
 }
 
 message RestartExtraChapter {
-  bytes payload_json = 1;
-}
-
-message CustomChapter {
-  string chapter_type = 1;
-  string payload_kind = 2;
-  bytes payload_json = 3;
+  ApplicationOutputBytes output = 1;
 }
 
 message TaskOutcome {
   oneof result {
-    bytes app_payload_json = 1;
-    bytes app_error_payload_json = 2;
-    bytes system_error_payload_json = 3;
-    bytes timeout_payload_json = 4;
-    CustomOutcome custom = 5;
+    ApplicationOutputBytes app_output = 1;
+    AppErrorPayload app_error = 2;
+    SystemErrorPayload system_error = 3;
+    TimeoutPayload timeout = 4;
   }
 }
 
-message CustomOutcome {
-  string payload_kind = 1;
-  bytes payload_json = 2;
+message ApplicationInputBytes {
+  bytes data = 1;
+}
+
+message ApplicationOutputBytes {
+  bytes data = 1;
+}
+
+message LeasePayloadBytes {
+  bytes data = 1;
+}
+
+message Metadata {
+  map<string, MetadataValue> fields = 1;
+}
+
+message MetadataValue {
+  oneof kind {
+    bool bool_value = 1;
+    int64 int_value = 2;
+    double double_value = 3;
+    string string_value = 4;
+    MetadataList list_value = 5;
+    MetadataMap map_value = 6;
+    bool null_value = 7;
+  }
+}
+
+message MetadataList {
+  repeated MetadataValue values = 1;
+}
+
+message MetadataMap {
+  map<string, MetadataValue> fields = 1;
+}
+
+message AppErrorPayload {
+  string message = 1;
+  string level = 2;
+  map<string, MetadataValue> attrs = 3;
+  InputReference input_ref = 4;
+  repeated string stacktrace = 5;
+}
+
+message SystemErrorPayload {
+  string message = 1;
+  string component = 2;
+  string code = 3;
+  bool retryable = 4;
+  InputReference input_ref = 5;
+  repeated string stacktrace = 6;
+}
+
+message TimeoutPayload {
+  string kind = 1;
+  google.protobuf.Duration after = 2;
+  string scope = 3;
+  InputReference input_ref = 4;
+  bool retryable = 5;
+  string component = 6;
+  string code = 7;
+  string message = 8;
 }
 
 message InputReference {
@@ -99,7 +150,7 @@ message JobPrerequisite {
 message SchedulerPayload {
   RunPolicy run_policy = 1;
   TaskWait task_wait = 2;
-  bytes visible_payload_json = 3;
+  LeasePayloadBytes lease_payload = 3;
 }
 
 message TaskWait {

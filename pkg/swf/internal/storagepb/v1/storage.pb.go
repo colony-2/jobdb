@@ -31,8 +31,8 @@ type ChapterRecord struct {
 	xxx_hidden_StartedAt     *timestamppb.Timestamp  `protobuf:"bytes,5,opt,name=started_at,json=startedAt"`
 	xxx_hidden_FinishedAt    *timestamppb.Timestamp  `protobuf:"bytes,6,opt,name=finished_at,json=finishedAt"`
 	xxx_hidden_InputHash     *string                 `protobuf:"bytes,7,opt,name=input_hash,json=inputHash"`
-	xxx_hidden_MetadataJson  []byte                  `protobuf:"bytes,8,opt,name=metadata_json,json=metadataJson"`
-	xxx_hidden_InputJson     []byte                  `protobuf:"bytes,9,opt,name=input_json,json=inputJson"`
+	xxx_hidden_Metadata      *Metadata               `protobuf:"bytes,8,opt,name=metadata"`
+	xxx_hidden_Input         *ApplicationInputBytes  `protobuf:"bytes,9,opt,name=input"`
 	xxx_hidden_Attempt       int32                   `protobuf:"varint,10,opt,name=attempt"`
 	xxx_hidden_MaxAttempts   int32                   `protobuf:"varint,11,opt,name=max_attempts,json=maxAttempts"`
 	xxx_hidden_NextAttemptAt *timestamppb.Timestamp  `protobuf:"bytes,12,opt,name=next_attempt_at,json=nextAttemptAt"`
@@ -131,16 +131,16 @@ func (x *ChapterRecord) GetInputHash() string {
 	return ""
 }
 
-func (x *ChapterRecord) GetMetadataJson() []byte {
+func (x *ChapterRecord) GetMetadata() *Metadata {
 	if x != nil {
-		return x.xxx_hidden_MetadataJson
+		return x.xxx_hidden_Metadata
 	}
 	return nil
 }
 
-func (x *ChapterRecord) GetInputJson() []byte {
+func (x *ChapterRecord) GetInput() *ApplicationInputBytes {
 	if x != nil {
-		return x.xxx_hidden_InputJson
+		return x.xxx_hidden_Input
 	}
 	return nil
 }
@@ -239,15 +239,6 @@ func (x *ChapterRecord) GetRestartExtra() *RestartExtraChapter {
 	return nil
 }
 
-func (x *ChapterRecord) GetCustom() *CustomChapter {
-	if x != nil {
-		if x, ok := x.xxx_hidden_Chapter.(*chapterRecord_Custom); ok {
-			return x.Custom
-		}
-	}
-	return nil
-}
-
 func (x *ChapterRecord) SetOrdinal(v int64) {
 	x.xxx_hidden_Ordinal = v
 	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 18)
@@ -280,20 +271,12 @@ func (x *ChapterRecord) SetInputHash(v string) {
 	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 6, 18)
 }
 
-func (x *ChapterRecord) SetMetadataJson(v []byte) {
-	if v == nil {
-		v = []byte{}
-	}
-	x.xxx_hidden_MetadataJson = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 7, 18)
+func (x *ChapterRecord) SetMetadata(v *Metadata) {
+	x.xxx_hidden_Metadata = v
 }
 
-func (x *ChapterRecord) SetInputJson(v []byte) {
-	if v == nil {
-		v = []byte{}
-	}
-	x.xxx_hidden_InputJson = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 8, 18)
+func (x *ChapterRecord) SetInput(v *ApplicationInputBytes) {
+	x.xxx_hidden_Input = v
 }
 
 func (x *ChapterRecord) SetAttempt(v int32) {
@@ -364,14 +347,6 @@ func (x *ChapterRecord) SetRestartExtra(v *RestartExtraChapter) {
 	x.xxx_hidden_Chapter = &chapterRecord_RestartExtra{v}
 }
 
-func (x *ChapterRecord) SetCustom(v *CustomChapter) {
-	if v == nil {
-		x.xxx_hidden_Chapter = nil
-		return
-	}
-	x.xxx_hidden_Chapter = &chapterRecord_Custom{v}
-}
-
 func (x *ChapterRecord) HasOrdinal() bool {
 	if x == nil {
 		return false
@@ -421,18 +396,18 @@ func (x *ChapterRecord) HasInputHash() bool {
 	return protoimpl.X.Present(&(x.XXX_presence[0]), 6)
 }
 
-func (x *ChapterRecord) HasMetadataJson() bool {
+func (x *ChapterRecord) HasMetadata() bool {
 	if x == nil {
 		return false
 	}
-	return protoimpl.X.Present(&(x.XXX_presence[0]), 7)
+	return x.xxx_hidden_Metadata != nil
 }
 
-func (x *ChapterRecord) HasInputJson() bool {
+func (x *ChapterRecord) HasInput() bool {
 	if x == nil {
 		return false
 	}
-	return protoimpl.X.Present(&(x.XXX_presence[0]), 8)
+	return x.xxx_hidden_Input != nil
 }
 
 func (x *ChapterRecord) HasAttempt() bool {
@@ -523,14 +498,6 @@ func (x *ChapterRecord) HasRestartExtra() bool {
 	return ok
 }
 
-func (x *ChapterRecord) HasCustom() bool {
-	if x == nil {
-		return false
-	}
-	_, ok := x.xxx_hidden_Chapter.(*chapterRecord_Custom)
-	return ok
-}
-
 func (x *ChapterRecord) ClearOrdinal() {
 	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
 	x.xxx_hidden_Ordinal = 0
@@ -563,14 +530,12 @@ func (x *ChapterRecord) ClearInputHash() {
 	x.xxx_hidden_InputHash = nil
 }
 
-func (x *ChapterRecord) ClearMetadataJson() {
-	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 7)
-	x.xxx_hidden_MetadataJson = nil
+func (x *ChapterRecord) ClearMetadata() {
+	x.xxx_hidden_Metadata = nil
 }
 
-func (x *ChapterRecord) ClearInputJson() {
-	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 8)
-	x.xxx_hidden_InputJson = nil
+func (x *ChapterRecord) ClearInput() {
+	x.xxx_hidden_Input = nil
 }
 
 func (x *ChapterRecord) ClearAttempt() {
@@ -633,18 +598,11 @@ func (x *ChapterRecord) ClearRestartExtra() {
 	}
 }
 
-func (x *ChapterRecord) ClearCustom() {
-	if _, ok := x.xxx_hidden_Chapter.(*chapterRecord_Custom); ok {
-		x.xxx_hidden_Chapter = nil
-	}
-}
-
 const ChapterRecord_Chapter_not_set_case case_ChapterRecord_Chapter = 0
 const ChapterRecord_JobStart_case case_ChapterRecord_Chapter = 30
 const ChapterRecord_JobAttemptOutcome_case case_ChapterRecord_Chapter = 31
 const ChapterRecord_TaskAttemptOutcome_case case_ChapterRecord_Chapter = 32
 const ChapterRecord_RestartExtra_case case_ChapterRecord_Chapter = 33
-const ChapterRecord_Custom_case case_ChapterRecord_Chapter = 34
 
 func (x *ChapterRecord) WhichChapter() case_ChapterRecord_Chapter {
 	if x == nil {
@@ -659,8 +617,6 @@ func (x *ChapterRecord) WhichChapter() case_ChapterRecord_Chapter {
 		return ChapterRecord_TaskAttemptOutcome_case
 	case *chapterRecord_RestartExtra:
 		return ChapterRecord_RestartExtra_case
-	case *chapterRecord_Custom:
-		return ChapterRecord_Custom_case
 	default:
 		return ChapterRecord_Chapter_not_set_case
 	}
@@ -676,8 +632,8 @@ type ChapterRecord_builder struct {
 	StartedAt     *timestamppb.Timestamp
 	FinishedAt    *timestamppb.Timestamp
 	InputHash     *string
-	MetadataJson  []byte
-	InputJson     []byte
+	Metadata      *Metadata
+	Input         *ApplicationInputBytes
 	Attempt       *int32
 	MaxAttempts   *int32
 	NextAttemptAt *timestamppb.Timestamp
@@ -691,7 +647,6 @@ type ChapterRecord_builder struct {
 	JobAttemptOutcome  *JobAttemptOutcomeChapter
 	TaskAttemptOutcome *TaskAttemptOutcomeChapter
 	RestartExtra       *RestartExtraChapter
-	Custom             *CustomChapter
 	// -- end of xxx_hidden_Chapter
 }
 
@@ -718,14 +673,8 @@ func (b0 ChapterRecord_builder) Build() *ChapterRecord {
 		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 6, 18)
 		x.xxx_hidden_InputHash = b.InputHash
 	}
-	if b.MetadataJson != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 7, 18)
-		x.xxx_hidden_MetadataJson = b.MetadataJson
-	}
-	if b.InputJson != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 8, 18)
-		x.xxx_hidden_InputJson = b.InputJson
-	}
+	x.xxx_hidden_Metadata = b.Metadata
+	x.xxx_hidden_Input = b.Input
 	if b.Attempt != nil {
 		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 9, 18)
 		x.xxx_hidden_Attempt = *b.Attempt
@@ -757,9 +706,6 @@ func (b0 ChapterRecord_builder) Build() *ChapterRecord {
 	}
 	if b.RestartExtra != nil {
 		x.xxx_hidden_Chapter = &chapterRecord_RestartExtra{b.RestartExtra}
-	}
-	if b.Custom != nil {
-		x.xxx_hidden_Chapter = &chapterRecord_Custom{b.Custom}
 	}
 	return m0
 }
@@ -794,10 +740,6 @@ type chapterRecord_RestartExtra struct {
 	RestartExtra *RestartExtraChapter `protobuf:"bytes,33,opt,name=restart_extra,json=restartExtra,oneof"`
 }
 
-type chapterRecord_Custom struct {
-	Custom *CustomChapter `protobuf:"bytes,34,opt,name=custom,oneof"`
-}
-
 func (*chapterRecord_JobStart) isChapterRecord_Chapter() {}
 
 func (*chapterRecord_JobAttemptOutcome) isChapterRecord_Chapter() {}
@@ -806,15 +748,11 @@ func (*chapterRecord_TaskAttemptOutcome) isChapterRecord_Chapter() {}
 
 func (*chapterRecord_RestartExtra) isChapterRecord_Chapter() {}
 
-func (*chapterRecord_Custom) isChapterRecord_Chapter() {}
-
 type JobStartChapter struct {
-	state                  protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_PayloadJson []byte                 `protobuf:"bytes,1,opt,name=payload_json,json=payloadJson"`
-	XXX_raceDetectHookData protoimpl.RaceDetectHookData
-	XXX_presence           [1]uint32
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Input *ApplicationInputBytes `protobuf:"bytes,1,opt,name=input"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *JobStartChapter) Reset() {
@@ -842,47 +780,39 @@ func (x *JobStartChapter) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *JobStartChapter) GetPayloadJson() []byte {
+func (x *JobStartChapter) GetInput() *ApplicationInputBytes {
 	if x != nil {
-		return x.xxx_hidden_PayloadJson
+		return x.xxx_hidden_Input
 	}
 	return nil
 }
 
-func (x *JobStartChapter) SetPayloadJson(v []byte) {
-	if v == nil {
-		v = []byte{}
-	}
-	x.xxx_hidden_PayloadJson = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 1)
+func (x *JobStartChapter) SetInput(v *ApplicationInputBytes) {
+	x.xxx_hidden_Input = v
 }
 
-func (x *JobStartChapter) HasPayloadJson() bool {
+func (x *JobStartChapter) HasInput() bool {
 	if x == nil {
 		return false
 	}
-	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+	return x.xxx_hidden_Input != nil
 }
 
-func (x *JobStartChapter) ClearPayloadJson() {
-	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
-	x.xxx_hidden_PayloadJson = nil
+func (x *JobStartChapter) ClearInput() {
+	x.xxx_hidden_Input = nil
 }
 
 type JobStartChapter_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	PayloadJson []byte
+	Input *ApplicationInputBytes
 }
 
 func (b0 JobStartChapter_builder) Build() *JobStartChapter {
 	m0 := &JobStartChapter{}
 	b, x := &b0, m0
 	_, _ = b, x
-	if b.PayloadJson != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 1)
-		x.xxx_hidden_PayloadJson = b.PayloadJson
-	}
+	x.xxx_hidden_Input = b.Input
 	return m0
 }
 
@@ -1023,12 +953,10 @@ func (b0 TaskAttemptOutcomeChapter_builder) Build() *TaskAttemptOutcomeChapter {
 }
 
 type RestartExtraChapter struct {
-	state                  protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_PayloadJson []byte                 `protobuf:"bytes,1,opt,name=payload_json,json=payloadJson"`
-	XXX_raceDetectHookData protoimpl.RaceDetectHookData
-	XXX_presence           [1]uint32
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	state             protoimpl.MessageState  `protogen:"opaque.v1"`
+	xxx_hidden_Output *ApplicationOutputBytes `protobuf:"bytes,1,opt,name=output"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *RestartExtraChapter) Reset() {
@@ -1056,191 +984,39 @@ func (x *RestartExtraChapter) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *RestartExtraChapter) GetPayloadJson() []byte {
+func (x *RestartExtraChapter) GetOutput() *ApplicationOutputBytes {
 	if x != nil {
-		return x.xxx_hidden_PayloadJson
+		return x.xxx_hidden_Output
 	}
 	return nil
 }
 
-func (x *RestartExtraChapter) SetPayloadJson(v []byte) {
-	if v == nil {
-		v = []byte{}
-	}
-	x.xxx_hidden_PayloadJson = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 1)
+func (x *RestartExtraChapter) SetOutput(v *ApplicationOutputBytes) {
+	x.xxx_hidden_Output = v
 }
 
-func (x *RestartExtraChapter) HasPayloadJson() bool {
+func (x *RestartExtraChapter) HasOutput() bool {
 	if x == nil {
 		return false
 	}
-	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+	return x.xxx_hidden_Output != nil
 }
 
-func (x *RestartExtraChapter) ClearPayloadJson() {
-	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
-	x.xxx_hidden_PayloadJson = nil
+func (x *RestartExtraChapter) ClearOutput() {
+	x.xxx_hidden_Output = nil
 }
 
 type RestartExtraChapter_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	PayloadJson []byte
+	Output *ApplicationOutputBytes
 }
 
 func (b0 RestartExtraChapter_builder) Build() *RestartExtraChapter {
 	m0 := &RestartExtraChapter{}
 	b, x := &b0, m0
 	_, _ = b, x
-	if b.PayloadJson != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 1)
-		x.xxx_hidden_PayloadJson = b.PayloadJson
-	}
-	return m0
-}
-
-type CustomChapter struct {
-	state                  protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_ChapterType *string                `protobuf:"bytes,1,opt,name=chapter_type,json=chapterType"`
-	xxx_hidden_PayloadKind *string                `protobuf:"bytes,2,opt,name=payload_kind,json=payloadKind"`
-	xxx_hidden_PayloadJson []byte                 `protobuf:"bytes,3,opt,name=payload_json,json=payloadJson"`
-	XXX_raceDetectHookData protoimpl.RaceDetectHookData
-	XXX_presence           [1]uint32
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
-}
-
-func (x *CustomChapter) Reset() {
-	*x = CustomChapter{}
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[5]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *CustomChapter) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*CustomChapter) ProtoMessage() {}
-
-func (x *CustomChapter) ProtoReflect() protoreflect.Message {
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[5]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-func (x *CustomChapter) GetChapterType() string {
-	if x != nil {
-		if x.xxx_hidden_ChapterType != nil {
-			return *x.xxx_hidden_ChapterType
-		}
-		return ""
-	}
-	return ""
-}
-
-func (x *CustomChapter) GetPayloadKind() string {
-	if x != nil {
-		if x.xxx_hidden_PayloadKind != nil {
-			return *x.xxx_hidden_PayloadKind
-		}
-		return ""
-	}
-	return ""
-}
-
-func (x *CustomChapter) GetPayloadJson() []byte {
-	if x != nil {
-		return x.xxx_hidden_PayloadJson
-	}
-	return nil
-}
-
-func (x *CustomChapter) SetChapterType(v string) {
-	x.xxx_hidden_ChapterType = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 3)
-}
-
-func (x *CustomChapter) SetPayloadKind(v string) {
-	x.xxx_hidden_PayloadKind = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 3)
-}
-
-func (x *CustomChapter) SetPayloadJson(v []byte) {
-	if v == nil {
-		v = []byte{}
-	}
-	x.xxx_hidden_PayloadJson = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 3)
-}
-
-func (x *CustomChapter) HasChapterType() bool {
-	if x == nil {
-		return false
-	}
-	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
-}
-
-func (x *CustomChapter) HasPayloadKind() bool {
-	if x == nil {
-		return false
-	}
-	return protoimpl.X.Present(&(x.XXX_presence[0]), 1)
-}
-
-func (x *CustomChapter) HasPayloadJson() bool {
-	if x == nil {
-		return false
-	}
-	return protoimpl.X.Present(&(x.XXX_presence[0]), 2)
-}
-
-func (x *CustomChapter) ClearChapterType() {
-	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
-	x.xxx_hidden_ChapterType = nil
-}
-
-func (x *CustomChapter) ClearPayloadKind() {
-	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 1)
-	x.xxx_hidden_PayloadKind = nil
-}
-
-func (x *CustomChapter) ClearPayloadJson() {
-	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 2)
-	x.xxx_hidden_PayloadJson = nil
-}
-
-type CustomChapter_builder struct {
-	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
-
-	ChapterType *string
-	PayloadKind *string
-	PayloadJson []byte
-}
-
-func (b0 CustomChapter_builder) Build() *CustomChapter {
-	m0 := &CustomChapter{}
-	b, x := &b0, m0
-	_, _ = b, x
-	if b.ChapterType != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 3)
-		x.xxx_hidden_ChapterType = b.ChapterType
-	}
-	if b.PayloadKind != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 3)
-		x.xxx_hidden_PayloadKind = b.PayloadKind
-	}
-	if b.PayloadJson != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 3)
-		x.xxx_hidden_PayloadJson = b.PayloadJson
-	}
+	x.xxx_hidden_Output = b.Output
 	return m0
 }
 
@@ -1253,7 +1029,7 @@ type TaskOutcome struct {
 
 func (x *TaskOutcome) Reset() {
 	*x = TaskOutcome{}
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[6]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1265,6 +1041,267 @@ func (x *TaskOutcome) String() string {
 func (*TaskOutcome) ProtoMessage() {}
 
 func (x *TaskOutcome) ProtoReflect() protoreflect.Message {
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *TaskOutcome) GetAppOutput() *ApplicationOutputBytes {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Result.(*taskOutcome_AppOutput); ok {
+			return x.AppOutput
+		}
+	}
+	return nil
+}
+
+func (x *TaskOutcome) GetAppError() *AppErrorPayload {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Result.(*taskOutcome_AppError); ok {
+			return x.AppError
+		}
+	}
+	return nil
+}
+
+func (x *TaskOutcome) GetSystemError() *SystemErrorPayload {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Result.(*taskOutcome_SystemError); ok {
+			return x.SystemError
+		}
+	}
+	return nil
+}
+
+func (x *TaskOutcome) GetTimeout() *TimeoutPayload {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Result.(*taskOutcome_Timeout); ok {
+			return x.Timeout
+		}
+	}
+	return nil
+}
+
+func (x *TaskOutcome) SetAppOutput(v *ApplicationOutputBytes) {
+	if v == nil {
+		x.xxx_hidden_Result = nil
+		return
+	}
+	x.xxx_hidden_Result = &taskOutcome_AppOutput{v}
+}
+
+func (x *TaskOutcome) SetAppError(v *AppErrorPayload) {
+	if v == nil {
+		x.xxx_hidden_Result = nil
+		return
+	}
+	x.xxx_hidden_Result = &taskOutcome_AppError{v}
+}
+
+func (x *TaskOutcome) SetSystemError(v *SystemErrorPayload) {
+	if v == nil {
+		x.xxx_hidden_Result = nil
+		return
+	}
+	x.xxx_hidden_Result = &taskOutcome_SystemError{v}
+}
+
+func (x *TaskOutcome) SetTimeout(v *TimeoutPayload) {
+	if v == nil {
+		x.xxx_hidden_Result = nil
+		return
+	}
+	x.xxx_hidden_Result = &taskOutcome_Timeout{v}
+}
+
+func (x *TaskOutcome) HasResult() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Result != nil
+}
+
+func (x *TaskOutcome) HasAppOutput() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Result.(*taskOutcome_AppOutput)
+	return ok
+}
+
+func (x *TaskOutcome) HasAppError() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Result.(*taskOutcome_AppError)
+	return ok
+}
+
+func (x *TaskOutcome) HasSystemError() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Result.(*taskOutcome_SystemError)
+	return ok
+}
+
+func (x *TaskOutcome) HasTimeout() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Result.(*taskOutcome_Timeout)
+	return ok
+}
+
+func (x *TaskOutcome) ClearResult() {
+	x.xxx_hidden_Result = nil
+}
+
+func (x *TaskOutcome) ClearAppOutput() {
+	if _, ok := x.xxx_hidden_Result.(*taskOutcome_AppOutput); ok {
+		x.xxx_hidden_Result = nil
+	}
+}
+
+func (x *TaskOutcome) ClearAppError() {
+	if _, ok := x.xxx_hidden_Result.(*taskOutcome_AppError); ok {
+		x.xxx_hidden_Result = nil
+	}
+}
+
+func (x *TaskOutcome) ClearSystemError() {
+	if _, ok := x.xxx_hidden_Result.(*taskOutcome_SystemError); ok {
+		x.xxx_hidden_Result = nil
+	}
+}
+
+func (x *TaskOutcome) ClearTimeout() {
+	if _, ok := x.xxx_hidden_Result.(*taskOutcome_Timeout); ok {
+		x.xxx_hidden_Result = nil
+	}
+}
+
+const TaskOutcome_Result_not_set_case case_TaskOutcome_Result = 0
+const TaskOutcome_AppOutput_case case_TaskOutcome_Result = 1
+const TaskOutcome_AppError_case case_TaskOutcome_Result = 2
+const TaskOutcome_SystemError_case case_TaskOutcome_Result = 3
+const TaskOutcome_Timeout_case case_TaskOutcome_Result = 4
+
+func (x *TaskOutcome) WhichResult() case_TaskOutcome_Result {
+	if x == nil {
+		return TaskOutcome_Result_not_set_case
+	}
+	switch x.xxx_hidden_Result.(type) {
+	case *taskOutcome_AppOutput:
+		return TaskOutcome_AppOutput_case
+	case *taskOutcome_AppError:
+		return TaskOutcome_AppError_case
+	case *taskOutcome_SystemError:
+		return TaskOutcome_SystemError_case
+	case *taskOutcome_Timeout:
+		return TaskOutcome_Timeout_case
+	default:
+		return TaskOutcome_Result_not_set_case
+	}
+}
+
+type TaskOutcome_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// Fields of oneof xxx_hidden_Result:
+	AppOutput   *ApplicationOutputBytes
+	AppError    *AppErrorPayload
+	SystemError *SystemErrorPayload
+	Timeout     *TimeoutPayload
+	// -- end of xxx_hidden_Result
+}
+
+func (b0 TaskOutcome_builder) Build() *TaskOutcome {
+	m0 := &TaskOutcome{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.AppOutput != nil {
+		x.xxx_hidden_Result = &taskOutcome_AppOutput{b.AppOutput}
+	}
+	if b.AppError != nil {
+		x.xxx_hidden_Result = &taskOutcome_AppError{b.AppError}
+	}
+	if b.SystemError != nil {
+		x.xxx_hidden_Result = &taskOutcome_SystemError{b.SystemError}
+	}
+	if b.Timeout != nil {
+		x.xxx_hidden_Result = &taskOutcome_Timeout{b.Timeout}
+	}
+	return m0
+}
+
+type case_TaskOutcome_Result protoreflect.FieldNumber
+
+func (x case_TaskOutcome_Result) String() string {
+	md := file_swf_storage_v1_storage_proto_msgTypes[5].Descriptor()
+	if x == 0 {
+		return "not set"
+	}
+	return protoimpl.X.MessageFieldStringOf(md, protoreflect.FieldNumber(x))
+}
+
+type isTaskOutcome_Result interface {
+	isTaskOutcome_Result()
+}
+
+type taskOutcome_AppOutput struct {
+	AppOutput *ApplicationOutputBytes `protobuf:"bytes,1,opt,name=app_output,json=appOutput,oneof"`
+}
+
+type taskOutcome_AppError struct {
+	AppError *AppErrorPayload `protobuf:"bytes,2,opt,name=app_error,json=appError,oneof"`
+}
+
+type taskOutcome_SystemError struct {
+	SystemError *SystemErrorPayload `protobuf:"bytes,3,opt,name=system_error,json=systemError,oneof"`
+}
+
+type taskOutcome_Timeout struct {
+	Timeout *TimeoutPayload `protobuf:"bytes,4,opt,name=timeout,oneof"`
+}
+
+func (*taskOutcome_AppOutput) isTaskOutcome_Result() {}
+
+func (*taskOutcome_AppError) isTaskOutcome_Result() {}
+
+func (*taskOutcome_SystemError) isTaskOutcome_Result() {}
+
+func (*taskOutcome_Timeout) isTaskOutcome_Result() {}
+
+type ApplicationInputBytes struct {
+	state                  protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Data        []byte                 `protobuf:"bytes,1,opt,name=data"`
+	XXX_raceDetectHookData protoimpl.RaceDetectHookData
+	XXX_presence           [1]uint32
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *ApplicationInputBytes) Reset() {
+	*x = ApplicationInputBytes{}
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApplicationInputBytes) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApplicationInputBytes) ProtoMessage() {}
+
+func (x *ApplicationInputBytes) ProtoReflect() protoreflect.Message {
 	mi := &file_swf_storage_v1_storage_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1276,297 +1313,73 @@ func (x *TaskOutcome) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *TaskOutcome) GetAppPayloadJson() []byte {
+func (x *ApplicationInputBytes) GetData() []byte {
 	if x != nil {
-		if x, ok := x.xxx_hidden_Result.(*taskOutcome_AppPayloadJson); ok {
-			return x.AppPayloadJson
-		}
+		return x.xxx_hidden_Data
 	}
 	return nil
 }
 
-func (x *TaskOutcome) GetAppErrorPayloadJson() []byte {
-	if x != nil {
-		if x, ok := x.xxx_hidden_Result.(*taskOutcome_AppErrorPayloadJson); ok {
-			return x.AppErrorPayloadJson
-		}
-	}
-	return nil
-}
-
-func (x *TaskOutcome) GetSystemErrorPayloadJson() []byte {
-	if x != nil {
-		if x, ok := x.xxx_hidden_Result.(*taskOutcome_SystemErrorPayloadJson); ok {
-			return x.SystemErrorPayloadJson
-		}
-	}
-	return nil
-}
-
-func (x *TaskOutcome) GetTimeoutPayloadJson() []byte {
-	if x != nil {
-		if x, ok := x.xxx_hidden_Result.(*taskOutcome_TimeoutPayloadJson); ok {
-			return x.TimeoutPayloadJson
-		}
-	}
-	return nil
-}
-
-func (x *TaskOutcome) GetCustom() *CustomOutcome {
-	if x != nil {
-		if x, ok := x.xxx_hidden_Result.(*taskOutcome_Custom); ok {
-			return x.Custom
-		}
-	}
-	return nil
-}
-
-func (x *TaskOutcome) SetAppPayloadJson(v []byte) {
+func (x *ApplicationInputBytes) SetData(v []byte) {
 	if v == nil {
 		v = []byte{}
 	}
-	x.xxx_hidden_Result = &taskOutcome_AppPayloadJson{v}
+	x.xxx_hidden_Data = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 1)
 }
 
-func (x *TaskOutcome) SetAppErrorPayloadJson(v []byte) {
-	if v == nil {
-		v = []byte{}
-	}
-	x.xxx_hidden_Result = &taskOutcome_AppErrorPayloadJson{v}
-}
-
-func (x *TaskOutcome) SetSystemErrorPayloadJson(v []byte) {
-	if v == nil {
-		v = []byte{}
-	}
-	x.xxx_hidden_Result = &taskOutcome_SystemErrorPayloadJson{v}
-}
-
-func (x *TaskOutcome) SetTimeoutPayloadJson(v []byte) {
-	if v == nil {
-		v = []byte{}
-	}
-	x.xxx_hidden_Result = &taskOutcome_TimeoutPayloadJson{v}
-}
-
-func (x *TaskOutcome) SetCustom(v *CustomOutcome) {
-	if v == nil {
-		x.xxx_hidden_Result = nil
-		return
-	}
-	x.xxx_hidden_Result = &taskOutcome_Custom{v}
-}
-
-func (x *TaskOutcome) HasResult() bool {
+func (x *ApplicationInputBytes) HasData() bool {
 	if x == nil {
 		return false
 	}
-	return x.xxx_hidden_Result != nil
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
 }
 
-func (x *TaskOutcome) HasAppPayloadJson() bool {
-	if x == nil {
-		return false
-	}
-	_, ok := x.xxx_hidden_Result.(*taskOutcome_AppPayloadJson)
-	return ok
+func (x *ApplicationInputBytes) ClearData() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
+	x.xxx_hidden_Data = nil
 }
 
-func (x *TaskOutcome) HasAppErrorPayloadJson() bool {
-	if x == nil {
-		return false
-	}
-	_, ok := x.xxx_hidden_Result.(*taskOutcome_AppErrorPayloadJson)
-	return ok
-}
-
-func (x *TaskOutcome) HasSystemErrorPayloadJson() bool {
-	if x == nil {
-		return false
-	}
-	_, ok := x.xxx_hidden_Result.(*taskOutcome_SystemErrorPayloadJson)
-	return ok
-}
-
-func (x *TaskOutcome) HasTimeoutPayloadJson() bool {
-	if x == nil {
-		return false
-	}
-	_, ok := x.xxx_hidden_Result.(*taskOutcome_TimeoutPayloadJson)
-	return ok
-}
-
-func (x *TaskOutcome) HasCustom() bool {
-	if x == nil {
-		return false
-	}
-	_, ok := x.xxx_hidden_Result.(*taskOutcome_Custom)
-	return ok
-}
-
-func (x *TaskOutcome) ClearResult() {
-	x.xxx_hidden_Result = nil
-}
-
-func (x *TaskOutcome) ClearAppPayloadJson() {
-	if _, ok := x.xxx_hidden_Result.(*taskOutcome_AppPayloadJson); ok {
-		x.xxx_hidden_Result = nil
-	}
-}
-
-func (x *TaskOutcome) ClearAppErrorPayloadJson() {
-	if _, ok := x.xxx_hidden_Result.(*taskOutcome_AppErrorPayloadJson); ok {
-		x.xxx_hidden_Result = nil
-	}
-}
-
-func (x *TaskOutcome) ClearSystemErrorPayloadJson() {
-	if _, ok := x.xxx_hidden_Result.(*taskOutcome_SystemErrorPayloadJson); ok {
-		x.xxx_hidden_Result = nil
-	}
-}
-
-func (x *TaskOutcome) ClearTimeoutPayloadJson() {
-	if _, ok := x.xxx_hidden_Result.(*taskOutcome_TimeoutPayloadJson); ok {
-		x.xxx_hidden_Result = nil
-	}
-}
-
-func (x *TaskOutcome) ClearCustom() {
-	if _, ok := x.xxx_hidden_Result.(*taskOutcome_Custom); ok {
-		x.xxx_hidden_Result = nil
-	}
-}
-
-const TaskOutcome_Result_not_set_case case_TaskOutcome_Result = 0
-const TaskOutcome_AppPayloadJson_case case_TaskOutcome_Result = 1
-const TaskOutcome_AppErrorPayloadJson_case case_TaskOutcome_Result = 2
-const TaskOutcome_SystemErrorPayloadJson_case case_TaskOutcome_Result = 3
-const TaskOutcome_TimeoutPayloadJson_case case_TaskOutcome_Result = 4
-const TaskOutcome_Custom_case case_TaskOutcome_Result = 5
-
-func (x *TaskOutcome) WhichResult() case_TaskOutcome_Result {
-	if x == nil {
-		return TaskOutcome_Result_not_set_case
-	}
-	switch x.xxx_hidden_Result.(type) {
-	case *taskOutcome_AppPayloadJson:
-		return TaskOutcome_AppPayloadJson_case
-	case *taskOutcome_AppErrorPayloadJson:
-		return TaskOutcome_AppErrorPayloadJson_case
-	case *taskOutcome_SystemErrorPayloadJson:
-		return TaskOutcome_SystemErrorPayloadJson_case
-	case *taskOutcome_TimeoutPayloadJson:
-		return TaskOutcome_TimeoutPayloadJson_case
-	case *taskOutcome_Custom:
-		return TaskOutcome_Custom_case
-	default:
-		return TaskOutcome_Result_not_set_case
-	}
-}
-
-type TaskOutcome_builder struct {
+type ApplicationInputBytes_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	// Fields of oneof xxx_hidden_Result:
-	AppPayloadJson         []byte
-	AppErrorPayloadJson    []byte
-	SystemErrorPayloadJson []byte
-	TimeoutPayloadJson     []byte
-	Custom                 *CustomOutcome
-	// -- end of xxx_hidden_Result
+	Data []byte
 }
 
-func (b0 TaskOutcome_builder) Build() *TaskOutcome {
-	m0 := &TaskOutcome{}
+func (b0 ApplicationInputBytes_builder) Build() *ApplicationInputBytes {
+	m0 := &ApplicationInputBytes{}
 	b, x := &b0, m0
 	_, _ = b, x
-	if b.AppPayloadJson != nil {
-		x.xxx_hidden_Result = &taskOutcome_AppPayloadJson{b.AppPayloadJson}
-	}
-	if b.AppErrorPayloadJson != nil {
-		x.xxx_hidden_Result = &taskOutcome_AppErrorPayloadJson{b.AppErrorPayloadJson}
-	}
-	if b.SystemErrorPayloadJson != nil {
-		x.xxx_hidden_Result = &taskOutcome_SystemErrorPayloadJson{b.SystemErrorPayloadJson}
-	}
-	if b.TimeoutPayloadJson != nil {
-		x.xxx_hidden_Result = &taskOutcome_TimeoutPayloadJson{b.TimeoutPayloadJson}
-	}
-	if b.Custom != nil {
-		x.xxx_hidden_Result = &taskOutcome_Custom{b.Custom}
+	if b.Data != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 1)
+		x.xxx_hidden_Data = b.Data
 	}
 	return m0
 }
 
-type case_TaskOutcome_Result protoreflect.FieldNumber
-
-func (x case_TaskOutcome_Result) String() string {
-	md := file_swf_storage_v1_storage_proto_msgTypes[6].Descriptor()
-	if x == 0 {
-		return "not set"
-	}
-	return protoimpl.X.MessageFieldStringOf(md, protoreflect.FieldNumber(x))
-}
-
-type isTaskOutcome_Result interface {
-	isTaskOutcome_Result()
-}
-
-type taskOutcome_AppPayloadJson struct {
-	AppPayloadJson []byte `protobuf:"bytes,1,opt,name=app_payload_json,json=appPayloadJson,oneof"`
-}
-
-type taskOutcome_AppErrorPayloadJson struct {
-	AppErrorPayloadJson []byte `protobuf:"bytes,2,opt,name=app_error_payload_json,json=appErrorPayloadJson,oneof"`
-}
-
-type taskOutcome_SystemErrorPayloadJson struct {
-	SystemErrorPayloadJson []byte `protobuf:"bytes,3,opt,name=system_error_payload_json,json=systemErrorPayloadJson,oneof"`
-}
-
-type taskOutcome_TimeoutPayloadJson struct {
-	TimeoutPayloadJson []byte `protobuf:"bytes,4,opt,name=timeout_payload_json,json=timeoutPayloadJson,oneof"`
-}
-
-type taskOutcome_Custom struct {
-	Custom *CustomOutcome `protobuf:"bytes,5,opt,name=custom,oneof"`
-}
-
-func (*taskOutcome_AppPayloadJson) isTaskOutcome_Result() {}
-
-func (*taskOutcome_AppErrorPayloadJson) isTaskOutcome_Result() {}
-
-func (*taskOutcome_SystemErrorPayloadJson) isTaskOutcome_Result() {}
-
-func (*taskOutcome_TimeoutPayloadJson) isTaskOutcome_Result() {}
-
-func (*taskOutcome_Custom) isTaskOutcome_Result() {}
-
-type CustomOutcome struct {
+type ApplicationOutputBytes struct {
 	state                  protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_PayloadKind *string                `protobuf:"bytes,1,opt,name=payload_kind,json=payloadKind"`
-	xxx_hidden_PayloadJson []byte                 `protobuf:"bytes,2,opt,name=payload_json,json=payloadJson"`
+	xxx_hidden_Data        []byte                 `protobuf:"bytes,1,opt,name=data"`
 	XXX_raceDetectHookData protoimpl.RaceDetectHookData
 	XXX_presence           [1]uint32
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
 
-func (x *CustomOutcome) Reset() {
-	*x = CustomOutcome{}
+func (x *ApplicationOutputBytes) Reset() {
+	*x = ApplicationOutputBytes{}
 	mi := &file_swf_storage_v1_storage_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CustomOutcome) String() string {
+func (x *ApplicationOutputBytes) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CustomOutcome) ProtoMessage() {}
+func (*ApplicationOutputBytes) ProtoMessage() {}
 
-func (x *CustomOutcome) ProtoReflect() protoreflect.Message {
+func (x *ApplicationOutputBytes) ProtoReflect() protoreflect.Message {
 	mi := &file_swf_storage_v1_storage_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1578,78 +1391,1335 @@ func (x *CustomOutcome) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *CustomOutcome) GetPayloadKind() string {
+func (x *ApplicationOutputBytes) GetData() []byte {
 	if x != nil {
-		if x.xxx_hidden_PayloadKind != nil {
-			return *x.xxx_hidden_PayloadKind
-		}
-		return ""
-	}
-	return ""
-}
-
-func (x *CustomOutcome) GetPayloadJson() []byte {
-	if x != nil {
-		return x.xxx_hidden_PayloadJson
+		return x.xxx_hidden_Data
 	}
 	return nil
 }
 
-func (x *CustomOutcome) SetPayloadKind(v string) {
-	x.xxx_hidden_PayloadKind = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 2)
-}
-
-func (x *CustomOutcome) SetPayloadJson(v []byte) {
+func (x *ApplicationOutputBytes) SetData(v []byte) {
 	if v == nil {
 		v = []byte{}
 	}
-	x.xxx_hidden_PayloadJson = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 2)
+	x.xxx_hidden_Data = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 1)
 }
 
-func (x *CustomOutcome) HasPayloadKind() bool {
+func (x *ApplicationOutputBytes) HasData() bool {
 	if x == nil {
 		return false
 	}
 	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
 }
 
-func (x *CustomOutcome) HasPayloadJson() bool {
+func (x *ApplicationOutputBytes) ClearData() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
+	x.xxx_hidden_Data = nil
+}
+
+type ApplicationOutputBytes_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Data []byte
+}
+
+func (b0 ApplicationOutputBytes_builder) Build() *ApplicationOutputBytes {
+	m0 := &ApplicationOutputBytes{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.Data != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 1)
+		x.xxx_hidden_Data = b.Data
+	}
+	return m0
+}
+
+type LeasePayloadBytes struct {
+	state                  protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Data        []byte                 `protobuf:"bytes,1,opt,name=data"`
+	XXX_raceDetectHookData protoimpl.RaceDetectHookData
+	XXX_presence           [1]uint32
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *LeasePayloadBytes) Reset() {
+	*x = LeasePayloadBytes{}
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LeasePayloadBytes) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LeasePayloadBytes) ProtoMessage() {}
+
+func (x *LeasePayloadBytes) ProtoReflect() protoreflect.Message {
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *LeasePayloadBytes) GetData() []byte {
+	if x != nil {
+		return x.xxx_hidden_Data
+	}
+	return nil
+}
+
+func (x *LeasePayloadBytes) SetData(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.xxx_hidden_Data = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 1)
+}
+
+func (x *LeasePayloadBytes) HasData() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+}
+
+func (x *LeasePayloadBytes) ClearData() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
+	x.xxx_hidden_Data = nil
+}
+
+type LeasePayloadBytes_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Data []byte
+}
+
+func (b0 LeasePayloadBytes_builder) Build() *LeasePayloadBytes {
+	m0 := &LeasePayloadBytes{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.Data != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 1)
+		x.xxx_hidden_Data = b.Data
+	}
+	return m0
+}
+
+type Metadata struct {
+	state             protoimpl.MessageState    `protogen:"opaque.v1"`
+	xxx_hidden_Fields map[string]*MetadataValue `protobuf:"bytes,1,rep,name=fields" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *Metadata) Reset() {
+	*x = Metadata{}
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Metadata) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Metadata) ProtoMessage() {}
+
+func (x *Metadata) ProtoReflect() protoreflect.Message {
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *Metadata) GetFields() map[string]*MetadataValue {
+	if x != nil {
+		return x.xxx_hidden_Fields
+	}
+	return nil
+}
+
+func (x *Metadata) SetFields(v map[string]*MetadataValue) {
+	x.xxx_hidden_Fields = v
+}
+
+type Metadata_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Fields map[string]*MetadataValue
+}
+
+func (b0 Metadata_builder) Build() *Metadata {
+	m0 := &Metadata{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Fields = b.Fields
+	return m0
+}
+
+type MetadataValue struct {
+	state           protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Kind isMetadataValue_Kind   `protobuf_oneof:"kind"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *MetadataValue) Reset() {
+	*x = MetadataValue{}
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MetadataValue) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MetadataValue) ProtoMessage() {}
+
+func (x *MetadataValue) ProtoReflect() protoreflect.Message {
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *MetadataValue) GetBoolValue() bool {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Kind.(*metadataValue_BoolValue); ok {
+			return x.BoolValue
+		}
+	}
+	return false
+}
+
+func (x *MetadataValue) GetIntValue() int64 {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Kind.(*metadataValue_IntValue); ok {
+			return x.IntValue
+		}
+	}
+	return 0
+}
+
+func (x *MetadataValue) GetDoubleValue() float64 {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Kind.(*metadataValue_DoubleValue); ok {
+			return x.DoubleValue
+		}
+	}
+	return 0
+}
+
+func (x *MetadataValue) GetStringValue() string {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Kind.(*metadataValue_StringValue); ok {
+			return x.StringValue
+		}
+	}
+	return ""
+}
+
+func (x *MetadataValue) GetListValue() *MetadataList {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Kind.(*metadataValue_ListValue); ok {
+			return x.ListValue
+		}
+	}
+	return nil
+}
+
+func (x *MetadataValue) GetMapValue() *MetadataMap {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Kind.(*metadataValue_MapValue); ok {
+			return x.MapValue
+		}
+	}
+	return nil
+}
+
+func (x *MetadataValue) GetNullValue() bool {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Kind.(*metadataValue_NullValue); ok {
+			return x.NullValue
+		}
+	}
+	return false
+}
+
+func (x *MetadataValue) SetBoolValue(v bool) {
+	x.xxx_hidden_Kind = &metadataValue_BoolValue{v}
+}
+
+func (x *MetadataValue) SetIntValue(v int64) {
+	x.xxx_hidden_Kind = &metadataValue_IntValue{v}
+}
+
+func (x *MetadataValue) SetDoubleValue(v float64) {
+	x.xxx_hidden_Kind = &metadataValue_DoubleValue{v}
+}
+
+func (x *MetadataValue) SetStringValue(v string) {
+	x.xxx_hidden_Kind = &metadataValue_StringValue{v}
+}
+
+func (x *MetadataValue) SetListValue(v *MetadataList) {
+	if v == nil {
+		x.xxx_hidden_Kind = nil
+		return
+	}
+	x.xxx_hidden_Kind = &metadataValue_ListValue{v}
+}
+
+func (x *MetadataValue) SetMapValue(v *MetadataMap) {
+	if v == nil {
+		x.xxx_hidden_Kind = nil
+		return
+	}
+	x.xxx_hidden_Kind = &metadataValue_MapValue{v}
+}
+
+func (x *MetadataValue) SetNullValue(v bool) {
+	x.xxx_hidden_Kind = &metadataValue_NullValue{v}
+}
+
+func (x *MetadataValue) HasKind() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Kind != nil
+}
+
+func (x *MetadataValue) HasBoolValue() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Kind.(*metadataValue_BoolValue)
+	return ok
+}
+
+func (x *MetadataValue) HasIntValue() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Kind.(*metadataValue_IntValue)
+	return ok
+}
+
+func (x *MetadataValue) HasDoubleValue() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Kind.(*metadataValue_DoubleValue)
+	return ok
+}
+
+func (x *MetadataValue) HasStringValue() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Kind.(*metadataValue_StringValue)
+	return ok
+}
+
+func (x *MetadataValue) HasListValue() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Kind.(*metadataValue_ListValue)
+	return ok
+}
+
+func (x *MetadataValue) HasMapValue() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Kind.(*metadataValue_MapValue)
+	return ok
+}
+
+func (x *MetadataValue) HasNullValue() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Kind.(*metadataValue_NullValue)
+	return ok
+}
+
+func (x *MetadataValue) ClearKind() {
+	x.xxx_hidden_Kind = nil
+}
+
+func (x *MetadataValue) ClearBoolValue() {
+	if _, ok := x.xxx_hidden_Kind.(*metadataValue_BoolValue); ok {
+		x.xxx_hidden_Kind = nil
+	}
+}
+
+func (x *MetadataValue) ClearIntValue() {
+	if _, ok := x.xxx_hidden_Kind.(*metadataValue_IntValue); ok {
+		x.xxx_hidden_Kind = nil
+	}
+}
+
+func (x *MetadataValue) ClearDoubleValue() {
+	if _, ok := x.xxx_hidden_Kind.(*metadataValue_DoubleValue); ok {
+		x.xxx_hidden_Kind = nil
+	}
+}
+
+func (x *MetadataValue) ClearStringValue() {
+	if _, ok := x.xxx_hidden_Kind.(*metadataValue_StringValue); ok {
+		x.xxx_hidden_Kind = nil
+	}
+}
+
+func (x *MetadataValue) ClearListValue() {
+	if _, ok := x.xxx_hidden_Kind.(*metadataValue_ListValue); ok {
+		x.xxx_hidden_Kind = nil
+	}
+}
+
+func (x *MetadataValue) ClearMapValue() {
+	if _, ok := x.xxx_hidden_Kind.(*metadataValue_MapValue); ok {
+		x.xxx_hidden_Kind = nil
+	}
+}
+
+func (x *MetadataValue) ClearNullValue() {
+	if _, ok := x.xxx_hidden_Kind.(*metadataValue_NullValue); ok {
+		x.xxx_hidden_Kind = nil
+	}
+}
+
+const MetadataValue_Kind_not_set_case case_MetadataValue_Kind = 0
+const MetadataValue_BoolValue_case case_MetadataValue_Kind = 1
+const MetadataValue_IntValue_case case_MetadataValue_Kind = 2
+const MetadataValue_DoubleValue_case case_MetadataValue_Kind = 3
+const MetadataValue_StringValue_case case_MetadataValue_Kind = 4
+const MetadataValue_ListValue_case case_MetadataValue_Kind = 5
+const MetadataValue_MapValue_case case_MetadataValue_Kind = 6
+const MetadataValue_NullValue_case case_MetadataValue_Kind = 7
+
+func (x *MetadataValue) WhichKind() case_MetadataValue_Kind {
+	if x == nil {
+		return MetadataValue_Kind_not_set_case
+	}
+	switch x.xxx_hidden_Kind.(type) {
+	case *metadataValue_BoolValue:
+		return MetadataValue_BoolValue_case
+	case *metadataValue_IntValue:
+		return MetadataValue_IntValue_case
+	case *metadataValue_DoubleValue:
+		return MetadataValue_DoubleValue_case
+	case *metadataValue_StringValue:
+		return MetadataValue_StringValue_case
+	case *metadataValue_ListValue:
+		return MetadataValue_ListValue_case
+	case *metadataValue_MapValue:
+		return MetadataValue_MapValue_case
+	case *metadataValue_NullValue:
+		return MetadataValue_NullValue_case
+	default:
+		return MetadataValue_Kind_not_set_case
+	}
+}
+
+type MetadataValue_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// Fields of oneof xxx_hidden_Kind:
+	BoolValue   *bool
+	IntValue    *int64
+	DoubleValue *float64
+	StringValue *string
+	ListValue   *MetadataList
+	MapValue    *MetadataMap
+	NullValue   *bool
+	// -- end of xxx_hidden_Kind
+}
+
+func (b0 MetadataValue_builder) Build() *MetadataValue {
+	m0 := &MetadataValue{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.BoolValue != nil {
+		x.xxx_hidden_Kind = &metadataValue_BoolValue{*b.BoolValue}
+	}
+	if b.IntValue != nil {
+		x.xxx_hidden_Kind = &metadataValue_IntValue{*b.IntValue}
+	}
+	if b.DoubleValue != nil {
+		x.xxx_hidden_Kind = &metadataValue_DoubleValue{*b.DoubleValue}
+	}
+	if b.StringValue != nil {
+		x.xxx_hidden_Kind = &metadataValue_StringValue{*b.StringValue}
+	}
+	if b.ListValue != nil {
+		x.xxx_hidden_Kind = &metadataValue_ListValue{b.ListValue}
+	}
+	if b.MapValue != nil {
+		x.xxx_hidden_Kind = &metadataValue_MapValue{b.MapValue}
+	}
+	if b.NullValue != nil {
+		x.xxx_hidden_Kind = &metadataValue_NullValue{*b.NullValue}
+	}
+	return m0
+}
+
+type case_MetadataValue_Kind protoreflect.FieldNumber
+
+func (x case_MetadataValue_Kind) String() string {
+	md := file_swf_storage_v1_storage_proto_msgTypes[10].Descriptor()
+	if x == 0 {
+		return "not set"
+	}
+	return protoimpl.X.MessageFieldStringOf(md, protoreflect.FieldNumber(x))
+}
+
+type isMetadataValue_Kind interface {
+	isMetadataValue_Kind()
+}
+
+type metadataValue_BoolValue struct {
+	BoolValue bool `protobuf:"varint,1,opt,name=bool_value,json=boolValue,oneof"`
+}
+
+type metadataValue_IntValue struct {
+	IntValue int64 `protobuf:"varint,2,opt,name=int_value,json=intValue,oneof"`
+}
+
+type metadataValue_DoubleValue struct {
+	DoubleValue float64 `protobuf:"fixed64,3,opt,name=double_value,json=doubleValue,oneof"`
+}
+
+type metadataValue_StringValue struct {
+	StringValue string `protobuf:"bytes,4,opt,name=string_value,json=stringValue,oneof"`
+}
+
+type metadataValue_ListValue struct {
+	ListValue *MetadataList `protobuf:"bytes,5,opt,name=list_value,json=listValue,oneof"`
+}
+
+type metadataValue_MapValue struct {
+	MapValue *MetadataMap `protobuf:"bytes,6,opt,name=map_value,json=mapValue,oneof"`
+}
+
+type metadataValue_NullValue struct {
+	NullValue bool `protobuf:"varint,7,opt,name=null_value,json=nullValue,oneof"`
+}
+
+func (*metadataValue_BoolValue) isMetadataValue_Kind() {}
+
+func (*metadataValue_IntValue) isMetadataValue_Kind() {}
+
+func (*metadataValue_DoubleValue) isMetadataValue_Kind() {}
+
+func (*metadataValue_StringValue) isMetadataValue_Kind() {}
+
+func (*metadataValue_ListValue) isMetadataValue_Kind() {}
+
+func (*metadataValue_MapValue) isMetadataValue_Kind() {}
+
+func (*metadataValue_NullValue) isMetadataValue_Kind() {}
+
+type MetadataList struct {
+	state             protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Values *[]*MetadataValue      `protobuf:"bytes,1,rep,name=values"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *MetadataList) Reset() {
+	*x = MetadataList{}
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MetadataList) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MetadataList) ProtoMessage() {}
+
+func (x *MetadataList) ProtoReflect() protoreflect.Message {
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *MetadataList) GetValues() []*MetadataValue {
+	if x != nil {
+		if x.xxx_hidden_Values != nil {
+			return *x.xxx_hidden_Values
+		}
+	}
+	return nil
+}
+
+func (x *MetadataList) SetValues(v []*MetadataValue) {
+	x.xxx_hidden_Values = &v
+}
+
+type MetadataList_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Values []*MetadataValue
+}
+
+func (b0 MetadataList_builder) Build() *MetadataList {
+	m0 := &MetadataList{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Values = &b.Values
+	return m0
+}
+
+type MetadataMap struct {
+	state             protoimpl.MessageState    `protogen:"opaque.v1"`
+	xxx_hidden_Fields map[string]*MetadataValue `protobuf:"bytes,1,rep,name=fields" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *MetadataMap) Reset() {
+	*x = MetadataMap{}
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MetadataMap) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MetadataMap) ProtoMessage() {}
+
+func (x *MetadataMap) ProtoReflect() protoreflect.Message {
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *MetadataMap) GetFields() map[string]*MetadataValue {
+	if x != nil {
+		return x.xxx_hidden_Fields
+	}
+	return nil
+}
+
+func (x *MetadataMap) SetFields(v map[string]*MetadataValue) {
+	x.xxx_hidden_Fields = v
+}
+
+type MetadataMap_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Fields map[string]*MetadataValue
+}
+
+func (b0 MetadataMap_builder) Build() *MetadataMap {
+	m0 := &MetadataMap{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Fields = b.Fields
+	return m0
+}
+
+type AppErrorPayload struct {
+	state                  protoimpl.MessageState    `protogen:"opaque.v1"`
+	xxx_hidden_Message     *string                   `protobuf:"bytes,1,opt,name=message"`
+	xxx_hidden_Level       *string                   `protobuf:"bytes,2,opt,name=level"`
+	xxx_hidden_Attrs       map[string]*MetadataValue `protobuf:"bytes,3,rep,name=attrs" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	xxx_hidden_InputRef    *InputReference           `protobuf:"bytes,4,opt,name=input_ref,json=inputRef"`
+	xxx_hidden_Stacktrace  []string                  `protobuf:"bytes,5,rep,name=stacktrace"`
+	XXX_raceDetectHookData protoimpl.RaceDetectHookData
+	XXX_presence           [1]uint32
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *AppErrorPayload) Reset() {
+	*x = AppErrorPayload{}
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AppErrorPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AppErrorPayload) ProtoMessage() {}
+
+func (x *AppErrorPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *AppErrorPayload) GetMessage() string {
+	if x != nil {
+		if x.xxx_hidden_Message != nil {
+			return *x.xxx_hidden_Message
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *AppErrorPayload) GetLevel() string {
+	if x != nil {
+		if x.xxx_hidden_Level != nil {
+			return *x.xxx_hidden_Level
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *AppErrorPayload) GetAttrs() map[string]*MetadataValue {
+	if x != nil {
+		return x.xxx_hidden_Attrs
+	}
+	return nil
+}
+
+func (x *AppErrorPayload) GetInputRef() *InputReference {
+	if x != nil {
+		return x.xxx_hidden_InputRef
+	}
+	return nil
+}
+
+func (x *AppErrorPayload) GetStacktrace() []string {
+	if x != nil {
+		return x.xxx_hidden_Stacktrace
+	}
+	return nil
+}
+
+func (x *AppErrorPayload) SetMessage(v string) {
+	x.xxx_hidden_Message = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 5)
+}
+
+func (x *AppErrorPayload) SetLevel(v string) {
+	x.xxx_hidden_Level = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 5)
+}
+
+func (x *AppErrorPayload) SetAttrs(v map[string]*MetadataValue) {
+	x.xxx_hidden_Attrs = v
+}
+
+func (x *AppErrorPayload) SetInputRef(v *InputReference) {
+	x.xxx_hidden_InputRef = v
+}
+
+func (x *AppErrorPayload) SetStacktrace(v []string) {
+	x.xxx_hidden_Stacktrace = v
+}
+
+func (x *AppErrorPayload) HasMessage() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+}
+
+func (x *AppErrorPayload) HasLevel() bool {
 	if x == nil {
 		return false
 	}
 	return protoimpl.X.Present(&(x.XXX_presence[0]), 1)
 }
 
-func (x *CustomOutcome) ClearPayloadKind() {
+func (x *AppErrorPayload) HasInputRef() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_InputRef != nil
+}
+
+func (x *AppErrorPayload) ClearMessage() {
 	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
-	x.xxx_hidden_PayloadKind = nil
+	x.xxx_hidden_Message = nil
 }
 
-func (x *CustomOutcome) ClearPayloadJson() {
+func (x *AppErrorPayload) ClearLevel() {
 	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 1)
-	x.xxx_hidden_PayloadJson = nil
+	x.xxx_hidden_Level = nil
 }
 
-type CustomOutcome_builder struct {
+func (x *AppErrorPayload) ClearInputRef() {
+	x.xxx_hidden_InputRef = nil
+}
+
+type AppErrorPayload_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	PayloadKind *string
-	PayloadJson []byte
+	Message    *string
+	Level      *string
+	Attrs      map[string]*MetadataValue
+	InputRef   *InputReference
+	Stacktrace []string
 }
 
-func (b0 CustomOutcome_builder) Build() *CustomOutcome {
-	m0 := &CustomOutcome{}
+func (b0 AppErrorPayload_builder) Build() *AppErrorPayload {
+	m0 := &AppErrorPayload{}
 	b, x := &b0, m0
 	_, _ = b, x
-	if b.PayloadKind != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 2)
-		x.xxx_hidden_PayloadKind = b.PayloadKind
+	if b.Message != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 5)
+		x.xxx_hidden_Message = b.Message
 	}
-	if b.PayloadJson != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 2)
-		x.xxx_hidden_PayloadJson = b.PayloadJson
+	if b.Level != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 5)
+		x.xxx_hidden_Level = b.Level
+	}
+	x.xxx_hidden_Attrs = b.Attrs
+	x.xxx_hidden_InputRef = b.InputRef
+	x.xxx_hidden_Stacktrace = b.Stacktrace
+	return m0
+}
+
+type SystemErrorPayload struct {
+	state                  protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Message     *string                `protobuf:"bytes,1,opt,name=message"`
+	xxx_hidden_Component   *string                `protobuf:"bytes,2,opt,name=component"`
+	xxx_hidden_Code        *string                `protobuf:"bytes,3,opt,name=code"`
+	xxx_hidden_Retryable   bool                   `protobuf:"varint,4,opt,name=retryable"`
+	xxx_hidden_InputRef    *InputReference        `protobuf:"bytes,5,opt,name=input_ref,json=inputRef"`
+	xxx_hidden_Stacktrace  []string               `protobuf:"bytes,6,rep,name=stacktrace"`
+	XXX_raceDetectHookData protoimpl.RaceDetectHookData
+	XXX_presence           [1]uint32
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *SystemErrorPayload) Reset() {
+	*x = SystemErrorPayload{}
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SystemErrorPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SystemErrorPayload) ProtoMessage() {}
+
+func (x *SystemErrorPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *SystemErrorPayload) GetMessage() string {
+	if x != nil {
+		if x.xxx_hidden_Message != nil {
+			return *x.xxx_hidden_Message
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *SystemErrorPayload) GetComponent() string {
+	if x != nil {
+		if x.xxx_hidden_Component != nil {
+			return *x.xxx_hidden_Component
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *SystemErrorPayload) GetCode() string {
+	if x != nil {
+		if x.xxx_hidden_Code != nil {
+			return *x.xxx_hidden_Code
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *SystemErrorPayload) GetRetryable() bool {
+	if x != nil {
+		return x.xxx_hidden_Retryable
+	}
+	return false
+}
+
+func (x *SystemErrorPayload) GetInputRef() *InputReference {
+	if x != nil {
+		return x.xxx_hidden_InputRef
+	}
+	return nil
+}
+
+func (x *SystemErrorPayload) GetStacktrace() []string {
+	if x != nil {
+		return x.xxx_hidden_Stacktrace
+	}
+	return nil
+}
+
+func (x *SystemErrorPayload) SetMessage(v string) {
+	x.xxx_hidden_Message = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 6)
+}
+
+func (x *SystemErrorPayload) SetComponent(v string) {
+	x.xxx_hidden_Component = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 6)
+}
+
+func (x *SystemErrorPayload) SetCode(v string) {
+	x.xxx_hidden_Code = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 6)
+}
+
+func (x *SystemErrorPayload) SetRetryable(v bool) {
+	x.xxx_hidden_Retryable = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 6)
+}
+
+func (x *SystemErrorPayload) SetInputRef(v *InputReference) {
+	x.xxx_hidden_InputRef = v
+}
+
+func (x *SystemErrorPayload) SetStacktrace(v []string) {
+	x.xxx_hidden_Stacktrace = v
+}
+
+func (x *SystemErrorPayload) HasMessage() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+}
+
+func (x *SystemErrorPayload) HasComponent() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 1)
+}
+
+func (x *SystemErrorPayload) HasCode() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 2)
+}
+
+func (x *SystemErrorPayload) HasRetryable() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 3)
+}
+
+func (x *SystemErrorPayload) HasInputRef() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_InputRef != nil
+}
+
+func (x *SystemErrorPayload) ClearMessage() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
+	x.xxx_hidden_Message = nil
+}
+
+func (x *SystemErrorPayload) ClearComponent() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 1)
+	x.xxx_hidden_Component = nil
+}
+
+func (x *SystemErrorPayload) ClearCode() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 2)
+	x.xxx_hidden_Code = nil
+}
+
+func (x *SystemErrorPayload) ClearRetryable() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 3)
+	x.xxx_hidden_Retryable = false
+}
+
+func (x *SystemErrorPayload) ClearInputRef() {
+	x.xxx_hidden_InputRef = nil
+}
+
+type SystemErrorPayload_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Message    *string
+	Component  *string
+	Code       *string
+	Retryable  *bool
+	InputRef   *InputReference
+	Stacktrace []string
+}
+
+func (b0 SystemErrorPayload_builder) Build() *SystemErrorPayload {
+	m0 := &SystemErrorPayload{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.Message != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 6)
+		x.xxx_hidden_Message = b.Message
+	}
+	if b.Component != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 6)
+		x.xxx_hidden_Component = b.Component
+	}
+	if b.Code != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 6)
+		x.xxx_hidden_Code = b.Code
+	}
+	if b.Retryable != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 6)
+		x.xxx_hidden_Retryable = *b.Retryable
+	}
+	x.xxx_hidden_InputRef = b.InputRef
+	x.xxx_hidden_Stacktrace = b.Stacktrace
+	return m0
+}
+
+type TimeoutPayload struct {
+	state                  protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Kind        *string                `protobuf:"bytes,1,opt,name=kind"`
+	xxx_hidden_After       *durationpb.Duration   `protobuf:"bytes,2,opt,name=after"`
+	xxx_hidden_Scope       *string                `protobuf:"bytes,3,opt,name=scope"`
+	xxx_hidden_InputRef    *InputReference        `protobuf:"bytes,4,opt,name=input_ref,json=inputRef"`
+	xxx_hidden_Retryable   bool                   `protobuf:"varint,5,opt,name=retryable"`
+	xxx_hidden_Component   *string                `protobuf:"bytes,6,opt,name=component"`
+	xxx_hidden_Code        *string                `protobuf:"bytes,7,opt,name=code"`
+	xxx_hidden_Message     *string                `protobuf:"bytes,8,opt,name=message"`
+	XXX_raceDetectHookData protoimpl.RaceDetectHookData
+	XXX_presence           [1]uint32
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *TimeoutPayload) Reset() {
+	*x = TimeoutPayload{}
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TimeoutPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TimeoutPayload) ProtoMessage() {}
+
+func (x *TimeoutPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *TimeoutPayload) GetKind() string {
+	if x != nil {
+		if x.xxx_hidden_Kind != nil {
+			return *x.xxx_hidden_Kind
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *TimeoutPayload) GetAfter() *durationpb.Duration {
+	if x != nil {
+		return x.xxx_hidden_After
+	}
+	return nil
+}
+
+func (x *TimeoutPayload) GetScope() string {
+	if x != nil {
+		if x.xxx_hidden_Scope != nil {
+			return *x.xxx_hidden_Scope
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *TimeoutPayload) GetInputRef() *InputReference {
+	if x != nil {
+		return x.xxx_hidden_InputRef
+	}
+	return nil
+}
+
+func (x *TimeoutPayload) GetRetryable() bool {
+	if x != nil {
+		return x.xxx_hidden_Retryable
+	}
+	return false
+}
+
+func (x *TimeoutPayload) GetComponent() string {
+	if x != nil {
+		if x.xxx_hidden_Component != nil {
+			return *x.xxx_hidden_Component
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *TimeoutPayload) GetCode() string {
+	if x != nil {
+		if x.xxx_hidden_Code != nil {
+			return *x.xxx_hidden_Code
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *TimeoutPayload) GetMessage() string {
+	if x != nil {
+		if x.xxx_hidden_Message != nil {
+			return *x.xxx_hidden_Message
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *TimeoutPayload) SetKind(v string) {
+	x.xxx_hidden_Kind = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 8)
+}
+
+func (x *TimeoutPayload) SetAfter(v *durationpb.Duration) {
+	x.xxx_hidden_After = v
+}
+
+func (x *TimeoutPayload) SetScope(v string) {
+	x.xxx_hidden_Scope = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 8)
+}
+
+func (x *TimeoutPayload) SetInputRef(v *InputReference) {
+	x.xxx_hidden_InputRef = v
+}
+
+func (x *TimeoutPayload) SetRetryable(v bool) {
+	x.xxx_hidden_Retryable = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 4, 8)
+}
+
+func (x *TimeoutPayload) SetComponent(v string) {
+	x.xxx_hidden_Component = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 8)
+}
+
+func (x *TimeoutPayload) SetCode(v string) {
+	x.xxx_hidden_Code = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 6, 8)
+}
+
+func (x *TimeoutPayload) SetMessage(v string) {
+	x.xxx_hidden_Message = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 7, 8)
+}
+
+func (x *TimeoutPayload) HasKind() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+}
+
+func (x *TimeoutPayload) HasAfter() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_After != nil
+}
+
+func (x *TimeoutPayload) HasScope() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 2)
+}
+
+func (x *TimeoutPayload) HasInputRef() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_InputRef != nil
+}
+
+func (x *TimeoutPayload) HasRetryable() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 4)
+}
+
+func (x *TimeoutPayload) HasComponent() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 5)
+}
+
+func (x *TimeoutPayload) HasCode() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 6)
+}
+
+func (x *TimeoutPayload) HasMessage() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 7)
+}
+
+func (x *TimeoutPayload) ClearKind() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
+	x.xxx_hidden_Kind = nil
+}
+
+func (x *TimeoutPayload) ClearAfter() {
+	x.xxx_hidden_After = nil
+}
+
+func (x *TimeoutPayload) ClearScope() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 2)
+	x.xxx_hidden_Scope = nil
+}
+
+func (x *TimeoutPayload) ClearInputRef() {
+	x.xxx_hidden_InputRef = nil
+}
+
+func (x *TimeoutPayload) ClearRetryable() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 4)
+	x.xxx_hidden_Retryable = false
+}
+
+func (x *TimeoutPayload) ClearComponent() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 5)
+	x.xxx_hidden_Component = nil
+}
+
+func (x *TimeoutPayload) ClearCode() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 6)
+	x.xxx_hidden_Code = nil
+}
+
+func (x *TimeoutPayload) ClearMessage() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 7)
+	x.xxx_hidden_Message = nil
+}
+
+type TimeoutPayload_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Kind      *string
+	After     *durationpb.Duration
+	Scope     *string
+	InputRef  *InputReference
+	Retryable *bool
+	Component *string
+	Code      *string
+	Message   *string
+}
+
+func (b0 TimeoutPayload_builder) Build() *TimeoutPayload {
+	m0 := &TimeoutPayload{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.Kind != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 8)
+		x.xxx_hidden_Kind = b.Kind
+	}
+	x.xxx_hidden_After = b.After
+	if b.Scope != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 8)
+		x.xxx_hidden_Scope = b.Scope
+	}
+	x.xxx_hidden_InputRef = b.InputRef
+	if b.Retryable != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 4, 8)
+		x.xxx_hidden_Retryable = *b.Retryable
+	}
+	if b.Component != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 8)
+		x.xxx_hidden_Component = b.Component
+	}
+	if b.Code != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 6, 8)
+		x.xxx_hidden_Code = b.Code
+	}
+	if b.Message != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 7, 8)
+		x.xxx_hidden_Message = b.Message
 	}
 	return m0
 }
@@ -1666,7 +2736,7 @@ type InputReference struct {
 
 func (x *InputReference) Reset() {
 	*x = InputReference{}
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[8]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1678,7 +2748,7 @@ func (x *InputReference) String() string {
 func (*InputReference) ProtoMessage() {}
 
 func (x *InputReference) ProtoReflect() protoreflect.Message {
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[8]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1777,7 +2847,7 @@ type RetryPolicy struct {
 
 func (x *RetryPolicy) Reset() {
 	*x = RetryPolicy{}
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[9]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1789,7 +2859,7 @@ func (x *RetryPolicy) String() string {
 func (*RetryPolicy) ProtoMessage() {}
 
 func (x *RetryPolicy) ProtoReflect() protoreflect.Message {
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[9]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1942,7 +3012,7 @@ type RunPolicy struct {
 
 func (x *RunPolicy) Reset() {
 	*x = RunPolicy{}
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[10]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1954,7 +3024,7 @@ func (x *RunPolicy) String() string {
 func (*RunPolicy) ProtoMessage() {}
 
 func (x *RunPolicy) ProtoReflect() protoreflect.Message {
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[10]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2061,7 +3131,7 @@ type JobPrerequisite struct {
 
 func (x *JobPrerequisite) Reset() {
 	*x = JobPrerequisite{}
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[11]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2073,7 +3143,7 @@ func (x *JobPrerequisite) String() string {
 func (*JobPrerequisite) ProtoMessage() {}
 
 func (x *JobPrerequisite) ProtoReflect() protoreflect.Message {
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[11]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2161,19 +3231,17 @@ func (b0 JobPrerequisite_builder) Build() *JobPrerequisite {
 }
 
 type SchedulerPayload struct {
-	state                         protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_RunPolicy          *RunPolicy             `protobuf:"bytes,1,opt,name=run_policy,json=runPolicy"`
-	xxx_hidden_TaskWait           *TaskWait              `protobuf:"bytes,2,opt,name=task_wait,json=taskWait"`
-	xxx_hidden_VisiblePayloadJson []byte                 `protobuf:"bytes,3,opt,name=visible_payload_json,json=visiblePayloadJson"`
-	XXX_raceDetectHookData        protoimpl.RaceDetectHookData
-	XXX_presence                  [1]uint32
-	unknownFields                 protoimpl.UnknownFields
-	sizeCache                     protoimpl.SizeCache
+	state                   protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_RunPolicy    *RunPolicy             `protobuf:"bytes,1,opt,name=run_policy,json=runPolicy"`
+	xxx_hidden_TaskWait     *TaskWait              `protobuf:"bytes,2,opt,name=task_wait,json=taskWait"`
+	xxx_hidden_LeasePayload *LeasePayloadBytes     `protobuf:"bytes,3,opt,name=lease_payload,json=leasePayload"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *SchedulerPayload) Reset() {
 	*x = SchedulerPayload{}
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[12]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2185,7 +3253,7 @@ func (x *SchedulerPayload) String() string {
 func (*SchedulerPayload) ProtoMessage() {}
 
 func (x *SchedulerPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[12]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2210,9 +3278,9 @@ func (x *SchedulerPayload) GetTaskWait() *TaskWait {
 	return nil
 }
 
-func (x *SchedulerPayload) GetVisiblePayloadJson() []byte {
+func (x *SchedulerPayload) GetLeasePayload() *LeasePayloadBytes {
 	if x != nil {
-		return x.xxx_hidden_VisiblePayloadJson
+		return x.xxx_hidden_LeasePayload
 	}
 	return nil
 }
@@ -2225,12 +3293,8 @@ func (x *SchedulerPayload) SetTaskWait(v *TaskWait) {
 	x.xxx_hidden_TaskWait = v
 }
 
-func (x *SchedulerPayload) SetVisiblePayloadJson(v []byte) {
-	if v == nil {
-		v = []byte{}
-	}
-	x.xxx_hidden_VisiblePayloadJson = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 3)
+func (x *SchedulerPayload) SetLeasePayload(v *LeasePayloadBytes) {
+	x.xxx_hidden_LeasePayload = v
 }
 
 func (x *SchedulerPayload) HasRunPolicy() bool {
@@ -2247,11 +3311,11 @@ func (x *SchedulerPayload) HasTaskWait() bool {
 	return x.xxx_hidden_TaskWait != nil
 }
 
-func (x *SchedulerPayload) HasVisiblePayloadJson() bool {
+func (x *SchedulerPayload) HasLeasePayload() bool {
 	if x == nil {
 		return false
 	}
-	return protoimpl.X.Present(&(x.XXX_presence[0]), 2)
+	return x.xxx_hidden_LeasePayload != nil
 }
 
 func (x *SchedulerPayload) ClearRunPolicy() {
@@ -2262,17 +3326,16 @@ func (x *SchedulerPayload) ClearTaskWait() {
 	x.xxx_hidden_TaskWait = nil
 }
 
-func (x *SchedulerPayload) ClearVisiblePayloadJson() {
-	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 2)
-	x.xxx_hidden_VisiblePayloadJson = nil
+func (x *SchedulerPayload) ClearLeasePayload() {
+	x.xxx_hidden_LeasePayload = nil
 }
 
 type SchedulerPayload_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	RunPolicy          *RunPolicy
-	TaskWait           *TaskWait
-	VisiblePayloadJson []byte
+	RunPolicy    *RunPolicy
+	TaskWait     *TaskWait
+	LeasePayload *LeasePayloadBytes
 }
 
 func (b0 SchedulerPayload_builder) Build() *SchedulerPayload {
@@ -2281,10 +3344,7 @@ func (b0 SchedulerPayload_builder) Build() *SchedulerPayload {
 	_, _ = b, x
 	x.xxx_hidden_RunPolicy = b.RunPolicy
 	x.xxx_hidden_TaskWait = b.TaskWait
-	if b.VisiblePayloadJson != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 3)
-		x.xxx_hidden_VisiblePayloadJson = b.VisiblePayloadJson
-	}
+	x.xxx_hidden_LeasePayload = b.LeasePayload
 	return m0
 }
 
@@ -2302,7 +3362,7 @@ type TaskWait struct {
 
 func (x *TaskWait) Reset() {
 	*x = TaskWait{}
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[13]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2314,7 +3374,7 @@ func (x *TaskWait) String() string {
 func (*TaskWait) ProtoMessage() {}
 
 func (x *TaskWait) ProtoReflect() protoreflect.Message {
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[13]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2468,7 +3528,7 @@ type WaitForJobs struct {
 
 func (x *WaitForJobs) Reset() {
 	*x = WaitForJobs{}
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[14]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2480,7 +3540,7 @@ func (x *WaitForJobs) String() string {
 func (*WaitForJobs) ProtoMessage() {}
 
 func (x *WaitForJobs) ProtoReflect() protoreflect.Message {
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[14]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2520,7 +3580,7 @@ var File_swf_storage_v1_storage_proto protoreflect.FileDescriptor
 
 const file_swf_storage_v1_storage_proto_rawDesc = "" +
 	"\n" +
-	"\x1cswf/storage/v1/storage.proto\x12\x0eswf.storage.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x88\t\n" +
+	"\x1cswf/storage/v1/storage.proto\x12\x0eswf.storage.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xfe\b\n" +
 	"\rChapterRecord\x12\x18\n" +
 	"\aordinal\x18\x01 \x01(\x03R\aordinal\x12\x1b\n" +
 	"\ttask_type\x18\x02 \x01(\tR\btaskType\x12\x1b\n" +
@@ -2532,10 +3592,9 @@ const file_swf_storage_v1_storage_proto_rawDesc = "" +
 	"\vfinished_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"finishedAt\x12\x1d\n" +
 	"\n" +
-	"input_hash\x18\a \x01(\tR\tinputHash\x12#\n" +
-	"\rmetadata_json\x18\b \x01(\fR\fmetadataJson\x12\x1d\n" +
-	"\n" +
-	"input_json\x18\t \x01(\fR\tinputJson\x12\x18\n" +
+	"input_hash\x18\a \x01(\tR\tinputHash\x124\n" +
+	"\bmetadata\x18\b \x01(\v2\x18.swf.storage.v1.MetadataR\bmetadata\x12;\n" +
+	"\x05input\x18\t \x01(\v2%.swf.storage.v1.ApplicationInputBytesR\x05input\x12\x18\n" +
 	"\aattempt\x18\n" +
 	" \x01(\x05R\aattempt\x12!\n" +
 	"\fmax_attempts\x18\v \x01(\x05R\vmaxAttempts\x12B\n" +
@@ -2549,31 +3608,83 @@ const file_swf_storage_v1_storage_proto_rawDesc = "" +
 	"\tjob_start\x18\x1e \x01(\v2\x1f.swf.storage.v1.JobStartChapterH\x00R\bjobStart\x12Z\n" +
 	"\x13job_attempt_outcome\x18\x1f \x01(\v2(.swf.storage.v1.JobAttemptOutcomeChapterH\x00R\x11jobAttemptOutcome\x12]\n" +
 	"\x14task_attempt_outcome\x18  \x01(\v2).swf.storage.v1.TaskAttemptOutcomeChapterH\x00R\x12taskAttemptOutcome\x12J\n" +
-	"\rrestart_extra\x18! \x01(\v2#.swf.storage.v1.RestartExtraChapterH\x00R\frestartExtra\x127\n" +
-	"\x06custom\x18\" \x01(\v2\x1d.swf.storage.v1.CustomChapterH\x00R\x06customB\t\n" +
-	"\achapter\"4\n" +
-	"\x0fJobStartChapter\x12!\n" +
-	"\fpayload_json\x18\x01 \x01(\fR\vpayloadJson\"Q\n" +
+	"\rrestart_extra\x18! \x01(\v2#.swf.storage.v1.RestartExtraChapterH\x00R\frestartExtraB\t\n" +
+	"\achapter\"N\n" +
+	"\x0fJobStartChapter\x12;\n" +
+	"\x05input\x18\x01 \x01(\v2%.swf.storage.v1.ApplicationInputBytesR\x05input\"Q\n" +
 	"\x18JobAttemptOutcomeChapter\x125\n" +
 	"\aoutcome\x18\x01 \x01(\v2\x1b.swf.storage.v1.TaskOutcomeR\aoutcome\"R\n" +
 	"\x19TaskAttemptOutcomeChapter\x125\n" +
-	"\aoutcome\x18\x01 \x01(\v2\x1b.swf.storage.v1.TaskOutcomeR\aoutcome\"8\n" +
-	"\x13RestartExtraChapter\x12!\n" +
-	"\fpayload_json\x18\x01 \x01(\fR\vpayloadJson\"x\n" +
-	"\rCustomChapter\x12!\n" +
-	"\fchapter_type\x18\x01 \x01(\tR\vchapterType\x12!\n" +
-	"\fpayload_kind\x18\x02 \x01(\tR\vpayloadKind\x12!\n" +
-	"\fpayload_json\x18\x03 \x01(\fR\vpayloadJson\"\xa4\x02\n" +
-	"\vTaskOutcome\x12*\n" +
-	"\x10app_payload_json\x18\x01 \x01(\fH\x00R\x0eappPayloadJson\x125\n" +
-	"\x16app_error_payload_json\x18\x02 \x01(\fH\x00R\x13appErrorPayloadJson\x12;\n" +
-	"\x19system_error_payload_json\x18\x03 \x01(\fH\x00R\x16systemErrorPayloadJson\x122\n" +
-	"\x14timeout_payload_json\x18\x04 \x01(\fH\x00R\x12timeoutPayloadJson\x127\n" +
-	"\x06custom\x18\x05 \x01(\v2\x1d.swf.storage.v1.CustomOutcomeH\x00R\x06customB\b\n" +
-	"\x06result\"U\n" +
-	"\rCustomOutcome\x12!\n" +
-	"\fpayload_kind\x18\x01 \x01(\tR\vpayloadKind\x12!\n" +
-	"\fpayload_json\x18\x02 \x01(\fR\vpayloadJson\">\n" +
+	"\aoutcome\x18\x01 \x01(\v2\x1b.swf.storage.v1.TaskOutcomeR\aoutcome\"U\n" +
+	"\x13RestartExtraChapter\x12>\n" +
+	"\x06output\x18\x01 \x01(\v2&.swf.storage.v1.ApplicationOutputBytesR\x06output\"\xa5\x02\n" +
+	"\vTaskOutcome\x12G\n" +
+	"\n" +
+	"app_output\x18\x01 \x01(\v2&.swf.storage.v1.ApplicationOutputBytesH\x00R\tappOutput\x12>\n" +
+	"\tapp_error\x18\x02 \x01(\v2\x1f.swf.storage.v1.AppErrorPayloadH\x00R\bappError\x12G\n" +
+	"\fsystem_error\x18\x03 \x01(\v2\".swf.storage.v1.SystemErrorPayloadH\x00R\vsystemError\x12:\n" +
+	"\atimeout\x18\x04 \x01(\v2\x1e.swf.storage.v1.TimeoutPayloadH\x00R\atimeoutB\b\n" +
+	"\x06result\"+\n" +
+	"\x15ApplicationInputBytes\x12\x12\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\",\n" +
+	"\x16ApplicationOutputBytes\x12\x12\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\"'\n" +
+	"\x11LeasePayloadBytes\x12\x12\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\"\xa2\x01\n" +
+	"\bMetadata\x12<\n" +
+	"\x06fields\x18\x01 \x03(\v2$.swf.storage.v1.Metadata.FieldsEntryR\x06fields\x1aX\n" +
+	"\vFieldsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x123\n" +
+	"\x05value\x18\x02 \x01(\v2\x1d.swf.storage.v1.MetadataValueR\x05value:\x028\x01\"\xbd\x02\n" +
+	"\rMetadataValue\x12\x1f\n" +
+	"\n" +
+	"bool_value\x18\x01 \x01(\bH\x00R\tboolValue\x12\x1d\n" +
+	"\tint_value\x18\x02 \x01(\x03H\x00R\bintValue\x12#\n" +
+	"\fdouble_value\x18\x03 \x01(\x01H\x00R\vdoubleValue\x12#\n" +
+	"\fstring_value\x18\x04 \x01(\tH\x00R\vstringValue\x12=\n" +
+	"\n" +
+	"list_value\x18\x05 \x01(\v2\x1c.swf.storage.v1.MetadataListH\x00R\tlistValue\x12:\n" +
+	"\tmap_value\x18\x06 \x01(\v2\x1b.swf.storage.v1.MetadataMapH\x00R\bmapValue\x12\x1f\n" +
+	"\n" +
+	"null_value\x18\a \x01(\bH\x00R\tnullValueB\x06\n" +
+	"\x04kind\"E\n" +
+	"\fMetadataList\x125\n" +
+	"\x06values\x18\x01 \x03(\v2\x1d.swf.storage.v1.MetadataValueR\x06values\"\xa8\x01\n" +
+	"\vMetadataMap\x12?\n" +
+	"\x06fields\x18\x01 \x03(\v2'.swf.storage.v1.MetadataMap.FieldsEntryR\x06fields\x1aX\n" +
+	"\vFieldsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x123\n" +
+	"\x05value\x18\x02 \x01(\v2\x1d.swf.storage.v1.MetadataValueR\x05value:\x028\x01\"\xb9\x02\n" +
+	"\x0fAppErrorPayload\x12\x18\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\x12\x14\n" +
+	"\x05level\x18\x02 \x01(\tR\x05level\x12@\n" +
+	"\x05attrs\x18\x03 \x03(\v2*.swf.storage.v1.AppErrorPayload.AttrsEntryR\x05attrs\x12;\n" +
+	"\tinput_ref\x18\x04 \x01(\v2\x1e.swf.storage.v1.InputReferenceR\binputRef\x12\x1e\n" +
+	"\n" +
+	"stacktrace\x18\x05 \x03(\tR\n" +
+	"stacktrace\x1aW\n" +
+	"\n" +
+	"AttrsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x123\n" +
+	"\x05value\x18\x02 \x01(\v2\x1d.swf.storage.v1.MetadataValueR\x05value:\x028\x01\"\xdb\x01\n" +
+	"\x12SystemErrorPayload\x12\x18\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\x12\x1c\n" +
+	"\tcomponent\x18\x02 \x01(\tR\tcomponent\x12\x12\n" +
+	"\x04code\x18\x03 \x01(\tR\x04code\x12\x1c\n" +
+	"\tretryable\x18\x04 \x01(\bR\tretryable\x12;\n" +
+	"\tinput_ref\x18\x05 \x01(\v2\x1e.swf.storage.v1.InputReferenceR\binputRef\x12\x1e\n" +
+	"\n" +
+	"stacktrace\x18\x06 \x03(\tR\n" +
+	"stacktrace\"\x92\x02\n" +
+	"\x0eTimeoutPayload\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12/\n" +
+	"\x05after\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x05after\x12\x14\n" +
+	"\x05scope\x18\x03 \x01(\tR\x05scope\x12;\n" +
+	"\tinput_ref\x18\x04 \x01(\v2\x1e.swf.storage.v1.InputReferenceR\binputRef\x12\x1c\n" +
+	"\tretryable\x18\x05 \x01(\bR\tretryable\x12\x1c\n" +
+	"\tcomponent\x18\x06 \x01(\tR\tcomponent\x12\x12\n" +
+	"\x04code\x18\a \x01(\tR\x04code\x12\x18\n" +
+	"\amessage\x18\b \x01(\tR\amessage\">\n" +
 	"\x0eInputReference\x12\x18\n" +
 	"\aordinal\x18\x01 \x01(\x03R\aordinal\x12\x12\n" +
 	"\x04hash\x18\x02 \x01(\tR\x04hash\"\xb0\x02\n" +
@@ -2589,12 +3700,12 @@ const file_swf_storage_v1_storage_proto_rawDesc = "" +
 	"\rtotal_timeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\ftotalTimeout\"F\n" +
 	"\x0fJobPrerequisite\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x1c\n" +
-	"\tcondition\x18\x02 \x01(\tR\tcondition\"\xb5\x01\n" +
+	"\tcondition\x18\x02 \x01(\tR\tcondition\"\xcb\x01\n" +
 	"\x10SchedulerPayload\x128\n" +
 	"\n" +
 	"run_policy\x18\x01 \x01(\v2\x19.swf.storage.v1.RunPolicyR\trunPolicy\x125\n" +
-	"\ttask_wait\x18\x02 \x01(\v2\x18.swf.storage.v1.TaskWaitR\btaskWait\x120\n" +
-	"\x14visible_payload_json\x18\x03 \x01(\fR\x12visiblePayloadJson\"}\n" +
+	"\ttask_wait\x18\x02 \x01(\v2\x18.swf.storage.v1.TaskWaitR\btaskWait\x12F\n" +
+	"\rlease_payload\x18\x03 \x01(\v2!.swf.storage.v1.LeasePayloadBytesR\fleasePayload\"}\n" +
 	"\bTaskWait\x12\x1d\n" +
 	"\n" +
 	"input_step\x18\x01 \x01(\x03R\tinputStep\x12\x1f\n" +
@@ -2606,54 +3717,85 @@ const file_swf_storage_v1_storage_proto_rawDesc = "" +
 	"\vWaitForJobs\x12\x17\n" +
 	"\ajob_ids\x18\x01 \x03(\tR\x06jobIdsBDZBgithub.com/colony-2/swf-go/pkg/swf/internal/storagepb/v1;storagepbb\beditionsp\xe9\a"
 
-var file_swf_storage_v1_storage_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_swf_storage_v1_storage_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_swf_storage_v1_storage_proto_goTypes = []any{
 	(*ChapterRecord)(nil),             // 0: swf.storage.v1.ChapterRecord
 	(*JobStartChapter)(nil),           // 1: swf.storage.v1.JobStartChapter
 	(*JobAttemptOutcomeChapter)(nil),  // 2: swf.storage.v1.JobAttemptOutcomeChapter
 	(*TaskAttemptOutcomeChapter)(nil), // 3: swf.storage.v1.TaskAttemptOutcomeChapter
 	(*RestartExtraChapter)(nil),       // 4: swf.storage.v1.RestartExtraChapter
-	(*CustomChapter)(nil),             // 5: swf.storage.v1.CustomChapter
-	(*TaskOutcome)(nil),               // 6: swf.storage.v1.TaskOutcome
-	(*CustomOutcome)(nil),             // 7: swf.storage.v1.CustomOutcome
-	(*InputReference)(nil),            // 8: swf.storage.v1.InputReference
-	(*RetryPolicy)(nil),               // 9: swf.storage.v1.RetryPolicy
-	(*RunPolicy)(nil),                 // 10: swf.storage.v1.RunPolicy
-	(*JobPrerequisite)(nil),           // 11: swf.storage.v1.JobPrerequisite
-	(*SchedulerPayload)(nil),          // 12: swf.storage.v1.SchedulerPayload
-	(*TaskWait)(nil),                  // 13: swf.storage.v1.TaskWait
-	(*WaitForJobs)(nil),               // 14: swf.storage.v1.WaitForJobs
-	(*timestamppb.Timestamp)(nil),     // 15: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),       // 16: google.protobuf.Duration
+	(*TaskOutcome)(nil),               // 5: swf.storage.v1.TaskOutcome
+	(*ApplicationInputBytes)(nil),     // 6: swf.storage.v1.ApplicationInputBytes
+	(*ApplicationOutputBytes)(nil),    // 7: swf.storage.v1.ApplicationOutputBytes
+	(*LeasePayloadBytes)(nil),         // 8: swf.storage.v1.LeasePayloadBytes
+	(*Metadata)(nil),                  // 9: swf.storage.v1.Metadata
+	(*MetadataValue)(nil),             // 10: swf.storage.v1.MetadataValue
+	(*MetadataList)(nil),              // 11: swf.storage.v1.MetadataList
+	(*MetadataMap)(nil),               // 12: swf.storage.v1.MetadataMap
+	(*AppErrorPayload)(nil),           // 13: swf.storage.v1.AppErrorPayload
+	(*SystemErrorPayload)(nil),        // 14: swf.storage.v1.SystemErrorPayload
+	(*TimeoutPayload)(nil),            // 15: swf.storage.v1.TimeoutPayload
+	(*InputReference)(nil),            // 16: swf.storage.v1.InputReference
+	(*RetryPolicy)(nil),               // 17: swf.storage.v1.RetryPolicy
+	(*RunPolicy)(nil),                 // 18: swf.storage.v1.RunPolicy
+	(*JobPrerequisite)(nil),           // 19: swf.storage.v1.JobPrerequisite
+	(*SchedulerPayload)(nil),          // 20: swf.storage.v1.SchedulerPayload
+	(*TaskWait)(nil),                  // 21: swf.storage.v1.TaskWait
+	(*WaitForJobs)(nil),               // 22: swf.storage.v1.WaitForJobs
+	nil,                               // 23: swf.storage.v1.Metadata.FieldsEntry
+	nil,                               // 24: swf.storage.v1.MetadataMap.FieldsEntry
+	nil,                               // 25: swf.storage.v1.AppErrorPayload.AttrsEntry
+	(*timestamppb.Timestamp)(nil),     // 26: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),       // 27: google.protobuf.Duration
 }
 var file_swf_storage_v1_storage_proto_depIdxs = []int32{
-	15, // 0: swf.storage.v1.ChapterRecord.created_at:type_name -> google.protobuf.Timestamp
-	15, // 1: swf.storage.v1.ChapterRecord.started_at:type_name -> google.protobuf.Timestamp
-	15, // 2: swf.storage.v1.ChapterRecord.finished_at:type_name -> google.protobuf.Timestamp
-	15, // 3: swf.storage.v1.ChapterRecord.next_attempt_at:type_name -> google.protobuf.Timestamp
-	8,  // 4: swf.storage.v1.ChapterRecord.input_ref:type_name -> swf.storage.v1.InputReference
-	10, // 5: swf.storage.v1.ChapterRecord.run_policy:type_name -> swf.storage.v1.RunPolicy
-	11, // 6: swf.storage.v1.ChapterRecord.prerequisites:type_name -> swf.storage.v1.JobPrerequisite
-	1,  // 7: swf.storage.v1.ChapterRecord.job_start:type_name -> swf.storage.v1.JobStartChapter
-	2,  // 8: swf.storage.v1.ChapterRecord.job_attempt_outcome:type_name -> swf.storage.v1.JobAttemptOutcomeChapter
-	3,  // 9: swf.storage.v1.ChapterRecord.task_attempt_outcome:type_name -> swf.storage.v1.TaskAttemptOutcomeChapter
-	4,  // 10: swf.storage.v1.ChapterRecord.restart_extra:type_name -> swf.storage.v1.RestartExtraChapter
-	5,  // 11: swf.storage.v1.ChapterRecord.custom:type_name -> swf.storage.v1.CustomChapter
-	6,  // 12: swf.storage.v1.JobAttemptOutcomeChapter.outcome:type_name -> swf.storage.v1.TaskOutcome
-	6,  // 13: swf.storage.v1.TaskAttemptOutcomeChapter.outcome:type_name -> swf.storage.v1.TaskOutcome
-	7,  // 14: swf.storage.v1.TaskOutcome.custom:type_name -> swf.storage.v1.CustomOutcome
-	16, // 15: swf.storage.v1.RetryPolicy.initial_interval:type_name -> google.protobuf.Duration
-	16, // 16: swf.storage.v1.RetryPolicy.maximum_interval:type_name -> google.protobuf.Duration
-	9,  // 17: swf.storage.v1.RunPolicy.retry:type_name -> swf.storage.v1.RetryPolicy
-	16, // 18: swf.storage.v1.RunPolicy.invocation_timeout:type_name -> google.protobuf.Duration
-	16, // 19: swf.storage.v1.RunPolicy.total_timeout:type_name -> google.protobuf.Duration
-	10, // 20: swf.storage.v1.SchedulerPayload.run_policy:type_name -> swf.storage.v1.RunPolicy
-	13, // 21: swf.storage.v1.SchedulerPayload.task_wait:type_name -> swf.storage.v1.TaskWait
-	22, // [22:22] is the sub-list for method output_type
-	22, // [22:22] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	26, // 0: swf.storage.v1.ChapterRecord.created_at:type_name -> google.protobuf.Timestamp
+	26, // 1: swf.storage.v1.ChapterRecord.started_at:type_name -> google.protobuf.Timestamp
+	26, // 2: swf.storage.v1.ChapterRecord.finished_at:type_name -> google.protobuf.Timestamp
+	9,  // 3: swf.storage.v1.ChapterRecord.metadata:type_name -> swf.storage.v1.Metadata
+	6,  // 4: swf.storage.v1.ChapterRecord.input:type_name -> swf.storage.v1.ApplicationInputBytes
+	26, // 5: swf.storage.v1.ChapterRecord.next_attempt_at:type_name -> google.protobuf.Timestamp
+	16, // 6: swf.storage.v1.ChapterRecord.input_ref:type_name -> swf.storage.v1.InputReference
+	18, // 7: swf.storage.v1.ChapterRecord.run_policy:type_name -> swf.storage.v1.RunPolicy
+	19, // 8: swf.storage.v1.ChapterRecord.prerequisites:type_name -> swf.storage.v1.JobPrerequisite
+	1,  // 9: swf.storage.v1.ChapterRecord.job_start:type_name -> swf.storage.v1.JobStartChapter
+	2,  // 10: swf.storage.v1.ChapterRecord.job_attempt_outcome:type_name -> swf.storage.v1.JobAttemptOutcomeChapter
+	3,  // 11: swf.storage.v1.ChapterRecord.task_attempt_outcome:type_name -> swf.storage.v1.TaskAttemptOutcomeChapter
+	4,  // 12: swf.storage.v1.ChapterRecord.restart_extra:type_name -> swf.storage.v1.RestartExtraChapter
+	6,  // 13: swf.storage.v1.JobStartChapter.input:type_name -> swf.storage.v1.ApplicationInputBytes
+	5,  // 14: swf.storage.v1.JobAttemptOutcomeChapter.outcome:type_name -> swf.storage.v1.TaskOutcome
+	5,  // 15: swf.storage.v1.TaskAttemptOutcomeChapter.outcome:type_name -> swf.storage.v1.TaskOutcome
+	7,  // 16: swf.storage.v1.RestartExtraChapter.output:type_name -> swf.storage.v1.ApplicationOutputBytes
+	7,  // 17: swf.storage.v1.TaskOutcome.app_output:type_name -> swf.storage.v1.ApplicationOutputBytes
+	13, // 18: swf.storage.v1.TaskOutcome.app_error:type_name -> swf.storage.v1.AppErrorPayload
+	14, // 19: swf.storage.v1.TaskOutcome.system_error:type_name -> swf.storage.v1.SystemErrorPayload
+	15, // 20: swf.storage.v1.TaskOutcome.timeout:type_name -> swf.storage.v1.TimeoutPayload
+	23, // 21: swf.storage.v1.Metadata.fields:type_name -> swf.storage.v1.Metadata.FieldsEntry
+	11, // 22: swf.storage.v1.MetadataValue.list_value:type_name -> swf.storage.v1.MetadataList
+	12, // 23: swf.storage.v1.MetadataValue.map_value:type_name -> swf.storage.v1.MetadataMap
+	10, // 24: swf.storage.v1.MetadataList.values:type_name -> swf.storage.v1.MetadataValue
+	24, // 25: swf.storage.v1.MetadataMap.fields:type_name -> swf.storage.v1.MetadataMap.FieldsEntry
+	25, // 26: swf.storage.v1.AppErrorPayload.attrs:type_name -> swf.storage.v1.AppErrorPayload.AttrsEntry
+	16, // 27: swf.storage.v1.AppErrorPayload.input_ref:type_name -> swf.storage.v1.InputReference
+	16, // 28: swf.storage.v1.SystemErrorPayload.input_ref:type_name -> swf.storage.v1.InputReference
+	27, // 29: swf.storage.v1.TimeoutPayload.after:type_name -> google.protobuf.Duration
+	16, // 30: swf.storage.v1.TimeoutPayload.input_ref:type_name -> swf.storage.v1.InputReference
+	27, // 31: swf.storage.v1.RetryPolicy.initial_interval:type_name -> google.protobuf.Duration
+	27, // 32: swf.storage.v1.RetryPolicy.maximum_interval:type_name -> google.protobuf.Duration
+	17, // 33: swf.storage.v1.RunPolicy.retry:type_name -> swf.storage.v1.RetryPolicy
+	27, // 34: swf.storage.v1.RunPolicy.invocation_timeout:type_name -> google.protobuf.Duration
+	27, // 35: swf.storage.v1.RunPolicy.total_timeout:type_name -> google.protobuf.Duration
+	18, // 36: swf.storage.v1.SchedulerPayload.run_policy:type_name -> swf.storage.v1.RunPolicy
+	21, // 37: swf.storage.v1.SchedulerPayload.task_wait:type_name -> swf.storage.v1.TaskWait
+	8,  // 38: swf.storage.v1.SchedulerPayload.lease_payload:type_name -> swf.storage.v1.LeasePayloadBytes
+	10, // 39: swf.storage.v1.Metadata.FieldsEntry.value:type_name -> swf.storage.v1.MetadataValue
+	10, // 40: swf.storage.v1.MetadataMap.FieldsEntry.value:type_name -> swf.storage.v1.MetadataValue
+	10, // 41: swf.storage.v1.AppErrorPayload.AttrsEntry.value:type_name -> swf.storage.v1.MetadataValue
+	42, // [42:42] is the sub-list for method output_type
+	42, // [42:42] is the sub-list for method input_type
+	42, // [42:42] is the sub-list for extension type_name
+	42, // [42:42] is the sub-list for extension extendee
+	0,  // [0:42] is the sub-list for field type_name
 }
 
 func init() { file_swf_storage_v1_storage_proto_init() }
@@ -2666,14 +3808,21 @@ func file_swf_storage_v1_storage_proto_init() {
 		(*chapterRecord_JobAttemptOutcome)(nil),
 		(*chapterRecord_TaskAttemptOutcome)(nil),
 		(*chapterRecord_RestartExtra)(nil),
-		(*chapterRecord_Custom)(nil),
 	}
-	file_swf_storage_v1_storage_proto_msgTypes[6].OneofWrappers = []any{
-		(*taskOutcome_AppPayloadJson)(nil),
-		(*taskOutcome_AppErrorPayloadJson)(nil),
-		(*taskOutcome_SystemErrorPayloadJson)(nil),
-		(*taskOutcome_TimeoutPayloadJson)(nil),
-		(*taskOutcome_Custom)(nil),
+	file_swf_storage_v1_storage_proto_msgTypes[5].OneofWrappers = []any{
+		(*taskOutcome_AppOutput)(nil),
+		(*taskOutcome_AppError)(nil),
+		(*taskOutcome_SystemError)(nil),
+		(*taskOutcome_Timeout)(nil),
+	}
+	file_swf_storage_v1_storage_proto_msgTypes[10].OneofWrappers = []any{
+		(*metadataValue_BoolValue)(nil),
+		(*metadataValue_IntValue)(nil),
+		(*metadataValue_DoubleValue)(nil),
+		(*metadataValue_StringValue)(nil),
+		(*metadataValue_ListValue)(nil),
+		(*metadataValue_MapValue)(nil),
+		(*metadataValue_NullValue)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -2681,7 +3830,7 @@ func file_swf_storage_v1_storage_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_swf_storage_v1_storage_proto_rawDesc), len(file_swf_storage_v1_storage_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   15,
+			NumMessages:   26,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -108,7 +108,7 @@ func TestRemoteRuntimeChapterAndArtifactRoundTripAcrossExistingRuntimes(t *testi
 				Chapter: swf.StoredChapter{
 					Ordinal:     1,
 					TaskType:    "manual",
-					ChapterType: "Manual",
+					ChapterType: "TaskAttemptOutcome",
 					PayloadKind: "App",
 					InputHash:   "manual-input-hash",
 					CreatedAt:   time.Now().UTC(),
@@ -297,7 +297,7 @@ func TestRemoteRuntimeConflictBehaviorAcrossExistingRuntimes(t *testing.T) {
 						Chapter: swf.StoredChapter{
 							Ordinal:     ordinal,
 							TaskType:    "manual",
-							ChapterType: "Manual",
+							ChapterType: "TaskAttemptOutcome",
 							PayloadKind: "App",
 							InputHash:   "conflict-hash",
 							CreatedAt:   time.Now().UTC(),

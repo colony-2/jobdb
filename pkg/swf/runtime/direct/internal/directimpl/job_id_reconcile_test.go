@@ -162,7 +162,7 @@ func TestSubmitRestartJobRecoversMissingPgwfRecordForExplicitJobID(t *testing.T)
 		Chapter: swf.StoredChapter{
 			Ordinal:     1,
 			TaskType:    "manual",
-			ChapterType: "Manual",
+			ChapterType: "TaskAttemptOutcome",
 			PayloadKind: "App",
 			InputHash:   "restart-recover-input",
 			CreatedAt:   time.Now().UTC(),
@@ -400,7 +400,7 @@ func addSingleChapterAndArchiveJobForTest(t *testing.T, ctx context.Context, rt 
 		Chapter: swf.StoredChapter{
 			Ordinal:     1,
 			TaskType:    capability,
-			ChapterType: "Manual",
+			ChapterType: "TaskAttemptOutcome",
 			PayloadKind: "App",
 			InputHash:   "archive-source-input",
 			CreatedAt:   time.Now().UTC(),

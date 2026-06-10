@@ -1,9 +1,13 @@
 package runtimecodec
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/colony-2/swf-go/pkg/swf"
@@ -84,30 +88,35 @@ func EncodeChapter(meta ChapterMeta, chapterType string, payloadKind string, pay
 	if !json.Valid(payload) {
 		return nil, fmt.Errorf("payload must be valid JSON")
 	}
-	outcome, err := taskOutcomeToProto(payloadKind, payload)
+	builder, err := chapterRecordBuilder(meta)
 	if err != nil {
 		return nil, err
 	}
-	builder := chapterRecordBuilder(meta)
 	switch chapterType {
 	case ChapterTypeJobStart:
 		if payloadKind != PayloadKindApp {
-			builder.Custom = customChapterToProto(chapterType, payloadKind, payload)
-			break
+			return nil, fmt.Errorf("%s chapters require %s payloads", chapterType, PayloadKindApp)
 		}
-		builder.JobStart = storagepb.JobStartChapter_builder{PayloadJson: cloneBytes(payload)}.Build()
+		builder.JobStart = storagepb.JobStartChapter_builder{Input: applicationInputBytes(payload)}.Build()
 	case ChapterTypeJobAttemptOutcome:
+		outcome, err := taskOutcomeToProto(payloadKind, payload)
+		if err != nil {
+			return nil, err
+		}
 		builder.JobAttemptOutcome = storagepb.JobAttemptOutcomeChapter_builder{Outcome: outcome}.Build()
 	case ChapterTypeTaskAttemptOutcome:
+		outcome, err := taskOutcomeToProto(payloadKind, payload)
+		if err != nil {
+			return nil, err
+		}
 		builder.TaskAttemptOutcome = storagepb.TaskAttemptOutcomeChapter_builder{Outcome: outcome}.Build()
 	case ChapterTypeRestartExtra:
 		if payloadKind != PayloadKindApp {
-			builder.Custom = customChapterToProto(chapterType, payloadKind, payload)
-			break
+			return nil, fmt.Errorf("%s chapters require %s payloads", chapterType, PayloadKindApp)
 		}
-		builder.RestartExtra = storagepb.RestartExtraChapter_builder{PayloadJson: cloneBytes(payload)}.Build()
+		builder.RestartExtra = storagepb.RestartExtraChapter_builder{Output: applicationOutputBytes(payload)}.Build()
 	default:
-		builder.Custom = customChapterToProto(chapterType, payloadKind, payload)
+		return nil, fmt.Errorf("unsupported chapter type %q", chapterType)
 	}
 	raw, err := deterministicMarshal.Marshal(builder.Build())
 	if err != nil {
@@ -125,7 +134,10 @@ func DecodeChapter(body []byte) (ChapterEnvelope, error) {
 	if err := proto.Unmarshal(body, &record); err != nil {
 		return ChapterEnvelope{}, err
 	}
-	meta := chapterMetaFromProto(&record)
+	meta, err := chapterMetaFromProto(&record)
+	if err != nil {
+		return ChapterEnvelope{}, err
+	}
 	switch record.WhichChapter() {
 	case storagepb.ChapterRecord_JobStart_case:
 		ch := record.GetJobStart()
@@ -133,7 +145,7 @@ func DecodeChapter(body []byte) (ChapterEnvelope, error) {
 			ChapterType: ChapterTypeJobStart,
 			Meta:        meta,
 			PayloadKind: PayloadKindApp,
-			Payload:     cloneJSON(ch.GetPayloadJson()),
+			Payload:     cloneJSON(ch.GetInput().GetData()),
 		}, nil
 	case storagepb.ChapterRecord_JobAttemptOutcome_case:
 		kind, payload, err := taskOutcomeFromProto(record.GetJobAttemptOutcome().GetOutcome())
@@ -153,15 +165,7 @@ func DecodeChapter(body []byte) (ChapterEnvelope, error) {
 			ChapterType: ChapterTypeRestartExtra,
 			Meta:        meta,
 			PayloadKind: PayloadKindApp,
-			Payload:     cloneJSON(ch.GetPayloadJson()),
-		}, nil
-	case storagepb.ChapterRecord_Custom_case:
-		ch := record.GetCustom()
-		return ChapterEnvelope{
-			ChapterType: ch.GetChapterType(),
-			Meta:        meta,
-			PayloadKind: ch.GetPayloadKind(),
-			Payload:     cloneJSON(ch.GetPayloadJson()),
+			Payload:     cloneJSON(ch.GetOutput().GetData()),
 		}, nil
 	default:
 		return ChapterEnvelope{}, fmt.Errorf("chapter variant is required")
@@ -179,7 +183,7 @@ func EncodeSchedulerPayload(payload SchedulerPayload) ([]byte, error) {
 		if !json.Valid(payload.VisiblePayload) {
 			return nil, fmt.Errorf("visible payload must be valid JSON")
 		}
-		builder.VisiblePayloadJson = cloneBytes(payload.VisiblePayload)
+		builder.LeasePayload = leasePayloadBytes(payload.VisiblePayload)
 	}
 	return deterministicMarshal.Marshal(builder.Build())
 }
@@ -197,8 +201,8 @@ func DecodeSchedulerPayload(raw []byte) (SchedulerPayload, error) {
 		tw := taskWaitFromProto(payload.GetTaskWait())
 		out.TaskWait = &tw
 	}
-	if len(payload.GetVisiblePayloadJson()) > 0 {
-		out.VisiblePayload = cloneJSON(payload.GetVisiblePayloadJson())
+	if payload.HasLeasePayload() {
+		out.VisiblePayload = cloneJSON(payload.GetLeasePayload().GetData())
 	}
 	return out, nil
 }
@@ -350,10 +354,14 @@ func decodeProtobufJSONWrapper(raw []byte) ([]byte, error) {
 	return decoded, nil
 }
 
-func chapterRecordBuilder(meta ChapterMeta) storagepb.ChapterRecord_builder {
+func chapterRecordBuilder(meta ChapterMeta) (storagepb.ChapterRecord_builder, error) {
 	versioned := meta
 	if versioned.Version == 0 {
 		versioned.Version = EnvelopeVersion
+	}
+	metadata, err := metadataJSONToProto(versioned.Metadata)
+	if err != nil {
+		return storagepb.ChapterRecord_builder{}, fmt.Errorf("encode chapter metadata: %w", err)
 	}
 	builder := storagepb.ChapterRecord_builder{
 		Ordinal:       ptr(versioned.Ordinal),
@@ -363,6 +371,7 @@ func chapterRecordBuilder(meta ChapterMeta) storagepb.ChapterRecord_builder {
 		Attempt:       ptr(int32(versioned.Attempt)),
 		MaxAttempts:   ptr(int32(versioned.MaxAttempts)),
 		BackoffMillis: ptr(versioned.BackoffMillis),
+		Metadata:      metadata,
 	}
 	if !versioned.CreatedAt.IsZero() {
 		builder.CreatedAt = timestamppb.New(versioned.CreatedAt)
@@ -373,11 +382,8 @@ func chapterRecordBuilder(meta ChapterMeta) storagepb.ChapterRecord_builder {
 	if versioned.FinishedAt != nil {
 		builder.FinishedAt = timestamppb.New(*versioned.FinishedAt)
 	}
-	if len(versioned.Metadata) > 0 {
-		builder.MetadataJson = cloneBytes(versioned.Metadata)
-	}
 	if len(versioned.Input) > 0 {
-		builder.InputJson = cloneBytes(versioned.Input)
+		builder.Input = applicationInputBytes(versioned.Input)
 	}
 	if versioned.NextAttemptAt != nil {
 		builder.NextAttemptAt = timestamppb.New(*versioned.NextAttemptAt)
@@ -394,10 +400,14 @@ func chapterRecordBuilder(meta ChapterMeta) storagepb.ChapterRecord_builder {
 	if len(versioned.Prerequisites) > 0 {
 		builder.Prerequisites = prerequisitesToProto(versioned.Prerequisites)
 	}
-	return builder
+	return builder, nil
 }
 
-func chapterMetaFromProto(record *storagepb.ChapterRecord) ChapterMeta {
+func chapterMetaFromProto(record *storagepb.ChapterRecord) (ChapterMeta, error) {
+	metadata, err := metadataProtoToJSON(record.GetMetadata())
+	if err != nil {
+		return ChapterMeta{}, fmt.Errorf("decode chapter metadata: %w", err)
+	}
 	meta := ChapterMeta{
 		Version:       EnvelopeVersion,
 		Ordinal:       record.GetOrdinal(),
@@ -405,8 +415,8 @@ func chapterMetaFromProto(record *storagepb.ChapterRecord) ChapterMeta {
 		WorkerID:      record.GetWorkerId(),
 		CreatedAt:     timestampToTime(record.GetCreatedAt()),
 		InputHash:     record.GetInputHash(),
-		Metadata:      cloneJSON(record.GetMetadataJson()),
-		Input:         cloneJSON(record.GetInputJson()),
+		Metadata:      metadata,
+		Input:         cloneJSON(record.GetInput().GetData()),
 		Attempt:       int(record.GetAttempt()),
 		MaxAttempts:   int(record.GetMaxAttempts()),
 		BackoffMillis: record.GetBackoffMillis(),
@@ -436,26 +446,37 @@ func chapterMetaFromProto(record *storagepb.ChapterRecord) ChapterMeta {
 		policy := runPolicyFromProto(record.GetRunPolicy())
 		meta.RunPolicy = &policy
 	}
-	return meta
+	return meta, nil
 }
 
 func taskOutcomeToProto(payloadKind string, payload json.RawMessage) (*storagepb.TaskOutcome, error) {
 	switch payloadKind {
 	case PayloadKindApp:
-		return storagepb.TaskOutcome_builder{AppPayloadJson: cloneBytes(payload)}.Build(), nil
+		return storagepb.TaskOutcome_builder{AppOutput: applicationOutputBytes(payload)}.Build(), nil
 	case PayloadKindAppError:
-		return storagepb.TaskOutcome_builder{AppErrorPayloadJson: cloneBytes(payload)}.Build(), nil
+		var decoded swf.AppErrorPayload
+		if err := json.Unmarshal(payload, &decoded); err != nil {
+			return nil, fmt.Errorf("decode app error payload: %w", err)
+		}
+		converted, err := appErrorPayloadToProto(decoded)
+		if err != nil {
+			return nil, err
+		}
+		return storagepb.TaskOutcome_builder{AppError: converted}.Build(), nil
 	case PayloadKindSystemError:
-		return storagepb.TaskOutcome_builder{SystemErrorPayloadJson: cloneBytes(payload)}.Build(), nil
+		var decoded swf.SystemErrorPayload
+		if err := json.Unmarshal(payload, &decoded); err != nil {
+			return nil, fmt.Errorf("decode system error payload: %w", err)
+		}
+		return storagepb.TaskOutcome_builder{SystemError: systemErrorPayloadToProto(decoded)}.Build(), nil
 	case PayloadKindTimeout:
-		return storagepb.TaskOutcome_builder{TimeoutPayloadJson: cloneBytes(payload)}.Build(), nil
+		var decoded swf.TimeoutPayload
+		if err := json.Unmarshal(payload, &decoded); err != nil {
+			return nil, fmt.Errorf("decode timeout payload: %w", err)
+		}
+		return storagepb.TaskOutcome_builder{Timeout: timeoutPayloadToProto(decoded)}.Build(), nil
 	default:
-		return storagepb.TaskOutcome_builder{
-			Custom: storagepb.CustomOutcome_builder{
-				PayloadKind: ptr(payloadKind),
-				PayloadJson: cloneBytes(payload),
-			}.Build(),
-		}.Build(), nil
+		return nil, fmt.Errorf("unsupported task outcome payload kind %q", payloadKind)
 	}
 }
 
@@ -464,28 +485,368 @@ func taskOutcomeFromProto(outcome *storagepb.TaskOutcome) (string, json.RawMessa
 		return "", nil, fmt.Errorf("task outcome result is required")
 	}
 	switch outcome.WhichResult() {
-	case storagepb.TaskOutcome_AppPayloadJson_case:
-		return PayloadKindApp, cloneJSON(outcome.GetAppPayloadJson()), nil
-	case storagepb.TaskOutcome_AppErrorPayloadJson_case:
-		return PayloadKindAppError, cloneJSON(outcome.GetAppErrorPayloadJson()), nil
-	case storagepb.TaskOutcome_SystemErrorPayloadJson_case:
-		return PayloadKindSystemError, cloneJSON(outcome.GetSystemErrorPayloadJson()), nil
-	case storagepb.TaskOutcome_TimeoutPayloadJson_case:
-		return PayloadKindTimeout, cloneJSON(outcome.GetTimeoutPayloadJson()), nil
-	case storagepb.TaskOutcome_Custom_case:
-		custom := outcome.GetCustom()
-		return custom.GetPayloadKind(), cloneJSON(custom.GetPayloadJson()), nil
+	case storagepb.TaskOutcome_AppOutput_case:
+		return PayloadKindApp, cloneJSON(outcome.GetAppOutput().GetData()), nil
+	case storagepb.TaskOutcome_AppError_case:
+		payload, err := json.Marshal(appErrorPayloadFromProto(outcome.GetAppError()))
+		if err != nil {
+			return "", nil, err
+		}
+		return PayloadKindAppError, json.RawMessage(payload), nil
+	case storagepb.TaskOutcome_SystemError_case:
+		payload, err := json.Marshal(systemErrorPayloadFromProto(outcome.GetSystemError()))
+		if err != nil {
+			return "", nil, err
+		}
+		return PayloadKindSystemError, json.RawMessage(payload), nil
+	case storagepb.TaskOutcome_Timeout_case:
+		payload, err := json.Marshal(timeoutPayloadFromProto(outcome.GetTimeout()))
+		if err != nil {
+			return "", nil, err
+		}
+		return PayloadKindTimeout, json.RawMessage(payload), nil
 	default:
 		return "", nil, fmt.Errorf("task outcome result is required")
 	}
 }
 
-func customChapterToProto(chapterType string, payloadKind string, payload json.RawMessage) *storagepb.CustomChapter {
-	return storagepb.CustomChapter_builder{
-		ChapterType: ptr(chapterType),
-		PayloadKind: ptr(payloadKind),
-		PayloadJson: cloneBytes(payload),
-	}.Build()
+func applicationInputBytes(raw []byte) *storagepb.ApplicationInputBytes {
+	return storagepb.ApplicationInputBytes_builder{Data: cloneBytes(raw)}.Build()
+}
+
+func applicationOutputBytes(raw []byte) *storagepb.ApplicationOutputBytes {
+	return storagepb.ApplicationOutputBytes_builder{Data: cloneBytes(raw)}.Build()
+}
+
+func leasePayloadBytes(raw []byte) *storagepb.LeasePayloadBytes {
+	return storagepb.LeasePayloadBytes_builder{Data: cloneBytes(raw)}.Build()
+}
+
+func appErrorPayloadToProto(payload swf.AppErrorPayload) (*storagepb.AppErrorPayload, error) {
+	attrs, err := metadataFieldsToProto(payload.Attrs)
+	if err != nil {
+		return nil, fmt.Errorf("encode app error attrs: %w", err)
+	}
+	builder := storagepb.AppErrorPayload_builder{
+		Message:    ptr(payload.Message),
+		Level:      ptr(payload.Level),
+		Attrs:      attrs,
+		Stacktrace: append([]string(nil), payload.Stacktrace...),
+	}
+	if payload.InputRef != nil {
+		builder.InputRef = inputReferenceToProto(*payload.InputRef)
+	}
+	return builder.Build(), nil
+}
+
+func appErrorPayloadFromProto(payload *storagepb.AppErrorPayload) swf.AppErrorPayload {
+	if payload == nil {
+		return swf.AppErrorPayload{}
+	}
+	out := swf.AppErrorPayload{
+		Message:    payload.GetMessage(),
+		Level:      payload.GetLevel(),
+		Attrs:      metadataFieldsFromProto(payload.GetAttrs()),
+		Stacktrace: append([]string(nil), payload.GetStacktrace()...),
+	}
+	if payload.HasInputRef() {
+		ref := inputReferenceFromProto(payload.GetInputRef())
+		out.InputRef = &ref
+	}
+	return out
+}
+
+func systemErrorPayloadToProto(payload swf.SystemErrorPayload) *storagepb.SystemErrorPayload {
+	builder := storagepb.SystemErrorPayload_builder{
+		Message:    ptr(payload.Message),
+		Component:  ptr(payload.Component),
+		Code:       ptr(payload.Code),
+		Retryable:  ptr(payload.Retryable),
+		Stacktrace: append([]string(nil), payload.Stacktrace...),
+	}
+	if payload.InputRef != nil {
+		builder.InputRef = inputReferenceToProto(*payload.InputRef)
+	}
+	return builder.Build()
+}
+
+func systemErrorPayloadFromProto(payload *storagepb.SystemErrorPayload) swf.SystemErrorPayload {
+	if payload == nil {
+		return swf.SystemErrorPayload{}
+	}
+	out := swf.SystemErrorPayload{
+		Message:    payload.GetMessage(),
+		Component:  payload.GetComponent(),
+		Code:       payload.GetCode(),
+		Retryable:  payload.GetRetryable(),
+		Stacktrace: append([]string(nil), payload.GetStacktrace()...),
+	}
+	if payload.HasInputRef() {
+		ref := inputReferenceFromProto(payload.GetInputRef())
+		out.InputRef = &ref
+	}
+	return out
+}
+
+func timeoutPayloadToProto(payload swf.TimeoutPayload) *storagepb.TimeoutPayload {
+	builder := storagepb.TimeoutPayload_builder{
+		Kind:      ptr(payload.Kind),
+		After:     durationToProtoValue(time.Duration(payload.After)),
+		Scope:     ptr(payload.Scope),
+		Retryable: ptr(payload.Retryable),
+		Component: ptr(payload.Component),
+		Code:      ptr(payload.Code),
+		Message:   ptr(payload.Message),
+	}
+	if payload.InputRef != nil {
+		builder.InputRef = inputReferenceToProto(*payload.InputRef)
+	}
+	return builder.Build()
+}
+
+func timeoutPayloadFromProto(payload *storagepb.TimeoutPayload) swf.TimeoutPayload {
+	if payload == nil {
+		return swf.TimeoutPayload{}
+	}
+	out := swf.TimeoutPayload{
+		Kind:      payload.GetKind(),
+		After:     swf.Duration(durationValueFromProto(payload.GetAfter())),
+		Scope:     payload.GetScope(),
+		Retryable: payload.GetRetryable(),
+		Component: payload.GetComponent(),
+		Code:      payload.GetCode(),
+		Message:   payload.GetMessage(),
+	}
+	if payload.HasInputRef() {
+		ref := inputReferenceFromProto(payload.GetInputRef())
+		out.InputRef = &ref
+	}
+	return out
+}
+
+func metadataJSONToProto(raw json.RawMessage) (*storagepb.Metadata, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	if !json.Valid(raw) {
+		return nil, fmt.Errorf("metadata must be valid JSON")
+	}
+	value, err := decodeJSONValue(raw)
+	if err != nil {
+		return nil, err
+	}
+	if value == nil {
+		return nil, nil
+	}
+	fields, ok := value.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("metadata must be a JSON object")
+	}
+	converted, err := metadataFieldsToProto(fields)
+	if err != nil {
+		return nil, err
+	}
+	return storagepb.Metadata_builder{Fields: converted}.Build(), nil
+}
+
+func metadataProtoToJSON(metadata *storagepb.Metadata) (json.RawMessage, error) {
+	if metadata == nil {
+		return nil, nil
+	}
+	raw, err := json.Marshal(metadataFieldsFromProtoPreserveEmpty(metadata.GetFields()))
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(raw), nil
+}
+
+func metadataFieldsToProto(fields map[string]any) (map[string]*storagepb.MetadataValue, error) {
+	if fields == nil {
+		return nil, nil
+	}
+	out := make(map[string]*storagepb.MetadataValue, len(fields))
+	for name, value := range fields {
+		converted, err := metadataValueToProto(value)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+		out[name] = converted
+	}
+	return out, nil
+}
+
+func metadataFieldsFromProto(fields map[string]*storagepb.MetadataValue) map[string]any {
+	if len(fields) == 0 {
+		return nil
+	}
+	return metadataFieldsFromProtoPreserveEmpty(fields)
+}
+
+func metadataFieldsFromProtoPreserveEmpty(fields map[string]*storagepb.MetadataValue) map[string]any {
+	out := make(map[string]any, len(fields))
+	for name, value := range fields {
+		out[name] = metadataValueFromProto(value)
+	}
+	return out
+}
+
+func metadataValueToProto(value any) (*storagepb.MetadataValue, error) {
+	switch v := value.(type) {
+	case nil:
+		return storagepb.MetadataValue_builder{NullValue: ptr(true)}.Build(), nil
+	case bool:
+		return storagepb.MetadataValue_builder{BoolValue: ptr(v)}.Build(), nil
+	case string:
+		return storagepb.MetadataValue_builder{StringValue: ptr(v)}.Build(), nil
+	case json.Number:
+		return jsonNumberToMetadataValue(v)
+	case int:
+		return int64MetadataValue(int64(v)), nil
+	case int8:
+		return int64MetadataValue(int64(v)), nil
+	case int16:
+		return int64MetadataValue(int64(v)), nil
+	case int32:
+		return int64MetadataValue(int64(v)), nil
+	case int64:
+		return int64MetadataValue(v), nil
+	case uint:
+		return uint64MetadataValue(uint64(v))
+	case uint8:
+		return uint64MetadataValue(uint64(v))
+	case uint16:
+		return uint64MetadataValue(uint64(v))
+	case uint32:
+		return uint64MetadataValue(uint64(v))
+	case uint64:
+		return uint64MetadataValue(v)
+	case float32:
+		return float64MetadataValue(float64(v))
+	case float64:
+		return float64MetadataValue(v)
+	case []any:
+		return metadataListToProto(v)
+	case map[string]any:
+		return metadataMapValueToProto(v)
+	case json.RawMessage:
+		if !json.Valid(v) {
+			return nil, fmt.Errorf("raw metadata value must be valid JSON")
+		}
+		decoded, err := decodeJSONValue(v)
+		if err != nil {
+			return nil, err
+		}
+		return metadataValueToProto(decoded)
+	default:
+		raw, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		if !json.Valid(raw) {
+			return nil, fmt.Errorf("metadata value cannot be represented as JSON")
+		}
+		decoded, err := decodeJSONValue(raw)
+		if err != nil {
+			return nil, err
+		}
+		return metadataValueToProto(decoded)
+	}
+}
+
+func metadataListToProto(values []any) (*storagepb.MetadataValue, error) {
+	out := make([]*storagepb.MetadataValue, 0, len(values))
+	for i, value := range values {
+		converted, err := metadataValueToProto(value)
+		if err != nil {
+			return nil, fmt.Errorf("[%d]: %w", i, err)
+		}
+		out = append(out, converted)
+	}
+	return storagepb.MetadataValue_builder{
+		ListValue: storagepb.MetadataList_builder{Values: out}.Build(),
+	}.Build(), nil
+}
+
+func metadataMapValueToProto(fields map[string]any) (*storagepb.MetadataValue, error) {
+	converted, err := metadataFieldsToProto(fields)
+	if err != nil {
+		return nil, err
+	}
+	return storagepb.MetadataValue_builder{
+		MapValue: storagepb.MetadataMap_builder{Fields: converted}.Build(),
+	}.Build(), nil
+}
+
+func jsonNumberToMetadataValue(value json.Number) (*storagepb.MetadataValue, error) {
+	text := value.String()
+	if !strings.ContainsAny(text, ".eE") {
+		if i, err := value.Int64(); err == nil {
+			return int64MetadataValue(i), nil
+		}
+	}
+	f, err := strconv.ParseFloat(text, 64)
+	if err != nil {
+		return nil, err
+	}
+	return float64MetadataValue(f)
+}
+
+func int64MetadataValue(value int64) *storagepb.MetadataValue {
+	return storagepb.MetadataValue_builder{IntValue: ptr(value)}.Build()
+}
+
+func uint64MetadataValue(value uint64) (*storagepb.MetadataValue, error) {
+	const maxInt64 = uint64(1<<63 - 1)
+	if value > maxInt64 {
+		return nil, fmt.Errorf("uint64 value %d exceeds int64 metadata range", value)
+	}
+	return int64MetadataValue(int64(value)), nil
+}
+
+func float64MetadataValue(value float64) (*storagepb.MetadataValue, error) {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return nil, fmt.Errorf("floating-point metadata values must be finite")
+	}
+	return storagepb.MetadataValue_builder{DoubleValue: ptr(value)}.Build(), nil
+}
+
+func metadataValueFromProto(value *storagepb.MetadataValue) any {
+	if value == nil {
+		return nil
+	}
+	switch value.WhichKind() {
+	case storagepb.MetadataValue_BoolValue_case:
+		return value.GetBoolValue()
+	case storagepb.MetadataValue_IntValue_case:
+		return value.GetIntValue()
+	case storagepb.MetadataValue_DoubleValue_case:
+		return value.GetDoubleValue()
+	case storagepb.MetadataValue_StringValue_case:
+		return value.GetStringValue()
+	case storagepb.MetadataValue_ListValue_case:
+		values := value.GetListValue().GetValues()
+		out := make([]any, 0, len(values))
+		for _, item := range values {
+			out = append(out, metadataValueFromProto(item))
+		}
+		return out
+	case storagepb.MetadataValue_MapValue_case:
+		return metadataFieldsFromProtoPreserveEmpty(value.GetMapValue().GetFields())
+	case storagepb.MetadataValue_NullValue_case:
+		return nil
+	default:
+		return nil
+	}
+}
+
+func decodeJSONValue(raw []byte) (any, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	return value, nil
 }
 
 func runPolicyToProto(policy swf.RunPolicy) *storagepb.RunPolicy {

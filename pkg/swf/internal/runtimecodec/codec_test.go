@@ -3,6 +3,7 @@ package runtimecodec
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,7 +35,7 @@ func TestChapterRoundTripPreservesEnvelope(t *testing.T) {
 		StartedAt:     &started,
 		FinishedAt:    &finished,
 		InputHash:     "abc123",
-		Metadata:      json.RawMessage(`{"queue":"blue"}`),
+		Metadata:      json.RawMessage(`{"queue":"blue","attempt":2,"ratio":1.25,"flags":[true,null],"nested":{"k":"v"}}`),
 		Input:         json.RawMessage(`{"in":1}`),
 		Attempt:       2,
 		MaxAttempts:   3,
@@ -46,7 +47,8 @@ func TestChapterRoundTripPreservesEnvelope(t *testing.T) {
 		Prerequisites: []swf.JobPrerequisite{{JobID: "parent", Condition: swf.JobPrereqSuccess}},
 	}
 
-	raw, err := EncodeChapter(meta, ChapterTypeTaskAttemptOutcome, PayloadKindAppError, json.RawMessage(`{"message":"boom"}`))
+	payload := json.RawMessage(`{"message":"boom","level":"error","attrs":{"attempt":2,"nested":{"x":true}},"input_ref":{"ordinal":6,"hash":"prev"},"stacktrace":["top"]}`)
+	raw, err := EncodeChapter(meta, ChapterTypeTaskAttemptOutcome, PayloadKindAppError, payload)
 	if err != nil {
 		t.Fatalf("encode chapter: %v", err)
 	}
@@ -64,9 +66,9 @@ func TestChapterRoundTripPreservesEnvelope(t *testing.T) {
 	if env.PayloadKind != PayloadKindAppError {
 		t.Fatalf("payload kind mismatch: %s", env.PayloadKind)
 	}
-	if string(env.Payload) != `{"message":"boom"}` {
-		t.Fatalf("payload mismatch: %s", env.Payload)
-	}
+	assertJSONEqual(t, env.Payload, payload)
+	assertJSONEqual(t, env.Meta.Metadata, meta.Metadata)
+	assertJSONEqual(t, env.Meta.Input, meta.Input)
 	if !reflect.DeepEqual(env.Meta.Prerequisites, meta.Prerequisites) {
 		t.Fatalf("prerequisites mismatch: %#v", env.Meta.Prerequisites)
 	}
@@ -78,55 +80,27 @@ func TestChapterRoundTripPreservesEnvelope(t *testing.T) {
 	}
 }
 
-func TestChapterRoundTripPreservesCustomChapter(t *testing.T) {
-	raw, err := EncodeChapter(
+func TestEncodeChapterRejectsCustomChapter(t *testing.T) {
+	_, err := EncodeChapter(
 		ChapterMeta{Ordinal: 1, TaskType: "manual", CreatedAt: time.Date(2026, 6, 10, 1, 2, 3, 0, time.UTC)},
 		"Manual",
 		"ManualKind",
 		json.RawMessage(`{"manual":true}`),
 	)
-	if err != nil {
-		t.Fatalf("encode chapter: %v", err)
-	}
-
-	env, err := DecodeChapter(raw)
-	if err != nil {
-		t.Fatalf("decode chapter: %v", err)
-	}
-	if env.ChapterType != "Manual" {
-		t.Fatalf("chapter type mismatch: %s", env.ChapterType)
-	}
-	if env.PayloadKind != "ManualKind" {
-		t.Fatalf("payload kind mismatch: %s", env.PayloadKind)
-	}
-	if string(env.Payload) != `{"manual":true}` {
-		t.Fatalf("payload mismatch: %s", env.Payload)
+	if err == nil || !strings.Contains(err.Error(), `unsupported chapter type "Manual"`) {
+		t.Fatalf("expected unsupported chapter error, got %v", err)
 	}
 }
 
-func TestChapterRoundTripPreservesCustomOutcome(t *testing.T) {
-	raw, err := EncodeChapter(
+func TestEncodeChapterRejectsCustomOutcome(t *testing.T) {
+	_, err := EncodeChapter(
 		ChapterMeta{Ordinal: 2, TaskType: "task", CreatedAt: time.Date(2026, 6, 10, 1, 2, 3, 0, time.UTC)},
 		ChapterTypeTaskAttemptOutcome,
 		"Deferred",
 		json.RawMessage(`{"resume":"later"}`),
 	)
-	if err != nil {
-		t.Fatalf("encode chapter: %v", err)
-	}
-
-	env, err := DecodeChapter(raw)
-	if err != nil {
-		t.Fatalf("decode chapter: %v", err)
-	}
-	if env.ChapterType != ChapterTypeTaskAttemptOutcome {
-		t.Fatalf("chapter type mismatch: %s", env.ChapterType)
-	}
-	if env.PayloadKind != "Deferred" {
-		t.Fatalf("payload kind mismatch: %s", env.PayloadKind)
-	}
-	if string(env.Payload) != `{"resume":"later"}` {
-		t.Fatalf("payload mismatch: %s", env.Payload)
+	if err == nil || !strings.Contains(err.Error(), `unsupported task outcome payload kind "Deferred"`) {
+		t.Fatalf("expected unsupported outcome error, got %v", err)
 	}
 }
 
@@ -167,6 +141,21 @@ func TestSchedulerPayloadRoundTripAndJSONView(t *testing.T) {
 	}
 	if decoded.TaskWait.InputStep != 2 || decoded.TaskWait.OutputStep != 3 || decoded.TaskWait.Next != "resume" || decoded.TaskWait.InputHash != "hash" {
 		t.Fatalf("unexpected json view: %s", view)
+	}
+}
+
+func assertJSONEqual(t *testing.T, got json.RawMessage, want json.RawMessage) {
+	t.Helper()
+	var gotValue any
+	if err := json.Unmarshal(got, &gotValue); err != nil {
+		t.Fatalf("unmarshal got JSON: %v; raw=%s", err, got)
+	}
+	var wantValue any
+	if err := json.Unmarshal(want, &wantValue); err != nil {
+		t.Fatalf("unmarshal want JSON: %v; raw=%s", err, want)
+	}
+	if !reflect.DeepEqual(gotValue, wantValue) {
+		t.Fatalf("JSON mismatch:\nwant %s\ngot  %s", want, got)
 	}
 }
 
