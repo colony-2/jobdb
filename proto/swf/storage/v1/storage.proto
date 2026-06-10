@@ -31,6 +31,7 @@ message ChapterRecord {
     JobAttemptOutcomeChapter job_attempt_outcome = 31;
     TaskAttemptOutcomeChapter task_attempt_outcome = 32;
     RestartExtraChapter restart_extra = 33;
+    CustomChapter custom = 34;
   }
 }
 
@@ -50,13 +51,25 @@ message RestartExtraChapter {
   bytes payload_json = 1;
 }
 
+message CustomChapter {
+  string chapter_type = 1;
+  string payload_kind = 2;
+  bytes payload_json = 3;
+}
+
 message TaskOutcome {
   oneof result {
     bytes app_payload_json = 1;
     bytes app_error_payload_json = 2;
     bytes system_error_payload_json = 3;
     bytes timeout_payload_json = 4;
+    CustomOutcome custom = 5;
   }
+}
+
+message CustomOutcome {
+  string payload_kind = 1;
+  bytes payload_json = 2;
 }
 
 message InputReference {

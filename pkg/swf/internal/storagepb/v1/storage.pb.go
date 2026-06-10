@@ -239,6 +239,15 @@ func (x *ChapterRecord) GetRestartExtra() *RestartExtraChapter {
 	return nil
 }
 
+func (x *ChapterRecord) GetCustom() *CustomChapter {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Chapter.(*chapterRecord_Custom); ok {
+			return x.Custom
+		}
+	}
+	return nil
+}
+
 func (x *ChapterRecord) SetOrdinal(v int64) {
 	x.xxx_hidden_Ordinal = v
 	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 18)
@@ -353,6 +362,14 @@ func (x *ChapterRecord) SetRestartExtra(v *RestartExtraChapter) {
 		return
 	}
 	x.xxx_hidden_Chapter = &chapterRecord_RestartExtra{v}
+}
+
+func (x *ChapterRecord) SetCustom(v *CustomChapter) {
+	if v == nil {
+		x.xxx_hidden_Chapter = nil
+		return
+	}
+	x.xxx_hidden_Chapter = &chapterRecord_Custom{v}
 }
 
 func (x *ChapterRecord) HasOrdinal() bool {
@@ -506,6 +523,14 @@ func (x *ChapterRecord) HasRestartExtra() bool {
 	return ok
 }
 
+func (x *ChapterRecord) HasCustom() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Chapter.(*chapterRecord_Custom)
+	return ok
+}
+
 func (x *ChapterRecord) ClearOrdinal() {
 	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
 	x.xxx_hidden_Ordinal = 0
@@ -608,11 +633,18 @@ func (x *ChapterRecord) ClearRestartExtra() {
 	}
 }
 
+func (x *ChapterRecord) ClearCustom() {
+	if _, ok := x.xxx_hidden_Chapter.(*chapterRecord_Custom); ok {
+		x.xxx_hidden_Chapter = nil
+	}
+}
+
 const ChapterRecord_Chapter_not_set_case case_ChapterRecord_Chapter = 0
 const ChapterRecord_JobStart_case case_ChapterRecord_Chapter = 30
 const ChapterRecord_JobAttemptOutcome_case case_ChapterRecord_Chapter = 31
 const ChapterRecord_TaskAttemptOutcome_case case_ChapterRecord_Chapter = 32
 const ChapterRecord_RestartExtra_case case_ChapterRecord_Chapter = 33
+const ChapterRecord_Custom_case case_ChapterRecord_Chapter = 34
 
 func (x *ChapterRecord) WhichChapter() case_ChapterRecord_Chapter {
 	if x == nil {
@@ -627,6 +659,8 @@ func (x *ChapterRecord) WhichChapter() case_ChapterRecord_Chapter {
 		return ChapterRecord_TaskAttemptOutcome_case
 	case *chapterRecord_RestartExtra:
 		return ChapterRecord_RestartExtra_case
+	case *chapterRecord_Custom:
+		return ChapterRecord_Custom_case
 	default:
 		return ChapterRecord_Chapter_not_set_case
 	}
@@ -657,6 +691,7 @@ type ChapterRecord_builder struct {
 	JobAttemptOutcome  *JobAttemptOutcomeChapter
 	TaskAttemptOutcome *TaskAttemptOutcomeChapter
 	RestartExtra       *RestartExtraChapter
+	Custom             *CustomChapter
 	// -- end of xxx_hidden_Chapter
 }
 
@@ -723,6 +758,9 @@ func (b0 ChapterRecord_builder) Build() *ChapterRecord {
 	if b.RestartExtra != nil {
 		x.xxx_hidden_Chapter = &chapterRecord_RestartExtra{b.RestartExtra}
 	}
+	if b.Custom != nil {
+		x.xxx_hidden_Chapter = &chapterRecord_Custom{b.Custom}
+	}
 	return m0
 }
 
@@ -756,6 +794,10 @@ type chapterRecord_RestartExtra struct {
 	RestartExtra *RestartExtraChapter `protobuf:"bytes,33,opt,name=restart_extra,json=restartExtra,oneof"`
 }
 
+type chapterRecord_Custom struct {
+	Custom *CustomChapter `protobuf:"bytes,34,opt,name=custom,oneof"`
+}
+
 func (*chapterRecord_JobStart) isChapterRecord_Chapter() {}
 
 func (*chapterRecord_JobAttemptOutcome) isChapterRecord_Chapter() {}
@@ -763,6 +805,8 @@ func (*chapterRecord_JobAttemptOutcome) isChapterRecord_Chapter() {}
 func (*chapterRecord_TaskAttemptOutcome) isChapterRecord_Chapter() {}
 
 func (*chapterRecord_RestartExtra) isChapterRecord_Chapter() {}
+
+func (*chapterRecord_Custom) isChapterRecord_Chapter() {}
 
 type JobStartChapter struct {
 	state                  protoimpl.MessageState `protogen:"opaque.v1"`
@@ -1056,6 +1100,150 @@ func (b0 RestartExtraChapter_builder) Build() *RestartExtraChapter {
 	return m0
 }
 
+type CustomChapter struct {
+	state                  protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ChapterType *string                `protobuf:"bytes,1,opt,name=chapter_type,json=chapterType"`
+	xxx_hidden_PayloadKind *string                `protobuf:"bytes,2,opt,name=payload_kind,json=payloadKind"`
+	xxx_hidden_PayloadJson []byte                 `protobuf:"bytes,3,opt,name=payload_json,json=payloadJson"`
+	XXX_raceDetectHookData protoimpl.RaceDetectHookData
+	XXX_presence           [1]uint32
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *CustomChapter) Reset() {
+	*x = CustomChapter{}
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CustomChapter) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CustomChapter) ProtoMessage() {}
+
+func (x *CustomChapter) ProtoReflect() protoreflect.Message {
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *CustomChapter) GetChapterType() string {
+	if x != nil {
+		if x.xxx_hidden_ChapterType != nil {
+			return *x.xxx_hidden_ChapterType
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *CustomChapter) GetPayloadKind() string {
+	if x != nil {
+		if x.xxx_hidden_PayloadKind != nil {
+			return *x.xxx_hidden_PayloadKind
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *CustomChapter) GetPayloadJson() []byte {
+	if x != nil {
+		return x.xxx_hidden_PayloadJson
+	}
+	return nil
+}
+
+func (x *CustomChapter) SetChapterType(v string) {
+	x.xxx_hidden_ChapterType = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 3)
+}
+
+func (x *CustomChapter) SetPayloadKind(v string) {
+	x.xxx_hidden_PayloadKind = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 3)
+}
+
+func (x *CustomChapter) SetPayloadJson(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.xxx_hidden_PayloadJson = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 3)
+}
+
+func (x *CustomChapter) HasChapterType() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+}
+
+func (x *CustomChapter) HasPayloadKind() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 1)
+}
+
+func (x *CustomChapter) HasPayloadJson() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 2)
+}
+
+func (x *CustomChapter) ClearChapterType() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
+	x.xxx_hidden_ChapterType = nil
+}
+
+func (x *CustomChapter) ClearPayloadKind() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 1)
+	x.xxx_hidden_PayloadKind = nil
+}
+
+func (x *CustomChapter) ClearPayloadJson() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 2)
+	x.xxx_hidden_PayloadJson = nil
+}
+
+type CustomChapter_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ChapterType *string
+	PayloadKind *string
+	PayloadJson []byte
+}
+
+func (b0 CustomChapter_builder) Build() *CustomChapter {
+	m0 := &CustomChapter{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.ChapterType != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 3)
+		x.xxx_hidden_ChapterType = b.ChapterType
+	}
+	if b.PayloadKind != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 3)
+		x.xxx_hidden_PayloadKind = b.PayloadKind
+	}
+	if b.PayloadJson != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 3)
+		x.xxx_hidden_PayloadJson = b.PayloadJson
+	}
+	return m0
+}
+
 type TaskOutcome struct {
 	state             protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_Result isTaskOutcome_Result   `protobuf_oneof:"result"`
@@ -1065,7 +1253,7 @@ type TaskOutcome struct {
 
 func (x *TaskOutcome) Reset() {
 	*x = TaskOutcome{}
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[5]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1077,7 +1265,7 @@ func (x *TaskOutcome) String() string {
 func (*TaskOutcome) ProtoMessage() {}
 
 func (x *TaskOutcome) ProtoReflect() protoreflect.Message {
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[5]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1124,6 +1312,15 @@ func (x *TaskOutcome) GetTimeoutPayloadJson() []byte {
 	return nil
 }
 
+func (x *TaskOutcome) GetCustom() *CustomOutcome {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Result.(*taskOutcome_Custom); ok {
+			return x.Custom
+		}
+	}
+	return nil
+}
+
 func (x *TaskOutcome) SetAppPayloadJson(v []byte) {
 	if v == nil {
 		v = []byte{}
@@ -1150,6 +1347,14 @@ func (x *TaskOutcome) SetTimeoutPayloadJson(v []byte) {
 		v = []byte{}
 	}
 	x.xxx_hidden_Result = &taskOutcome_TimeoutPayloadJson{v}
+}
+
+func (x *TaskOutcome) SetCustom(v *CustomOutcome) {
+	if v == nil {
+		x.xxx_hidden_Result = nil
+		return
+	}
+	x.xxx_hidden_Result = &taskOutcome_Custom{v}
 }
 
 func (x *TaskOutcome) HasResult() bool {
@@ -1191,6 +1396,14 @@ func (x *TaskOutcome) HasTimeoutPayloadJson() bool {
 	return ok
 }
 
+func (x *TaskOutcome) HasCustom() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Result.(*taskOutcome_Custom)
+	return ok
+}
+
 func (x *TaskOutcome) ClearResult() {
 	x.xxx_hidden_Result = nil
 }
@@ -1219,11 +1432,18 @@ func (x *TaskOutcome) ClearTimeoutPayloadJson() {
 	}
 }
 
+func (x *TaskOutcome) ClearCustom() {
+	if _, ok := x.xxx_hidden_Result.(*taskOutcome_Custom); ok {
+		x.xxx_hidden_Result = nil
+	}
+}
+
 const TaskOutcome_Result_not_set_case case_TaskOutcome_Result = 0
 const TaskOutcome_AppPayloadJson_case case_TaskOutcome_Result = 1
 const TaskOutcome_AppErrorPayloadJson_case case_TaskOutcome_Result = 2
 const TaskOutcome_SystemErrorPayloadJson_case case_TaskOutcome_Result = 3
 const TaskOutcome_TimeoutPayloadJson_case case_TaskOutcome_Result = 4
+const TaskOutcome_Custom_case case_TaskOutcome_Result = 5
 
 func (x *TaskOutcome) WhichResult() case_TaskOutcome_Result {
 	if x == nil {
@@ -1238,6 +1458,8 @@ func (x *TaskOutcome) WhichResult() case_TaskOutcome_Result {
 		return TaskOutcome_SystemErrorPayloadJson_case
 	case *taskOutcome_TimeoutPayloadJson:
 		return TaskOutcome_TimeoutPayloadJson_case
+	case *taskOutcome_Custom:
+		return TaskOutcome_Custom_case
 	default:
 		return TaskOutcome_Result_not_set_case
 	}
@@ -1251,6 +1473,7 @@ type TaskOutcome_builder struct {
 	AppErrorPayloadJson    []byte
 	SystemErrorPayloadJson []byte
 	TimeoutPayloadJson     []byte
+	Custom                 *CustomOutcome
 	// -- end of xxx_hidden_Result
 }
 
@@ -1270,13 +1493,16 @@ func (b0 TaskOutcome_builder) Build() *TaskOutcome {
 	if b.TimeoutPayloadJson != nil {
 		x.xxx_hidden_Result = &taskOutcome_TimeoutPayloadJson{b.TimeoutPayloadJson}
 	}
+	if b.Custom != nil {
+		x.xxx_hidden_Result = &taskOutcome_Custom{b.Custom}
+	}
 	return m0
 }
 
 type case_TaskOutcome_Result protoreflect.FieldNumber
 
 func (x case_TaskOutcome_Result) String() string {
-	md := file_swf_storage_v1_storage_proto_msgTypes[5].Descriptor()
+	md := file_swf_storage_v1_storage_proto_msgTypes[6].Descriptor()
 	if x == 0 {
 		return "not set"
 	}
@@ -1303,6 +1529,10 @@ type taskOutcome_TimeoutPayloadJson struct {
 	TimeoutPayloadJson []byte `protobuf:"bytes,4,opt,name=timeout_payload_json,json=timeoutPayloadJson,oneof"`
 }
 
+type taskOutcome_Custom struct {
+	Custom *CustomOutcome `protobuf:"bytes,5,opt,name=custom,oneof"`
+}
+
 func (*taskOutcome_AppPayloadJson) isTaskOutcome_Result() {}
 
 func (*taskOutcome_AppErrorPayloadJson) isTaskOutcome_Result() {}
@@ -1310,6 +1540,119 @@ func (*taskOutcome_AppErrorPayloadJson) isTaskOutcome_Result() {}
 func (*taskOutcome_SystemErrorPayloadJson) isTaskOutcome_Result() {}
 
 func (*taskOutcome_TimeoutPayloadJson) isTaskOutcome_Result() {}
+
+func (*taskOutcome_Custom) isTaskOutcome_Result() {}
+
+type CustomOutcome struct {
+	state                  protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_PayloadKind *string                `protobuf:"bytes,1,opt,name=payload_kind,json=payloadKind"`
+	xxx_hidden_PayloadJson []byte                 `protobuf:"bytes,2,opt,name=payload_json,json=payloadJson"`
+	XXX_raceDetectHookData protoimpl.RaceDetectHookData
+	XXX_presence           [1]uint32
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *CustomOutcome) Reset() {
+	*x = CustomOutcome{}
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CustomOutcome) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CustomOutcome) ProtoMessage() {}
+
+func (x *CustomOutcome) ProtoReflect() protoreflect.Message {
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *CustomOutcome) GetPayloadKind() string {
+	if x != nil {
+		if x.xxx_hidden_PayloadKind != nil {
+			return *x.xxx_hidden_PayloadKind
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *CustomOutcome) GetPayloadJson() []byte {
+	if x != nil {
+		return x.xxx_hidden_PayloadJson
+	}
+	return nil
+}
+
+func (x *CustomOutcome) SetPayloadKind(v string) {
+	x.xxx_hidden_PayloadKind = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 2)
+}
+
+func (x *CustomOutcome) SetPayloadJson(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.xxx_hidden_PayloadJson = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 2)
+}
+
+func (x *CustomOutcome) HasPayloadKind() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+}
+
+func (x *CustomOutcome) HasPayloadJson() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 1)
+}
+
+func (x *CustomOutcome) ClearPayloadKind() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
+	x.xxx_hidden_PayloadKind = nil
+}
+
+func (x *CustomOutcome) ClearPayloadJson() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 1)
+	x.xxx_hidden_PayloadJson = nil
+}
+
+type CustomOutcome_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	PayloadKind *string
+	PayloadJson []byte
+}
+
+func (b0 CustomOutcome_builder) Build() *CustomOutcome {
+	m0 := &CustomOutcome{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.PayloadKind != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 2)
+		x.xxx_hidden_PayloadKind = b.PayloadKind
+	}
+	if b.PayloadJson != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 2)
+		x.xxx_hidden_PayloadJson = b.PayloadJson
+	}
+	return m0
+}
 
 type InputReference struct {
 	state                  protoimpl.MessageState `protogen:"opaque.v1"`
@@ -1323,7 +1666,7 @@ type InputReference struct {
 
 func (x *InputReference) Reset() {
 	*x = InputReference{}
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[6]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1335,7 +1678,7 @@ func (x *InputReference) String() string {
 func (*InputReference) ProtoMessage() {}
 
 func (x *InputReference) ProtoReflect() protoreflect.Message {
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[6]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1434,7 +1777,7 @@ type RetryPolicy struct {
 
 func (x *RetryPolicy) Reset() {
 	*x = RetryPolicy{}
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[7]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1446,7 +1789,7 @@ func (x *RetryPolicy) String() string {
 func (*RetryPolicy) ProtoMessage() {}
 
 func (x *RetryPolicy) ProtoReflect() protoreflect.Message {
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[7]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1599,7 +1942,7 @@ type RunPolicy struct {
 
 func (x *RunPolicy) Reset() {
 	*x = RunPolicy{}
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[8]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1611,7 +1954,7 @@ func (x *RunPolicy) String() string {
 func (*RunPolicy) ProtoMessage() {}
 
 func (x *RunPolicy) ProtoReflect() protoreflect.Message {
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[8]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1718,7 +2061,7 @@ type JobPrerequisite struct {
 
 func (x *JobPrerequisite) Reset() {
 	*x = JobPrerequisite{}
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[9]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1730,7 +2073,7 @@ func (x *JobPrerequisite) String() string {
 func (*JobPrerequisite) ProtoMessage() {}
 
 func (x *JobPrerequisite) ProtoReflect() protoreflect.Message {
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[9]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1827,7 +2170,7 @@ type SchedulerPayload struct {
 
 func (x *SchedulerPayload) Reset() {
 	*x = SchedulerPayload{}
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[10]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1839,7 +2182,7 @@ func (x *SchedulerPayload) String() string {
 func (*SchedulerPayload) ProtoMessage() {}
 
 func (x *SchedulerPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[10]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1924,7 +2267,7 @@ type TaskWait struct {
 
 func (x *TaskWait) Reset() {
 	*x = TaskWait{}
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[11]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1936,7 +2279,7 @@ func (x *TaskWait) String() string {
 func (*TaskWait) ProtoMessage() {}
 
 func (x *TaskWait) ProtoReflect() protoreflect.Message {
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[11]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2090,7 +2433,7 @@ type WaitForJobs struct {
 
 func (x *WaitForJobs) Reset() {
 	*x = WaitForJobs{}
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[12]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2102,7 +2445,7 @@ func (x *WaitForJobs) String() string {
 func (*WaitForJobs) ProtoMessage() {}
 
 func (x *WaitForJobs) ProtoReflect() protoreflect.Message {
-	mi := &file_swf_storage_v1_storage_proto_msgTypes[12]
+	mi := &file_swf_storage_v1_storage_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2142,7 +2485,7 @@ var File_swf_storage_v1_storage_proto protoreflect.FileDescriptor
 
 const file_swf_storage_v1_storage_proto_rawDesc = "" +
 	"\n" +
-	"\x1cswf/storage/v1/storage.proto\x12\x0eswf.storage.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xcf\b\n" +
+	"\x1cswf/storage/v1/storage.proto\x12\x0eswf.storage.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x88\t\n" +
 	"\rChapterRecord\x12\x18\n" +
 	"\aordinal\x18\x01 \x01(\x03R\aordinal\x12\x1b\n" +
 	"\ttask_type\x18\x02 \x01(\tR\btaskType\x12\x1b\n" +
@@ -2171,7 +2514,8 @@ const file_swf_storage_v1_storage_proto_rawDesc = "" +
 	"\tjob_start\x18\x1e \x01(\v2\x1f.swf.storage.v1.JobStartChapterH\x00R\bjobStart\x12Z\n" +
 	"\x13job_attempt_outcome\x18\x1f \x01(\v2(.swf.storage.v1.JobAttemptOutcomeChapterH\x00R\x11jobAttemptOutcome\x12]\n" +
 	"\x14task_attempt_outcome\x18  \x01(\v2).swf.storage.v1.TaskAttemptOutcomeChapterH\x00R\x12taskAttemptOutcome\x12J\n" +
-	"\rrestart_extra\x18! \x01(\v2#.swf.storage.v1.RestartExtraChapterH\x00R\frestartExtraB\t\n" +
+	"\rrestart_extra\x18! \x01(\v2#.swf.storage.v1.RestartExtraChapterH\x00R\frestartExtra\x127\n" +
+	"\x06custom\x18\" \x01(\v2\x1d.swf.storage.v1.CustomChapterH\x00R\x06customB\t\n" +
 	"\achapter\"4\n" +
 	"\x0fJobStartChapter\x12!\n" +
 	"\fpayload_json\x18\x01 \x01(\fR\vpayloadJson\"Q\n" +
@@ -2180,13 +2524,21 @@ const file_swf_storage_v1_storage_proto_rawDesc = "" +
 	"\x19TaskAttemptOutcomeChapter\x125\n" +
 	"\aoutcome\x18\x01 \x01(\v2\x1b.swf.storage.v1.TaskOutcomeR\aoutcome\"8\n" +
 	"\x13RestartExtraChapter\x12!\n" +
-	"\fpayload_json\x18\x01 \x01(\fR\vpayloadJson\"\xeb\x01\n" +
+	"\fpayload_json\x18\x01 \x01(\fR\vpayloadJson\"x\n" +
+	"\rCustomChapter\x12!\n" +
+	"\fchapter_type\x18\x01 \x01(\tR\vchapterType\x12!\n" +
+	"\fpayload_kind\x18\x02 \x01(\tR\vpayloadKind\x12!\n" +
+	"\fpayload_json\x18\x03 \x01(\fR\vpayloadJson\"\xa4\x02\n" +
 	"\vTaskOutcome\x12*\n" +
 	"\x10app_payload_json\x18\x01 \x01(\fH\x00R\x0eappPayloadJson\x125\n" +
 	"\x16app_error_payload_json\x18\x02 \x01(\fH\x00R\x13appErrorPayloadJson\x12;\n" +
 	"\x19system_error_payload_json\x18\x03 \x01(\fH\x00R\x16systemErrorPayloadJson\x122\n" +
-	"\x14timeout_payload_json\x18\x04 \x01(\fH\x00R\x12timeoutPayloadJsonB\b\n" +
-	"\x06result\">\n" +
+	"\x14timeout_payload_json\x18\x04 \x01(\fH\x00R\x12timeoutPayloadJson\x127\n" +
+	"\x06custom\x18\x05 \x01(\v2\x1d.swf.storage.v1.CustomOutcomeH\x00R\x06customB\b\n" +
+	"\x06result\"U\n" +
+	"\rCustomOutcome\x12!\n" +
+	"\fpayload_kind\x18\x01 \x01(\tR\vpayloadKind\x12!\n" +
+	"\fpayload_json\x18\x02 \x01(\fR\vpayloadJson\">\n" +
 	"\x0eInputReference\x12\x18\n" +
 	"\aordinal\x18\x01 \x01(\x03R\aordinal\x12\x12\n" +
 	"\x04hash\x18\x02 \x01(\tR\x04hash\"\xb0\x02\n" +
@@ -2218,50 +2570,54 @@ const file_swf_storage_v1_storage_proto_rawDesc = "" +
 	"\vWaitForJobs\x12\x17\n" +
 	"\ajob_ids\x18\x01 \x03(\tR\x06jobIdsBDZBgithub.com/colony-2/swf-go/pkg/swf/internal/storagepb/v1;storagepbb\beditionsp\xe9\a"
 
-var file_swf_storage_v1_storage_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_swf_storage_v1_storage_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_swf_storage_v1_storage_proto_goTypes = []any{
 	(*ChapterRecord)(nil),             // 0: swf.storage.v1.ChapterRecord
 	(*JobStartChapter)(nil),           // 1: swf.storage.v1.JobStartChapter
 	(*JobAttemptOutcomeChapter)(nil),  // 2: swf.storage.v1.JobAttemptOutcomeChapter
 	(*TaskAttemptOutcomeChapter)(nil), // 3: swf.storage.v1.TaskAttemptOutcomeChapter
 	(*RestartExtraChapter)(nil),       // 4: swf.storage.v1.RestartExtraChapter
-	(*TaskOutcome)(nil),               // 5: swf.storage.v1.TaskOutcome
-	(*InputReference)(nil),            // 6: swf.storage.v1.InputReference
-	(*RetryPolicy)(nil),               // 7: swf.storage.v1.RetryPolicy
-	(*RunPolicy)(nil),                 // 8: swf.storage.v1.RunPolicy
-	(*JobPrerequisite)(nil),           // 9: swf.storage.v1.JobPrerequisite
-	(*SchedulerPayload)(nil),          // 10: swf.storage.v1.SchedulerPayload
-	(*TaskWait)(nil),                  // 11: swf.storage.v1.TaskWait
-	(*WaitForJobs)(nil),               // 12: swf.storage.v1.WaitForJobs
-	(*timestamppb.Timestamp)(nil),     // 13: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),       // 14: google.protobuf.Duration
+	(*CustomChapter)(nil),             // 5: swf.storage.v1.CustomChapter
+	(*TaskOutcome)(nil),               // 6: swf.storage.v1.TaskOutcome
+	(*CustomOutcome)(nil),             // 7: swf.storage.v1.CustomOutcome
+	(*InputReference)(nil),            // 8: swf.storage.v1.InputReference
+	(*RetryPolicy)(nil),               // 9: swf.storage.v1.RetryPolicy
+	(*RunPolicy)(nil),                 // 10: swf.storage.v1.RunPolicy
+	(*JobPrerequisite)(nil),           // 11: swf.storage.v1.JobPrerequisite
+	(*SchedulerPayload)(nil),          // 12: swf.storage.v1.SchedulerPayload
+	(*TaskWait)(nil),                  // 13: swf.storage.v1.TaskWait
+	(*WaitForJobs)(nil),               // 14: swf.storage.v1.WaitForJobs
+	(*timestamppb.Timestamp)(nil),     // 15: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),       // 16: google.protobuf.Duration
 }
 var file_swf_storage_v1_storage_proto_depIdxs = []int32{
-	13, // 0: swf.storage.v1.ChapterRecord.created_at:type_name -> google.protobuf.Timestamp
-	13, // 1: swf.storage.v1.ChapterRecord.started_at:type_name -> google.protobuf.Timestamp
-	13, // 2: swf.storage.v1.ChapterRecord.finished_at:type_name -> google.protobuf.Timestamp
-	13, // 3: swf.storage.v1.ChapterRecord.next_attempt_at:type_name -> google.protobuf.Timestamp
-	6,  // 4: swf.storage.v1.ChapterRecord.input_ref:type_name -> swf.storage.v1.InputReference
-	8,  // 5: swf.storage.v1.ChapterRecord.run_policy:type_name -> swf.storage.v1.RunPolicy
-	9,  // 6: swf.storage.v1.ChapterRecord.prerequisites:type_name -> swf.storage.v1.JobPrerequisite
+	15, // 0: swf.storage.v1.ChapterRecord.created_at:type_name -> google.protobuf.Timestamp
+	15, // 1: swf.storage.v1.ChapterRecord.started_at:type_name -> google.protobuf.Timestamp
+	15, // 2: swf.storage.v1.ChapterRecord.finished_at:type_name -> google.protobuf.Timestamp
+	15, // 3: swf.storage.v1.ChapterRecord.next_attempt_at:type_name -> google.protobuf.Timestamp
+	8,  // 4: swf.storage.v1.ChapterRecord.input_ref:type_name -> swf.storage.v1.InputReference
+	10, // 5: swf.storage.v1.ChapterRecord.run_policy:type_name -> swf.storage.v1.RunPolicy
+	11, // 6: swf.storage.v1.ChapterRecord.prerequisites:type_name -> swf.storage.v1.JobPrerequisite
 	1,  // 7: swf.storage.v1.ChapterRecord.job_start:type_name -> swf.storage.v1.JobStartChapter
 	2,  // 8: swf.storage.v1.ChapterRecord.job_attempt_outcome:type_name -> swf.storage.v1.JobAttemptOutcomeChapter
 	3,  // 9: swf.storage.v1.ChapterRecord.task_attempt_outcome:type_name -> swf.storage.v1.TaskAttemptOutcomeChapter
 	4,  // 10: swf.storage.v1.ChapterRecord.restart_extra:type_name -> swf.storage.v1.RestartExtraChapter
-	5,  // 11: swf.storage.v1.JobAttemptOutcomeChapter.outcome:type_name -> swf.storage.v1.TaskOutcome
-	5,  // 12: swf.storage.v1.TaskAttemptOutcomeChapter.outcome:type_name -> swf.storage.v1.TaskOutcome
-	14, // 13: swf.storage.v1.RetryPolicy.initial_interval:type_name -> google.protobuf.Duration
-	14, // 14: swf.storage.v1.RetryPolicy.maximum_interval:type_name -> google.protobuf.Duration
-	7,  // 15: swf.storage.v1.RunPolicy.retry:type_name -> swf.storage.v1.RetryPolicy
-	14, // 16: swf.storage.v1.RunPolicy.invocation_timeout:type_name -> google.protobuf.Duration
-	14, // 17: swf.storage.v1.RunPolicy.total_timeout:type_name -> google.protobuf.Duration
-	8,  // 18: swf.storage.v1.SchedulerPayload.run_policy:type_name -> swf.storage.v1.RunPolicy
-	11, // 19: swf.storage.v1.SchedulerPayload.task_wait:type_name -> swf.storage.v1.TaskWait
-	20, // [20:20] is the sub-list for method output_type
-	20, // [20:20] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	5,  // 11: swf.storage.v1.ChapterRecord.custom:type_name -> swf.storage.v1.CustomChapter
+	6,  // 12: swf.storage.v1.JobAttemptOutcomeChapter.outcome:type_name -> swf.storage.v1.TaskOutcome
+	6,  // 13: swf.storage.v1.TaskAttemptOutcomeChapter.outcome:type_name -> swf.storage.v1.TaskOutcome
+	7,  // 14: swf.storage.v1.TaskOutcome.custom:type_name -> swf.storage.v1.CustomOutcome
+	16, // 15: swf.storage.v1.RetryPolicy.initial_interval:type_name -> google.protobuf.Duration
+	16, // 16: swf.storage.v1.RetryPolicy.maximum_interval:type_name -> google.protobuf.Duration
+	9,  // 17: swf.storage.v1.RunPolicy.retry:type_name -> swf.storage.v1.RetryPolicy
+	16, // 18: swf.storage.v1.RunPolicy.invocation_timeout:type_name -> google.protobuf.Duration
+	16, // 19: swf.storage.v1.RunPolicy.total_timeout:type_name -> google.protobuf.Duration
+	10, // 20: swf.storage.v1.SchedulerPayload.run_policy:type_name -> swf.storage.v1.RunPolicy
+	13, // 21: swf.storage.v1.SchedulerPayload.task_wait:type_name -> swf.storage.v1.TaskWait
+	22, // [22:22] is the sub-list for method output_type
+	22, // [22:22] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_swf_storage_v1_storage_proto_init() }
@@ -2274,12 +2630,14 @@ func file_swf_storage_v1_storage_proto_init() {
 		(*chapterRecord_JobAttemptOutcome)(nil),
 		(*chapterRecord_TaskAttemptOutcome)(nil),
 		(*chapterRecord_RestartExtra)(nil),
+		(*chapterRecord_Custom)(nil),
 	}
-	file_swf_storage_v1_storage_proto_msgTypes[5].OneofWrappers = []any{
+	file_swf_storage_v1_storage_proto_msgTypes[6].OneofWrappers = []any{
 		(*taskOutcome_AppPayloadJson)(nil),
 		(*taskOutcome_AppErrorPayloadJson)(nil),
 		(*taskOutcome_SystemErrorPayloadJson)(nil),
 		(*taskOutcome_TimeoutPayloadJson)(nil),
+		(*taskOutcome_Custom)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -2287,7 +2645,7 @@ func file_swf_storage_v1_storage_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_swf_storage_v1_storage_proto_rawDesc), len(file_swf_storage_v1_storage_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

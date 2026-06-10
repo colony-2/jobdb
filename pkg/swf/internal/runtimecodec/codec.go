@@ -67,7 +67,7 @@ type TaskWait struct {
 	InputHash  string
 }
 
-type pgwfPayloadWrapper struct {
+type protobufJSONWrapper struct {
 	Protobuf string `json:"protobuf"`
 }
 
@@ -91,7 +91,8 @@ func EncodeChapter(meta ChapterMeta, chapterType string, payloadKind string, pay
 	switch chapterType {
 	case ChapterTypeJobStart:
 		if payloadKind != PayloadKindApp {
-			return nil, fmt.Errorf("job start chapter payload kind must be %s", PayloadKindApp)
+			builder.Custom = customChapterToProto(chapterType, payloadKind, payload)
+			break
 		}
 		builder.JobStart = storagepb.JobStartChapter_builder{PayloadJson: cloneBytes(payload)}.Build()
 	case ChapterTypeJobAttemptOutcome:
@@ -100,16 +101,25 @@ func EncodeChapter(meta ChapterMeta, chapterType string, payloadKind string, pay
 		builder.TaskAttemptOutcome = storagepb.TaskAttemptOutcomeChapter_builder{Outcome: outcome}.Build()
 	case ChapterTypeRestartExtra:
 		if payloadKind != PayloadKindApp {
-			return nil, fmt.Errorf("restart extra chapter payload kind must be %s", PayloadKindApp)
+			builder.Custom = customChapterToProto(chapterType, payloadKind, payload)
+			break
 		}
 		builder.RestartExtra = storagepb.RestartExtraChapter_builder{PayloadJson: cloneBytes(payload)}.Build()
 	default:
-		return nil, fmt.Errorf("unsupported chapter type %q", chapterType)
+		builder.Custom = customChapterToProto(chapterType, payloadKind, payload)
 	}
-	return deterministicMarshal.Marshal(builder.Build())
+	raw, err := deterministicMarshal.Marshal(builder.Build())
+	if err != nil {
+		return nil, err
+	}
+	return encodeProtobufJSONWrapper(raw)
 }
 
 func DecodeChapter(body []byte) (ChapterEnvelope, error) {
+	body, err := decodeProtobufJSONWrapper(body)
+	if err != nil {
+		return ChapterEnvelope{}, err
+	}
 	var record storagepb.ChapterRecord
 	if err := proto.Unmarshal(body, &record); err != nil {
 		return ChapterEnvelope{}, err
@@ -142,6 +152,14 @@ func DecodeChapter(body []byte) (ChapterEnvelope, error) {
 			ChapterType: ChapterTypeRestartExtra,
 			Meta:        meta,
 			PayloadKind: PayloadKindApp,
+			Payload:     cloneJSON(ch.GetPayloadJson()),
+		}, nil
+	case storagepb.ChapterRecord_Custom_case:
+		ch := record.GetCustom()
+		return ChapterEnvelope{
+			ChapterType: ch.GetChapterType(),
+			Meta:        meta,
+			PayloadKind: ch.GetPayloadKind(),
 			Payload:     cloneJSON(ch.GetPayloadJson()),
 		}, nil
 	default:
@@ -180,25 +198,14 @@ func EncodeSchedulerPayloadJSON(payload SchedulerPayload) (json.RawMessage, erro
 	if err != nil {
 		return nil, err
 	}
-	wrapped, err := json.Marshal(pgwfPayloadWrapper{Protobuf: base64.StdEncoding.EncodeToString(raw)})
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(wrapped), nil
+	return encodeProtobufJSONWrapper(raw)
 }
 
 func DecodeSchedulerPayloadJSON(raw json.RawMessage) (SchedulerPayload, error) {
 	if len(raw) == 0 {
 		return SchedulerPayload{}, nil
 	}
-	var wrapper pgwfPayloadWrapper
-	if err := json.Unmarshal(raw, &wrapper); err != nil {
-		return SchedulerPayload{}, err
-	}
-	if wrapper.Protobuf == "" {
-		return SchedulerPayload{}, fmt.Errorf("protobuf scheduler payload is required")
-	}
-	decoded, err := base64.StdEncoding.DecodeString(wrapper.Protobuf)
+	decoded, err := decodeProtobufJSONWrapper(raw)
 	if err != nil {
 		return SchedulerPayload{}, err
 	}
@@ -251,6 +258,29 @@ func DecodeWaitForJobs(raw []byte) ([]string, error) {
 		return nil, err
 	}
 	return append([]string(nil), msg.GetJobIds()...), nil
+}
+
+func encodeProtobufJSONWrapper(raw []byte) (json.RawMessage, error) {
+	wrapped, err := json.Marshal(protobufJSONWrapper{Protobuf: base64.StdEncoding.EncodeToString(raw)})
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(wrapped), nil
+}
+
+func decodeProtobufJSONWrapper(raw []byte) ([]byte, error) {
+	var wrapper protobufJSONWrapper
+	if err := json.Unmarshal(raw, &wrapper); err != nil {
+		return nil, err
+	}
+	if wrapper.Protobuf == "" {
+		return nil, fmt.Errorf("protobuf payload is required")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(wrapper.Protobuf)
+	if err != nil {
+		return nil, err
+	}
+	return decoded, nil
 }
 
 func chapterRecordBuilder(meta ChapterMeta) storagepb.ChapterRecord_builder {
@@ -353,11 +383,19 @@ func taskOutcomeToProto(payloadKind string, payload json.RawMessage) (*storagepb
 	case PayloadKindTimeout:
 		return storagepb.TaskOutcome_builder{TimeoutPayloadJson: cloneBytes(payload)}.Build(), nil
 	default:
-		return nil, fmt.Errorf("unsupported payload kind %q", payloadKind)
+		return storagepb.TaskOutcome_builder{
+			Custom: storagepb.CustomOutcome_builder{
+				PayloadKind: ptr(payloadKind),
+				PayloadJson: cloneBytes(payload),
+			}.Build(),
+		}.Build(), nil
 	}
 }
 
 func taskOutcomeFromProto(outcome *storagepb.TaskOutcome) (string, json.RawMessage, error) {
+	if outcome == nil {
+		return "", nil, fmt.Errorf("task outcome result is required")
+	}
 	switch outcome.WhichResult() {
 	case storagepb.TaskOutcome_AppPayloadJson_case:
 		return PayloadKindApp, cloneJSON(outcome.GetAppPayloadJson()), nil
@@ -367,9 +405,20 @@ func taskOutcomeFromProto(outcome *storagepb.TaskOutcome) (string, json.RawMessa
 		return PayloadKindSystemError, cloneJSON(outcome.GetSystemErrorPayloadJson()), nil
 	case storagepb.TaskOutcome_TimeoutPayloadJson_case:
 		return PayloadKindTimeout, cloneJSON(outcome.GetTimeoutPayloadJson()), nil
+	case storagepb.TaskOutcome_Custom_case:
+		custom := outcome.GetCustom()
+		return custom.GetPayloadKind(), cloneJSON(custom.GetPayloadJson()), nil
 	default:
 		return "", nil, fmt.Errorf("task outcome result is required")
 	}
+}
+
+func customChapterToProto(chapterType string, payloadKind string, payload json.RawMessage) *storagepb.CustomChapter {
+	return storagepb.CustomChapter_builder{
+		ChapterType: ptr(chapterType),
+		PayloadKind: ptr(payloadKind),
+		PayloadJson: cloneBytes(payload),
+	}.Build()
 }
 
 func runPolicyToProto(policy swf.RunPolicy) *storagepb.RunPolicy {

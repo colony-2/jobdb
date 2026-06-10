@@ -8,82 +8,35 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
-	"time"
 
 	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/swf-go/pkg/swf/internal/runtimecodec"
 )
 
 const (
-	envelopeVersion        = 1
-	payloadKindApp         = "App"
-	payloadKindAppError    = "AppError"
-	payloadKindSystemError = "SystemError"
-	payloadKindTimeout     = "Timeout"
+	envelopeVersion        = runtimecodec.EnvelopeVersion
+	payloadKindApp         = runtimecodec.PayloadKindApp
+	payloadKindAppError    = runtimecodec.PayloadKindAppError
+	payloadKindSystemError = runtimecodec.PayloadKindSystemError
+	payloadKindTimeout     = runtimecodec.PayloadKindTimeout
 
-	chapterTypeJobStart           = "JobStart"
-	chapterTypeJobAttemptOutcome  = "JobAttemptOutcome"
-	chapterTypeTaskAttemptOutcome = "TaskAttemptOutcome"
-	chapterTypeRestartExtra       = "RestartExtra"
+	chapterTypeJobStart           = runtimecodec.ChapterTypeJobStart
+	chapterTypeJobAttemptOutcome  = runtimecodec.ChapterTypeJobAttemptOutcome
+	chapterTypeTaskAttemptOutcome = runtimecodec.ChapterTypeTaskAttemptOutcome
+	chapterTypeRestartExtra       = runtimecodec.ChapterTypeRestartExtra
 
 	restartExtraTaskType = "__restart_extra__"
 )
 
-type chapterMeta struct {
-	Version       int                   `json:"version"`
-	Ordinal       int64                 `json:"ordinal"`
-	TaskType      string                `json:"task_type"`
-	WorkerID      string                `json:"worker_id"`
-	CreatedAt     time.Time             `json:"created_at"`
-	StartedAt     *time.Time            `json:"started_at,omitempty"`
-	FinishedAt    *time.Time            `json:"finished_at,omitempty"`
-	InputHash     string                `json:"input_hash"`
-	Metadata      json.RawMessage       `json:"metadata,omitempty"`
-	Input         json.RawMessage       `json:"input,omitempty"`
-	Attempt       int                   `json:"attempt,omitempty"`
-	MaxAttempts   int                   `json:"max_attempts,omitempty"`
-	NextAttemptAt *time.Time            `json:"next_attempt_at,omitempty"`
-	BackoffMillis int64                 `json:"backoff_ms,omitempty"`
-	Retryable     *bool                 `json:"retryable,omitempty"`
-	InputRef      *swf.InputReference   `json:"input_ref,omitempty"`
-	RunPolicy     *swf.RunPolicy        `json:"run_policy,omitempty"`
-	Prerequisites []swf.JobPrerequisite `json:"prereqs,omitempty"`
-}
+type chapterMeta = runtimecodec.ChapterMeta
+type chapterEnvelope = runtimecodec.ChapterEnvelope
 
-type chapterEnvelope struct {
-	ChapterType string          `json:"chapter_type"`
-	Meta        chapterMeta     `json:"meta"`
-	PayloadKind string          `json:"payload_kind"`
-	Payload     json.RawMessage `json:"payload"`
-}
-
-// buildChapterEnvelope wraps a raw payload (already JSON) into the envelope.
 func buildChapterEnvelope(meta chapterMeta, chapterType string, payloadKind string, payload json.RawMessage) ([]byte, error) {
-	if payloadKind == "" {
-		return nil, fmt.Errorf("payload kind is required")
-	}
-	if chapterType == "" {
-		return nil, fmt.Errorf("chapter type is required")
-	}
-	if !json.Valid(payload) {
-		return nil, fmt.Errorf("payload must be valid JSON")
-	}
-
-	env := chapterEnvelope{
-		ChapterType: chapterType,
-		Meta:        meta,
-		PayloadKind: payloadKind,
-		Payload:     payload,
-	}
-
-	return json.Marshal(env)
+	return runtimecodec.EncodeChapter(meta, chapterType, payloadKind, payload)
 }
 
 func decodeChapterEnvelope(body []byte) (chapterEnvelope, error) {
-	var env chapterEnvelope
-	if err := json.Unmarshal(body, &env); err != nil {
-		return chapterEnvelope{}, err
-	}
-	return env, nil
+	return runtimecodec.DecodeChapter(body)
 }
 
 func computeInputHash(ctx context.Context, taskData swf.TaskData) (string, error) {

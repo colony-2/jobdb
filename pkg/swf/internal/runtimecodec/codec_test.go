@@ -50,6 +50,9 @@ func TestChapterRoundTripPreservesEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode chapter: %v", err)
 	}
+	if !json.Valid(raw) {
+		t.Fatalf("encoded chapter body must be valid JSON for Strata: %q", raw)
+	}
 	env, err := DecodeChapter(raw)
 	if err != nil {
 		t.Fatalf("decode chapter: %v", err)
@@ -72,6 +75,58 @@ func TestChapterRoundTripPreservesEnvelope(t *testing.T) {
 	}
 	if env.Meta.RunPolicy == nil || !reflect.DeepEqual(*env.Meta.RunPolicy, policy) {
 		t.Fatalf("run policy mismatch: %#v", env.Meta.RunPolicy)
+	}
+}
+
+func TestChapterRoundTripPreservesCustomChapter(t *testing.T) {
+	raw, err := EncodeChapter(
+		ChapterMeta{Ordinal: 1, TaskType: "manual", CreatedAt: time.Date(2026, 6, 10, 1, 2, 3, 0, time.UTC)},
+		"Manual",
+		"ManualKind",
+		json.RawMessage(`{"manual":true}`),
+	)
+	if err != nil {
+		t.Fatalf("encode chapter: %v", err)
+	}
+
+	env, err := DecodeChapter(raw)
+	if err != nil {
+		t.Fatalf("decode chapter: %v", err)
+	}
+	if env.ChapterType != "Manual" {
+		t.Fatalf("chapter type mismatch: %s", env.ChapterType)
+	}
+	if env.PayloadKind != "ManualKind" {
+		t.Fatalf("payload kind mismatch: %s", env.PayloadKind)
+	}
+	if string(env.Payload) != `{"manual":true}` {
+		t.Fatalf("payload mismatch: %s", env.Payload)
+	}
+}
+
+func TestChapterRoundTripPreservesCustomOutcome(t *testing.T) {
+	raw, err := EncodeChapter(
+		ChapterMeta{Ordinal: 2, TaskType: "task", CreatedAt: time.Date(2026, 6, 10, 1, 2, 3, 0, time.UTC)},
+		ChapterTypeTaskAttemptOutcome,
+		"Deferred",
+		json.RawMessage(`{"resume":"later"}`),
+	)
+	if err != nil {
+		t.Fatalf("encode chapter: %v", err)
+	}
+
+	env, err := DecodeChapter(raw)
+	if err != nil {
+		t.Fatalf("decode chapter: %v", err)
+	}
+	if env.ChapterType != ChapterTypeTaskAttemptOutcome {
+		t.Fatalf("chapter type mismatch: %s", env.ChapterType)
+	}
+	if env.PayloadKind != "Deferred" {
+		t.Fatalf("payload kind mismatch: %s", env.PayloadKind)
+	}
+	if string(env.Payload) != `{"resume":"later"}` {
+		t.Fatalf("payload mismatch: %s", env.Payload)
 	}
 }
 
