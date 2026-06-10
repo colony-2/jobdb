@@ -3,7 +3,6 @@ package swf_test
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -58,19 +57,6 @@ func TestTaskErrorsAreEnvelopedAndReturned(t *testing.T) {
 				t.Fatalf("failed to start job: %v", err)
 			}
 
-			client := mustStrataClient(t, baseURL, strata.APIKey)
-			key := story.Key{AnthologyID: tenantID, StoryID: jobKey.JobId}
-			chap := waitForChapter(t, client, key, 1, 10*time.Second)
-			var env struct {
-				PayloadKind string `json:"payload_kind"`
-			}
-			if err := json.Unmarshal(chap.Body(), &env); err != nil {
-				t.Fatalf("decode env: %v", err)
-			}
-			if env.PayloadKind != tt.expectedKind {
-				t.Fatalf("expected chapter payload kind %s, got %s body=%s", tt.expectedKind, env.PayloadKind, string(chap.Body()))
-			}
-
 			td, gotErr := waitForJobResult(t, engine, postgresDSN, jobKey, tt.expectAppError, tt.expectSysError)
 			if gotErr == nil {
 				t.Fatalf("expected error, got nil")
@@ -78,6 +64,7 @@ func TestTaskErrorsAreEnvelopedAndReturned(t *testing.T) {
 			if envTD, ok := td.(*swf.EnvelopedTaskData); !ok || envTD.Kind != tt.expectedKind {
 				t.Fatalf("expected payload kind %s, got %T %+v", tt.expectedKind, td, td)
 			}
+			assertTaskOutcomePayloadKind(t, engine, jobKey, tt.expectedKind)
 		})
 	}
 }
@@ -127,19 +114,6 @@ func TestJobErrorsAreEnvelopedAndReturned(t *testing.T) {
 				t.Fatalf("failed to start job: %v", err)
 			}
 
-			client := mustStrataClient(t, baseURL, strata.APIKey)
-			key := story.Key{AnthologyID: tenantID, StoryID: jobKey.JobId}
-			chap := waitForChapter(t, client, key, 1, 10*time.Second)
-			var env struct {
-				PayloadKind string `json:"payload_kind"`
-			}
-			if err := json.Unmarshal(chap.Body(), &env); err != nil {
-				t.Fatalf("decode env: %v", err)
-			}
-			if env.PayloadKind != tt.expectedKind {
-				t.Fatalf("expected chapter payload kind %s, got %s", tt.expectedKind, env.PayloadKind)
-			}
-
 			td, gotErr := waitForJobResult(t, engine, postgresDSN, jobKey, tt.expectAppError, tt.expectSysError)
 			if gotErr == nil {
 				t.Fatalf("expected error, got nil")
@@ -147,6 +121,7 @@ func TestJobErrorsAreEnvelopedAndReturned(t *testing.T) {
 			if envTD, ok := td.(*swf.EnvelopedTaskData); !ok || envTD.Kind != tt.expectedKind {
 				t.Fatalf("expected payload kind %s, got %T %+v", tt.expectedKind, td, td)
 			}
+			assertJobOutcomePayloadKind(t, engine, jobKey, tt.expectedKind)
 		})
 	}
 }
@@ -176,6 +151,38 @@ type errorJobWorker struct{ err error }
 func (errorJobWorker) Name() string { return "error_job" }
 func (w errorJobWorker) Run(_ swf.JobContext, _ swf.JobData) (swf.JobData, error) {
 	return nil, w.err
+}
+
+func assertTaskOutcomePayloadKind(t *testing.T, engine swf.SWFEngine, jobKey swf.JobKey, expected string) {
+	t.Helper()
+	run, err := engine.GetJobRun(context.Background(), swf.GetJobRunRequest{JobKey: jobKey})
+	if err != nil {
+		t.Fatalf("get job run: %v", err)
+	}
+	for _, attempt := range run.Attempts {
+		for _, task := range attempt.Tasks {
+			for _, taskAttempt := range task.Attempts {
+				if taskAttempt.Outcome.PayloadKind == expected {
+					return
+				}
+			}
+		}
+	}
+	t.Fatalf("expected task outcome payload kind %s in job run: %+v", expected, run.Attempts)
+}
+
+func assertJobOutcomePayloadKind(t *testing.T, engine swf.SWFEngine, jobKey swf.JobKey, expected string) {
+	t.Helper()
+	run, err := engine.GetJobRun(context.Background(), swf.GetJobRunRequest{JobKey: jobKey})
+	if err != nil {
+		t.Fatalf("get job run: %v", err)
+	}
+	for _, attempt := range run.Attempts {
+		if attempt.Outcome.PayloadKind == expected {
+			return
+		}
+	}
+	t.Fatalf("expected job outcome payload kind %s in job run: %+v", expected, run.Attempts)
 }
 
 func mustStrataClient(t *testing.T, baseURL, apiKey string) *strataclient.Client {
