@@ -14,6 +14,7 @@ require (
 	github.com/segmentio/ksuid v1.0.4
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/tools v0.42.0
 	gorm.io/driver/postgres v1.5.11
 	gorm.io/gorm v1.30.0
 	modernc.org/sqlite v1.50.1
@@ -73,6 +74,7 @@ require (
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	golang.org/x/crypto v0.23.0 // indirect
 	golang.org/x/exp v0.0.0-20230626212559-97b1e661b5df // indirect
+	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.22.0 // indirect

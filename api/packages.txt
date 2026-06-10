@@ -1,0 +1,5 @@
+github.com/colony-2/swf-go/pkg/swf
+github.com/colony-2/swf-go/pkg/swf/runtime/direct
+github.com/colony-2/swf-go/pkg/swf/runtime/remote
+github.com/colony-2/swf-go/pkg/swf/runtime/sqlite
+github.com/colony-2/swf-go/pkg/swf/runtime/toy
