@@ -48,12 +48,12 @@ the API boundary, not persisted as a JSON-shaped protobuf field.
 
 ## Target Shape
 
-### Opaque Application Payload
+### Opaque Payload Bytes
 
-Use one neutral payload wrapper for user data:
+Use one neutral payload wrapper for caller-owned bytes:
 
 ```proto
-message ApplicationPayload {
+message OpaquePayload {
   bytes data = 1;
 }
 ```
@@ -63,17 +63,23 @@ Today the public Go API still provides `json.RawMessage`, so the codec may
 validate or preserve JSON bytes at the boundary. The storage schema should not
 describe those bytes as JSON.
 
-Use `ApplicationPayload` for:
+Use `OpaquePayload` only when SWF does not interpret the bytes and is preserving
+them for an existing public API surface:
 
 ```text
-JobStartChapter.payload
-RestartExtraChapter.payload
-CustomChapter.payload
-TaskOutcome.app
-CustomOutcome.payload
-ChapterRecord.input
-SchedulerPayload.external_payload
+JobStartChapter.payload            // SubmitJob/PutJob payload bytes
+RestartExtraChapter.payload        // restart-extra caller payload bytes
+CustomChapter.payload              // caller-defined/unknown chapter payload bytes
+TaskOutcome.app                    // successful task result bytes
+CustomOutcome.payload              // caller-defined/unknown outcome payload bytes
+ChapterRecord.input                // cached TaskData bytes visible through public task APIs
+SchedulerPayload.external_payload  // RescheduleExecutionRequest.Payload / ExecutionLease.Payload
 ```
+
+Do not use `OpaquePayload` for SWF-owned state. `RunPolicy`, `TaskWait`,
+`JobPrerequisite`, `InputReference`, retry fields, metadata, and SWF error
+payloads must be typed protobuf messages because the runtime reads and writes
+their fields.
 
 ### Typed Error Payloads
 
@@ -111,7 +117,7 @@ Then change `TaskOutcome` to:
 ```proto
 message TaskOutcome {
   oneof result {
-    ApplicationPayload app = 1;
+    OpaquePayload app = 1;
     AppErrorPayload app_error = 2;
     SystemErrorPayload system_error = 3;
     TimeoutPayload timeout = 4;
@@ -162,7 +168,7 @@ Replace `visible_payload_json` with an opaque external payload:
 message SchedulerPayload {
   RunPolicy run_policy = 1;
   TaskWait task_wait = 2;
-  ApplicationPayload external_payload = 3;
+  OpaquePayload external_payload = 3;
 }
 ```
 
@@ -185,7 +191,7 @@ message ChapterRecord {
   google.protobuf.Timestamp finished_at = 6;
   string input_hash = 7;
   Metadata metadata = 8;
-  ApplicationPayload input = 9;
+  OpaquePayload input = 9;
   int32 attempt = 10;
   int32 max_attempts = 11;
   google.protobuf.Timestamp next_attempt_at = 12;
@@ -210,7 +216,7 @@ message ChapterRecord {
 ### Phase 2.1: Schema Rewrite
 
 1. Replace all storage proto fields whose names contain `json`.
-2. Add `ApplicationPayload`, `Metadata`, `MetadataValue`, `MetadataList`,
+2. Add `OpaquePayload`, `Metadata`, `MetadataValue`, `MetadataList`,
    `MetadataMap`, `AppErrorPayload`, `SystemErrorPayload`, and `TimeoutPayload`.
 3. Regenerate opaque Go protobuf code with Edition 2024 builders.
 4. Add a proto guard test or script that fails if storage proto field names
@@ -224,10 +230,10 @@ Commit this separately.
    inputs to typed protobuf values at the boundary.
 2. Convert SWF error structs to and from typed protobuf error messages.
 3. Convert public metadata JSON objects to `Metadata`.
-4. Convert `ApplicationPayload` bytes back to public `json.RawMessage` only when
+4. Convert `OpaquePayload` bytes back to public `json.RawMessage` only when
    returning through existing public APIs.
 5. Keep custom chapter and custom outcome payloads opaque through
-   `ApplicationPayload`.
+   `OpaquePayload`.
 
 Commit this separately.
 
@@ -279,10 +285,12 @@ commit.
 3. SWF-owned metadata is stored as a protobuf value tree, not raw JSON bytes.
 4. User application payloads are represented as opaque bytes and are not named
    or modeled as JSON in the proto.
-5. External `swf-go` API signatures remain unchanged.
-6. `go test ./...` passes.
-7. API snapshot check passes.
-8. c2j compile-only validation passes against the local checkout.
+5. `OpaquePayload` is not used for SWF-owned scheduler, error, metadata,
+   retry, prerequisite, or input-reference state.
+6. External `swf-go` API signatures remain unchanged.
+7. `go test ./...` passes.
+8. API snapshot check passes.
+9. c2j compile-only validation passes against the local checkout.
 
 ## Non-Goals
 
