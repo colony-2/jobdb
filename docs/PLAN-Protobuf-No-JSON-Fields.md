@@ -7,7 +7,8 @@
 ## Goal
 
 Phase two removes JSON-shaped fields from the storage protobuf schema while
-keeping the external `swf-go` API stable.
+keeping existing `swf-go` APIs stable and adding a structured Go API for typed
+chapter access.
 
 The current storage proto still carries many fields named `*_json`. That keeps
 too much of the old storage model inside the new schema. The next phase should
@@ -48,7 +49,7 @@ the API boundary, not persisted as a JSON-shaped protobuf field.
 
 ## Target Shape
 
-### Application and Extension Byte Wrappers
+### Application and Lease Byte Wrappers
 
 Use role-specific wrappers for caller-owned bytes. Job/task values are
 application-defined input/output structs from the caller's perspective, but SWF
@@ -60,10 +61,6 @@ message ApplicationInputBytes {
 }
 
 message ApplicationOutputBytes {
-  bytes data = 1;
-}
-
-message CustomPayloadBytes {
   bytes data = 1;
 }
 
@@ -91,8 +88,6 @@ JobStartChapter.input        // SubmitJob/PutJob application input bytes
 RestartExtraChapter.output   // restart ExtraTaskOutput bytes
 TaskOutcome.app_output       // successful task/job output bytes
 ChapterRecord.input          // cached TaskData input bytes visible through public task APIs
-CustomChapter.payload        // caller-defined/unknown chapter payload bytes
-CustomOutcome.payload        // caller-defined/unknown outcome payload bytes
 SchedulerPayload.lease_payload  // RescheduleExecutionRequest.Payload / ExecutionLease.Payload
 ```
 
@@ -110,17 +105,6 @@ message JobStartChapter {
 
 message RestartExtraChapter {
   ApplicationOutputBytes output = 1;
-}
-
-message CustomChapter {
-  string chapter_type = 1;
-  string payload_kind = 2;
-  CustomPayloadBytes payload = 3;
-}
-
-message CustomOutcome {
-  string payload_kind = 1;
-  CustomPayloadBytes payload = 2;
 }
 ```
 
@@ -164,7 +148,6 @@ message TaskOutcome {
     AppErrorPayload app_error = 2;
     SystemErrorPayload system_error = 3;
     TimeoutPayload timeout = 4;
-    CustomOutcome custom = 5;
   }
 }
 ```
@@ -249,10 +232,112 @@ message ChapterRecord {
     JobAttemptOutcomeChapter job_attempt_outcome = 31;
     TaskAttemptOutcomeChapter task_attempt_outcome = 32;
     RestartExtraChapter restart_extra = 33;
-    CustomChapter custom = 34;
   }
 }
 ```
+
+### Structured Go API
+
+Add a second public Go API that is fully structured and mirrors the protobuf
+oneof cases. Keep the existing `StoredChapter` API as a legacy/raw adapter for
+now, but make the structured API the canonical API for new runtime code.
+
+Go does not have native closed union values, so represent proto `oneof` fields
+with concrete SWF-defined structs behind interfaces with unexported marker
+methods. Callers can pass one of the SWF-provided concrete types, while external
+packages cannot add unsupported custom chapter or outcome variants.
+
+```go
+type StructuredWorkflowRuntime interface {
+	GetStructuredChapter(ctx context.Context, ref ChapterRef) (StructuredChapterRecord, error)
+	ListStructuredChapters(ctx context.Context, req ListChaptersRequest) ([]StructuredChapterRecord, error)
+	PutStructuredChapter(ctx context.Context, req PutStructuredChapterRequest) error
+}
+
+type PutStructuredChapterRequest struct {
+	LeaseID         string
+	LeaseToken      string
+	Ref             ChapterRef
+	Chapter         StructuredChapterRecord
+	ArtifactUploads []ArtifactUpload
+}
+
+type StructuredChapterRecord struct {
+	Ordinal       int64
+	TaskType      string
+	WorkerID      string
+	CreatedAt     time.Time
+	StartedAt     *time.Time
+	FinishedAt    *time.Time
+	InputHash     string
+	Metadata      Metadata
+	Input         ApplicationInputBytes
+	Attempt       int
+	MaxAttempts   int
+	NextAttemptAt *time.Time
+	BackoffMillis int64
+	Retryable     *bool
+	InputRef      *InputReference
+	RunPolicy     *RunPolicy
+	Prerequisites []JobPrerequisite
+	Body          StructuredChapterBody
+	Artifacts     []StoredArtifact
+}
+
+type StructuredChapterBody interface {
+	structuredChapterBody()
+}
+
+type JobStartChapter struct {
+	Input ApplicationInputBytes
+}
+
+type JobAttemptOutcomeChapter struct {
+	Outcome StructuredTaskOutcome
+}
+
+type TaskAttemptOutcomeChapter struct {
+	Outcome StructuredTaskOutcome
+}
+
+type RestartExtraChapter struct {
+	Output ApplicationOutputBytes
+}
+```
+
+Task outcomes follow the same pattern:
+
+```go
+type StructuredTaskOutcome struct {
+	Result StructuredTaskResult
+}
+
+type StructuredTaskResult interface {
+	structuredTaskResult()
+}
+
+type AppOutputResult struct {
+	Output ApplicationOutputBytes
+}
+
+type AppErrorResult struct {
+	Error AppErrorPayload
+}
+
+type SystemErrorResult struct {
+	Error SystemErrorPayload
+}
+
+type TimeoutResult struct {
+	Error TimeoutPayload
+}
+```
+
+The structured Go API should be implemented in terms of the same internal
+protobuf codec used for storage. The legacy `StoredChapter` adapter converts
+between `ChapterType`/`PayloadKind`/`Data` and `StructuredChapterRecord`.
+Unsupported legacy combinations return validation errors instead of becoming
+custom proto variants.
 
 ## Implementation Phases
 
@@ -260,12 +345,13 @@ message ChapterRecord {
 
 1. Replace all storage proto fields whose names contain `json`.
 2. Add `ApplicationInputBytes`, `ApplicationOutputBytes`,
-   `CustomPayloadBytes`, `LeasePayloadBytes`, `Metadata`, `MetadataValue`,
-   `MetadataList`, `MetadataMap`, `AppErrorPayload`, `SystemErrorPayload`, and
-   `TimeoutPayload`.
-3. Regenerate opaque Go protobuf code with Edition 2024 builders.
-4. Add a proto guard test or script that fails if storage proto field names
-   contain `json`.
+   `LeasePayloadBytes`, `Metadata`, `MetadataValue`, `MetadataList`,
+   `MetadataMap`, `AppErrorPayload`, `SystemErrorPayload`, and `TimeoutPayload`.
+3. Remove `CustomChapter` and `CustomOutcome`; the proto oneofs should contain
+   only SWF-supported chapter and outcome variants.
+4. Regenerate opaque Go protobuf code with Edition 2024 builders.
+5. Add a proto guard test or script that fails if storage proto field names
+   contain `json`, `custom`, or unknown catch-all oneof variants.
 
 Commit this separately.
 
@@ -277,12 +363,29 @@ Commit this separately.
 3. Convert public metadata JSON objects to `Metadata`.
 4. Convert application input/output bytes back to public `json.RawMessage` only
    when returning through existing public APIs.
-5. Keep custom chapter and custom outcome payloads opaque through
-   `CustomPayloadBytes`.
+5. Reject unsupported legacy `StoredChapter` combinations instead of storing
+   them as custom proto variants.
 
 Commit this separately.
 
-### Phase 2.3: Runtime Adapters
+### Phase 2.3: Structured Go API
+
+1. Add `StructuredWorkflowRuntime`, `PutStructuredChapterRequest`,
+   `StructuredChapterRecord`, the chapter-body types, and structured outcome
+   result types to `pkg/swf`.
+2. Use sealed marker interfaces for `StructuredChapterBody` and
+   `StructuredTaskResult` so callers can pass one of the SWF-defined variants
+   but cannot introduce custom variants.
+3. Add conversion helpers between legacy `StoredChapter` and
+   `StructuredChapterRecord`.
+4. Implement structured methods in direct, SQLite, toy, and remote runtimes, or
+   provide shared adapters where a runtime can implement one API in terms of the
+   other.
+5. Update the public API snapshot intentionally for this additive API surface.
+
+Commit this separately.
+
+### Phase 2.4: Runtime Adapters
 
 1. Direct runtime:
    - Keep the current compact JSON object carrier for `pgwf` payloads because
@@ -300,7 +403,7 @@ Commit this separately.
 
 Commit runtime adapter changes separately from schema/codegen.
 
-### Phase 2.4: Tests and API Guard
+### Phase 2.5: Tests and API Guard
 
 1. Keep existing public API tests unchanged where possible.
 2. Add focused runtimecodec tests for:
@@ -309,16 +412,21 @@ Commit runtime adapter changes separately from schema/codegen.
    - application input/output byte preservation;
    - scheduler lease payload preservation;
    - no duplicate scheduler state in `lease_payload`.
-3. Update tests that inspect raw Strata bodies to decode via runtimecodec or the
+3. Add structured Go API tests that write/read each supported chapter oneof
+   variant and each supported task-outcome result variant.
+4. Update tests that use manual/custom chapters. Either convert them to a
+   supported SWF chapter variant when testing storage mechanics, or assert a
+   validation error when testing unsupported chapter shapes.
+5. Update tests that inspect raw Strata bodies to decode via runtimecodec or the
    public runtime API.
-4. Run:
+6. Run:
 
 ```sh
 go test ./...
 go run ./cmd/swf-api-snapshot -packages api/packages.txt -check api/swf-go.public.txt
 ```
 
-5. Re-run c2j against `/src` using a temporary replace directive.
+7. Re-run c2j against `/src` using a temporary replace directive.
 
 Commit test changes separately when they are not part of the implementation
 commit.
@@ -326,17 +434,25 @@ commit.
 ## Acceptance Criteria
 
 1. `proto/swf/storage/v1/storage.proto` contains no field names with `json`.
-2. SWF-owned error payloads are typed protobuf messages, not opaque byte blobs.
-3. SWF-owned metadata is stored as a protobuf value tree, not raw JSON bytes.
-4. User application input/output payloads are represented as
+2. `ChapterRecord.chapter` and `TaskOutcome.result` contain only explicit
+   SWF-supported oneof variants; there is no custom or unknown catch-all
+   variant.
+3. SWF-owned error payloads are typed protobuf messages, not opaque byte blobs.
+4. SWF-owned metadata is stored as a protobuf value tree, not raw JSON bytes.
+5. User application input/output payloads are represented as
    `ApplicationInputBytes` or `ApplicationOutputBytes` and are not named or
    modeled as JSON in the proto.
-5. Caller-owned byte wrappers are not used for SWF-owned scheduler, error,
+6. Caller-owned byte wrappers are not used for SWF-owned scheduler, error,
    metadata, retry, prerequisite, or input-reference state.
-6. External `swf-go` API signatures remain unchanged.
-7. `go test ./...` passes.
-8. API snapshot check passes.
-9. c2j compile-only validation passes against the local checkout.
+7. The structured Go API mirrors the proto oneofs with sealed concrete variant
+   types for chapters and task outcomes.
+8. Existing `swf-go` API signatures remain unchanged; the API snapshot is
+   intentionally updated for the additive structured API.
+9. Legacy `StoredChapter` adapters reject unsupported chapter types or payload
+   kinds instead of storing custom variants.
+10. `go test ./...` passes.
+11. API snapshot check passes.
+12. c2j compile-only validation passes against the local checkout.
 
 ## Non-Goals
 
