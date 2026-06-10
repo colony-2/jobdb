@@ -48,38 +48,81 @@ the API boundary, not persisted as a JSON-shaped protobuf field.
 
 ## Target Shape
 
-### Opaque Payload Bytes
+### Application and Extension Byte Wrappers
 
-Use one neutral payload wrapper for caller-owned bytes:
+Use role-specific wrappers for caller-owned bytes. Job/task values are
+application-defined input/output structs from the caller's perspective, but SWF
+storage only preserves the serialized bytes.
 
 ```proto
-message OpaquePayload {
+message ApplicationInputBytes {
+  bytes data = 1;
+}
+
+message ApplicationOutputBytes {
+  bytes data = 1;
+}
+
+message CustomPayloadBytes {
+  bytes data = 1;
+}
+
+message LeasePayloadBytes {
   bytes data = 1;
 }
 ```
 
-This message intentionally has no content type, encoding, or JSON-specific name.
-Today the public Go API still provides `json.RawMessage`, so the codec may
+The `Application` prefix is intentional. Bare `InputBytes` and `OutputBytes`
+would be concise, but they are too generic in a schema that also has
+`InputReference`, task waits, retry state, and scheduler-owned fields. The
+`Bytes` suffix makes the generated Go types read as serialization wrappers, not
+as the caller's domain structs.
+
+These messages intentionally have no content type, encoding, or JSON-specific
+name. Today the public Go API still provides `json.RawMessage`, so the codec may
 validate or preserve JSON bytes at the boundary. The storage schema should not
 describe those bytes as JSON.
 
-Use `OpaquePayload` only when SWF does not interpret the bytes and is preserving
+Use these wrappers only when SWF does not interpret the bytes and is preserving
 them for an existing public API surface:
 
 ```text
-JobStartChapter.payload            // SubmitJob/PutJob payload bytes
-RestartExtraChapter.payload        // restart-extra caller payload bytes
-CustomChapter.payload              // caller-defined/unknown chapter payload bytes
-TaskOutcome.app                    // successful task result bytes
-CustomOutcome.payload              // caller-defined/unknown outcome payload bytes
-ChapterRecord.input                // cached TaskData bytes visible through public task APIs
-SchedulerPayload.external_payload  // RescheduleExecutionRequest.Payload / ExecutionLease.Payload
+JobStartChapter.input        // SubmitJob/PutJob application input bytes
+RestartExtraChapter.output   // restart ExtraTaskOutput bytes
+TaskOutcome.app_output       // successful task/job output bytes
+ChapterRecord.input          // cached TaskData input bytes visible through public task APIs
+CustomChapter.payload        // caller-defined/unknown chapter payload bytes
+CustomOutcome.payload        // caller-defined/unknown outcome payload bytes
+SchedulerPayload.lease_payload  // RescheduleExecutionRequest.Payload / ExecutionLease.Payload
 ```
 
-Do not use `OpaquePayload` for SWF-owned state. `RunPolicy`, `TaskWait`,
+Do not use byte wrappers for SWF-owned state. `RunPolicy`, `TaskWait`,
 `JobPrerequisite`, `InputReference`, retry fields, metadata, and SWF error
 payloads must be typed protobuf messages because the runtime reads and writes
 their fields.
+
+The chapter variants that carry caller-owned bytes should make the role clear:
+
+```proto
+message JobStartChapter {
+  ApplicationInputBytes input = 1;
+}
+
+message RestartExtraChapter {
+  ApplicationOutputBytes output = 1;
+}
+
+message CustomChapter {
+  string chapter_type = 1;
+  string payload_kind = 2;
+  CustomPayloadBytes payload = 3;
+}
+
+message CustomOutcome {
+  string payload_kind = 1;
+  CustomPayloadBytes payload = 2;
+}
+```
 
 ### Typed Error Payloads
 
@@ -117,7 +160,7 @@ Then change `TaskOutcome` to:
 ```proto
 message TaskOutcome {
   oneof result {
-    OpaquePayload app = 1;
+    ApplicationOutputBytes app_output = 1;
     AppErrorPayload app_error = 2;
     SystemErrorPayload system_error = 3;
     TimeoutPayload timeout = 4;
@@ -162,20 +205,20 @@ explicit conversion rules in Go. The public Go API can still accept
 
 ### Scheduler Payload
 
-Replace `visible_payload_json` with an opaque external payload:
+Replace `visible_payload_json` with a public lease payload:
 
 ```proto
 message SchedulerPayload {
   RunPolicy run_policy = 1;
   TaskWait task_wait = 2;
-  OpaquePayload external_payload = 3;
+  LeasePayloadBytes lease_payload = 3;
 }
 ```
 
 When the payload is only scheduler state (`run_policy` and/or `task_wait`), do
-not duplicate it into `external_payload`. When a caller provides an arbitrary
+not duplicate it into `lease_payload`. When a caller provides an arbitrary
 public lease payload through `RescheduleExecutionRequest.Payload`, preserve it in
-`external_payload` and return it from `ExecutionLease.Payload()`.
+`lease_payload` and return it from `ExecutionLease.Payload()`.
 
 ### Chapter Record
 
@@ -191,7 +234,7 @@ message ChapterRecord {
   google.protobuf.Timestamp finished_at = 6;
   string input_hash = 7;
   Metadata metadata = 8;
-  OpaquePayload input = 9;
+  ApplicationInputBytes input = 9;
   int32 attempt = 10;
   int32 max_attempts = 11;
   google.protobuf.Timestamp next_attempt_at = 12;
@@ -216,8 +259,10 @@ message ChapterRecord {
 ### Phase 2.1: Schema Rewrite
 
 1. Replace all storage proto fields whose names contain `json`.
-2. Add `OpaquePayload`, `Metadata`, `MetadataValue`, `MetadataList`,
-   `MetadataMap`, `AppErrorPayload`, `SystemErrorPayload`, and `TimeoutPayload`.
+2. Add `ApplicationInputBytes`, `ApplicationOutputBytes`,
+   `CustomPayloadBytes`, `LeasePayloadBytes`, `Metadata`, `MetadataValue`,
+   `MetadataList`, `MetadataMap`, `AppErrorPayload`, `SystemErrorPayload`, and
+   `TimeoutPayload`.
 3. Regenerate opaque Go protobuf code with Edition 2024 builders.
 4. Add a proto guard test or script that fails if storage proto field names
    contain `json`.
@@ -230,10 +275,10 @@ Commit this separately.
    inputs to typed protobuf values at the boundary.
 2. Convert SWF error structs to and from typed protobuf error messages.
 3. Convert public metadata JSON objects to `Metadata`.
-4. Convert `OpaquePayload` bytes back to public `json.RawMessage` only when
-   returning through existing public APIs.
+4. Convert application input/output bytes back to public `json.RawMessage` only
+   when returning through existing public APIs.
 5. Keep custom chapter and custom outcome payloads opaque through
-   `OpaquePayload`.
+   `CustomPayloadBytes`.
 
 Commit this separately.
 
@@ -261,9 +306,9 @@ Commit runtime adapter changes separately from schema/codegen.
 2. Add focused runtimecodec tests for:
    - typed app/system/timeout error round trips;
    - metadata value tree round trips;
-   - application payload byte preservation;
-   - scheduler payload external payload preservation;
-   - no duplicate scheduler state in `external_payload`.
+   - application input/output byte preservation;
+   - scheduler lease payload preservation;
+   - no duplicate scheduler state in `lease_payload`.
 3. Update tests that inspect raw Strata bodies to decode via runtimecodec or the
    public runtime API.
 4. Run:
@@ -283,10 +328,11 @@ commit.
 1. `proto/swf/storage/v1/storage.proto` contains no field names with `json`.
 2. SWF-owned error payloads are typed protobuf messages, not opaque byte blobs.
 3. SWF-owned metadata is stored as a protobuf value tree, not raw JSON bytes.
-4. User application payloads are represented as opaque bytes and are not named
-   or modeled as JSON in the proto.
-5. `OpaquePayload` is not used for SWF-owned scheduler, error, metadata,
-   retry, prerequisite, or input-reference state.
+4. User application input/output payloads are represented as
+   `ApplicationInputBytes` or `ApplicationOutputBytes` and are not named or
+   modeled as JSON in the proto.
+5. Caller-owned byte wrappers are not used for SWF-owned scheduler, error,
+   metadata, retry, prerequisite, or input-reference state.
 6. External `swf-go` API signatures remain unchanged.
 7. `go test ./...` passes.
 8. API snapshot check passes.
