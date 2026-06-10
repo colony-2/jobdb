@@ -191,3 +191,19 @@ func TestSchedulerPayloadPreservesVisibleJSONPayload(t *testing.T) {
 		t.Fatalf("visible payload mismatch: %s", view)
 	}
 }
+
+func TestSchedulerPayloadFromJSONViewDoesNotDuplicateSchedulerFields(t *testing.T) {
+	payload, err := SchedulerPayloadFromJSONView(json.RawMessage(`{"run_policy":{"retry":{"maximumAttempts":2}},"task_wait":{"in":1,"out":2,"next":"job","input_hash":"abc"}}`))
+	if err != nil {
+		t.Fatalf("from json view: %v", err)
+	}
+	if len(payload.VisiblePayload) != 0 {
+		t.Fatalf("scheduler-shaped payload should not be duplicated as visible JSON: %s", payload.VisiblePayload)
+	}
+	if payload.TaskWait == nil {
+		t.Fatalf("task wait missing")
+	}
+	if payload.TaskWait.InputStep != 1 || payload.TaskWait.OutputStep != 2 || payload.TaskWait.Next != "job" || payload.TaskWait.InputHash != "abc" {
+		t.Fatalf("unexpected task wait: %#v", payload.TaskWait)
+	}
+}

@@ -266,11 +266,20 @@ func SchedulerPayloadFromJSONView(raw json.RawMessage) (SchedulerPayload, error)
 	if fields == nil {
 		return SchedulerPayload{}, fmt.Errorf("visible payload must be a JSON object")
 	}
-	payload := SchedulerPayload{VisiblePayload: cloneJSON(raw)}
+	payload := SchedulerPayload{}
+	parsedSchedulerField := false
+	hasNonSchedulerField := false
+	for name := range fields {
+		if name != "run_policy" && name != "task_wait" {
+			hasNonSchedulerField = true
+			break
+		}
+	}
 	if policyRaw, ok := fields["run_policy"]; ok && len(policyRaw) > 0 && string(policyRaw) != "null" {
 		var policy swf.RunPolicy
 		if err := json.Unmarshal(policyRaw, &policy); err == nil {
 			payload.RunPolicy = policy
+			parsedSchedulerField = true
 		}
 	}
 	if waitRaw, ok := fields["task_wait"]; ok && len(waitRaw) > 0 && string(waitRaw) != "null" {
@@ -288,7 +297,11 @@ func SchedulerPayloadFromJSONView(raw json.RawMessage) (SchedulerPayload, error)
 				Next:       wait.Next,
 				InputHash:  wait.InputHash,
 			}
+			parsedSchedulerField = true
 		}
+	}
+	if hasNonSchedulerField || !parsedSchedulerField {
+		payload.VisiblePayload = cloneJSON(raw)
 	}
 	return payload, nil
 }
