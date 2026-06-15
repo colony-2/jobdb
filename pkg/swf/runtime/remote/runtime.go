@@ -47,7 +47,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req swf.SubmitJobRequest) (swf.
 	if err != nil {
 		return swf.JobHandle{}, err
 	}
-	metadata, err := marshalJSONValueOptional(req.Job.Metadata)
+	metadata, err := metadataJSONToAPI(req.Job.Metadata)
 	if err != nil {
 		return swf.JobHandle{}, err
 	}
@@ -353,7 +353,7 @@ func (r *Runtime) PutChapter(ctx context.Context, req swf.PutChapterRequest) err
 	if req.LeaseToken == "" {
 		return fmt.Errorf("leaseToken is required")
 	}
-	chapter, err := runtimeChapterToWritable(ctx, req.Chapter, req.ArtifactUploads)
+	body, err := runtimeChapterToAddRequest(ctx, req.Chapter, req.ArtifactUploads)
 	if err != nil {
 		return err
 	}
@@ -363,7 +363,7 @@ func (r *Runtime) PutChapter(ctx context.Context, req swf.PutChapterRequest) err
 		req.Ref.JobKey.JobId,
 		req.LeaseID,
 		&runtimeapi.AddChapterWithLeaseParams{XSWFLeaseToken: req.LeaseToken},
-		runtimeapi.AddChapterRequest{Chapter: chapter},
+		body,
 	)
 	if err != nil {
 		return err
@@ -460,10 +460,10 @@ func (l *remoteExecutionLease) Complete(ctx context.Context, req swf.CompleteExe
 }
 
 func (l *remoteExecutionLease) Reschedule(ctx context.Context, req swf.RescheduleExecutionRequest) error {
-	var payload interface{}
+	var payload *runtimeapi.SchedulerPayload
 	var err error
 	if len(req.Payload) > 0 {
-		payload, err = marshalJSONValueRequired(req.Payload)
+		payload, err = schedulerPayloadOptionalToAPI(req.Payload)
 		if err != nil {
 			return err
 		}
@@ -497,7 +497,7 @@ func (l *remoteExecutionLease) Reschedule(ctx context.Context, req swf.Reschedul
 }
 
 func (r *Runtime) executionLeaseFromAPI(lease runtimeapi.ExecutionLease) (swf.ExecutionLease, error) {
-	payload, err := unmarshalJSONValueOptional(lease.Payload)
+	payload, err := schedulerPayloadFromAPI(lease.Payload)
 	if err != nil {
 		return nil, err
 	}

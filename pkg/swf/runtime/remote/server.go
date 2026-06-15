@@ -137,7 +137,7 @@ func (s *proxyServer) SubmitJob(ctx context.Context, request runtimeapi.SubmitJo
 	if err != nil {
 		return nil, badRequest(err.Error())
 	}
-	metadata, err := unmarshalJSONValueOptional(request.Body.Job.Metadata)
+	metadata, err := metadataAPIToJSON(request.Body.Job.Metadata)
 	if err != nil {
 		return nil, badRequest(err.Error())
 	}
@@ -171,7 +171,7 @@ func (s *proxyServer) PutJob(ctx context.Context, request runtimeapi.PutJobReque
 	if err != nil {
 		return nil, badRequest(err.Error())
 	}
-	metadata, err := unmarshalJSONValueOptional(request.Body.Job.Metadata)
+	metadata, err := metadataAPIToJSON(request.Body.Job.Metadata)
 	if err != nil {
 		return nil, badRequest(err.Error())
 	}
@@ -382,7 +382,7 @@ func (s *proxyServer) ListChapters(ctx context.Context, request runtimeapi.ListC
 	if err != nil {
 		return nil, err
 	}
-	out := make([]runtimeapi.StoredChapter, 0, len(chapters))
+	out := make([]runtimeapi.ChapterRecord, 0, len(chapters))
 	for _, chapter := range chapters {
 		converted, err := toAPIStoredChapter(ctx, chapter)
 		if err != nil {
@@ -501,7 +501,7 @@ func (s *proxyServer) AddChapterWithLease(ctx context.Context, request runtimeap
 	if _, err := s.validatedLeaseClaims(request.Params.XSWFLeaseToken, jobKey, request.LeaseId); err != nil {
 		return nil, err
 	}
-	chapter, uploads, err := writableChapterToRuntimeChapter(request.Body.Chapter)
+	chapter, uploads, err := writableChapterToRuntimeChapter(request.Body.Chapter, request.Body.ArtifactUploads)
 	if err != nil {
 		return nil, badRequest(err.Error())
 	}
@@ -573,7 +573,7 @@ func (s *proxyServer) RescheduleJobWithLease(ctx context.Context, request runtim
 	if request.Body == nil {
 		return nil, badRequest("reschedule job body is required")
 	}
-	payload, err := unmarshalJSONValueOptional(request.Body.Payload)
+	payload, err := schedulerPayloadPointerFromAPI(request.Body.Payload)
 	if err != nil {
 		return nil, badRequest(err.Error())
 	}
@@ -605,7 +605,7 @@ func (s *proxyServer) RescheduleJobWithLease(ctx context.Context, request runtim
 }
 
 func (s *proxyServer) toAPIExecutionLease(lease swf.ExecutionLease, requestedDuration time.Duration) (runtimeapi.ExecutionLease, error) {
-	payload, err := marshalJSONValueOptional(lease.Payload())
+	payload, err := schedulerPayloadToAPI(lease.Payload())
 	if err != nil {
 		return runtimeapi.ExecutionLease{}, err
 	}
@@ -628,8 +628,14 @@ func metadataPredicatesFromAPI(predicates *[]runtimeapi.MetadataPredicate) ([]sw
 	}
 	out := make([]swf.MetadataPredicate, 0, len(*predicates))
 	for _, predicate := range *predicates {
-		values := make([]any, len(predicate.Values))
-		copy(values, predicate.Values)
+		values := make([]any, 0, len(predicate.Values))
+		for _, value := range predicate.Values {
+			converted, err := metadataAPIValueToAny(value)
+			if err != nil {
+				return nil, err
+			}
+			values = append(values, converted)
+		}
 		out = append(out, swf.MetadataPredicate{
 			Path:   append([]string(nil), predicate.Path...),
 			Values: values,

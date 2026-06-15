@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,23 +24,34 @@ const (
 	BearerAuthScopes = "bearerAuth.Scopes"
 )
 
-// Defines values for ChapterType.
-const (
-	JobAttemptOutcome  ChapterType = "JobAttemptOutcome"
-	JobStart           ChapterType = "JobStart"
-	RestartExtra       ChapterType = "RestartExtra"
-	TaskAttemptOutcome ChapterType = "TaskAttemptOutcome"
-)
-
 // Defines values for ErrorCode.
 const (
-	ExistingJobMismatch ErrorCode = "existing_job_mismatch"
+	ChapterNotFound          ErrorCode = "chapter_not_found"
+	Conflict                 ErrorCode = "conflict"
+	ExecutionLeaseLost       ErrorCode = "execution_lease_lost"
+	ExistingJobMismatch      ErrorCode = "existing_job_mismatch"
+	Internal                 ErrorCode = "internal"
+	InvalidRequest           ErrorCode = "invalid_request"
+	JobNotComplete           ErrorCode = "job_not_complete"
+	JobNotFound              ErrorCode = "job_not_found"
+	NotFound                 ErrorCode = "not_found"
+	WorkflowNotDeterministic ErrorCode = "workflow_not_deterministic"
+)
+
+// Defines values for JobAttemptOutcomeChapterKind.
+const (
+	JobAttemptOutcome JobAttemptOutcomeChapterKind = "jobAttemptOutcome"
 )
 
 // Defines values for JobPrerequisiteCondition.
 const (
-	Complete JobPrerequisiteCondition = "complete"
-	Success  JobPrerequisiteCondition = "success"
+	JobPrerequisiteConditionComplete JobPrerequisiteCondition = "complete"
+	JobPrerequisiteConditionSuccess  JobPrerequisiteCondition = "success"
+)
+
+// Defines values for JobStartChapterKind.
+const (
+	JobStart JobStartChapterKind = "jobStart"
 )
 
 // Defines values for JobStatus.
@@ -60,18 +72,93 @@ const (
 	JobStoreARCHIVED JobStore = "ARCHIVED"
 )
 
-// Defines values for PayloadKind.
+// Defines values for MetadataBoolKind.
 const (
-	App         PayloadKind = "App"
-	AppError    PayloadKind = "AppError"
-	SystemError PayloadKind = "SystemError"
-	Timeout     PayloadKind = "Timeout"
+	Bool MetadataBoolKind = "bool"
+)
+
+// Defines values for MetadataDoubleKind.
+const (
+	Double MetadataDoubleKind = "double"
+)
+
+// Defines values for MetadataIntKind.
+const (
+	Int MetadataIntKind = "int"
+)
+
+// Defines values for MetadataListKind.
+const (
+	List MetadataListKind = "list"
+)
+
+// Defines values for MetadataMapKind.
+const (
+	Map MetadataMapKind = "map"
+)
+
+// Defines values for MetadataNullKind.
+const (
+	Null MetadataNullKind = "null"
+)
+
+// Defines values for MetadataStringKind.
+const (
+	String MetadataStringKind = "string"
+)
+
+// Defines values for RestartExtraChapterKind.
+const (
+	RestartExtra RestartExtraChapterKind = "restartExtra"
+)
+
+// Defines values for TaskAttemptOutcomeChapterKind.
+const (
+	TaskAttemptOutcome TaskAttemptOutcomeChapterKind = "taskAttemptOutcome"
+)
+
+// Defines values for TaskOutcomeAppErrorKind.
+const (
+	AppError TaskOutcomeAppErrorKind = "appError"
+)
+
+// Defines values for TaskOutcomeSuccessKind.
+const (
+	TaskOutcomeSuccessKindSuccess TaskOutcomeSuccessKind = "success"
+)
+
+// Defines values for TaskOutcomeSystemErrorKind.
+const (
+	SystemError TaskOutcomeSystemErrorKind = "systemError"
+)
+
+// Defines values for TaskOutcomeTimeoutKind.
+const (
+	Timeout TaskOutcomeTimeoutKind = "timeout"
 )
 
 // AddChapterRequest defines model for AddChapterRequest.
 type AddChapterRequest struct {
-	Chapter WritableChapter `json:"chapter"`
+	// ArtifactUploads Artifact payloads attached to this chapter write. They do not exist
+	// as independent durable resources until the chapter commit succeeds.
+	ArtifactUploads []ArtifactWrite `json:"artifactUploads"`
+	Chapter         ChapterRecord   `json:"chapter"`
 }
+
+// AppErrorPayload defines model for AppErrorPayload.
+type AppErrorPayload struct {
+	Attrs      *Metadata       `json:"attrs,omitempty"`
+	InputRef   *InputReference `json:"inputRef,omitempty"`
+	Level      *string         `json:"level,omitempty"`
+	Message    string          `json:"message"`
+	Stacktrace *[]string       `json:"stacktrace,omitempty"`
+}
+
+// ApplicationPayload Caller-owned application JSON payload embedded directly in REST
+// requests and responses. This value is any valid JSON value: object,
+// array, string, number, boolean, or null. It is never base64-encoded and
+// never wrapped in a protobuf `Any`-style envelope on the REST boundary.
+type ApplicationPayload = json.RawMessage
 
 // ArtifactUpload defines model for ArtifactUpload.
 type ArtifactUpload struct {
@@ -89,8 +176,38 @@ type CancelJobRequest struct {
 	WorkerId *string `json:"workerId,omitempty"`
 }
 
-// ChapterType defines model for ChapterType.
-type ChapterType string
+// ChapterBody defines model for ChapterBody.
+type ChapterBody struct {
+	union json.RawMessage
+}
+
+// ChapterRecord defines model for ChapterRecord.
+type ChapterRecord struct {
+	Artifacts     []StoredArtifact `json:"artifacts"`
+	Attempt       *int32           `json:"attempt,omitempty"`
+	BackoffMillis *int64           `json:"backoffMillis,omitempty"`
+	Body          ChapterBody      `json:"body"`
+	CreatedAt     time.Time        `json:"createdAt"`
+	FinishedAt    *time.Time       `json:"finishedAt,omitempty"`
+
+	// Input Caller-owned application JSON payload embedded directly in REST
+	// requests and responses. This value is any valid JSON value: object,
+	// array, string, number, boolean, or null. It is never base64-encoded and
+	// never wrapped in a protobuf `Any`-style envelope on the REST boundary.
+	Input         *ApplicationPayload `json:"input,omitempty"`
+	InputHash     *string             `json:"inputHash,omitempty"`
+	InputRef      *InputReference     `json:"inputRef,omitempty"`
+	MaxAttempts   *int32              `json:"maxAttempts,omitempty"`
+	Metadata      *Metadata           `json:"metadata,omitempty"`
+	NextAttemptAt *time.Time          `json:"nextAttemptAt,omitempty"`
+	Ordinal       int64               `json:"ordinal"`
+	Prerequisites *[]JobPrerequisite  `json:"prerequisites,omitempty"`
+	Retryable     *bool               `json:"retryable,omitempty"`
+	RunPolicy     *RunPolicy          `json:"runPolicy,omitempty"`
+	StartedAt     *time.Time          `json:"startedAt,omitempty"`
+	TaskType      *string             `json:"taskType,omitempty"`
+	WorkerId      *string             `json:"workerId,omitempty"`
+}
 
 // CommitChapterIfWaitingRequest defines model for CommitChapterIfWaitingRequest.
 type CommitChapterIfWaitingRequest struct {
@@ -128,13 +245,11 @@ type ErrorResponse struct {
 
 // ExecutionLease defines model for ExecutionLease.
 type ExecutionLease struct {
-	Capability string    `json:"capability"`
-	Job        JobHandle `json:"job"`
-	LeaseId    string    `json:"leaseId"`
-	LeaseToken string    `json:"leaseToken"`
-
-	// Payload Opaque JSON payload returned by the runtime for this lease.
-	Payload interface{} `json:"payload,omitempty"`
+	Capability string           `json:"capability"`
+	Job        JobHandle        `json:"job"`
+	LeaseId    string           `json:"leaseId"`
+	LeaseToken string           `json:"leaseToken"`
+	Payload    SchedulerPayload `json:"payload"`
 }
 
 // GetJobLeaseRequest defines model for GetJobLeaseRequest.
@@ -151,6 +266,21 @@ type GetJobLeaseResponse struct {
 	// Lease Targeted lease when the job is currently leaseable; `null` otherwise.
 	Lease *ExecutionLease `json:"lease"`
 }
+
+// InputReference defines model for InputReference.
+type InputReference struct {
+	Hash    *string `json:"hash,omitempty"`
+	Ordinal int64   `json:"ordinal"`
+}
+
+// JobAttemptOutcomeChapter defines model for JobAttemptOutcomeChapter.
+type JobAttemptOutcomeChapter struct {
+	Kind    JobAttemptOutcomeChapterKind `json:"kind"`
+	Outcome TaskOutcome                  `json:"outcome"`
+}
+
+// JobAttemptOutcomeChapterKind defines model for JobAttemptOutcomeChapter.Kind.
+type JobAttemptOutcomeChapterKind string
 
 // JobHandle defines model for JobHandle.
 type JobHandle struct {
@@ -181,6 +311,19 @@ type JobPrerequisite struct {
 // JobPrerequisiteCondition defines model for JobPrerequisite.Condition.
 type JobPrerequisiteCondition string
 
+// JobStartChapter defines model for JobStartChapter.
+type JobStartChapter struct {
+	// Input Caller-owned application JSON payload embedded directly in REST
+	// requests and responses. This value is any valid JSON value: object,
+	// array, string, number, boolean, or null. It is never base64-encoded and
+	// never wrapped in a protobuf `Any`-style envelope on the REST boundary.
+	Input ApplicationPayload  `json:"input"`
+	Kind  JobStartChapterKind `json:"kind"`
+}
+
+// JobStartChapterKind defines model for JobStartChapter.Kind.
+type JobStartChapterKind string
+
 // JobStatus defines model for JobStatus.
 type JobStatus string
 
@@ -189,27 +332,23 @@ type JobStore string
 
 // JobSummary defines model for JobSummary.
 type JobSummary struct {
-	ArchivedAt      *time.Time `json:"archivedAt"`
-	AvailableAt     time.Time  `json:"availableAt"`
-	CancelRequested bool       `json:"cancelRequested"`
-	CreatedAt       time.Time  `json:"createdAt"`
-	ExpiresAt       *time.Time `json:"expiresAt"`
-	JobKey          JobKey     `json:"jobKey"`
-	JobType         string     `json:"jobType"`
-	LeaseExpiresAt  *time.Time `json:"leaseExpiresAt"`
-
-	// Metadata Arbitrary JSON metadata persisted with the job.
-	Metadata interface{} `json:"metadata,omitempty"`
-	NextNeed *string     `json:"nextNeed"`
-
-	// Payload Runtime payload snapshot used by higher-level read models.
-	Payload           interface{} `json:"payload,omitempty"`
-	Status            JobStatus   `json:"status"`
-	TaskWaitInput     *int64      `json:"taskWaitInput"`
-	TaskWaitInputHash *string     `json:"taskWaitInputHash"`
-	TaskWaitNext      *string     `json:"taskWaitNext"`
-	TaskWaitOutput    *int64      `json:"taskWaitOutput"`
-	WaitFor           []string    `json:"waitFor"`
+	ArchivedAt        *time.Time        `json:"archivedAt,omitempty"`
+	AvailableAt       time.Time         `json:"availableAt"`
+	CancelRequested   bool              `json:"cancelRequested"`
+	CreatedAt         time.Time         `json:"createdAt"`
+	ExpiresAt         *time.Time        `json:"expiresAt,omitempty"`
+	JobKey            JobKey            `json:"jobKey"`
+	JobType           string            `json:"jobType"`
+	LeaseExpiresAt    *time.Time        `json:"leaseExpiresAt,omitempty"`
+	Metadata          *Metadata         `json:"metadata,omitempty"`
+	NextNeed          *string           `json:"nextNeed,omitempty"`
+	Payload           *SchedulerPayload `json:"payload,omitempty"`
+	Status            JobStatus         `json:"status"`
+	TaskWaitInput     *int64            `json:"taskWaitInput,omitempty"`
+	TaskWaitInputHash *string           `json:"taskWaitInputHash,omitempty"`
+	TaskWaitNext      *string           `json:"taskWaitNext,omitempty"`
+	TaskWaitOutput    *int64            `json:"taskWaitOutput,omitempty"`
+	WaitFor           []string          `json:"waitFor"`
 }
 
 // JobTaskFilter defines model for JobTaskFilter.
@@ -225,7 +364,7 @@ type KeepAliveLeaseResponse struct {
 
 // ListChaptersResponse defines model for ListChaptersResponse.
 type ListChaptersResponse struct {
-	Chapters []StoredChapter `json:"chapters"`
+	Chapters []ChapterRecord `json:"chapters"`
 }
 
 // ListJobsRequest defines model for ListJobsRequest.
@@ -252,17 +391,86 @@ type ListJobsResponse struct {
 	NextPageToken *string      `json:"nextPageToken,omitempty"`
 }
 
+// Metadata defines model for Metadata.
+type Metadata struct {
+	Fields map[string]MetadataValue `json:"fields"`
+}
+
+// MetadataBool defines model for MetadataBool.
+type MetadataBool struct {
+	BoolValue bool             `json:"boolValue"`
+	Kind      MetadataBoolKind `json:"kind"`
+}
+
+// MetadataBoolKind defines model for MetadataBool.Kind.
+type MetadataBoolKind string
+
+// MetadataDouble defines model for MetadataDouble.
+type MetadataDouble struct {
+	DoubleValue float64            `json:"doubleValue"`
+	Kind        MetadataDoubleKind `json:"kind"`
+}
+
+// MetadataDoubleKind defines model for MetadataDouble.Kind.
+type MetadataDoubleKind string
+
+// MetadataInt defines model for MetadataInt.
+type MetadataInt struct {
+	IntValue int64           `json:"intValue"`
+	Kind     MetadataIntKind `json:"kind"`
+}
+
+// MetadataIntKind defines model for MetadataInt.Kind.
+type MetadataIntKind string
+
+// MetadataList defines model for MetadataList.
+type MetadataList struct {
+	Kind      MetadataListKind `json:"kind"`
+	ListValue []MetadataValue  `json:"listValue"`
+}
+
+// MetadataListKind defines model for MetadataList.Kind.
+type MetadataListKind string
+
+// MetadataMap defines model for MetadataMap.
+type MetadataMap struct {
+	Kind     MetadataMapKind `json:"kind"`
+	MapValue Metadata        `json:"mapValue"`
+}
+
+// MetadataMapKind defines model for MetadataMap.Kind.
+type MetadataMapKind string
+
+// MetadataNull defines model for MetadataNull.
+type MetadataNull struct {
+	Kind MetadataNullKind `json:"kind"`
+}
+
+// MetadataNullKind defines model for MetadataNull.Kind.
+type MetadataNullKind string
+
 // MetadataPredicate defines model for MetadataPredicate.
 type MetadataPredicate struct {
 	// Path Metadata field path segments.
 	Path []string `json:"path"`
 
 	// Values Equality match values for the field at `path`; multiple values mean OR on the same field.
-	Values []interface{} `json:"values"`
+	Values []MetadataValue `json:"values"`
 }
 
-// PayloadKind defines model for PayloadKind.
-type PayloadKind string
+// MetadataString defines model for MetadataString.
+type MetadataString struct {
+	Kind        MetadataStringKind `json:"kind"`
+	StringValue string             `json:"stringValue"`
+}
+
+// MetadataStringKind defines model for MetadataString.Kind.
+type MetadataStringKind string
+
+// MetadataValue defines model for MetadataValue.
+type MetadataValue struct {
+	union json.RawMessage
+}
 
 // PollWorkRequest defines model for PollWorkRequest.
 type PollWorkRequest struct {
@@ -286,14 +494,53 @@ type PollWorkRequest struct {
 // RescheduleExecutionRequest defines model for RescheduleExecutionRequest.
 type RescheduleExecutionRequest struct {
 	// AlternateAfter Duration string.
-	AlternateAfter *string `json:"alternateAfter,omitempty"`
-	AlternateNeed  *string `json:"alternateNeed,omitempty"`
-	NextNeed       *string `json:"nextNeed,omitempty"`
+	AlternateAfter *string           `json:"alternateAfter,omitempty"`
+	AlternateNeed  *string           `json:"alternateNeed,omitempty"`
+	NextNeed       *string           `json:"nextNeed,omitempty"`
+	Payload        *SchedulerPayload `json:"payload,omitempty"`
+	WaitForJobIds  *[]string         `json:"waitForJobIds,omitempty"`
+	WaitUntil      *time.Time        `json:"waitUntil,omitempty"`
+}
 
-	// Payload Opaque JSON payload replacing the current lease payload.
-	Payload       interface{} `json:"payload,omitempty"`
-	WaitForJobIds *[]string   `json:"waitForJobIds,omitempty"`
-	WaitUntil     *time.Time  `json:"waitUntil,omitempty"`
+// RestartExtraChapter defines model for RestartExtraChapter.
+type RestartExtraChapter struct {
+	Kind RestartExtraChapterKind `json:"kind"`
+
+	// Output Caller-owned application JSON payload embedded directly in REST
+	// requests and responses. This value is any valid JSON value: object,
+	// array, string, number, boolean, or null. It is never base64-encoded and
+	// never wrapped in a protobuf `Any`-style envelope on the REST boundary.
+	Output ApplicationPayload `json:"output"`
+}
+
+// RestartExtraChapterKind defines model for RestartExtraChapter.Kind.
+type RestartExtraChapterKind string
+
+// RetryPolicy defines model for RetryPolicy.
+type RetryPolicy struct {
+	BackoffCoefficient     *float64  `json:"backoffCoefficient,omitempty"`
+	InitialInterval        *string   `json:"initialInterval,omitempty"`
+	MaximumAttempts        *int32    `json:"maximumAttempts,omitempty"`
+	MaximumInterval        *string   `json:"maximumInterval,omitempty"`
+	NonRetryableErrorTypes *[]string `json:"nonRetryableErrorTypes,omitempty"`
+}
+
+// RunPolicy defines model for RunPolicy.
+type RunPolicy struct {
+	InvocationTimeout *string      `json:"invocationTimeout,omitempty"`
+	Retry             *RetryPolicy `json:"retry,omitempty"`
+	TotalTimeout      *string      `json:"totalTimeout,omitempty"`
+}
+
+// SchedulerPayload defines model for SchedulerPayload.
+type SchedulerPayload struct {
+	// LeasePayload Caller-owned application JSON payload embedded directly in REST
+	// requests and responses. This value is any valid JSON value: object,
+	// array, string, number, boolean, or null. It is never base64-encoded and
+	// never wrapped in a protobuf `Any`-style envelope on the REST boundary.
+	LeasePayload *ApplicationPayload `json:"leasePayload,omitempty"`
+	RunPolicy    *RunPolicy          `json:"runPolicy,omitempty"`
+	TaskWait     *TaskWait           `json:"taskWait,omitempty"`
 }
 
 // StoredArtifact defines model for StoredArtifact.
@@ -303,43 +550,19 @@ type StoredArtifact struct {
 	Size   int64  `json:"size"`
 }
 
-// StoredChapter defines model for StoredChapter.
-type StoredChapter struct {
-	Artifacts   []StoredArtifact `json:"artifacts"`
-	ChapterType ChapterType      `json:"chapterType"`
-	CreatedAt   time.Time        `json:"createdAt"`
-
-	// Data Raw payload bytes decoded as JSON.
-	Data      interface{} `json:"data"`
-	InputHash *string     `json:"inputHash,omitempty"`
-
-	// Metadata Chapter metadata envelope.
-	Metadata    interface{} `json:"metadata,omitempty"`
-	Ordinal     int64       `json:"ordinal"`
-	PayloadKind PayloadKind `json:"payloadKind"`
-	TaskType    *string     `json:"taskType,omitempty"`
-}
-
-// StoredTaskData Read-side task data view. `payloadKind` is preserved so clients can
-// rebuild `swf.TaskData` semantics, including non-success payloads, above
-// the remote transport.
+// StoredTaskData defines model for StoredTaskData.
 type StoredTaskData struct {
 	Artifacts []StoredArtifact `json:"artifacts"`
-
-	// Data Arbitrary JSON payload.
-	Data        interface{} `json:"data"`
-	PayloadKind PayloadKind `json:"payloadKind"`
+	Outcome   TaskOutcome      `json:"outcome"`
 }
 
 // SubmitJob defines model for SubmitJob.
 type SubmitJob struct {
-	Data    TaskDataWrite `json:"data"`
-	JobType string        `json:"jobType"`
-
-	// Metadata Arbitrary JSON metadata persisted with the job.
-	Metadata      interface{}             `json:"metadata,omitempty"`
-	Prerequisites *[]JobPrerequisite      `json:"prerequisites,omitempty"`
-	RunPolicy     *map[string]interface{} `json:"runPolicy,omitempty"`
+	Data          TaskDataWrite      `json:"data"`
+	JobType       string             `json:"jobType"`
+	Metadata      *Metadata          `json:"metadata,omitempty"`
+	Prerequisites *[]JobPrerequisite `json:"prerequisites,omitempty"`
+	RunPolicy     *RunPolicy         `json:"runPolicy,omitempty"`
 }
 
 // SubmitJobRequest defines model for SubmitJobRequest.
@@ -365,31 +588,100 @@ type SubmitRestartJobRequest struct {
 	WorkerId    *string          `json:"workerId,omitempty"`
 }
 
+// SystemErrorPayload defines model for SystemErrorPayload.
+type SystemErrorPayload struct {
+	Code       *string         `json:"code,omitempty"`
+	Component  *string         `json:"component,omitempty"`
+	InputRef   *InputReference `json:"inputRef,omitempty"`
+	Message    string          `json:"message"`
+	Retryable  *bool           `json:"retryable,omitempty"`
+	Stacktrace *[]string       `json:"stacktrace,omitempty"`
+}
+
+// TaskAttemptOutcomeChapter defines model for TaskAttemptOutcomeChapter.
+type TaskAttemptOutcomeChapter struct {
+	Kind    TaskAttemptOutcomeChapterKind `json:"kind"`
+	Outcome TaskOutcome                   `json:"outcome"`
+}
+
+// TaskAttemptOutcomeChapterKind defines model for TaskAttemptOutcomeChapter.Kind.
+type TaskAttemptOutcomeChapterKind string
+
 // TaskDataWrite defines model for TaskDataWrite.
 type TaskDataWrite struct {
 	Artifacts []ArtifactWrite `json:"artifacts"`
 
-	// Data Arbitrary JSON payload.
-	Data interface{} `json:"data"`
+	// Data Caller-owned application JSON payload embedded directly in REST
+	// requests and responses. This value is any valid JSON value: object,
+	// array, string, number, boolean, or null. It is never base64-encoded and
+	// never wrapped in a protobuf `Any`-style envelope on the REST boundary.
+	Data ApplicationPayload `json:"data"`
 }
 
-// WritableChapter defines model for WritableChapter.
-type WritableChapter struct {
-	// Artifacts Artifact payloads attached to this chapter write. They do not exist
-	// as independent durable resources until the chapter commit succeeds.
-	Artifacts   []ArtifactWrite `json:"artifacts"`
-	ChapterType ChapterType     `json:"chapterType"`
-	CreatedAt   time.Time       `json:"createdAt"`
+// TaskOutcome defines model for TaskOutcome.
+type TaskOutcome struct {
+	union json.RawMessage
+}
 
-	// Data Raw payload bytes decoded as JSON.
-	Data      interface{} `json:"data"`
-	InputHash *string     `json:"inputHash,omitempty"`
+// TaskOutcomeAppError defines model for TaskOutcomeAppError.
+type TaskOutcomeAppError struct {
+	Error AppErrorPayload         `json:"error"`
+	Kind  TaskOutcomeAppErrorKind `json:"kind"`
+}
 
-	// Metadata Chapter metadata envelope.
-	Metadata    interface{} `json:"metadata,omitempty"`
-	Ordinal     int64       `json:"ordinal"`
-	PayloadKind PayloadKind `json:"payloadKind"`
-	TaskType    *string     `json:"taskType,omitempty"`
+// TaskOutcomeAppErrorKind defines model for TaskOutcomeAppError.Kind.
+type TaskOutcomeAppErrorKind string
+
+// TaskOutcomeSuccess defines model for TaskOutcomeSuccess.
+type TaskOutcomeSuccess struct {
+	Kind TaskOutcomeSuccessKind `json:"kind"`
+
+	// Output Caller-owned application JSON payload embedded directly in REST
+	// requests and responses. This value is any valid JSON value: object,
+	// array, string, number, boolean, or null. It is never base64-encoded and
+	// never wrapped in a protobuf `Any`-style envelope on the REST boundary.
+	Output ApplicationPayload `json:"output"`
+}
+
+// TaskOutcomeSuccessKind defines model for TaskOutcomeSuccess.Kind.
+type TaskOutcomeSuccessKind string
+
+// TaskOutcomeSystemError defines model for TaskOutcomeSystemError.
+type TaskOutcomeSystemError struct {
+	Error SystemErrorPayload         `json:"error"`
+	Kind  TaskOutcomeSystemErrorKind `json:"kind"`
+}
+
+// TaskOutcomeSystemErrorKind defines model for TaskOutcomeSystemError.Kind.
+type TaskOutcomeSystemErrorKind string
+
+// TaskOutcomeTimeout defines model for TaskOutcomeTimeout.
+type TaskOutcomeTimeout struct {
+	Kind    TaskOutcomeTimeoutKind `json:"kind"`
+	Timeout TimeoutPayload         `json:"timeout"`
+}
+
+// TaskOutcomeTimeoutKind defines model for TaskOutcomeTimeout.Kind.
+type TaskOutcomeTimeoutKind string
+
+// TaskWait defines model for TaskWait.
+type TaskWait struct {
+	InputHash     string `json:"inputHash"`
+	InputOrdinal  int64  `json:"inputOrdinal"`
+	OutputOrdinal int64  `json:"outputOrdinal"`
+	ResumeNeed    string `json:"resumeNeed"`
+}
+
+// TimeoutPayload defines model for TimeoutPayload.
+type TimeoutPayload struct {
+	After     string          `json:"after"`
+	Code      *string         `json:"code,omitempty"`
+	Component *string         `json:"component,omitempty"`
+	InputRef  *InputReference `json:"inputRef,omitempty"`
+	Kind      *string         `json:"kind,omitempty"`
+	Message   *string         `json:"message,omitempty"`
+	Retryable bool            `json:"retryable"`
+	Scope     string          `json:"scope"`
 }
 
 // ArtifactName defines model for ArtifactName.
@@ -477,6 +769,543 @@ type RescheduleJobWithLeaseJSONRequestBody = RescheduleExecutionRequest
 
 // PutRestartJobJSONRequestBody defines body for PutRestartJob for application/json ContentType.
 type PutRestartJobJSONRequestBody = SubmitRestartJobRequest
+
+// AsJobStartChapter returns the union data inside the ChapterBody as a JobStartChapter
+func (t ChapterBody) AsJobStartChapter() (JobStartChapter, error) {
+	var body JobStartChapter
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromJobStartChapter overwrites any union data inside the ChapterBody as the provided JobStartChapter
+func (t *ChapterBody) FromJobStartChapter(v JobStartChapter) error {
+	v.Kind = "jobStart"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeJobStartChapter performs a merge with any union data inside the ChapterBody, using the provided JobStartChapter
+func (t *ChapterBody) MergeJobStartChapter(v JobStartChapter) error {
+	v.Kind = "jobStart"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsJobAttemptOutcomeChapter returns the union data inside the ChapterBody as a JobAttemptOutcomeChapter
+func (t ChapterBody) AsJobAttemptOutcomeChapter() (JobAttemptOutcomeChapter, error) {
+	var body JobAttemptOutcomeChapter
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromJobAttemptOutcomeChapter overwrites any union data inside the ChapterBody as the provided JobAttemptOutcomeChapter
+func (t *ChapterBody) FromJobAttemptOutcomeChapter(v JobAttemptOutcomeChapter) error {
+	v.Kind = "jobAttemptOutcome"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeJobAttemptOutcomeChapter performs a merge with any union data inside the ChapterBody, using the provided JobAttemptOutcomeChapter
+func (t *ChapterBody) MergeJobAttemptOutcomeChapter(v JobAttemptOutcomeChapter) error {
+	v.Kind = "jobAttemptOutcome"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsTaskAttemptOutcomeChapter returns the union data inside the ChapterBody as a TaskAttemptOutcomeChapter
+func (t ChapterBody) AsTaskAttemptOutcomeChapter() (TaskAttemptOutcomeChapter, error) {
+	var body TaskAttemptOutcomeChapter
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTaskAttemptOutcomeChapter overwrites any union data inside the ChapterBody as the provided TaskAttemptOutcomeChapter
+func (t *ChapterBody) FromTaskAttemptOutcomeChapter(v TaskAttemptOutcomeChapter) error {
+	v.Kind = "taskAttemptOutcome"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeTaskAttemptOutcomeChapter performs a merge with any union data inside the ChapterBody, using the provided TaskAttemptOutcomeChapter
+func (t *ChapterBody) MergeTaskAttemptOutcomeChapter(v TaskAttemptOutcomeChapter) error {
+	v.Kind = "taskAttemptOutcome"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsRestartExtraChapter returns the union data inside the ChapterBody as a RestartExtraChapter
+func (t ChapterBody) AsRestartExtraChapter() (RestartExtraChapter, error) {
+	var body RestartExtraChapter
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromRestartExtraChapter overwrites any union data inside the ChapterBody as the provided RestartExtraChapter
+func (t *ChapterBody) FromRestartExtraChapter(v RestartExtraChapter) error {
+	v.Kind = "restartExtra"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeRestartExtraChapter performs a merge with any union data inside the ChapterBody, using the provided RestartExtraChapter
+func (t *ChapterBody) MergeRestartExtraChapter(v RestartExtraChapter) error {
+	v.Kind = "restartExtra"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ChapterBody) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ChapterBody) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "jobAttemptOutcome":
+		return t.AsJobAttemptOutcomeChapter()
+	case "jobStart":
+		return t.AsJobStartChapter()
+	case "restartExtra":
+		return t.AsRestartExtraChapter()
+	case "taskAttemptOutcome":
+		return t.AsTaskAttemptOutcomeChapter()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t ChapterBody) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ChapterBody) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsMetadataNull returns the union data inside the MetadataValue as a MetadataNull
+func (t MetadataValue) AsMetadataNull() (MetadataNull, error) {
+	var body MetadataNull
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMetadataNull overwrites any union data inside the MetadataValue as the provided MetadataNull
+func (t *MetadataValue) FromMetadataNull(v MetadataNull) error {
+	v.Kind = "null"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeMetadataNull performs a merge with any union data inside the MetadataValue, using the provided MetadataNull
+func (t *MetadataValue) MergeMetadataNull(v MetadataNull) error {
+	v.Kind = "null"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsMetadataBool returns the union data inside the MetadataValue as a MetadataBool
+func (t MetadataValue) AsMetadataBool() (MetadataBool, error) {
+	var body MetadataBool
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMetadataBool overwrites any union data inside the MetadataValue as the provided MetadataBool
+func (t *MetadataValue) FromMetadataBool(v MetadataBool) error {
+	v.Kind = "bool"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeMetadataBool performs a merge with any union data inside the MetadataValue, using the provided MetadataBool
+func (t *MetadataValue) MergeMetadataBool(v MetadataBool) error {
+	v.Kind = "bool"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsMetadataInt returns the union data inside the MetadataValue as a MetadataInt
+func (t MetadataValue) AsMetadataInt() (MetadataInt, error) {
+	var body MetadataInt
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMetadataInt overwrites any union data inside the MetadataValue as the provided MetadataInt
+func (t *MetadataValue) FromMetadataInt(v MetadataInt) error {
+	v.Kind = "int"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeMetadataInt performs a merge with any union data inside the MetadataValue, using the provided MetadataInt
+func (t *MetadataValue) MergeMetadataInt(v MetadataInt) error {
+	v.Kind = "int"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsMetadataDouble returns the union data inside the MetadataValue as a MetadataDouble
+func (t MetadataValue) AsMetadataDouble() (MetadataDouble, error) {
+	var body MetadataDouble
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMetadataDouble overwrites any union data inside the MetadataValue as the provided MetadataDouble
+func (t *MetadataValue) FromMetadataDouble(v MetadataDouble) error {
+	v.Kind = "double"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeMetadataDouble performs a merge with any union data inside the MetadataValue, using the provided MetadataDouble
+func (t *MetadataValue) MergeMetadataDouble(v MetadataDouble) error {
+	v.Kind = "double"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsMetadataString returns the union data inside the MetadataValue as a MetadataString
+func (t MetadataValue) AsMetadataString() (MetadataString, error) {
+	var body MetadataString
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMetadataString overwrites any union data inside the MetadataValue as the provided MetadataString
+func (t *MetadataValue) FromMetadataString(v MetadataString) error {
+	v.Kind = "string"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeMetadataString performs a merge with any union data inside the MetadataValue, using the provided MetadataString
+func (t *MetadataValue) MergeMetadataString(v MetadataString) error {
+	v.Kind = "string"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsMetadataList returns the union data inside the MetadataValue as a MetadataList
+func (t MetadataValue) AsMetadataList() (MetadataList, error) {
+	var body MetadataList
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMetadataList overwrites any union data inside the MetadataValue as the provided MetadataList
+func (t *MetadataValue) FromMetadataList(v MetadataList) error {
+	v.Kind = "list"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeMetadataList performs a merge with any union data inside the MetadataValue, using the provided MetadataList
+func (t *MetadataValue) MergeMetadataList(v MetadataList) error {
+	v.Kind = "list"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsMetadataMap returns the union data inside the MetadataValue as a MetadataMap
+func (t MetadataValue) AsMetadataMap() (MetadataMap, error) {
+	var body MetadataMap
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMetadataMap overwrites any union data inside the MetadataValue as the provided MetadataMap
+func (t *MetadataValue) FromMetadataMap(v MetadataMap) error {
+	v.Kind = "map"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeMetadataMap performs a merge with any union data inside the MetadataValue, using the provided MetadataMap
+func (t *MetadataValue) MergeMetadataMap(v MetadataMap) error {
+	v.Kind = "map"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t MetadataValue) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t MetadataValue) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "bool":
+		return t.AsMetadataBool()
+	case "double":
+		return t.AsMetadataDouble()
+	case "int":
+		return t.AsMetadataInt()
+	case "list":
+		return t.AsMetadataList()
+	case "map":
+		return t.AsMetadataMap()
+	case "null":
+		return t.AsMetadataNull()
+	case "string":
+		return t.AsMetadataString()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t MetadataValue) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *MetadataValue) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsTaskOutcomeSuccess returns the union data inside the TaskOutcome as a TaskOutcomeSuccess
+func (t TaskOutcome) AsTaskOutcomeSuccess() (TaskOutcomeSuccess, error) {
+	var body TaskOutcomeSuccess
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTaskOutcomeSuccess overwrites any union data inside the TaskOutcome as the provided TaskOutcomeSuccess
+func (t *TaskOutcome) FromTaskOutcomeSuccess(v TaskOutcomeSuccess) error {
+	v.Kind = "success"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeTaskOutcomeSuccess performs a merge with any union data inside the TaskOutcome, using the provided TaskOutcomeSuccess
+func (t *TaskOutcome) MergeTaskOutcomeSuccess(v TaskOutcomeSuccess) error {
+	v.Kind = "success"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsTaskOutcomeAppError returns the union data inside the TaskOutcome as a TaskOutcomeAppError
+func (t TaskOutcome) AsTaskOutcomeAppError() (TaskOutcomeAppError, error) {
+	var body TaskOutcomeAppError
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTaskOutcomeAppError overwrites any union data inside the TaskOutcome as the provided TaskOutcomeAppError
+func (t *TaskOutcome) FromTaskOutcomeAppError(v TaskOutcomeAppError) error {
+	v.Kind = "appError"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeTaskOutcomeAppError performs a merge with any union data inside the TaskOutcome, using the provided TaskOutcomeAppError
+func (t *TaskOutcome) MergeTaskOutcomeAppError(v TaskOutcomeAppError) error {
+	v.Kind = "appError"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsTaskOutcomeSystemError returns the union data inside the TaskOutcome as a TaskOutcomeSystemError
+func (t TaskOutcome) AsTaskOutcomeSystemError() (TaskOutcomeSystemError, error) {
+	var body TaskOutcomeSystemError
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTaskOutcomeSystemError overwrites any union data inside the TaskOutcome as the provided TaskOutcomeSystemError
+func (t *TaskOutcome) FromTaskOutcomeSystemError(v TaskOutcomeSystemError) error {
+	v.Kind = "systemError"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeTaskOutcomeSystemError performs a merge with any union data inside the TaskOutcome, using the provided TaskOutcomeSystemError
+func (t *TaskOutcome) MergeTaskOutcomeSystemError(v TaskOutcomeSystemError) error {
+	v.Kind = "systemError"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsTaskOutcomeTimeout returns the union data inside the TaskOutcome as a TaskOutcomeTimeout
+func (t TaskOutcome) AsTaskOutcomeTimeout() (TaskOutcomeTimeout, error) {
+	var body TaskOutcomeTimeout
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTaskOutcomeTimeout overwrites any union data inside the TaskOutcome as the provided TaskOutcomeTimeout
+func (t *TaskOutcome) FromTaskOutcomeTimeout(v TaskOutcomeTimeout) error {
+	v.Kind = "timeout"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeTaskOutcomeTimeout performs a merge with any union data inside the TaskOutcome, using the provided TaskOutcomeTimeout
+func (t *TaskOutcome) MergeTaskOutcomeTimeout(v TaskOutcomeTimeout) error {
+	v.Kind = "timeout"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t TaskOutcome) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t TaskOutcome) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "appError":
+		return t.AsTaskOutcomeAppError()
+	case "success":
+		return t.AsTaskOutcomeSuccess()
+	case "systemError":
+		return t.AsTaskOutcomeSystemError()
+	case "timeout":
+		return t.AsTaskOutcomeTimeout()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t TaskOutcome) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *TaskOutcome) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
 
 // RequestEditorFn  is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -2235,7 +3064,7 @@ func (r ListChaptersHTTPResponse) StatusCode() int {
 type GetChapterHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *StoredChapter
+	JSON200      *ChapterRecord
 }
 
 // Status returns HTTPResponse.Status
@@ -2897,7 +3726,7 @@ func ParseGetChapterHTTPResponse(rsp *http.Response) (*GetChapterHTTPResponse, e
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest StoredChapter
+		var dest ChapterRecord
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -4420,7 +5249,7 @@ type GetChapterResponseObject interface {
 	VisitGetChapterResponse(w http.ResponseWriter) error
 }
 
-type GetChapter200JSONResponse StoredChapter
+type GetChapter200JSONResponse ChapterRecord
 
 func (response GetChapter200JSONResponse) VisitGetChapterResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
