@@ -21,6 +21,16 @@ type WorkflowRuntime interface {
 	GetJobLease(ctx context.Context, req GetJobLeaseRequest) (ExecutionLease, error)
 	CompleteTaskIfWaiting(ctx context.Context, req CompleteTaskIfWaitingRequest) error
 
+	// Schedules
+	UpsertSchedule(ctx context.Context, req UpsertScheduleRequest) (ScheduleInfo, error)
+	GetSchedule(ctx context.Context, key ScheduleKey) (ScheduleInfo, error)
+	ListSchedules(ctx context.Context, req ListSchedulesRequest) (ListSchedulesResponse, error)
+	PauseSchedule(ctx context.Context, req ScheduleMutationRequest) (ScheduleInfo, error)
+	ResumeSchedule(ctx context.Context, req ScheduleMutationRequest) (ScheduleInfo, error)
+	ArchiveSchedule(ctx context.Context, req ScheduleMutationRequest) (ScheduleInfo, error)
+	TriggerSchedule(ctx context.Context, req TriggerScheduleRequest) (JobHandle, error)
+	ListScheduleRuns(ctx context.Context, req ListScheduleRunsRequest) (ListScheduleRunsResponse, error)
+
 	// Read APIs
 	GetJob(ctx context.Context, jobKey JobKey) (JobInfo, error)
 	ListJobs(ctx context.Context, req ListJobsRequest) (ListJobsResponse, error)

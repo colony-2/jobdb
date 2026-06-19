@@ -44,13 +44,19 @@ func New(db *gorm.DB, strataClient *strataclient.Client) *Runtime {
 	if err != nil || host == "" {
 		host = "swf"
 	}
-	return &Runtime{
+	rt := &Runtime{
 		db:           db,
 		udb:          udb,
 		strataClient: strataClient,
 		logger:       slog.Default(),
 		workerID:     fmt.Sprintf("%s:%d-%s", host, os.Getpid(), ksuid.New().String()),
 	}
+	if udb != nil {
+		if err := migrateSchedules(context.Background(), udb); err != nil {
+			rt.logger.Warn("failed to migrate schedule tables", "error", err)
+		}
+	}
+	return rt
 }
 
 func NewFromConfig(postgresDSN, strataBaseURL, strataAPIKey string) (*Runtime, error) {
@@ -75,7 +81,11 @@ func NewFromConfig(postgresDSN, strataBaseURL, strataAPIKey string) (*Runtime, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to create strata client: %w", err)
 	}
-	return New(db, strataClient), nil
+	rt := New(db, strataClient)
+	if err := migrateSchedules(context.Background(), rt.udb); err != nil {
+		return nil, err
+	}
+	return rt, nil
 }
 
 func (r *Runtime) SubmitJob(ctx context.Context, req swf.SubmitJobRequest) (swf.JobHandle, error) {
@@ -93,6 +103,13 @@ func (r *Runtime) SubmitJob(ctx context.Context, req swf.SubmitJobRequest) (swf.
 	jobKey := swf.JobKey{
 		TenantId: req.Job.TenantId,
 		JobId:    jobID,
+	}
+	if err := swf.ValidateApplicationMetadata(req.Job.Metadata); err != nil {
+		return swf.JobHandle{}, err
+	}
+	storedMetadata, err := swf.BuildJobMetadataEnvelope(req.Job.Metadata, swf.RuntimeJobMetadata{})
+	if err != nil {
+		return swf.JobHandle{}, err
 	}
 	prereqs, waitFor, err := normalizePrerequisites(jobKey, req.Job.Prerequisites)
 	if err != nil {
@@ -129,7 +146,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req swf.SubmitJobRequest) (swf.
 			}
 		}
 	}
-	if err := r.ensureSubmittedJobRecord(ctx, jobKey, req.Job.JobType, req.Job.Metadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID); err != nil {
+	if err := r.ensureSubmittedJobRecord(ctx, jobKey, req.Job.JobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, req.Job.AvailableAt); err != nil {
 		return swf.JobHandle{}, err
 	}
 	return swf.JobHandle{JobKey: jobKey}, nil
@@ -230,13 +247,13 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req swf.SubmitRestartJob
 		}
 		return swf.JobHandle{}, err
 	}
-	if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, nil, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID); err != nil {
+	if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, nil, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, nil); err != nil {
 		return swf.JobHandle{}, err
 	}
 	return swf.JobHandle{JobKey: jobKey}, nil
 }
 
-func (r *Runtime) startJob(ctx context.Context, jobKey swf.JobKey, jobType string, metadata json.RawMessage, waitFor []pgwf.JobID, payload jobPayload, workerID string) error {
+func (r *Runtime) startJob(ctx context.Context, jobKey swf.JobKey, jobType string, metadata json.RawMessage, waitFor []pgwf.JobID, payload jobPayload, workerID string, availableAt *time.Time) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -245,9 +262,17 @@ func (r *Runtime) startJob(ctx context.Context, jobKey swf.JobKey, jobType strin
 		return err
 	}
 	return pgwf.SubmitJob(ctx, r.pgwfDB(ctx), pgwf.TenantID(jobKey.TenantId), pgwf.JobID(jobKey.JobId), pgwf.JobDependencies{
-		NextNeed: pgwf.Capability(jobType),
-		WaitFor:  waitFor,
+		NextNeed:    pgwf.Capability(jobType),
+		WaitFor:     waitFor,
+		AvailableAt: optionalAvailableAt(availableAt),
 	}, payloadJSON, metadata, pgwf.WorkerID(r.requestWorkerID(workerID)), time.Time{})
+}
+
+func optionalAvailableAt(availableAt *time.Time) time.Time {
+	if availableAt == nil {
+		return time.Time{}
+	}
+	return availableAt.UTC()
 }
 
 func (r *Runtime) CancelJob(ctx context.Context, req swf.CancelJobRequest) error {
@@ -291,7 +316,12 @@ func (r *Runtime) PollWork(ctx context.Context, req swf.PollWorkRequest) ([]swf.
 
 	out := make([]swf.ExecutionLease, 0, limit)
 	workerID := r.requestWorkerID(req.WorkerID)
-	for i := 0; i < limit; i++ {
+	attemptBudget := limit * 4
+	if attemptBudget < 8 {
+		attemptBudget = 8
+	}
+	for len(out) < limit && attemptBudget > 0 {
+		attemptBudget--
 		lease, err := pgwf.GetWorkWithOptions(ctx, r.udb, pgwf.WorkerID(workerID), caps, opts)
 		if err != nil {
 			return nil, err
@@ -299,7 +329,14 @@ func (r *Runtime) PollWork(ctx context.Context, req swf.PollWorkRequest) ([]swf.
 		if lease == nil {
 			break
 		}
-		out = append(out, &executionLease{lease: lease, udb: r.udb, workerID: workerID})
+		wrapped := &executionLease{lease: lease, udb: r.udb, workerID: workerID}
+		ok, err := r.preflightScheduleLease(ctx, wrapped)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			out = append(out, wrapped)
+		}
 	}
 	return out, nil
 }
@@ -336,7 +373,15 @@ func (r *Runtime) GetJobLease(ctx context.Context, req swf.GetJobLeaseRequest) (
 	if lease == nil {
 		return nil, nil
 	}
-	return &executionLease{lease: lease, udb: r.udb, workerID: r.requestWorkerID(req.WorkerID)}, nil
+	wrapped := &executionLease{lease: lease, udb: r.udb, workerID: r.requestWorkerID(req.WorkerID)}
+	ok, err := r.preflightScheduleLease(ctx, wrapped)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
+	}
+	return wrapped, nil
 }
 
 type jobInfoTaskData struct {
@@ -462,7 +507,7 @@ func (r *Runtime) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.Li
 			CancelRequested: job.CancelRequested,
 			CreatedAt:       job.CreatedAt,
 			ArchivedAt:      job.ArchivedAt,
-			Metadata:        job.Metadata,
+			Metadata:        swf.StripRuntimeMetadata(job.Metadata),
 		}
 		if strings.Contains(job.NextNeed, ":") {
 			details, detailErr := pgwf.GetJob(ctx, r.pgwfDB(ctx), pgwf.TenantID(job.TenantID), pgwf.JobID(job.JobID), pgwf.GetJobOptions{IncludePayload: true})
@@ -511,7 +556,7 @@ func (r *Runtime) FindTasksWaitingForCapability(ctx context.Context, jobType str
 			jobID:         j.JobID,
 			tenantId:      j.TenantID,
 			payload:       details.Payload,
-			metadata:      details.Metadata,
+			metadata:      swf.AppMetadataFromStoredMetadata(details.Metadata),
 			inputOrdinal:  tw.InputStep,
 			outputOrdinal: tw.OutputStep,
 			runtime:       r,
@@ -543,7 +588,7 @@ func (r *Runtime) GetWaitingTask(ctx context.Context, key swf.JobKey) (swf.TaskH
 		jobID:         job.JobID,
 		tenantId:      key.TenantId,
 		payload:       job.Payload,
-		metadata:      job.Metadata,
+		metadata:      swf.AppMetadataFromStoredMetadata(job.Metadata),
 		inputOrdinal:  tw.InputStep,
 		outputOrdinal: tw.OutputStep,
 		runtime:       r,

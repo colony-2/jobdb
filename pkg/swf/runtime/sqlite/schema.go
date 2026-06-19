@@ -35,6 +35,27 @@ CREATE INDEX IF NOT EXISTS swf_jobs_poll_idx
 
 CREATE INDEX IF NOT EXISTS swf_jobs_list_idx
 	ON swf_jobs (tenant_id, created_at_ns DESC, job_id DESC);
+
+CREATE TABLE IF NOT EXISTS swf_schedules (
+	tenant_id TEXT NOT NULL,
+	schedule_id TEXT NOT NULL,
+	state TEXT NOT NULL,
+	generation INTEGER NOT NULL,
+	spec_hash TEXT NOT NULL,
+	trigger_json BLOB NOT NULL,
+	target_json BLOB NOT NULL,
+	target_job_type TEXT NOT NULL,
+	overlap_policy TEXT NOT NULL,
+	failure_policy_json BLOB NOT NULL,
+	next_fire_at_ns INTEGER,
+	next_job_id TEXT,
+	created_at_ns INTEGER NOT NULL,
+	updated_at_ns INTEGER NOT NULL,
+	PRIMARY KEY (tenant_id, schedule_id)
+);
+
+CREATE INDEX IF NOT EXISTS swf_schedules_list_idx
+	ON swf_schedules (tenant_id, state, updated_at_ns DESC, schedule_id DESC);
 `
 
 func migrate(ctx context.Context, db *sql.DB) error {

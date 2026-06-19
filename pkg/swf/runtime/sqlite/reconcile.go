@@ -26,7 +26,11 @@ func (r *Runtime) reconcileExistingSubmitJob(ctx context.Context, req swf.Submit
 	if err := compareSubmitStartChapter(jobKey, start, req.Job.JobType, inputHash, req.Job.Metadata, prereqs, jobPolicy); err != nil {
 		return swf.JobHandle{}, true, err
 	}
-	if err := r.ensureSubmittedJobRecord(ctx, jobKey, req.Job.JobType, req.Job.Metadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID); err != nil {
+	storedMetadata, err := swf.BuildJobMetadataEnvelope(req.Job.Metadata, swf.RuntimeJobMetadata{})
+	if err != nil {
+		return swf.JobHandle{}, true, err
+	}
+	if err := r.ensureSubmittedJobRecord(ctx, jobKey, req.Job.JobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, req.Job.AvailableAt); err != nil {
 		return swf.JobHandle{}, true, err
 	}
 	return swf.JobHandle{JobKey: jobKey}, true, nil
@@ -46,7 +50,7 @@ func (r *Runtime) reconcileExistingRestartJob(ctx context.Context, req swf.Submi
 	if err := r.compareRestartStoryPrefix(ctx, req.Job, jobKey, extra); err != nil {
 		return swf.JobHandle{}, true, err
 	}
-	if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, nil, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID); err != nil {
+	if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, nil, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, nil); err != nil {
 		return swf.JobHandle{}, true, err
 	}
 	return swf.JobHandle{JobKey: jobKey}, true, nil

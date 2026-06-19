@@ -50,7 +50,7 @@ func metadataPredicatesToPgwf(filter swf.MetadataFilter) ([]pgwf.MetadataPredica
 			return nil, err
 		}
 		out = append(out, pgwf.MetadataPredicate{
-			Path:   pred.Path,
+			Path:   append([]string{"app"}, pred.Path...),
 			Values: values,
 		})
 	}
@@ -93,7 +93,7 @@ func concreteMetadataPredicatesToPgwf(predicates []swf.MetadataPredicate) []pgwf
 	for _, predicate := range predicates {
 		values := append([]any(nil), predicate.Values...)
 		out = append(out, pgwf.MetadataPredicate{
-			Path:   append([]string(nil), predicate.Path...),
+			Path:   append([]string{"app"}, predicate.Path...),
 			Values: values,
 		})
 	}

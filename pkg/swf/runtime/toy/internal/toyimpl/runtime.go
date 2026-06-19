@@ -60,6 +60,13 @@ func (r *Runtime) SubmitJob(ctx context.Context, req swf.SubmitJobRequest) (swf.
 	if err := jobKey.Validate(); err != nil {
 		return swf.JobHandle{}, err
 	}
+	if err := swf.ValidateApplicationMetadata(req.Job.Metadata); err != nil {
+		return swf.JobHandle{}, err
+	}
+	storedMetadata, err := swf.BuildJobMetadataEnvelope(req.Job.Metadata, swf.RuntimeJobMetadata{})
+	if err != nil {
+		return swf.JobHandle{}, err
+	}
 	if req.Job.JobID != "" {
 		inputHash, err := swfInputHash(ctx, req.Job.Data)
 		if err != nil {
@@ -114,15 +121,23 @@ func (r *Runtime) SubmitJob(ctx context.Context, req swf.SubmitJobRequest) (swf.
 		return swf.JobHandle{}, err
 	}
 
+	availableAt := now
+	if req.Job.AvailableAt != nil {
+		availableAt = req.Job.AvailableAt.UTC()
+	}
+	status := swf.JobStatusReady
+	if availableAt.After(now) {
+		status = swf.JobStatusAwaitingFuture
+	}
 	record := &jobRecord{
-		status:      swf.JobStatusReady,
+		status:      status,
 		jobType:     req.Job.JobType,
 		createdAt:   now,
-		metadata:    cloneJSON(req.Job.Metadata),
+		metadata:    cloneJSON(storedMetadata),
 		payload:     payloadJSON,
 		capability:  req.Job.JobType,
 		chapters:    make(map[int64]*toyChapter),
-		availableAt: now,
+		availableAt: availableAt,
 	}
 	record.chapters[0] = &toyChapter{
 		TaskType:  req.Job.JobType,
@@ -161,7 +176,11 @@ func (r *Runtime) existingEquivalentJob(jobKey swf.JobKey, job swf.SubmitJob, in
 	if start.InputHash != inputHash {
 		return swf.JobHandle{}, false, swf.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different input", jobKey))
 	}
-	if !bytes.Equal(record.metadata, job.Metadata) {
+	storedMetadata, err := swf.BuildJobMetadataEnvelope(job.Metadata, swf.RuntimeJobMetadata{})
+	if err != nil {
+		return swf.JobHandle{}, false, err
+	}
+	if !bytes.Equal(record.metadata, storedMetadata) {
 		return swf.JobHandle{}, false, swf.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different metadata", jobKey))
 	}
 	runPolicy, err := extractRunPolicyFromMetadata(start.Metadata)
@@ -343,7 +362,6 @@ func (r *Runtime) PollWork(ctx context.Context, req swf.PollWorkRequest) ([]swf.
 	}
 
 	r.engine.mu.Lock()
-	defer r.engine.mu.Unlock()
 
 	limit := req.Limit
 	if limit <= 0 {
@@ -375,6 +393,7 @@ func (r *Runtime) PollWork(ctx context.Context, req swf.PollWorkRequest) ([]swf.
 			match, err := metadataMatches(record.metadata, metadataPredicates)
 			if err != nil {
 				record.mu.Unlock()
+				r.engine.mu.Unlock()
 				return nil, err
 			}
 			if !match {
@@ -398,7 +417,23 @@ func (r *Runtime) PollWork(ctx context.Context, req swf.PollWorkRequest) ([]swf.
 			break
 		}
 	}
-	return out, nil
+	r.engine.mu.Unlock()
+	filtered := out[:0]
+	for _, item := range out {
+		lease, ok := item.(*runtimeLease)
+		if !ok {
+			filtered = append(filtered, item)
+			continue
+		}
+		ok, err := r.preflightScheduleLease(ctx, lease)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			filtered = append(filtered, lease)
+		}
+	}
+	return filtered, nil
 }
 
 func (r *Runtime) GetJobLease(ctx context.Context, req swf.GetJobLeaseRequest) (swf.ExecutionLease, error) {
@@ -417,34 +452,47 @@ func (r *Runtime) GetJobLease(ctx context.Context, req swf.GetJobLeaseRequest) (
 	}
 
 	r.engine.mu.Lock()
-	defer r.engine.mu.Unlock()
 
 	record := r.engine.jobRecords[req.JobKey]
 	if record == nil {
+		r.engine.mu.Unlock()
 		return nil, nil
 	}
 
 	now := time.Now().UTC()
 	record.mu.Lock()
-	defer record.mu.Unlock()
 	r.advanceRecordStateLocked(req.JobKey.TenantId, now, record)
 	if record.leased || record.status != swf.JobStatusReady {
+		record.mu.Unlock()
+		r.engine.mu.Unlock()
 		return nil, nil
 	}
 	if _, ok := capSet[record.capability]; !ok {
+		record.mu.Unlock()
+		r.engine.mu.Unlock()
 		return nil, nil
 	}
 
 	record.leased = true
 	record.status = swf.JobStatusActive
 	record.leaseID = ksuid.New().String()
-	return &runtimeLease{
+	lease := &runtimeLease{
 		runtime:    r,
 		jobKey:     req.JobKey,
 		leaseID:    record.leaseID,
 		capability: record.capability,
 		payload:    cloneJSON(record.payload),
-	}, nil
+	}
+	record.mu.Unlock()
+	r.engine.mu.Unlock()
+	ok, err := r.preflightScheduleLease(ctx, lease)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
+	}
+	return lease, nil
 }
 
 type jobInfoTaskData struct {
@@ -676,7 +724,7 @@ func (r *Runtime) FindTasksWaitingForCapability(ctx context.Context, jobType str
 		}
 		record.mu.Lock()
 		payload := cloneJSON(record.payload)
-		metadata := cloneJSON(record.metadata)
+		metadata := swf.AppMetadataFromStoredMetadata(record.metadata)
 		createdAt := record.createdAt
 		record.mu.Unlock()
 		wait, err := extractWorkerTaskWait(payload)
@@ -703,7 +751,7 @@ func (r *Runtime) GetWaitingTask(ctx context.Context, key swf.JobKey) (swf.TaskH
 	}
 	record.mu.Lock()
 	payload := cloneJSON(record.payload)
-	metadata := cloneJSON(record.metadata)
+	metadata := swf.AppMetadataFromStoredMetadata(record.metadata)
 	createdAt := record.createdAt
 	currentCapability := record.capability
 	record.mu.Unlock()
@@ -922,7 +970,11 @@ func (r *Runtime) advanceRecordStateLocked(tenantId string, now time.Time, recor
 			}
 		}
 		if complete {
-			record.status = swf.JobStatusReady
+			if !record.availableAt.IsZero() && record.availableAt.After(now) {
+				record.status = swf.JobStatusAwaitingFuture
+			} else {
+				record.status = swf.JobStatusReady
+			}
 			record.waitFor = nil
 		}
 	}
@@ -942,6 +994,7 @@ func (r *Runtime) completeLease(jobKey swf.JobKey, leaseID string, req swf.Compl
 	record.leaseID = ""
 	now := time.Now().UTC()
 	record.archived = &now
+	record.completionDetail = req.Detail
 	switch req.Status {
 	case "cancelled":
 		record.status = swf.JobStatusCancelled

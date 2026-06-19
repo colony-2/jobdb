@@ -20,6 +20,8 @@ servers:
 tags:
   - name: jobs
     description: Job lifecycle and job-level read APIs.
+  - name: schedules
+    description: Schedule lifecycle, projection, and run APIs.
   - name: leases
     description: Worker polling and lease lifecycle operations.
   - name: chapters
@@ -189,6 +191,168 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ListJobsResponse'
+  /v1/tenants/{tenantId}/schedules/{scheduleId}:
+    put:
+      tags: [schedules]
+      operationId: upsertSchedule
+      summary: Upsert schedule
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ScheduleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertScheduleRequest'
+      responses:
+        '200':
+          description: Schedule created or updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleInfo'
+        '409':
+          description: Schedule generation or state conflict
+    get:
+      tags: [schedules]
+      operationId: getSchedule
+      summary: Get schedule
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ScheduleId'
+      responses:
+        '200':
+          description: Schedule loaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleInfo'
+  /v1/tenants/{tenantId}/schedules/query:
+    post:
+      tags: [schedules]
+      operationId: listSchedules
+      summary: List schedules
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListSchedulesRequest'
+      responses:
+        '200':
+          description: Schedules listed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListSchedulesResponse'
+  /v1/tenants/{tenantId}/schedules/{scheduleId}/pause:
+    post:
+      tags: [schedules]
+      operationId: pauseSchedule
+      summary: Pause schedule
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ScheduleId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleMutationRequest'
+      responses:
+        '200':
+          description: Schedule paused
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleInfo'
+  /v1/tenants/{tenantId}/schedules/{scheduleId}/resume:
+    post:
+      tags: [schedules]
+      operationId: resumeSchedule
+      summary: Resume schedule
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ScheduleId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleMutationRequest'
+      responses:
+        '200':
+          description: Schedule resumed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleInfo'
+  /v1/tenants/{tenantId}/schedules/{scheduleId}/archive:
+    post:
+      tags: [schedules]
+      operationId: archiveSchedule
+      summary: Archive schedule
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ScheduleId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleMutationRequest'
+      responses:
+        '200':
+          description: Schedule archived
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleInfo'
+  /v1/tenants/{tenantId}/schedules/{scheduleId}/trigger:
+    post:
+      tags: [schedules]
+      operationId: triggerSchedule
+      summary: Trigger schedule now
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ScheduleId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TriggerScheduleRequest'
+      responses:
+        '200':
+          description: Manual occurrence submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobHandle'
+  /v1/tenants/{tenantId}/schedules/{scheduleId}/runs/query:
+    post:
+      tags: [schedules]
+      operationId: listScheduleRuns
+      summary: List schedule runs
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ScheduleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListScheduleRunsRequest'
+      responses:
+        '200':
+          description: Schedule runs listed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListScheduleRunsResponse'
   /v1/jobs/poll:
     post:
       tags: [leases]
@@ -481,6 +645,12 @@ components:
       required: true
       schema:
         type: string
+    ScheduleId:
+      name: scheduleId
+      in: path
+      required: true
+      schema:
+        type: string
     LeaseTokenHeader:
       name: X-SWF-Lease-Token
       in: header
@@ -683,6 +853,253 @@ components:
       properties:
         jobKey:
           $ref: '#/components/schemas/JobKey'
+    ScheduleState:
+      type: string
+      enum:
+        - ACTIVE
+        - PAUSED
+        - ARCHIVED
+        - FAILURE_PAUSED
+    ScheduleOverlapPolicy:
+      type: string
+      enum:
+        - serial
+    ScheduleTriggerKind:
+      type: string
+      enum:
+        - cron
+        - interval
+    ScheduleTrigger:
+      type: object
+      required: [kind]
+      additionalProperties: false
+      properties:
+        kind:
+          $ref: '#/components/schemas/ScheduleTriggerKind'
+        expression:
+          type: string
+        timezone:
+          type: string
+        startAt:
+          type: string
+          format: date-time
+        endAt:
+          type: string
+          format: date-time
+        interval:
+          type: string
+          description: Duration string for interval schedules.
+    ScheduleTarget:
+      type: object
+      required: [jobType, data]
+      additionalProperties: false
+      properties:
+        jobType:
+          type: string
+        data:
+          $ref: '#/components/schemas/TaskDataWrite'
+        runPolicy:
+          $ref: '#/components/schemas/RunPolicy'
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+    ScheduleFailurePolicy:
+      type: object
+      additionalProperties: false
+      properties:
+        minSuccessPercent:
+          type: integer
+          format: int32
+        windowSize:
+          type: integer
+          format: int32
+        maxSequentialFailures:
+          type: integer
+          format: int32
+    UpsertScheduleRequest:
+      type: object
+      required: [trigger, target]
+      additionalProperties: false
+      properties:
+        trigger:
+          $ref: '#/components/schemas/ScheduleTrigger'
+        target:
+          $ref: '#/components/schemas/ScheduleTarget'
+        overlapPolicy:
+          $ref: '#/components/schemas/ScheduleOverlapPolicy'
+        failurePolicy:
+          $ref: '#/components/schemas/ScheduleFailurePolicy'
+        paused:
+          type: boolean
+        expectedGeneration:
+          type: integer
+          format: int64
+        requestTime:
+          type: string
+          format: date-time
+        workerId:
+          type: string
+    ScheduleMutationRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        expectedGeneration:
+          type: integer
+          format: int64
+        requestTime:
+          type: string
+          format: date-time
+        workerId:
+          type: string
+    TriggerScheduleRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        requestId:
+          type: string
+        requestTime:
+          type: string
+          format: date-time
+        workerId:
+          type: string
+    ScheduleInfo:
+      type: object
+      required:
+        - tenantId
+        - scheduleId
+        - scheduleKey
+        - state
+        - effectiveState
+        - generation
+        - specHash
+        - trigger
+        - target
+        - overlapPolicy
+        - failurePolicy
+        - createdAt
+        - updatedAt
+      additionalProperties: false
+      properties:
+        tenantId:
+          type: string
+        scheduleId:
+          type: string
+        scheduleKey:
+          $ref: '#/components/schemas/ScheduleKey'
+        state:
+          $ref: '#/components/schemas/ScheduleState'
+        effectiveState:
+          $ref: '#/components/schemas/ScheduleState'
+        generation:
+          type: integer
+          format: int64
+        specHash:
+          type: string
+        trigger:
+          $ref: '#/components/schemas/ScheduleTrigger'
+        target:
+          $ref: '#/components/schemas/ScheduleTarget'
+        overlapPolicy:
+          $ref: '#/components/schemas/ScheduleOverlapPolicy'
+        failurePolicy:
+          $ref: '#/components/schemas/ScheduleFailurePolicy'
+        nextFireAt:
+          type: string
+          format: date-time
+        nextJobKey:
+          $ref: '#/components/schemas/JobKey'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ScheduleKey:
+      type: object
+      required: [tenantId, scheduleId]
+      additionalProperties: false
+      properties:
+        tenantId:
+          type: string
+        scheduleId:
+          type: string
+    ListSchedulesRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        scheduleIds:
+          type: array
+          items:
+            type: string
+        states:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScheduleState'
+        targetJobTypes:
+          type: array
+          items:
+            type: string
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 200
+        pageToken:
+          type: string
+    ListSchedulesResponse:
+      type: object
+      required: [schedules]
+      additionalProperties: false
+      properties:
+        schedules:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScheduleInfo'
+        nextPageToken:
+          type: string
+    ListScheduleRunsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        scheduledAfter:
+          type: string
+          format: date-time
+        scheduledBefore:
+          type: string
+          format: date-time
+        statuses:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobStatus'
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 200
+        pageToken:
+          type: string
+    ScheduleRunSummary:
+      type: object
+      required: [job, scheduleId, scheduledAt]
+      additionalProperties: false
+      properties:
+        job:
+          $ref: '#/components/schemas/JobSummary'
+        scheduleId:
+          type: string
+        scheduledAt:
+          type: string
+          format: date-time
+        reasonCode:
+          type: string
+    ListScheduleRunsResponse:
+      type: object
+      required: [runs]
+      additionalProperties: false
+      properties:
+        runs:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScheduleRunSummary'
+        nextPageToken:
+          type: string
     JobPrerequisite:
       type: object
       required: [jobId, condition]
@@ -852,6 +1269,9 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/JobPrerequisite'
+        availableAt:
+          type: string
+          format: date-time
     SubmitJobRequest:
       type: object
       required: [job]

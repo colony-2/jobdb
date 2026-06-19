@@ -58,7 +58,7 @@ func getJobRun(ctx context.Context, accessor jobRunAccessor, req swf.GetJobRunRe
 			Status:     jobStatus,
 			CreatedAt:  statusInfo.CreatedAt,
 			ArchivedAt: statusInfo.ArchivedAt,
-			Metadata:   statusInfo.Metadata,
+			Metadata:   swf.AppMetadataFromStoredMetadata(statusInfo.Metadata),
 		},
 	}
 

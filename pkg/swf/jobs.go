@@ -18,6 +18,7 @@ type SubmitJob struct {
 	Data          JobData           // Input data for the job
 	RunPolicy     RunPolicy         // Runtime policy for retries, timeouts, etc.
 	Metadata      json.RawMessage   // Optional metadata persisted with the job in pgwf
+	AvailableAt   *time.Time        // Optional time before which the job is not leaseable
 	Prerequisites []JobPrerequisite // Optional prerequisites that must complete before this job starts
 }
 

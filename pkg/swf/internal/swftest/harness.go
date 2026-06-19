@@ -584,6 +584,84 @@ func (r *tenantNamespacedRuntime) ListJobs(ctx context.Context, req swf.ListJobs
 	return resp, nil
 }
 
+func (r *tenantNamespacedRuntime) UpsertSchedule(ctx context.Context, req swf.UpsertScheduleRequest) (swf.ScheduleInfo, error) {
+	req.TenantId = r.prefixTenant(req.TenantId)
+	info, err := r.runtime.UpsertSchedule(ctx, req)
+	if err != nil {
+		return swf.ScheduleInfo{}, err
+	}
+	return r.stripScheduleInfo(info), nil
+}
+
+func (r *tenantNamespacedRuntime) GetSchedule(ctx context.Context, key swf.ScheduleKey) (swf.ScheduleInfo, error) {
+	info, err := r.runtime.GetSchedule(ctx, r.prefixScheduleKey(key))
+	if err != nil {
+		return swf.ScheduleInfo{}, err
+	}
+	return r.stripScheduleInfo(info), nil
+}
+
+func (r *tenantNamespacedRuntime) ListSchedules(ctx context.Context, req swf.ListSchedulesRequest) (swf.ListSchedulesResponse, error) {
+	req.TenantId = r.prefixTenant(req.TenantId)
+	resp, err := r.runtime.ListSchedules(ctx, req)
+	if err != nil {
+		return swf.ListSchedulesResponse{}, err
+	}
+	for i := range resp.Schedules {
+		resp.Schedules[i] = r.stripScheduleInfo(resp.Schedules[i])
+	}
+	return resp, nil
+}
+
+func (r *tenantNamespacedRuntime) PauseSchedule(ctx context.Context, req swf.ScheduleMutationRequest) (swf.ScheduleInfo, error) {
+	req.ScheduleKey = r.prefixScheduleKey(req.ScheduleKey)
+	info, err := r.runtime.PauseSchedule(ctx, req)
+	if err != nil {
+		return swf.ScheduleInfo{}, err
+	}
+	return r.stripScheduleInfo(info), nil
+}
+
+func (r *tenantNamespacedRuntime) ResumeSchedule(ctx context.Context, req swf.ScheduleMutationRequest) (swf.ScheduleInfo, error) {
+	req.ScheduleKey = r.prefixScheduleKey(req.ScheduleKey)
+	info, err := r.runtime.ResumeSchedule(ctx, req)
+	if err != nil {
+		return swf.ScheduleInfo{}, err
+	}
+	return r.stripScheduleInfo(info), nil
+}
+
+func (r *tenantNamespacedRuntime) ArchiveSchedule(ctx context.Context, req swf.ScheduleMutationRequest) (swf.ScheduleInfo, error) {
+	req.ScheduleKey = r.prefixScheduleKey(req.ScheduleKey)
+	info, err := r.runtime.ArchiveSchedule(ctx, req)
+	if err != nil {
+		return swf.ScheduleInfo{}, err
+	}
+	return r.stripScheduleInfo(info), nil
+}
+
+func (r *tenantNamespacedRuntime) TriggerSchedule(ctx context.Context, req swf.TriggerScheduleRequest) (swf.JobHandle, error) {
+	req.ScheduleKey = r.prefixScheduleKey(req.ScheduleKey)
+	handle, err := r.runtime.TriggerSchedule(ctx, req)
+	if err != nil {
+		return swf.JobHandle{}, err
+	}
+	handle.JobKey = r.stripJobKey(handle.JobKey)
+	return handle, nil
+}
+
+func (r *tenantNamespacedRuntime) ListScheduleRuns(ctx context.Context, req swf.ListScheduleRunsRequest) (swf.ListScheduleRunsResponse, error) {
+	req.ScheduleKey = r.prefixScheduleKey(req.ScheduleKey)
+	resp, err := r.runtime.ListScheduleRuns(ctx, req)
+	if err != nil {
+		return swf.ListScheduleRunsResponse{}, err
+	}
+	for i := range resp.Runs {
+		resp.Runs[i].JobSummary.JobKey = r.stripJobKey(resp.Runs[i].JobSummary.JobKey)
+	}
+	return resp, nil
+}
+
 func (r *tenantNamespacedRuntime) GetChapter(ctx context.Context, ref swf.ChapterRef) (swf.Chapter, error) {
 	ref.JobKey = r.prefixJobKey(ref.JobKey)
 	return r.runtime.GetChapter(ctx, ref)
@@ -631,9 +709,24 @@ func (r *tenantNamespacedRuntime) prefixJobKey(jobKey swf.JobKey) swf.JobKey {
 	return jobKey
 }
 
+func (r *tenantNamespacedRuntime) prefixScheduleKey(key swf.ScheduleKey) swf.ScheduleKey {
+	key.TenantId = r.prefixTenant(key.TenantId)
+	return key
+}
+
 func (r *tenantNamespacedRuntime) stripJobKey(jobKey swf.JobKey) swf.JobKey {
 	jobKey.TenantId = r.stripTenant(jobKey.TenantId)
 	return jobKey
+}
+
+func (r *tenantNamespacedRuntime) stripScheduleInfo(info swf.ScheduleInfo) swf.ScheduleInfo {
+	info.TenantId = r.stripTenant(info.TenantId)
+	info.ScheduleKey.TenantId = r.stripTenant(info.ScheduleKey.TenantId)
+	if info.NextJobKey != nil {
+		key := r.stripJobKey(*info.NextJobKey)
+		info.NextJobKey = &key
+	}
+	return info
 }
 
 func (r *tenantNamespacedRuntime) prefixTenant(tenantID string) string {

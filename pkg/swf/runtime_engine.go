@@ -73,6 +73,53 @@ func (e *runtimeEngine) ListJobs(ctx context.Context, req ListJobsRequest) (List
 	return e.runtime.ListJobs(ctx, req)
 }
 
+func (e *runtimeEngine) UpsertSchedule(ctx context.Context, req UpsertScheduleRequest) (ScheduleInfo, error) {
+	if req.RequestTime.IsZero() {
+		req.RequestTime = nowUTC()
+	}
+	return e.runtime.UpsertSchedule(ctx, req)
+}
+
+func (e *runtimeEngine) GetSchedule(ctx context.Context, key ScheduleKey) (ScheduleInfo, error) {
+	return e.runtime.GetSchedule(ctx, key)
+}
+
+func (e *runtimeEngine) ListSchedules(ctx context.Context, req ListSchedulesRequest) (ListSchedulesResponse, error) {
+	return e.runtime.ListSchedules(ctx, req)
+}
+
+func (e *runtimeEngine) PauseSchedule(ctx context.Context, req ScheduleMutationRequest) (ScheduleInfo, error) {
+	if req.RequestTime.IsZero() {
+		req.RequestTime = nowUTC()
+	}
+	return e.runtime.PauseSchedule(ctx, req)
+}
+
+func (e *runtimeEngine) ResumeSchedule(ctx context.Context, req ScheduleMutationRequest) (ScheduleInfo, error) {
+	if req.RequestTime.IsZero() {
+		req.RequestTime = nowUTC()
+	}
+	return e.runtime.ResumeSchedule(ctx, req)
+}
+
+func (e *runtimeEngine) ArchiveSchedule(ctx context.Context, req ScheduleMutationRequest) (ScheduleInfo, error) {
+	if req.RequestTime.IsZero() {
+		req.RequestTime = nowUTC()
+	}
+	return e.runtime.ArchiveSchedule(ctx, req)
+}
+
+func (e *runtimeEngine) TriggerSchedule(ctx context.Context, req TriggerScheduleRequest) (JobHandle, error) {
+	if req.RequestTime.IsZero() {
+		req.RequestTime = nowUTC()
+	}
+	return e.runtime.TriggerSchedule(ctx, req)
+}
+
+func (e *runtimeEngine) ListScheduleRuns(ctx context.Context, req ListScheduleRunsRequest) (ListScheduleRunsResponse, error) {
+	return e.runtime.ListScheduleRuns(ctx, req)
+}
+
 func (e *runtimeEngine) FindTasksWaitingForCapability(ctx context.Context, jobType string, taskType string, tenantIds []string) ([]TaskHandle, error) {
 	return e.FindTasksWaiting(ctx, FindTasksWaitingRequest{
 		JobType:   jobType,

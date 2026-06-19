@@ -75,6 +75,38 @@ func (r replayReadOnlyRuntime) CompleteTaskIfWaiting(context.Context, CompleteTa
 	return replayMutationError("complete waiting task")
 }
 
+func (r replayReadOnlyRuntime) UpsertSchedule(context.Context, UpsertScheduleRequest) (ScheduleInfo, error) {
+	return ScheduleInfo{}, replayMutationError("upsert schedule")
+}
+
+func (r replayReadOnlyRuntime) GetSchedule(ctx context.Context, key ScheduleKey) (ScheduleInfo, error) {
+	return r.runtime.GetSchedule(ctx, key)
+}
+
+func (r replayReadOnlyRuntime) ListSchedules(ctx context.Context, req ListSchedulesRequest) (ListSchedulesResponse, error) {
+	return r.runtime.ListSchedules(ctx, req)
+}
+
+func (r replayReadOnlyRuntime) PauseSchedule(context.Context, ScheduleMutationRequest) (ScheduleInfo, error) {
+	return ScheduleInfo{}, replayMutationError("pause schedule")
+}
+
+func (r replayReadOnlyRuntime) ResumeSchedule(context.Context, ScheduleMutationRequest) (ScheduleInfo, error) {
+	return ScheduleInfo{}, replayMutationError("resume schedule")
+}
+
+func (r replayReadOnlyRuntime) ArchiveSchedule(context.Context, ScheduleMutationRequest) (ScheduleInfo, error) {
+	return ScheduleInfo{}, replayMutationError("archive schedule")
+}
+
+func (r replayReadOnlyRuntime) TriggerSchedule(context.Context, TriggerScheduleRequest) (JobHandle, error) {
+	return JobHandle{}, replayMutationError("trigger schedule")
+}
+
+func (r replayReadOnlyRuntime) ListScheduleRuns(ctx context.Context, req ListScheduleRunsRequest) (ListScheduleRunsResponse, error) {
+	return r.runtime.ListScheduleRuns(ctx, req)
+}
+
 func (r replayReadOnlyRuntime) GetJob(ctx context.Context, jobKey JobKey) (JobInfo, error) {
 	return r.runtime.GetJob(ctx, jobKey)
 }

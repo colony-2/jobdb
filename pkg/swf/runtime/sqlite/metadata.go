@@ -41,7 +41,7 @@ func normalizeMetadataPredicates(predicates []swf.MetadataPredicate) ([]normaliz
 			valuesJSON = append(valuesJSON, valueJSON)
 		}
 		normalized = append(normalized, normalizedMetadataPredicate{
-			Path:       append([]string(nil), predicate.Path...),
+			Path:       append([]string{"app"}, predicate.Path...),
 			ValuesJSON: valuesJSON,
 		})
 	}

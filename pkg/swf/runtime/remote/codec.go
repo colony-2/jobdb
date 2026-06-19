@@ -1462,6 +1462,208 @@ func jobSummaryFromAPI(summary runtimeapi.JobSummary) (swf.JobSummary, error) {
 	}, nil
 }
 
+func scheduleTriggerToAPI(trigger swf.ScheduleTrigger) runtimeapi.ScheduleTrigger {
+	out := runtimeapi.ScheduleTrigger{
+		Kind:     runtimeapi.ScheduleTriggerKind(trigger.Kind),
+		StartAt:  cloneTime(trigger.StartAt),
+		EndAt:    cloneTime(trigger.EndAt),
+		Timezone: stringPtrOrNil(trigger.Timezone),
+	}
+	if trigger.Expression != "" {
+		out.Expression = stringPtr(trigger.Expression)
+	}
+	if trigger.Interval > 0 {
+		interval := trigger.Interval.String()
+		out.Interval = &interval
+	}
+	return out
+}
+
+func scheduleTriggerFromAPI(trigger runtimeapi.ScheduleTrigger) (swf.ScheduleTrigger, error) {
+	interval, err := fromAPIStdDurationValue(trigger.Interval)
+	if err != nil {
+		return swf.ScheduleTrigger{}, err
+	}
+	out := swf.ScheduleTrigger{
+		Kind:       swf.ScheduleTriggerKind(trigger.Kind),
+		Expression: stringValue(trigger.Expression),
+		Timezone:   stringValue(trigger.Timezone),
+		StartAt:    cloneTime(trigger.StartAt),
+		EndAt:      cloneTime(trigger.EndAt),
+	}
+	if interval != nil {
+		out.Interval = *interval
+	}
+	return out, nil
+}
+
+func scheduleFailurePolicyToAPI(policy swf.ScheduleFailurePolicy) runtimeapi.ScheduleFailurePolicy {
+	out := runtimeapi.ScheduleFailurePolicy{}
+	if policy.MinSuccessPercent != 0 {
+		out.MinSuccessPercent = int32Ptr(int32(policy.MinSuccessPercent))
+	}
+	if policy.WindowSize != 0 {
+		out.WindowSize = int32Ptr(int32(policy.WindowSize))
+	}
+	if policy.MaxSequentialFailures != 0 {
+		out.MaxSequentialFailures = int32Ptr(int32(policy.MaxSequentialFailures))
+	}
+	return out
+}
+
+func scheduleFailurePolicyFromAPI(policy *runtimeapi.ScheduleFailurePolicy) swf.ScheduleFailurePolicy {
+	if policy == nil {
+		return swf.ScheduleFailurePolicy{}
+	}
+	return swf.ScheduleFailurePolicy{
+		MinSuccessPercent:     intValue32(policy.MinSuccessPercent),
+		WindowSize:            intValue32(policy.WindowSize),
+		MaxSequentialFailures: intValue32(policy.MaxSequentialFailures),
+	}
+}
+
+func scheduleTargetToAPI(ctx context.Context, target swf.ScheduleTarget) (runtimeapi.ScheduleTarget, error) {
+	data, err := taskDataToAPIWrite(ctx, swf.TaskData(target.Data))
+	if err != nil {
+		return runtimeapi.ScheduleTarget{}, err
+	}
+	runPolicy, err := runPolicyToAPI(target.RunPolicy)
+	if err != nil {
+		return runtimeapi.ScheduleTarget{}, err
+	}
+	metadata, err := metadataJSONToAPI(target.Metadata)
+	if err != nil {
+		return runtimeapi.ScheduleTarget{}, err
+	}
+	return runtimeapi.ScheduleTarget{
+		Data:      data,
+		JobType:   target.JobType,
+		Metadata:  metadata,
+		RunPolicy: runPolicy,
+	}, nil
+}
+
+func scheduleTargetFromAPI(target runtimeapi.ScheduleTarget) (swf.ScheduleTarget, error) {
+	data, err := taskDataFromAPIWrite(target.Data)
+	if err != nil {
+		return swf.ScheduleTarget{}, err
+	}
+	runPolicy, err := runPolicyFromAPI(target.RunPolicy)
+	if err != nil {
+		return swf.ScheduleTarget{}, err
+	}
+	metadata, err := metadataAPIToJSON(target.Metadata)
+	if err != nil {
+		return swf.ScheduleTarget{}, err
+	}
+	return swf.ScheduleTarget{
+		JobType:   target.JobType,
+		Data:      swf.JobData(data),
+		RunPolicy: runPolicy,
+		Metadata:  metadata,
+	}, nil
+}
+
+func scheduleInfoToAPI(ctx context.Context, info swf.ScheduleInfo) (runtimeapi.ScheduleInfo, error) {
+	target, err := scheduleTargetToAPI(ctx, info.Target)
+	if err != nil {
+		return runtimeapi.ScheduleInfo{}, err
+	}
+	out := runtimeapi.ScheduleInfo{
+		CreatedAt:      info.CreatedAt,
+		EffectiveState: runtimeapi.ScheduleState(info.EffectiveState),
+		FailurePolicy:  scheduleFailurePolicyToAPI(info.FailurePolicy),
+		Generation:     info.Generation,
+		NextFireAt:     cloneTime(info.NextFireAt),
+		OverlapPolicy:  runtimeapi.ScheduleOverlapPolicy(info.OverlapPolicy),
+		ScheduleId:     info.ScheduleId,
+		ScheduleKey:    toAPIScheduleKey(info.ScheduleKey),
+		SpecHash:       info.SpecHash,
+		State:          runtimeapi.ScheduleState(info.State),
+		Target:         target,
+		TenantId:       info.TenantId,
+		Trigger:        scheduleTriggerToAPI(info.Trigger),
+		UpdatedAt:      info.UpdatedAt,
+	}
+	if info.NextJobKey != nil {
+		key := toAPIJobKey(*info.NextJobKey)
+		out.NextJobKey = &key
+	}
+	return out, nil
+}
+
+func scheduleInfoFromAPI(info runtimeapi.ScheduleInfo) (swf.ScheduleInfo, error) {
+	target, err := scheduleTargetFromAPI(info.Target)
+	if err != nil {
+		return swf.ScheduleInfo{}, err
+	}
+	trigger, err := scheduleTriggerFromAPI(info.Trigger)
+	if err != nil {
+		return swf.ScheduleInfo{}, err
+	}
+	out := swf.ScheduleInfo{
+		TenantId:       info.TenantId,
+		ScheduleId:     info.ScheduleId,
+		ScheduleKey:    scheduleKeyFromAPI(info.ScheduleKey),
+		State:          swf.ScheduleState(info.State),
+		EffectiveState: swf.ScheduleState(info.EffectiveState),
+		Generation:     info.Generation,
+		SpecHash:       info.SpecHash,
+		Trigger:        trigger,
+		Target:         target,
+		OverlapPolicy:  swf.ScheduleOverlapPolicy(info.OverlapPolicy),
+		FailurePolicy:  scheduleFailurePolicyFromAPI(&info.FailurePolicy),
+		NextFireAt:     cloneTime(info.NextFireAt),
+		CreatedAt:      info.CreatedAt,
+		UpdatedAt:      info.UpdatedAt,
+	}
+	if info.NextJobKey != nil {
+		key := fromAPIJobKey(*info.NextJobKey)
+		out.NextJobKey = &key
+	}
+	return out, nil
+}
+
+func toAPIScheduleKey(key swf.ScheduleKey) runtimeapi.ScheduleKey {
+	return runtimeapi.ScheduleKey{
+		TenantId:   key.TenantId,
+		ScheduleId: key.ScheduleId,
+	}
+}
+
+func scheduleKeyFromAPI(key runtimeapi.ScheduleKey) swf.ScheduleKey {
+	return swf.ScheduleKey{
+		TenantId:   key.TenantId,
+		ScheduleId: key.ScheduleId,
+	}
+}
+
+func scheduleRunSummaryToAPI(summary swf.ScheduleRunSummary) (runtimeapi.ScheduleRunSummary, error) {
+	job, err := jobSummaryToAPI(summary.JobSummary)
+	if err != nil {
+		return runtimeapi.ScheduleRunSummary{}, err
+	}
+	return runtimeapi.ScheduleRunSummary{
+		Job:         job,
+		ReasonCode:  stringPtrOrNil(summary.ReasonCode),
+		ScheduleId:  summary.ScheduleId,
+		ScheduledAt: summary.ScheduledAt,
+	}, nil
+}
+
+func scheduleRunSummaryFromAPI(summary runtimeapi.ScheduleRunSummary) (swf.ScheduleRunSummary, error) {
+	job, err := jobSummaryFromAPI(summary.Job)
+	if err != nil {
+		return swf.ScheduleRunSummary{}, err
+	}
+	return swf.ScheduleRunSummary{
+		JobSummary:  job,
+		ScheduleId:  summary.ScheduleId,
+		ScheduledAt: summary.ScheduledAt,
+		ReasonCode:  stringValue(summary.ReasonCode),
+	}, nil
+}
+
 func artifactsToAPIWrites(ctx context.Context, data swf.TaskData) ([]runtimeapi.ArtifactWrite, error) {
 	artifacts, err := data.GetArtifacts()
 	if err != nil {

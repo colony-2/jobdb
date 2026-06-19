@@ -43,6 +43,7 @@ func WithJobIDGenerator(gen JobIDGenerator) Option {
 type ToyEngine struct {
 	mu               sync.Mutex
 	jobRecords       map[swf.JobKey]*jobRecord
+	schedules        map[swf.ScheduleKey]*toyScheduleRecord
 	runtimeChapters  map[swf.JobKey]map[int64]swf.Chapter
 	runtimeArtifacts map[runtimeArtifactKey][]byte
 	idGenerator      JobIDGenerator
@@ -56,24 +57,29 @@ type runtimeArtifactKey struct {
 }
 
 type jobRecord struct {
-	mu          sync.Mutex
-	status      swf.JobStatus
-	result      swf.TaskData
-	err         error
-	cancelled   bool
-	finished    time.Time
-	jobType     string
-	createdAt   time.Time
-	archived    *time.Time
-	payload     []byte
-	metadata    json.RawMessage
-	capability  string
-	step        int64
-	waitFor     []string
-	availableAt time.Time
-	leased      bool
-	leaseID     string
-	chapters    map[int64]*toyChapter
+	mu               sync.Mutex
+	status           swf.JobStatus
+	result           swf.TaskData
+	err              error
+	cancelled        bool
+	finished         time.Time
+	jobType          string
+	createdAt        time.Time
+	archived         *time.Time
+	payload          []byte
+	metadata         json.RawMessage
+	completionDetail string
+	capability       string
+	step             int64
+	waitFor          []string
+	availableAt      time.Time
+	leased           bool
+	leaseID          string
+	chapters         map[int64]*toyChapter
+}
+
+type toyScheduleRecord struct {
+	info swf.ScheduleInfo
 }
 
 type toyChapter struct {
@@ -119,7 +125,7 @@ func normalizeMetadataPredicates(predicates []swf.MetadataPredicate) ([]normaliz
 			valuesJSON = append(valuesJSON, valueJSON)
 		}
 		normalized = append(normalized, normalizedMetadataPredicate{
-			Path:       predicate.Path,
+			Path:       append([]string{"app"}, predicate.Path...),
 			ValuesJSON: valuesJSON,
 		})
 	}
@@ -204,6 +210,7 @@ func metadataMatches(raw json.RawMessage, predicates []normalizedMetadataPredica
 func NewToyEngine(opts ...Option) *ToyEngine {
 	engine := &ToyEngine{
 		jobRecords:       make(map[swf.JobKey]*jobRecord),
+		schedules:        make(map[swf.ScheduleKey]*toyScheduleRecord),
 		runtimeChapters:  make(map[swf.JobKey]map[int64]swf.Chapter),
 		runtimeArtifacts: make(map[runtimeArtifactKey][]byte),
 		idGenerator: func(tenantId string) (swf.JobKey, error) {
@@ -240,9 +247,7 @@ func (e *ToyEngine) GetJobRun(ctx context.Context, req swf.GetJobRunRequest) (sw
 
 	record.mu.Lock()
 	if len(record.metadata) > 0 {
-		metadataCopy := make([]byte, len(record.metadata))
-		copy(metadataCopy, record.metadata)
-		resp.Job.Metadata = metadataCopy
+		resp.Job.Metadata = swf.AppMetadataFromStoredMetadata(record.metadata)
 	}
 	chapters := make(map[int64]*toyChapter, len(record.chapters))
 	for ord, chap := range record.chapters {
@@ -797,11 +802,7 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.
 			payloadCopy = make([]byte, len(rec.payload))
 			copy(payloadCopy, rec.payload)
 		}
-		metadataCopy := json.RawMessage(nil)
-		if len(rec.metadata) > 0 {
-			metadataCopy = make([]byte, len(rec.metadata))
-			copy(metadataCopy, rec.metadata)
-		}
+		metadataCopy := swf.StripRuntimeMetadata(rec.metadata)
 		summary := swf.JobSummary{
 			JobKey:            key,
 			Status:            status,

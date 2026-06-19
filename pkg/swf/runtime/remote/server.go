@@ -147,6 +147,7 @@ func (s *proxyServer) SubmitJob(ctx context.Context, request runtimeapi.SubmitJo
 	}
 	handle, err := s.runtime.SubmitJob(ctx, swf.SubmitJobRequest{
 		Job: swf.SubmitJob{
+			AvailableAt:   cloneTime(request.Body.Job.AvailableAt),
 			TenantId:      request.TenantId,
 			JobType:       request.Body.Job.JobType,
 			Data:          swf.JobData(data),
@@ -181,6 +182,7 @@ func (s *proxyServer) PutJob(ctx context.Context, request runtimeapi.PutJobReque
 	}
 	handle, err := s.runtime.SubmitJob(ctx, swf.SubmitJobRequest{
 		Job: swf.SubmitJob{
+			AvailableAt:   cloneTime(request.Body.Job.AvailableAt),
 			TenantId:      request.TenantId,
 			JobID:         request.JobId,
 			JobType:       request.Body.Job.JobType,
@@ -259,6 +261,178 @@ func (s *proxyServer) ListJobs(ctx context.Context, request runtimeapi.ListJobsR
 		out.NextPageToken = stringPtr(resp.NextPageToken)
 	}
 	return runtimeapi.ListJobs200JSONResponse(out), nil
+}
+
+func (s *proxyServer) UpsertSchedule(ctx context.Context, request runtimeapi.UpsertScheduleRequestObject) (runtimeapi.UpsertScheduleResponseObject, error) {
+	if request.Body == nil {
+		return nil, badRequest("upsert schedule body is required")
+	}
+	trigger, err := scheduleTriggerFromAPI(request.Body.Trigger)
+	if err != nil {
+		return nil, badRequest(err.Error())
+	}
+	target, err := scheduleTargetFromAPI(request.Body.Target)
+	if err != nil {
+		return nil, badRequest(err.Error())
+	}
+	var overlap swf.ScheduleOverlapPolicy
+	if request.Body.OverlapPolicy != nil {
+		overlap = swf.ScheduleOverlapPolicy(*request.Body.OverlapPolicy)
+	}
+	info, err := s.runtime.UpsertSchedule(ctx, swf.UpsertScheduleRequest{
+		TenantId:           request.TenantId,
+		ScheduleId:         request.ScheduleId,
+		Trigger:            trigger,
+		Target:             target,
+		OverlapPolicy:      overlap,
+		FailurePolicy:      scheduleFailurePolicyFromAPI(request.Body.FailurePolicy),
+		Paused:             boolValue(request.Body.Paused),
+		ExpectedGeneration: request.Body.ExpectedGeneration,
+		RequestTime:        derefTime(request.Body.RequestTime),
+		WorkerID:           stringValue(request.Body.WorkerId),
+	})
+	if err != nil {
+		return nil, err
+	}
+	converted, err := scheduleInfoToAPI(ctx, info)
+	if err != nil {
+		return nil, err
+	}
+	return runtimeapi.UpsertSchedule200JSONResponse(converted), nil
+}
+
+func (s *proxyServer) GetSchedule(ctx context.Context, request runtimeapi.GetScheduleRequestObject) (runtimeapi.GetScheduleResponseObject, error) {
+	info, err := s.runtime.GetSchedule(ctx, swf.ScheduleKey{TenantId: request.TenantId, ScheduleId: request.ScheduleId})
+	if err != nil {
+		return nil, err
+	}
+	converted, err := scheduleInfoToAPI(ctx, info)
+	if err != nil {
+		return nil, err
+	}
+	return runtimeapi.GetSchedule200JSONResponse(converted), nil
+}
+
+func (s *proxyServer) ListSchedules(ctx context.Context, request runtimeapi.ListSchedulesRequestObject) (runtimeapi.ListSchedulesResponseObject, error) {
+	if request.Body == nil {
+		return nil, badRequest("list schedules body is required")
+	}
+	req := swf.ListSchedulesRequest{
+		TenantId:       request.TenantId,
+		PageSize:       derefInt(request.Body.PageSize),
+		PageToken:      stringValue(request.Body.PageToken),
+		ScheduleIds:    cloneStringSlice(request.Body.ScheduleIds),
+		TargetJobTypes: cloneStringSlice(request.Body.TargetJobTypes),
+	}
+	if request.Body.States != nil {
+		for _, state := range *request.Body.States {
+			req.States = append(req.States, swf.ScheduleState(state))
+		}
+	}
+	resp, err := s.runtime.ListSchedules(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	schedules := make([]runtimeapi.ScheduleInfo, 0, len(resp.Schedules))
+	for _, schedule := range resp.Schedules {
+		converted, err := scheduleInfoToAPI(ctx, schedule)
+		if err != nil {
+			return nil, err
+		}
+		schedules = append(schedules, converted)
+	}
+	out := runtimeapi.ListSchedulesResponse{Schedules: schedules}
+	if resp.NextPageToken != "" {
+		out.NextPageToken = stringPtr(resp.NextPageToken)
+	}
+	return runtimeapi.ListSchedules200JSONResponse(out), nil
+}
+
+func (s *proxyServer) PauseSchedule(ctx context.Context, request runtimeapi.PauseScheduleRequestObject) (runtimeapi.PauseScheduleResponseObject, error) {
+	info, err := s.runtime.PauseSchedule(ctx, scheduleMutationRequestFromAPI(request.TenantId, request.ScheduleId, request.Body))
+	if err != nil {
+		return nil, err
+	}
+	converted, err := scheduleInfoToAPI(ctx, info)
+	if err != nil {
+		return nil, err
+	}
+	return runtimeapi.PauseSchedule200JSONResponse(converted), nil
+}
+
+func (s *proxyServer) ResumeSchedule(ctx context.Context, request runtimeapi.ResumeScheduleRequestObject) (runtimeapi.ResumeScheduleResponseObject, error) {
+	info, err := s.runtime.ResumeSchedule(ctx, scheduleMutationRequestFromAPI(request.TenantId, request.ScheduleId, request.Body))
+	if err != nil {
+		return nil, err
+	}
+	converted, err := scheduleInfoToAPI(ctx, info)
+	if err != nil {
+		return nil, err
+	}
+	return runtimeapi.ResumeSchedule200JSONResponse(converted), nil
+}
+
+func (s *proxyServer) ArchiveSchedule(ctx context.Context, request runtimeapi.ArchiveScheduleRequestObject) (runtimeapi.ArchiveScheduleResponseObject, error) {
+	info, err := s.runtime.ArchiveSchedule(ctx, scheduleMutationRequestFromAPI(request.TenantId, request.ScheduleId, request.Body))
+	if err != nil {
+		return nil, err
+	}
+	converted, err := scheduleInfoToAPI(ctx, info)
+	if err != nil {
+		return nil, err
+	}
+	return runtimeapi.ArchiveSchedule200JSONResponse(converted), nil
+}
+
+func (s *proxyServer) TriggerSchedule(ctx context.Context, request runtimeapi.TriggerScheduleRequestObject) (runtimeapi.TriggerScheduleResponseObject, error) {
+	req := swf.TriggerScheduleRequest{
+		ScheduleKey: swf.ScheduleKey{TenantId: request.TenantId, ScheduleId: request.ScheduleId},
+	}
+	if request.Body != nil {
+		req.RequestID = stringValue(request.Body.RequestId)
+		req.RequestTime = derefTime(request.Body.RequestTime)
+		req.WorkerID = stringValue(request.Body.WorkerId)
+	}
+	handle, err := s.runtime.TriggerSchedule(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return runtimeapi.TriggerSchedule200JSONResponse(toAPIJobHandle(handle)), nil
+}
+
+func (s *proxyServer) ListScheduleRuns(ctx context.Context, request runtimeapi.ListScheduleRunsRequestObject) (runtimeapi.ListScheduleRunsResponseObject, error) {
+	if request.Body == nil {
+		return nil, badRequest("list schedule runs body is required")
+	}
+	req := swf.ListScheduleRunsRequest{
+		ScheduleKey:     swf.ScheduleKey{TenantId: request.TenantId, ScheduleId: request.ScheduleId},
+		ScheduledAfter:  cloneTime(request.Body.ScheduledAfter),
+		ScheduledBefore: cloneTime(request.Body.ScheduledBefore),
+		PageSize:        derefInt(request.Body.PageSize),
+		PageToken:       stringValue(request.Body.PageToken),
+	}
+	if request.Body.Statuses != nil {
+		for _, status := range *request.Body.Statuses {
+			req.Statuses = append(req.Statuses, swf.JobStatus(status))
+		}
+	}
+	resp, err := s.runtime.ListScheduleRuns(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	runs := make([]runtimeapi.ScheduleRunSummary, 0, len(resp.Runs))
+	for _, run := range resp.Runs {
+		converted, err := scheduleRunSummaryToAPI(run)
+		if err != nil {
+			return nil, err
+		}
+		runs = append(runs, converted)
+	}
+	out := runtimeapi.ListScheduleRunsResponse{Runs: runs}
+	if resp.NextPageToken != "" {
+		out.NextPageToken = stringPtr(resp.NextPageToken)
+	}
+	return runtimeapi.ListScheduleRuns200JSONResponse(out), nil
 }
 
 func (s *proxyServer) SubmitRestartJob(ctx context.Context, request runtimeapi.SubmitRestartJobRequestObject) (runtimeapi.SubmitRestartJobResponseObject, error) {
@@ -656,6 +830,19 @@ func fromAPIPrerequisites(prereqs *[]runtimeapi.JobPrerequisite) []swf.JobPrereq
 		})
 	}
 	return out
+}
+
+func scheduleMutationRequestFromAPI(tenantID string, scheduleID string, body *runtimeapi.ScheduleMutationRequest) swf.ScheduleMutationRequest {
+	req := swf.ScheduleMutationRequest{
+		ScheduleKey: swf.ScheduleKey{TenantId: tenantID, ScheduleId: scheduleID},
+	}
+	if body == nil {
+		return req
+	}
+	req.ExpectedGeneration = body.ExpectedGeneration
+	req.RequestTime = derefTime(body.RequestTime)
+	req.WorkerID = stringValue(body.WorkerId)
+	return req
 }
 
 type httpStatusError struct {

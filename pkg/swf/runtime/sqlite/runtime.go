@@ -35,6 +35,13 @@ func (r *Runtime) SubmitJob(ctx context.Context, req swf.SubmitJobRequest) (swf.
 	if err := jobKey.Validate(); err != nil {
 		return swf.JobHandle{}, err
 	}
+	if err := swf.ValidateApplicationMetadata(req.Job.Metadata); err != nil {
+		return swf.JobHandle{}, err
+	}
+	storedMetadata, err := swf.BuildJobMetadataEnvelope(req.Job.Metadata, swf.RuntimeJobMetadata{})
+	if err != nil {
+		return swf.JobHandle{}, err
+	}
 	sctx := strataContext(ctx)
 	prereqs, waitFor, err := normalizePrerequisites(jobKey, req.Job.Prerequisites)
 	if err != nil {
@@ -67,7 +74,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req swf.SubmitJobRequest) (swf.
 		assignArtifactKeys(artifacts, jobKey.JobId, 0)
 		cleanupArtifacts(artifacts, r.logger)
 	}
-	if err := r.ensureSubmittedJobRecord(ctx, jobKey, req.Job.JobType, req.Job.Metadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID); err != nil {
+	if err := r.ensureSubmittedJobRecord(ctx, jobKey, req.Job.JobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, req.Job.AvailableAt); err != nil {
 		return swf.JobHandle{}, err
 	}
 	return swf.JobHandle{JobKey: jobKey}, nil
@@ -173,7 +180,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req swf.SubmitRestartJob
 			cleanupArtifacts(artifacts, r.logger)
 		}
 	}
-	if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, nil, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID); err != nil {
+	if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, nil, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, nil); err != nil {
 		return swf.JobHandle{}, err
 	}
 	return swf.JobHandle{JobKey: jobKey}, nil
@@ -259,7 +266,34 @@ func (r *Runtime) pollOnce(ctx context.Context, req swf.PollWorkRequest) ([]swf.
 		return nil, nil
 	}
 	var out []swf.ExecutionLease
-	err = r.withTx(ctx, func(tx *sql.Tx) error {
+	attemptBudget := limit * 4
+	if attemptBudget < 8 {
+		attemptBudget = 8
+	}
+	for len(out) < limit && attemptBudget > 0 {
+		attemptBudget--
+		lease, metadata, err := r.acquireOneLease(ctx, req, capSet, metadataPredicates)
+		if err != nil {
+			return nil, err
+		}
+		if lease == nil {
+			break
+		}
+		ok, err := r.preflightScheduleLease(ctx, lease, metadata)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			out = append(out, lease)
+		}
+	}
+	return out, nil
+}
+
+func (r *Runtime) acquireOneLease(ctx context.Context, req swf.PollWorkRequest, capSet map[string]struct{}, metadataPredicates []normalizedMetadataPredicate) (*executionLease, json.RawMessage, error) {
+	var lease *executionLease
+	var leaseMetadata json.RawMessage
+	err := r.withTx(ctx, func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx, `SELECT `+jobColumns+` FROM swf_jobs WHERE archived_at_ns IS NULL ORDER BY created_at_ns ASC, job_id ASC`)
 		if err != nil {
 			return err
@@ -347,7 +381,7 @@ WHERE tenant_id = ? AND job_id = ?`,
 			if n == 0 {
 				continue
 			}
-			out = append(out, &executionLease{
+			lease = &executionLease{
 				runtime:    r,
 				jobKey:     swf.JobKey{TenantId: row.tenantID, JobId: row.jobID},
 				leaseID:    leaseID,
@@ -355,14 +389,13 @@ WHERE tenant_id = ? AND job_id = ?`,
 				capability: nextNeed,
 				payload:    cloneBytes(row.payload),
 				duration:   leaseDurationOrDefault(req.LeaseDuration),
-			})
-			if len(out) >= limit {
-				break
 			}
+			leaseMetadata = cloneJSON(row.metadata)
+			break
 		}
 		return nil
 	})
-	return out, err
+	return lease, leaseMetadata, err
 }
 
 func (r *Runtime) GetJobLease(ctx context.Context, req swf.GetJobLeaseRequest) (swf.ExecutionLease, error) {
@@ -384,7 +417,8 @@ func (r *Runtime) GetJobLease(ctx context.Context, req swf.GetJobLeaseRequest) (
 	if len(capSet) == 0 {
 		return nil, fmt.Errorf("at least one capability is required")
 	}
-	var lease swf.ExecutionLease
+	var lease *executionLease
+	var leaseMetadata json.RawMessage
 	err := r.withTx(ctx, func(tx *sql.Tx) error {
 		row, err := r.loadJobRowTx(ctx, tx, req.JobKey)
 		if errors.Is(err, swf.ErrJobNotFound) {
@@ -439,9 +473,20 @@ WHERE tenant_id = ? AND job_id = ?`,
 			payload:    cloneBytes(row.payload),
 			duration:   leaseDurationOrDefault(req.LeaseDuration),
 		}
+		leaseMetadata = cloneJSON(row.metadata)
 		return nil
 	})
-	return lease, err
+	if err != nil || lease == nil {
+		return nil, err
+	}
+	ok, err := r.preflightScheduleLease(ctx, lease, leaseMetadata)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
+	}
+	return lease, nil
 }
 
 type jobInfoTaskData struct {
@@ -649,7 +694,7 @@ func (r *Runtime) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.Li
 			CreatedAt:       createdAt,
 			ArchivedAt:      nullTimeFromNS(row.archivedAtNS),
 			Payload:         jobPayloadVisibleJSON(row.payload),
-			Metadata:        cloneJSON(row.metadata),
+			Metadata:        swf.StripRuntimeMetadata(row.metadata),
 		}
 		if tw, waitErr := extractTaskWaitFromRaw(row.payload); waitErr == nil && tw != nil {
 			summary.TaskWaitInput = &tw.InputStep

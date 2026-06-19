@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"time"
 
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
 	"github.com/colony-2/strata-go/pkg/client/core"
@@ -49,6 +50,10 @@ func (r *Runtime) reconcileExistingSubmitJob(ctx context.Context, req swf.Submit
 	if err := compareSubmitStartChapter(jobKey, start, req.Job.JobType, inputHash, req.Job.Metadata, prereqs, jobPolicy); err != nil {
 		return swf.JobHandle{}, true, err
 	}
+	storedMetadata, err := swf.BuildJobMetadataEnvelope(req.Job.Metadata, swf.RuntimeJobMetadata{})
+	if err != nil {
+		return swf.JobHandle{}, true, err
+	}
 
 	detail, err := r.loadPgwfJob(ctx, jobKey)
 	switch {
@@ -60,13 +65,13 @@ func (r *Runtime) reconcileExistingSubmitJob(ctx context.Context, req swf.Submit
 		if lastOrdinal != 0 {
 			return swf.JobHandle{}, true, swf.NewExistingJobMismatchError(fmt.Sprintf("job %s has strata history through ordinal %d but no pgwf record to recover", jobKey, lastOrdinal))
 		}
-		if err := r.ensureSubmittedJobRecord(ctx, jobKey, req.Job.JobType, req.Job.Metadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID); err != nil {
+		if err := r.ensureSubmittedJobRecord(ctx, jobKey, req.Job.JobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, req.Job.AvailableAt); err != nil {
 			return swf.JobHandle{}, true, err
 		}
 	case err != nil:
 		return swf.JobHandle{}, true, err
 	default:
-		if !jsonObjectsEqual(detail.Metadata, req.Job.Metadata) {
+		if !jsonObjectsEqual(detail.Metadata, storedMetadata) {
 			return swf.JobHandle{}, true, swf.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different metadata", jobKey))
 		}
 	}
@@ -108,7 +113,7 @@ func (r *Runtime) reconcileExistingRestartJob(ctx context.Context, req swf.Submi
 		if lastOrdinal != expectedLast {
 			return swf.JobHandle{}, true, swf.NewExistingJobMismatchError(fmt.Sprintf("job %s has strata history through ordinal %d but no pgwf record to recover", jobKey, lastOrdinal))
 		}
-		if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, nil, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID); err != nil {
+		if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, nil, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, nil); err != nil {
 			return swf.JobHandle{}, true, err
 		}
 	case err != nil:
@@ -122,8 +127,8 @@ func (r *Runtime) reconcileExistingRestartJob(ctx context.Context, req swf.Submi
 	return swf.JobHandle{JobKey: jobKey}, true, nil
 }
 
-func (r *Runtime) ensureSubmittedJobRecord(ctx context.Context, jobKey swf.JobKey, jobType string, metadata json.RawMessage, waitFor []pgwf.JobID, payload jobPayload, workerID string) error {
-	err := r.startJob(ctx, jobKey, jobType, metadata, waitFor, payload, workerID)
+func (r *Runtime) ensureSubmittedJobRecord(ctx context.Context, jobKey swf.JobKey, jobType string, metadata json.RawMessage, waitFor []pgwf.JobID, payload jobPayload, workerID string, availableAt *time.Time) error {
+	err := r.startJob(ctx, jobKey, jobType, metadata, waitFor, payload, workerID, availableAt)
 	if err == nil {
 		return nil
 	}
@@ -136,6 +141,9 @@ func (r *Runtime) ensureSubmittedJobRecord(ctx context.Context, jobKey swf.JobKe
 	}
 	if !jsonObjectsEqual(detail.Metadata, metadata) {
 		return swf.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different metadata", jobKey))
+	}
+	if availableAt != nil && !detail.AvailableAt.Equal(availableAt.UTC()) {
+		return swf.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different availableAt", jobKey))
 	}
 	return nil
 }

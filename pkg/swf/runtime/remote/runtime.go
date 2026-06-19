@@ -57,6 +57,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req swf.SubmitJobRequest) (swf.
 	}
 	body := runtimeapi.SubmitJobRequest{
 		Job: runtimeapi.SubmitJob{
+			AvailableAt:   cloneTime(req.Job.AvailableAt),
 			Data:          data,
 			JobType:       req.Job.JobType,
 			Metadata:      metadata,
@@ -305,6 +306,189 @@ func (r *Runtime) ListJobs(ctx context.Context, req swf.ListJobsRequest) (swf.Li
 			return swf.ListJobsResponse{}, err
 		}
 		out.Jobs = append(out.Jobs, converted)
+	}
+	return out, nil
+}
+
+func (r *Runtime) UpsertSchedule(ctx context.Context, req swf.UpsertScheduleRequest) (swf.ScheduleInfo, error) {
+	target, err := scheduleTargetToAPI(ctx, req.Target)
+	if err != nil {
+		return swf.ScheduleInfo{}, err
+	}
+	body := runtimeapi.UpsertScheduleRequest{
+		ExpectedGeneration: req.ExpectedGeneration,
+		Paused:             boolPtr(req.Paused),
+		RequestTime:        timePtr(req.RequestTime),
+		Target:             target,
+		Trigger:            scheduleTriggerToAPI(req.Trigger),
+		WorkerId:           stringPtrOrNil(req.WorkerID),
+	}
+	if req.OverlapPolicy != "" {
+		policy := runtimeapi.ScheduleOverlapPolicy(req.OverlapPolicy)
+		body.OverlapPolicy = &policy
+	}
+	if req.FailurePolicy != (swf.ScheduleFailurePolicy{}) {
+		policy := scheduleFailurePolicyToAPI(req.FailurePolicy)
+		body.FailurePolicy = &policy
+	}
+	resp, err := r.client.UpsertScheduleWithResponse(ctx, req.TenantId, req.ScheduleId, body)
+	if err != nil {
+		return swf.ScheduleInfo{}, err
+	}
+	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
+		return swf.ScheduleInfo{}, responseErrorWithConflict("upsert schedule", resp.StatusCode(), resp.Body, swf.ErrJobNotFound, swf.ErrConflict)
+	}
+	return scheduleInfoFromAPI(*resp.JSON200)
+}
+
+func (r *Runtime) GetSchedule(ctx context.Context, key swf.ScheduleKey) (swf.ScheduleInfo, error) {
+	resp, err := r.client.GetScheduleWithResponse(ctx, key.TenantId, key.ScheduleId)
+	if err != nil {
+		return swf.ScheduleInfo{}, err
+	}
+	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
+		return swf.ScheduleInfo{}, responseError("get schedule", resp.StatusCode(), resp.Body, swf.ErrJobNotFound)
+	}
+	return scheduleInfoFromAPI(*resp.JSON200)
+}
+
+func (r *Runtime) ListSchedules(ctx context.Context, req swf.ListSchedulesRequest) (swf.ListSchedulesResponse, error) {
+	if req.TenantId == "" {
+		return swf.ListSchedulesResponse{}, fmt.Errorf("tenantId is required")
+	}
+	body := runtimeapi.ListSchedulesRequest{
+		PageSize:  intPtr(req.PageSize),
+		PageToken: stringPtrOrNil(req.PageToken),
+	}
+	if len(req.ScheduleIds) > 0 {
+		values := append([]string(nil), req.ScheduleIds...)
+		body.ScheduleIds = &values
+	}
+	if len(req.States) > 0 {
+		values := make([]runtimeapi.ScheduleState, 0, len(req.States))
+		for _, state := range req.States {
+			values = append(values, runtimeapi.ScheduleState(state))
+		}
+		body.States = &values
+	}
+	if len(req.TargetJobTypes) > 0 {
+		values := append([]string(nil), req.TargetJobTypes...)
+		body.TargetJobTypes = &values
+	}
+	resp, err := r.client.ListSchedulesWithResponse(ctx, req.TenantId, body)
+	if err != nil {
+		return swf.ListSchedulesResponse{}, err
+	}
+	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
+		return swf.ListSchedulesResponse{}, responseError("list schedules", resp.StatusCode(), resp.Body, nil)
+	}
+	out := swf.ListSchedulesResponse{
+		NextPageToken: stringValue(resp.JSON200.NextPageToken),
+	}
+	for _, schedule := range resp.JSON200.Schedules {
+		converted, err := scheduleInfoFromAPI(schedule)
+		if err != nil {
+			return swf.ListSchedulesResponse{}, err
+		}
+		out.Schedules = append(out.Schedules, converted)
+	}
+	return out, nil
+}
+
+func (r *Runtime) PauseSchedule(ctx context.Context, req swf.ScheduleMutationRequest) (swf.ScheduleInfo, error) {
+	body := runtimeapi.ScheduleMutationRequest{
+		ExpectedGeneration: req.ExpectedGeneration,
+		RequestTime:        timePtr(req.RequestTime),
+		WorkerId:           stringPtrOrNil(req.WorkerID),
+	}
+	resp, err := r.client.PauseScheduleWithResponse(ctx, req.ScheduleKey.TenantId, req.ScheduleKey.ScheduleId, body)
+	if err != nil {
+		return swf.ScheduleInfo{}, err
+	}
+	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
+		return swf.ScheduleInfo{}, responseErrorWithConflict("pause schedule", resp.StatusCode(), resp.Body, swf.ErrJobNotFound, swf.ErrConflict)
+	}
+	return scheduleInfoFromAPI(*resp.JSON200)
+}
+
+func (r *Runtime) ResumeSchedule(ctx context.Context, req swf.ScheduleMutationRequest) (swf.ScheduleInfo, error) {
+	body := runtimeapi.ScheduleMutationRequest{
+		ExpectedGeneration: req.ExpectedGeneration,
+		RequestTime:        timePtr(req.RequestTime),
+		WorkerId:           stringPtrOrNil(req.WorkerID),
+	}
+	resp, err := r.client.ResumeScheduleWithResponse(ctx, req.ScheduleKey.TenantId, req.ScheduleKey.ScheduleId, body)
+	if err != nil {
+		return swf.ScheduleInfo{}, err
+	}
+	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
+		return swf.ScheduleInfo{}, responseErrorWithConflict("resume schedule", resp.StatusCode(), resp.Body, swf.ErrJobNotFound, swf.ErrConflict)
+	}
+	return scheduleInfoFromAPI(*resp.JSON200)
+}
+
+func (r *Runtime) ArchiveSchedule(ctx context.Context, req swf.ScheduleMutationRequest) (swf.ScheduleInfo, error) {
+	body := runtimeapi.ScheduleMutationRequest{
+		ExpectedGeneration: req.ExpectedGeneration,
+		RequestTime:        timePtr(req.RequestTime),
+		WorkerId:           stringPtrOrNil(req.WorkerID),
+	}
+	resp, err := r.client.ArchiveScheduleWithResponse(ctx, req.ScheduleKey.TenantId, req.ScheduleKey.ScheduleId, body)
+	if err != nil {
+		return swf.ScheduleInfo{}, err
+	}
+	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
+		return swf.ScheduleInfo{}, responseErrorWithConflict("archive schedule", resp.StatusCode(), resp.Body, swf.ErrJobNotFound, swf.ErrConflict)
+	}
+	return scheduleInfoFromAPI(*resp.JSON200)
+}
+
+func (r *Runtime) TriggerSchedule(ctx context.Context, req swf.TriggerScheduleRequest) (swf.JobHandle, error) {
+	body := runtimeapi.TriggerScheduleRequest{
+		RequestId:   stringPtrOrNil(req.RequestID),
+		RequestTime: timePtr(req.RequestTime),
+		WorkerId:    stringPtrOrNil(req.WorkerID),
+	}
+	resp, err := r.client.TriggerScheduleWithResponse(ctx, req.ScheduleKey.TenantId, req.ScheduleKey.ScheduleId, body)
+	if err != nil {
+		return swf.JobHandle{}, err
+	}
+	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
+		return swf.JobHandle{}, responseErrorWithConflict("trigger schedule", resp.StatusCode(), resp.Body, swf.ErrJobNotFound, swf.ErrConflict)
+	}
+	return fromAPIJobHandle(*resp.JSON200), nil
+}
+
+func (r *Runtime) ListScheduleRuns(ctx context.Context, req swf.ListScheduleRunsRequest) (swf.ListScheduleRunsResponse, error) {
+	body := runtimeapi.ListScheduleRunsRequest{
+		PageSize:        intPtr(req.PageSize),
+		PageToken:       stringPtrOrNil(req.PageToken),
+		ScheduledAfter:  cloneTime(req.ScheduledAfter),
+		ScheduledBefore: cloneTime(req.ScheduledBefore),
+	}
+	if len(req.Statuses) > 0 {
+		statuses := make([]runtimeapi.JobStatus, 0, len(req.Statuses))
+		for _, status := range req.Statuses {
+			statuses = append(statuses, runtimeapi.JobStatus(status))
+		}
+		body.Statuses = &statuses
+	}
+	resp, err := r.client.ListScheduleRunsWithResponse(ctx, req.ScheduleKey.TenantId, req.ScheduleKey.ScheduleId, body)
+	if err != nil {
+		return swf.ListScheduleRunsResponse{}, err
+	}
+	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
+		return swf.ListScheduleRunsResponse{}, responseError("list schedule runs", resp.StatusCode(), resp.Body, swf.ErrJobNotFound)
+	}
+	out := swf.ListScheduleRunsResponse{
+		NextPageToken: stringValue(resp.JSON200.NextPageToken),
+	}
+	for _, run := range resp.JSON200.Runs {
+		converted, err := scheduleRunSummaryFromAPI(run)
+		if err != nil {
+			return swf.ListScheduleRunsResponse{}, err
+		}
+		out.Runs = append(out.Runs, converted)
 	}
 	return out, nil
 }

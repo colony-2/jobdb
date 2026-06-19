@@ -92,7 +92,7 @@ func (r *Runtime) loadJobRowTx(ctx context.Context, tx *sql.Tx, jobKey swf.JobKe
 	return row, err
 }
 
-func (r *Runtime) insertJobRecord(ctx context.Context, jobKey swf.JobKey, jobType string, metadata json.RawMessage, waitFor []string, payload jobPayload, workerID string) error {
+func (r *Runtime) insertJobRecord(ctx context.Context, jobKey swf.JobKey, jobType string, metadata json.RawMessage, waitFor []string, payload jobPayload, workerID string, availableAt *time.Time) error {
 	payloadBytes, err := encodeJobPayload(payload)
 	if err != nil {
 		return err
@@ -102,6 +102,10 @@ func (r *Runtime) insertJobRecord(ctx context.Context, jobKey swf.JobKey, jobTyp
 		return err
 	}
 	now := time.Now().UTC()
+	leaseableAt := now
+	if availableAt != nil {
+		leaseableAt = availableAt.UTC()
+	}
 	_, err = r.db.ExecContext(ctx, `
 INSERT INTO swf_jobs (
 	tenant_id, job_id, job_type, next_need, payload, metadata, wait_for,
@@ -114,7 +118,7 @@ INSERT INTO swf_jobs (
 		payloadBytes,
 		cloneJSON(metadata),
 		waitBytes,
-		timeToNS(now),
+		timeToNS(leaseableAt),
 		timeToNS(now),
 		timeToNS(now),
 	)
@@ -124,8 +128,8 @@ INSERT INTO swf_jobs (
 	return nil
 }
 
-func (r *Runtime) ensureSubmittedJobRecord(ctx context.Context, jobKey swf.JobKey, jobType string, metadata json.RawMessage, waitFor []string, payload jobPayload, workerID string) error {
-	if err := r.insertJobRecord(ctx, jobKey, jobType, metadata, waitFor, payload, workerID); err == nil {
+func (r *Runtime) ensureSubmittedJobRecord(ctx context.Context, jobKey swf.JobKey, jobType string, metadata json.RawMessage, waitFor []string, payload jobPayload, workerID string, availableAt *time.Time) error {
+	if err := r.insertJobRecord(ctx, jobKey, jobType, metadata, waitFor, payload, workerID, availableAt); err == nil {
 		return nil
 	}
 	row, err := r.loadJobRow(ctx, jobKey)
@@ -134,6 +138,9 @@ func (r *Runtime) ensureSubmittedJobRecord(ctx context.Context, jobKey swf.JobKe
 	}
 	if !jsonObjectsEqual(row.metadata, metadata) {
 		return swf.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different metadata", jobKey))
+	}
+	if availableAt != nil && !timeFromNS(row.availableAtNS).Equal(availableAt.UTC()) {
+		return swf.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different availableAt", jobKey))
 	}
 	return nil
 }
