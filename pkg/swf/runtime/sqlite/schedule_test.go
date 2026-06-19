@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -175,6 +178,81 @@ func TestScheduleLeasePreflightSubmitsSerialSuccessorBeforeReturningLease(t *tes
 	if !sawFirst || !sawSuccessor {
 		t.Fatalf("saw first=%v successor=%v in runs %+v", sawFirst, sawSuccessor, runs.Runs)
 	}
+}
+
+func TestScheduledTargetArtifactsAreSnapshottedAndReplayed(t *testing.T) {
+	ctx := context.Background()
+	embedded, err := StartEmbeddedRuntime(ctx)
+	if err != nil {
+		t.Fatalf("start runtime: %v", err)
+	}
+	defer embedded.Shutdown()
+
+	sourcePath := filepath.Join(t.TempDir(), "input.txt")
+	want := []byte("scheduled artifact input")
+	if err := os.WriteFile(sourcePath, want, 0644); err != nil {
+		t.Fatalf("write source artifact: %v", err)
+	}
+	artifact, err := swf.NewArtifactFromFileNoCleanup("input.txt", sourcePath)
+	if err != nil {
+		t.Fatalf("create source artifact: %v", err)
+	}
+	info, err := embedded.Runtime.UpsertSchedule(ctx, swf.UpsertScheduleRequest{
+		TenantId:      "tenant",
+		ScheduleId:    "schedule-artifact-target",
+		RequestTime:   time.Now().UTC(),
+		OverlapPolicy: swf.ScheduleOverlapSerial,
+		Trigger: swf.ScheduleTrigger{
+			Kind:     swf.ScheduleTriggerInterval,
+			Interval: time.Hour,
+		},
+		Target: swf.ScheduleTarget{
+			JobType:  "scheduled-job",
+			Data:     swf.JobData(&swf.SimpleTaskData{Data: []byte(`{"n":1}`), Artifacts: []swf.Artifact{artifact}}),
+			Metadata: json.RawMessage(`{"customer":"acme"}`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("upsert schedule: %v", err)
+	}
+	if info.NextJobKey == nil {
+		t.Fatal("expected first scheduled job")
+	}
+	if err := os.Remove(sourcePath); err != nil {
+		t.Fatalf("remove source artifact: %v", err)
+	}
+	assertScheduleStartArtifact(t, ctx, embedded.Runtime, *info.NextJobKey, "input.txt", want)
+
+	leases, err := embedded.Runtime.PollWork(ctx, swf.PollWorkRequest{
+		TenantId:     "tenant",
+		WorkerID:     "worker-a",
+		Capabilities: []string{"scheduled-job"},
+		Limit:        1,
+	})
+	if err != nil {
+		t.Fatalf("poll first run: %v", err)
+	}
+	if len(leases) != 1 {
+		t.Fatalf("leases = %d, want 1", len(leases))
+	}
+
+	runs, err := embedded.Runtime.ListScheduleRuns(ctx, swf.ListScheduleRunsRequest{ScheduleKey: info.ScheduleKey})
+	if err != nil {
+		t.Fatalf("list schedule runs: %v", err)
+	}
+	var successor swf.JobKey
+	var foundSuccessor bool
+	for _, run := range runs.Runs {
+		if run.JobSummary.JobKey != *info.NextJobKey {
+			successor = run.JobSummary.JobKey
+			foundSuccessor = true
+			break
+		}
+	}
+	if !foundSuccessor {
+		t.Fatalf("expected successor run in %+v", runs.Runs)
+	}
+	assertScheduleStartArtifact(t, ctx, embedded.Runtime, successor, "input.txt", want)
 }
 
 func TestPausedScheduleCancelsUnstartedOccurrenceWithReason(t *testing.T) {
@@ -420,6 +498,45 @@ func upsertScheduleForTest(t *testing.T, ctx context.Context, runtime *Runtime, 
 		t.Fatalf("upsert schedule: %v", err)
 	}
 	return info
+}
+
+func assertScheduleStartArtifact(t *testing.T, ctx context.Context, runtime *Runtime, jobKey swf.JobKey, name string, want []byte) {
+	t.Helper()
+	chapter, err := runtime.GetChapter(ctx, swf.ChapterRef{JobKey: jobKey, Ordinal: 0})
+	if err != nil {
+		t.Fatalf("get start chapter for %s: %v", jobKey, err)
+	}
+	if len(chapter.Artifacts) != 1 {
+		t.Fatalf("start artifacts for %s = %+v, want one", jobKey, chapter.Artifacts)
+	}
+	stored := chapter.Artifacts[0]
+	if stored.Name != name {
+		t.Fatalf("artifact name = %q, want %q", stored.Name, name)
+	}
+	if stored.Size != int64(len(want)) {
+		t.Fatalf("artifact size = %d, want %d", stored.Size, len(want))
+	}
+	reader, err := runtime.OpenArtifact(ctx, swf.ArtifactRef{
+		JobKey:  jobKey,
+		Ordinal: 0,
+		Name:    stored.Name,
+		Digest:  stored.Digest,
+	})
+	if err != nil {
+		t.Fatalf("open start artifact for %s: %v", jobKey, err)
+	}
+	rc, err := reader.Open()
+	if err != nil {
+		t.Fatalf("open artifact reader for %s: %v", jobKey, err)
+	}
+	defer func() { _ = rc.Close() }()
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("read start artifact for %s: %v", jobKey, err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("artifact data = %q, want %q", string(got), string(want))
+	}
 }
 
 func assertPublicScheduleMetadata(t *testing.T, raw json.RawMessage) {

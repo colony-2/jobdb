@@ -1,11 +1,13 @@
 package swf
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -236,12 +238,17 @@ func ValidateScheduleRequest(req UpsertScheduleRequest) error {
 func ScheduleSpecHash(trigger ScheduleTrigger, target ScheduleTarget, overlap ScheduleOverlapPolicy, failure ScheduleFailurePolicy) (string, error) {
 	data := target.Data
 	var rawData json.RawMessage
+	var artifacts []scheduleHashArtifact
 	if data != nil {
 		raw, err := data.GetData()
 		if err != nil {
 			return "", err
 		}
 		rawData = append(json.RawMessage(nil), raw...)
+		artifacts, err = scheduleArtifactsForHash(context.Background(), data)
+		if err != nil {
+			return "", err
+		}
 	}
 	spec := struct {
 		Trigger       ScheduleTrigger       `json:"trigger"`
@@ -253,6 +260,7 @@ func ScheduleSpecHash(trigger ScheduleTrigger, target ScheduleTarget, overlap Sc
 		Target: scheduleHashTarget{
 			JobType:   target.JobType,
 			Data:      rawData,
+			Artifacts: artifacts,
 			RunPolicy: target.RunPolicy,
 			Metadata:  NormalizeJSON(target.Metadata),
 		},
@@ -268,10 +276,49 @@ func ScheduleSpecHash(trigger ScheduleTrigger, target ScheduleTarget, overlap Sc
 }
 
 type scheduleHashTarget struct {
-	JobType   string          `json:"jobType"`
-	Data      json.RawMessage `json:"data,omitempty"`
-	RunPolicy RunPolicy       `json:"runPolicy,omitempty"`
-	Metadata  json.RawMessage `json:"metadata,omitempty"`
+	JobType   string                 `json:"jobType"`
+	Data      json.RawMessage        `json:"data,omitempty"`
+	Artifacts []scheduleHashArtifact `json:"artifacts,omitempty"`
+	RunPolicy RunPolicy              `json:"runPolicy,omitempty"`
+	Metadata  json.RawMessage        `json:"metadata,omitempty"`
+}
+
+type scheduleHashArtifact struct {
+	Name   string `json:"name"`
+	Digest string `json:"sha256,omitempty"`
+	Size   int64  `json:"size,omitempty"`
+}
+
+func scheduleArtifactsForHash(ctx context.Context, data TaskData) ([]scheduleHashArtifact, error) {
+	artifacts, err := data.GetArtifacts()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]scheduleHashArtifact, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		if artifact == nil {
+			return nil, fmt.Errorf("target artifact is nil")
+		}
+		digest, err := artifact.Sha256(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, scheduleHashArtifact{
+			Name:   artifact.Name(),
+			Digest: digest,
+			Size:   artifact.Size(),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name == out[j].Name {
+			if out[i].Digest == out[j].Digest {
+				return out[i].Size < out[j].Size
+			}
+			return out[i].Digest < out[j].Digest
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out, nil
 }
 
 func ScheduleRunJobID(scheduleID string, generation int64, scheduledAt time.Time) string {

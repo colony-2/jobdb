@@ -2,7 +2,9 @@ package directimpl
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,10 +34,18 @@ type scheduleRow struct {
 }
 
 type storedScheduleTarget struct {
-	JobType   string          `json:"jobType"`
-	Data      json.RawMessage `json:"data,omitempty"`
-	RunPolicy swf.RunPolicy   `json:"runPolicy,omitempty"`
-	Metadata  json.RawMessage `json:"metadata,omitempty"`
+	JobType   string                   `json:"jobType"`
+	Data      json.RawMessage          `json:"data,omitempty"`
+	Artifacts []storedScheduleArtifact `json:"artifacts,omitempty"`
+	RunPolicy swf.RunPolicy            `json:"runPolicy,omitempty"`
+	Metadata  json.RawMessage          `json:"metadata,omitempty"`
+}
+
+type storedScheduleArtifact struct {
+	Name   string `json:"name"`
+	Size   int64  `json:"size"`
+	Digest string `json:"sha256,omitempty"`
+	Data   []byte `json:"data,omitempty"`
 }
 
 const scheduleColumns = `
@@ -58,7 +68,11 @@ func (r *Runtime) UpsertSchedule(ctx context.Context, req swf.UpsertScheduleRequ
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	specHash, err := swf.ScheduleSpecHash(req.Trigger, req.Target, req.OverlapPolicy, req.FailurePolicy)
+	target, err := storedTargetFromSchedule(ctx, req.Target)
+	if err != nil {
+		return swf.ScheduleInfo{}, err
+	}
+	specHash, err := swf.ScheduleSpecHash(req.Trigger, target.toScheduleTarget(), req.OverlapPolicy, req.FailurePolicy)
 	if err != nil {
 		return swf.ScheduleInfo{}, err
 	}
@@ -69,10 +83,6 @@ func (r *Runtime) UpsertSchedule(ctx context.Context, req swf.UpsertScheduleRequ
 	state := swf.ScheduleStateActive
 	if req.Paused {
 		state = swf.ScheduleStatePaused
-	}
-	target, err := storedTargetFromSchedule(req.Target)
-	if err != nil {
-		return swf.ScheduleInfo{}, err
 	}
 	var row scheduleRow
 	tx, err := r.udb.BeginTx(ctx, nil)
@@ -500,22 +510,54 @@ func scanScheduleRow(scanner interface{ Scan(dest ...any) error }) (scheduleRow,
 	return row, nil
 }
 
-func storedTargetFromSchedule(target swf.ScheduleTarget) (storedScheduleTarget, error) {
+func storedTargetFromSchedule(ctx context.Context, target swf.ScheduleTarget) (storedScheduleTarget, error) {
 	var data json.RawMessage
+	var storedArtifacts []storedScheduleArtifact
 	if target.Data != nil {
 		raw, err := target.Data.GetData()
 		if err != nil {
 			return storedScheduleTarget{}, err
 		}
 		data = append(json.RawMessage(nil), raw...)
+		artifacts, err := target.Data.GetArtifacts()
+		if err != nil {
+			return storedScheduleTarget{}, err
+		}
+		storedArtifacts = make([]storedScheduleArtifact, 0, len(artifacts))
+		for _, artifact := range artifacts {
+			if artifact == nil {
+				return storedScheduleTarget{}, fmt.Errorf("target artifact is nil")
+			}
+			bytes, err := artifact.Bytes(ctx)
+			if err != nil {
+				return storedScheduleTarget{}, err
+			}
+			sum := sha256.Sum256(bytes)
+			storedArtifacts = append(storedArtifacts, storedScheduleArtifact{
+				Name:   artifact.Name(),
+				Size:   int64(len(bytes)),
+				Digest: hex.EncodeToString(sum[:]),
+				Data:   append([]byte(nil), bytes...),
+			})
+		}
 	}
-	return storedScheduleTarget{JobType: target.JobType, Data: data, RunPolicy: target.RunPolicy, Metadata: swf.NormalizeJSON(target.Metadata)}, nil
+	return storedScheduleTarget{
+		JobType:   target.JobType,
+		Data:      data,
+		Artifacts: storedArtifacts,
+		RunPolicy: target.RunPolicy,
+		Metadata:  swf.NormalizeJSON(target.Metadata),
+	}, nil
 }
 
 func (t storedScheduleTarget) toScheduleTarget() swf.ScheduleTarget {
+	artifacts := make([]swf.Artifact, 0, len(t.Artifacts))
+	for _, artifact := range t.Artifacts {
+		artifacts = append(artifacts, swf.NewArtifactFromBytes(artifact.Name, append([]byte(nil), artifact.Data...)))
+	}
 	return swf.ScheduleTarget{
 		JobType:   t.JobType,
-		Data:      swf.JobData(&swf.SimpleTaskData{Data: append(json.RawMessage(nil), t.Data...)}),
+		Data:      swf.JobData(&swf.SimpleTaskData{Data: append(json.RawMessage(nil), t.Data...), Artifacts: artifacts}),
 		RunPolicy: t.RunPolicy,
 		Metadata:  append(json.RawMessage(nil), t.Metadata...),
 	}

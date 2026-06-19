@@ -18,7 +18,11 @@ func (r *Runtime) UpsertSchedule(ctx context.Context, req swf.UpsertScheduleRequ
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	specHash, err := swf.ScheduleSpecHash(req.Trigger, req.Target, req.OverlapPolicy, req.FailurePolicy)
+	target, err := snapshotScheduleTarget(ctx, req.Target)
+	if err != nil {
+		return swf.ScheduleInfo{}, err
+	}
+	specHash, err := swf.ScheduleSpecHash(req.Trigger, target, req.OverlapPolicy, req.FailurePolicy)
 	if err != nil {
 		return swf.ScheduleInfo{}, err
 	}
@@ -62,7 +66,7 @@ func (r *Runtime) UpsertSchedule(ctx context.Context, req swf.UpsertScheduleRequ
 		Generation:     generation,
 		SpecHash:       specHash,
 		Trigger:        req.Trigger,
-		Target:         cloneScheduleTarget(req.Target),
+		Target:         cloneScheduleTarget(target),
 		OverlapPolicy:  swf.NormalizeScheduleOverlapPolicy(req.OverlapPolicy),
 		FailurePolicy:  req.FailurePolicy,
 		NextFireAt:     cloneTime(nextFireAt),
@@ -423,7 +427,45 @@ func cloneScheduleInfo(info swf.ScheduleInfo) swf.ScheduleInfo {
 
 func cloneScheduleTarget(target swf.ScheduleTarget) swf.ScheduleTarget {
 	target.Metadata = cloneJSON(target.Metadata)
+	if target.Data != nil {
+		snapshot, err := snapshotScheduleTarget(context.Background(), target)
+		if err == nil {
+			return snapshot
+		}
+	}
 	return target
+}
+
+func snapshotScheduleTarget(ctx context.Context, target swf.ScheduleTarget) (swf.ScheduleTarget, error) {
+	if target.Data == nil {
+		target.Metadata = cloneJSON(target.Metadata)
+		return target, nil
+	}
+	raw, err := target.Data.GetData()
+	if err != nil {
+		return swf.ScheduleTarget{}, err
+	}
+	sourceArtifacts, err := target.Data.GetArtifacts()
+	if err != nil {
+		return swf.ScheduleTarget{}, err
+	}
+	artifacts := make([]swf.Artifact, 0, len(sourceArtifacts))
+	for _, artifact := range sourceArtifacts {
+		if artifact == nil {
+			return swf.ScheduleTarget{}, fmt.Errorf("target artifact is nil")
+		}
+		bytes, err := artifact.Bytes(ctx)
+		if err != nil {
+			return swf.ScheduleTarget{}, err
+		}
+		artifacts = append(artifacts, swf.NewArtifactFromBytes(artifact.Name(), append([]byte(nil), bytes...)))
+	}
+	target.Data = swf.JobData(&swf.SimpleTaskData{
+		Data:      append([]byte(nil), raw...),
+		Artifacts: artifacts,
+	})
+	target.Metadata = cloneJSON(target.Metadata)
+	return target, nil
 }
 
 func scheduleStateSet(states []swf.ScheduleState) map[swf.ScheduleState]bool {
