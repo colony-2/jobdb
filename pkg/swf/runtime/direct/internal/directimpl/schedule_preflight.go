@@ -9,6 +9,7 @@ import (
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
 	"github.com/colony-2/strata-go/pkg/client/core"
 	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/swf-go/pkg/swf/internal/jobmetadata"
 )
 
 func (r *Runtime) preflightScheduleLease(ctx context.Context, lease *executionLease) (bool, error) {
@@ -17,6 +18,7 @@ func (r *Runtime) preflightScheduleLease(ctx context.Context, lease *executionLe
 	if err != nil {
 		return false, err
 	}
+	lease.schemaHash = jobmetadata.SchemaHashFromStoredMetadata(detail.Metadata)
 	occ, hasSchedule, err := swf.ExtractScheduleOccurrenceMetadata(detail.Metadata)
 	if err != nil {
 		return false, err

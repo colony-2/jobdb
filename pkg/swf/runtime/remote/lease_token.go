@@ -12,18 +12,24 @@ import (
 	"time"
 
 	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/swf-go/pkg/swf/internal/leaseauth"
 )
 
-const defaultLeaseTokenTTL = 30 * time.Second
+const (
+	defaultLeaseTokenTTL = 30 * time.Second
+	leaseTokenExpirySkew = 100 * time.Millisecond
+)
 
 type leaseTokenClaims struct {
 	TenantID             string `json:"tenant_id"`
 	JobID                string `json:"job_id"`
 	LeaseID              string `json:"lease_id"`
 	WorkerID             string `json:"worker_id,omitempty"`
+	SchemaHash           string `json:"schema_hash,omitempty"`
 	LeaseDurationSeconds int64  `json:"lease_duration_seconds"`
 	IssuedAt             int64  `json:"iat"`
 	ExpiresAt            int64  `json:"exp"`
+	ExpiresAtNS          int64  `json:"exp_ns,omitempty"`
 }
 
 type leaseTokenSigner struct {
@@ -42,10 +48,14 @@ func (s *leaseTokenSigner) mintForLease(lease swf.ExecutionLease, ttl time.Durat
 	if lease == nil {
 		return "", fmt.Errorf("lease is required")
 	}
-	return s.mint(lease.Job().JobKey, lease.LeaseID(), leaseWorkerID(lease), ttl)
+	return s.mintForLeaseExpiry(lease.Job().JobKey, lease.LeaseID(), leaseWorkerID(lease), leaseSchemaHash(lease), leaseExpiry(lease), ttl)
 }
 
 func (s *leaseTokenSigner) mint(jobKey swf.JobKey, leaseID string, workerID string, ttl time.Duration) (string, error) {
+	return s.mintForLeaseExpiry(jobKey, leaseID, workerID, "", time.Time{}, ttl)
+}
+
+func (s *leaseTokenSigner) mintForLeaseExpiry(jobKey swf.JobKey, leaseID string, workerID string, schemaHash string, leaseExpiresAt time.Time, ttl time.Duration) (string, error) {
 	if s == nil || len(s.key) == 0 {
 		return "", fmt.Errorf("lease token signer is required")
 	}
@@ -53,14 +63,22 @@ func (s *leaseTokenSigner) mint(jobKey swf.JobKey, leaseID string, workerID stri
 		ttl = defaultLeaseTokenTTL
 	}
 	now := time.Now().UTC()
+	leaseExpiresAt = leaseExpiresAt.UTC()
+	leaseDuration := ttl
+	if !leaseExpiresAt.IsZero() && leaseExpiresAt.After(now) {
+		leaseDuration = leaseExpiresAt.Sub(now)
+	}
+	tokenExpiresAt := leaseTokenExpiresAt(now, leaseExpiresAt, ttl)
 	payload, err := json.Marshal(leaseTokenClaims{
 		TenantID:             jobKey.TenantId,
 		JobID:                jobKey.JobId,
 		LeaseID:              leaseID,
 		WorkerID:             workerID,
-		LeaseDurationSeconds: int64((ttl + time.Second - 1) / time.Second),
+		SchemaHash:           schemaHash,
+		LeaseDurationSeconds: int64((leaseDuration + time.Second - 1) / time.Second),
 		IssuedAt:             now.Unix(),
-		ExpiresAt:            now.Add(ttl).Unix(),
+		ExpiresAt:            tokenExpiresAt.Unix(),
+		ExpiresAtNS:          tokenExpiresAt.UnixNano(),
 	})
 	if err != nil {
 		return "", err
@@ -88,7 +106,7 @@ func (s *leaseTokenSigner) validateAndParse(token string, jobKey swf.JobKey, lea
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	if now.Unix() > claims.ExpiresAt {
+	if !now.UTC().Before(claims.expiresAt()) {
 		return leaseTokenClaims{}, swf.ErrExecutionLeaseLost
 	}
 	return claims, nil
@@ -126,11 +144,29 @@ func (s *leaseTokenSigner) parse(token string) (leaseTokenClaims, error) {
 	return claims, nil
 }
 
+func (c leaseTokenClaims) expiresAt() time.Time {
+	if c.ExpiresAtNS > 0 {
+		return time.Unix(0, c.ExpiresAtNS).UTC()
+	}
+	return time.Unix(c.ExpiresAt, 0).UTC()
+}
+
 func (c leaseTokenClaims) leaseDuration() time.Duration {
 	if c.LeaseDurationSeconds <= 0 {
 		return defaultLeaseTokenTTL
 	}
 	return time.Duration(c.LeaseDurationSeconds) * time.Second
+}
+
+func (c leaseTokenClaims) leaseAuthClaims() leaseauth.Claims {
+	return leaseauth.Claims{
+		TenantID:   c.TenantID,
+		JobID:      c.JobID,
+		LeaseID:    c.LeaseID,
+		WorkerID:   c.WorkerID,
+		SchemaHash: c.SchemaHash,
+		ExpiresAt:  c.expiresAt(),
+	}
 }
 
 func leaseTokenTTL(requested time.Duration) time.Duration {
@@ -140,13 +176,60 @@ func leaseTokenTTL(requested time.Duration) time.Duration {
 	return defaultLeaseTokenTTL
 }
 
+func leaseTokenExpiresAt(now time.Time, leaseExpiresAt time.Time, fallbackTTL time.Duration) time.Time {
+	if fallbackTTL <= 0 {
+		fallbackTTL = defaultLeaseTokenTTL
+	}
+	if leaseExpiresAt.IsZero() {
+		return now.Add(fallbackTTL)
+	}
+	if !leaseExpiresAt.After(now) {
+		return now
+	}
+	remaining := leaseExpiresAt.Sub(now)
+	skew := leaseTokenExpirySkew
+	if remaining <= 2*skew {
+		skew = remaining / 10
+		if skew <= 0 {
+			skew = time.Nanosecond
+		}
+	}
+	expiresAt := leaseExpiresAt.Add(-skew)
+	if expiresAt.Before(now) {
+		return now
+	}
+	return expiresAt
+}
+
 type leaseTokenWorkerSource interface {
 	LeaseWorkerID() string
+}
+
+type leaseTokenExpirySource interface {
+	LeaseExpiry() time.Time
+}
+
+type leaseTokenSchemaHashSource interface {
+	LeaseSchemaHash() string
 }
 
 func leaseWorkerID(lease swf.ExecutionLease) string {
 	if source, ok := lease.(leaseTokenWorkerSource); ok {
 		return source.LeaseWorkerID()
+	}
+	return ""
+}
+
+func leaseExpiry(lease swf.ExecutionLease) time.Time {
+	if source, ok := lease.(leaseTokenExpirySource); ok {
+		return source.LeaseExpiry()
+	}
+	return time.Time{}
+}
+
+func leaseSchemaHash(lease swf.ExecutionLease) string {
+	if source, ok := lease.(leaseTokenSchemaHashSource); ok {
+		return source.LeaseSchemaHash()
 	}
 	return ""
 }

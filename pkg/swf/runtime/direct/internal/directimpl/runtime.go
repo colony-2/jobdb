@@ -19,6 +19,7 @@ import (
 	"github.com/colony-2/strata-go/pkg/client/pagination"
 	"github.com/colony-2/strata-go/pkg/client/story"
 	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/swf-go/pkg/swf/internal/leaseauth"
 	"github.com/segmentio/ksuid"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -671,15 +672,19 @@ func (r *Runtime) PutChapter(ctx context.Context, req swf.PutChapterRequest) err
 	if req.Chapter.Ordinal != req.Ref.Ordinal {
 		return fmt.Errorf("chapter ordinal %d does not match target ordinal %d", req.Chapter.Ordinal, req.Ref.Ordinal)
 	}
-	job, err := pgwf.GetJob(ctx, r.pgwfDB(ctx), pgwf.TenantID(req.Ref.JobKey.TenantId), pgwf.JobID(req.Ref.JobKey.JobId), pgwf.GetJobOptions{})
-	if err != nil {
-		if errors.Is(err, pgwf.ErrJobNotFound) {
-			return swf.ErrJobNotFound
-		}
+	if authorized, err := leaseauth.Authorize(ctx, req.Ref.JobKey, req.LeaseID); err != nil {
 		return err
-	}
-	if job.LeaseID == nil || *job.LeaseID != req.LeaseID {
-		return swf.ErrExecutionLeaseLost
+	} else if !authorized {
+		job, err := pgwf.GetJob(ctx, r.pgwfDB(ctx), pgwf.TenantID(req.Ref.JobKey.TenantId), pgwf.JobID(req.Ref.JobKey.JobId), pgwf.GetJobOptions{})
+		if err != nil {
+			if errors.Is(err, pgwf.ErrJobNotFound) {
+				return swf.ErrJobNotFound
+			}
+			return err
+		}
+		if job.LeaseID == nil || *job.LeaseID != req.LeaseID {
+			return swf.ErrExecutionLeaseLost
+		}
 	}
 	if err := r.ensureNextVisibleChapterOrdinal(ctx, req.Ref.JobKey, req.Ref.Ordinal); err != nil {
 		return err
@@ -904,9 +909,10 @@ func (a artifactReader) Size() int64                  { return a.art.Size() }
 func (a artifactReader) Name() string                 { return a.art.Name() }
 
 type executionLease struct {
-	lease    *pgwf.Lease
-	udb      *sql.DB
-	workerID string
+	lease      *pgwf.Lease
+	udb        *sql.DB
+	workerID   string
+	schemaHash string
 }
 
 func (l *executionLease) LeaseID() string {
@@ -932,6 +938,14 @@ func (l *executionLease) Payload() json.RawMessage {
 
 func (l *executionLease) LeaseWorkerID() string {
 	return l.workerID
+}
+
+func (l *executionLease) LeaseExpiry() time.Time {
+	return l.lease.LeaseExpiry()
+}
+
+func (l *executionLease) LeaseSchemaHash() string {
+	return l.schemaHash
 }
 
 func (l *executionLease) KeepAlive(ctx context.Context) error {

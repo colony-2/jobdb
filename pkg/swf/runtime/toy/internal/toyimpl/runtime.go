@@ -12,9 +12,13 @@ import (
 	"time"
 
 	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/swf-go/pkg/swf/internal/jobmetadata"
+	"github.com/colony-2/swf-go/pkg/swf/internal/leaseauth"
 	"github.com/colony-2/swf-go/pkg/swf/internal/runtimecodec"
 	"github.com/segmentio/ksuid"
 )
+
+const defaultToyRemoteLeaseDuration = 30 * time.Second
 
 type workerJobPayload struct {
 	RunPolicy swf.RunPolicy   `json:"run_policy,omitempty"`
@@ -411,6 +415,9 @@ func (r *Runtime) PollWork(ctx context.Context, req swf.PollWorkRequest) ([]swf.
 			leaseID:    record.leaseID,
 			capability: record.capability,
 			payload:    payload,
+			expiresAt:  now.Add(toyLeaseDurationOrDefault(req.LeaseDuration)),
+			duration:   toyLeaseDurationOrDefault(req.LeaseDuration),
+			schemaHash: jobmetadata.SchemaHashFromStoredMetadata(record.metadata),
 		})
 		record.mu.Unlock()
 		if len(out) >= limit {
@@ -482,6 +489,9 @@ func (r *Runtime) GetJobLease(ctx context.Context, req swf.GetJobLeaseRequest) (
 		leaseID:    record.leaseID,
 		capability: record.capability,
 		payload:    cloneJSON(record.payload),
+		expiresAt:  now.Add(toyLeaseDurationOrDefault(req.LeaseDuration)),
+		duration:   toyLeaseDurationOrDefault(req.LeaseDuration),
+		schemaHash: jobmetadata.SchemaHashFromStoredMetadata(record.metadata),
 	}
 	record.mu.Unlock()
 	r.engine.mu.Unlock()
@@ -614,12 +624,16 @@ func (r *Runtime) PutChapter(ctx context.Context, req swf.PutChapterRequest) err
 	if record == nil {
 		return swf.ErrJobNotFound
 	}
-	record.mu.Lock()
-	if record.leaseID != req.LeaseID {
+	if authorized, err := leaseauth.Authorize(ctx, req.Ref.JobKey, req.LeaseID); err != nil {
+		return err
+	} else if !authorized {
+		record.mu.Lock()
+		if record.leaseID != req.LeaseID {
+			record.mu.Unlock()
+			return swf.ErrExecutionLeaseLost
+		}
 		record.mu.Unlock()
-		return swf.ErrExecutionLeaseLost
 	}
-	record.mu.Unlock()
 
 	chapter, err := r.prepareChapterWrite(ctx, req)
 	if err != nil {
@@ -1060,13 +1074,19 @@ type runtimeLease struct {
 	leaseID    string
 	capability string
 	payload    json.RawMessage
+	expiresAt  time.Time
+	duration   time.Duration
+	schemaHash string
 }
 
 func (l *runtimeLease) LeaseID() string          { return l.leaseID }
 func (l *runtimeLease) Job() swf.JobHandle       { return swf.JobHandle{JobKey: l.jobKey} }
 func (l *runtimeLease) Capability() string       { return l.capability }
 func (l *runtimeLease) Payload() json.RawMessage { return append(json.RawMessage(nil), l.payload...) }
+func (l *runtimeLease) LeaseExpiry() time.Time   { return l.expiresAt }
+func (l *runtimeLease) LeaseSchemaHash() string  { return l.schemaHash }
 func (l *runtimeLease) KeepAlive(context.Context) error {
+	l.expiresAt = time.Now().UTC().Add(toyLeaseDurationOrDefault(l.duration))
 	return nil
 }
 func (l *runtimeLease) StopKeepAlive() {}
@@ -1075,6 +1095,13 @@ func (l *runtimeLease) Complete(ctx context.Context, req swf.CompleteExecutionRe
 }
 func (l *runtimeLease) Reschedule(ctx context.Context, req swf.RescheduleExecutionRequest) error {
 	return l.runtime.rescheduleLease(l.jobKey, l.leaseID, req)
+}
+
+func toyLeaseDurationOrDefault(d time.Duration) time.Duration {
+	if d <= 0 {
+		return defaultToyRemoteLeaseDuration
+	}
+	return d
 }
 
 type runtimeTaskHandle struct {

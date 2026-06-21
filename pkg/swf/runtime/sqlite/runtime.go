@@ -16,6 +16,8 @@ import (
 	"github.com/colony-2/strata-go/pkg/client/pagination"
 	"github.com/colony-2/strata-go/pkg/client/story"
 	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/swf-go/pkg/swf/internal/jobmetadata"
+	"github.com/colony-2/swf-go/pkg/swf/internal/leaseauth"
 	"github.com/google/uuid"
 	"github.com/segmentio/ksuid"
 )
@@ -389,6 +391,8 @@ WHERE tenant_id = ? AND job_id = ?`,
 				capability: nextNeed,
 				payload:    cloneBytes(row.payload),
 				duration:   leaseDurationOrDefault(req.LeaseDuration),
+				expiresAt:  expires,
+				schemaHash: jobmetadata.SchemaHashFromStoredMetadata(row.metadata),
 			}
 			leaseMetadata = cloneJSON(row.metadata)
 			break
@@ -472,6 +476,8 @@ WHERE tenant_id = ? AND job_id = ?`,
 			capability: nextNeed,
 			payload:    cloneBytes(row.payload),
 			duration:   leaseDurationOrDefault(req.LeaseDuration),
+			expiresAt:  expires,
+			schemaHash: jobmetadata.SchemaHashFromStoredMetadata(row.metadata),
 		}
 		leaseMetadata = cloneJSON(row.metadata)
 		return nil
@@ -799,8 +805,12 @@ func (r *Runtime) PutChapter(ctx context.Context, req swf.PutChapterRequest) err
 	if req.Chapter.Ordinal != req.Ref.Ordinal {
 		return fmt.Errorf("chapter ordinal %d does not match target ordinal %d", req.Chapter.Ordinal, req.Ref.Ordinal)
 	}
-	if err := r.validateLease(ctx, req.Ref.JobKey, req.LeaseID, ""); err != nil {
+	if authorized, err := leaseauth.Authorize(ctx, req.Ref.JobKey, req.LeaseID); err != nil {
 		return err
+	} else if !authorized {
+		if err := r.validateLease(ctx, req.Ref.JobKey, req.LeaseID, ""); err != nil {
+			return err
+		}
 	}
 	if err := r.ensureNextVisibleChapterOrdinal(ctx, req.Ref.JobKey, req.Ref.Ordinal); err != nil {
 		return err

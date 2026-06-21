@@ -19,11 +19,17 @@ type executionLease struct {
 	capability string
 	payload    []byte
 	duration   time.Duration
+	expiresAt  time.Time
+	schemaHash string
 }
 
 func (l *executionLease) LeaseID() string { return l.leaseID }
 
 func (l *executionLease) LeaseWorkerID() string { return l.workerID }
+
+func (l *executionLease) LeaseExpiry() time.Time { return l.expiresAt }
+
+func (l *executionLease) LeaseSchemaHash() string { return l.schemaHash }
 
 func (l *executionLease) Job() swf.JobHandle {
 	return swf.JobHandle{JobKey: l.jobKey}
@@ -36,7 +42,12 @@ func (l *executionLease) Payload() json.RawMessage {
 }
 
 func (l *executionLease) KeepAlive(ctx context.Context) error {
-	return l.runtime.KeepAliveLeaseByID(ctx, l.jobKey, l.leaseID, l.workerID, l.duration)
+	expiresAt, err := l.runtime.KeepAliveLeaseByIDWithExpiry(ctx, l.jobKey, l.leaseID, l.workerID, l.duration)
+	if err != nil {
+		return err
+	}
+	l.expiresAt = expiresAt
+	return nil
 }
 
 func (l *executionLease) StopKeepAlive() {}
@@ -50,17 +61,22 @@ func (l *executionLease) Reschedule(ctx context.Context, req swf.RescheduleExecu
 }
 
 func (r *Runtime) KeepAliveLeaseByID(ctx context.Context, jobKey swf.JobKey, leaseID string, workerID string, leaseDuration time.Duration) error {
+	_, err := r.KeepAliveLeaseByIDWithExpiry(ctx, jobKey, leaseID, workerID, leaseDuration)
+	return err
+}
+
+func (r *Runtime) KeepAliveLeaseByIDWithExpiry(ctx context.Context, jobKey swf.JobKey, leaseID string, workerID string, leaseDuration time.Duration) (time.Time, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if err := r.validate(); err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if leaseID == "" || workerID == "" {
-		return swf.ErrExecutionLeaseLost
+		return time.Time{}, swf.ErrExecutionLeaseLost
 	}
 	expires := time.Now().UTC().Add(leaseDurationOrDefault(leaseDuration))
-	return r.withTx(ctx, func(tx *sql.Tx) error {
+	err := r.withTx(ctx, func(tx *sql.Tx) error {
 		row, err := r.loadJobRowTx(ctx, tx, jobKey)
 		if err != nil {
 			return err
@@ -75,6 +91,10 @@ WHERE tenant_id = ? AND job_id = ? AND lease_id = ?`,
 			timeToNS(expires), timeToNS(time.Now().UTC()), jobKey.TenantId, jobKey.JobId, leaseID)
 		return err
 	})
+	if err != nil {
+		return time.Time{}, err
+	}
+	return expires, nil
 }
 
 func (r *Runtime) CompleteJobWithLeaseByID(ctx context.Context, jobKey swf.JobKey, leaseID string, workerID string, req swf.CompleteExecutionRequest) error {

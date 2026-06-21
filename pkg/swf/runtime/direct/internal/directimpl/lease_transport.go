@@ -25,14 +25,19 @@ FROM pgwf.reschedule_job($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 )
 
 func (r *Runtime) KeepAliveLeaseByID(ctx context.Context, jobKey swf.JobKey, leaseID string, workerID string, leaseDuration time.Duration) error {
+	_, err := r.KeepAliveLeaseByIDWithExpiry(ctx, jobKey, leaseID, workerID, leaseDuration)
+	return err
+}
+
+func (r *Runtime) KeepAliveLeaseByIDWithExpiry(ctx context.Context, jobKey swf.JobKey, leaseID string, workerID string, leaseDuration time.Duration) (time.Time, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if err := r.validate(); err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if leaseID == "" || workerID == "" {
-		return swf.ErrExecutionLeaseLost
+		return time.Time{}, swf.ErrExecutionLeaseLost
 	}
 	leaseSeconds := durationToLeaseSeconds(leaseDuration)
 	if leaseSeconds <= 0 {
@@ -49,9 +54,9 @@ func (r *Runtime) KeepAliveLeaseByID(ctx context.Context, jobKey swf.JobKey, lea
 	)
 	var newExpiry time.Time
 	if err := row.Scan(&newExpiry); err != nil {
-		return directLeaseMutationError(err)
+		return time.Time{}, directLeaseMutationError(err)
 	}
-	return nil
+	return newExpiry.UTC(), nil
 }
 
 func (r *Runtime) CompleteJobWithLeaseByID(ctx context.Context, jobKey swf.JobKey, leaseID string, workerID string, req swf.CompleteExecutionRequest) error {

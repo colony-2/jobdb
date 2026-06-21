@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/swf-go/pkg/swf/internal/leaseauth"
 	"github.com/colony-2/swf-go/pkg/swf/internal/runtimeapi"
 )
 
@@ -20,6 +21,10 @@ type leaseOperationRuntime interface {
 	KeepAliveLeaseByID(ctx context.Context, jobKey swf.JobKey, leaseID string, workerID string, leaseDuration time.Duration) error
 	CompleteJobWithLeaseByID(ctx context.Context, jobKey swf.JobKey, leaseID string, workerID string, req swf.CompleteExecutionRequest) error
 	RescheduleJobWithLeaseByID(ctx context.Context, jobKey swf.JobKey, leaseID string, workerID string, req swf.RescheduleExecutionRequest) error
+}
+
+type leaseRenewalRuntime interface {
+	KeepAliveLeaseByIDWithExpiry(ctx context.Context, jobKey swf.JobKey, leaseID string, workerID string, leaseDuration time.Duration) (time.Time, error)
 }
 
 type proxyServer struct {
@@ -672,7 +677,8 @@ func (s *proxyServer) AddChapterWithLease(ctx context.Context, request runtimeap
 		return nil, badRequest("add chapter body is required")
 	}
 	jobKey := swf.JobKey{TenantId: request.TenantId, JobId: request.JobId}
-	if _, err := s.validatedLeaseClaims(request.Params.XSWFLeaseToken, jobKey, request.LeaseId); err != nil {
+	claims, err := s.validatedLeaseClaims(request.Params.XSWFLeaseToken, jobKey, request.LeaseId)
+	if err != nil {
 		return nil, err
 	}
 	chapter, uploads, err := writableChapterToRuntimeChapter(request.Body.Chapter, request.Body.ArtifactUploads)
@@ -682,6 +688,7 @@ func (s *proxyServer) AddChapterWithLease(ctx context.Context, request runtimeap
 	if chapter.Ordinal < 0 {
 		return nil, badRequest("chapter ordinal must be >= 0")
 	}
+	ctx = leaseauth.WithClaims(ctx, claims.leaseAuthClaims())
 	err = s.runtime.PutChapter(ctx, swf.PutChapterRequest{
 		LeaseID:    request.LeaseId,
 		LeaseToken: request.Params.XSWFLeaseToken,
@@ -731,10 +738,20 @@ func (s *proxyServer) KeepAliveLease(ctx context.Context, request runtimeapi.Kee
 	if err != nil {
 		return nil, err
 	}
-	if err := ops.KeepAliveLeaseByID(ctx, jobKey, request.LeaseId, claims.WorkerID, claims.leaseDuration()); err != nil {
-		return nil, err
+	leaseDuration := claims.leaseDuration()
+	leaseExpiresAt := time.Now().UTC().Add(leaseDuration)
+	if renewal, ok := ops.(leaseRenewalRuntime); ok {
+		var err error
+		leaseExpiresAt, err = renewal.KeepAliveLeaseByIDWithExpiry(ctx, jobKey, request.LeaseId, claims.WorkerID, leaseDuration)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		if err := ops.KeepAliveLeaseByID(ctx, jobKey, request.LeaseId, claims.WorkerID, leaseDuration); err != nil {
+			return nil, err
+		}
 	}
-	token, err := s.tokens.mint(jobKey, request.LeaseId, claims.WorkerID, claims.leaseDuration())
+	token, err := s.tokens.mintForLeaseExpiry(jobKey, request.LeaseId, claims.WorkerID, claims.SchemaHash, leaseExpiresAt, leaseDuration)
 	if err != nil {
 		return nil, err
 	}

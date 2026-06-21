@@ -713,6 +713,7 @@ method Runtime.GetChapter func(ctx context.Context, ref github.com/colony-2/swf-
 method Runtime.GetJob func(ctx context.Context, jobKey github.com/colony-2/swf-go/pkg/swf.JobKey) (github.com/colony-2/swf-go/pkg/swf.JobInfo, error)
 method Runtime.GetJobLease func(ctx context.Context, req github.com/colony-2/swf-go/pkg/swf.GetJobLeaseRequest) (github.com/colony-2/swf-go/pkg/swf.ExecutionLease, error)
 method Runtime.KeepAliveLeaseByID func(ctx context.Context, jobKey github.com/colony-2/swf-go/pkg/swf.JobKey, leaseID string, workerID string, leaseDuration time.Duration) error
+method Runtime.KeepAliveLeaseByIDWithExpiry func(ctx context.Context, jobKey github.com/colony-2/swf-go/pkg/swf.JobKey, leaseID string, workerID string, leaseDuration time.Duration) (time.Time, error)
 method Runtime.ListChapters func(ctx context.Context, req github.com/colony-2/swf-go/pkg/swf.ListChaptersRequest) ([]github.com/colony-2/swf-go/pkg/swf.Chapter, error)
 method Runtime.ListJobs func(ctx context.Context, req github.com/colony-2/swf-go/pkg/swf.ListJobsRequest) (github.com/colony-2/swf-go/pkg/swf.ListJobsResponse, error)
 method Runtime.OpenArtifact func(ctx context.Context, ref github.com/colony-2/swf-go/pkg/swf.ArtifactRef) (github.com/colony-2/swf-go/pkg/swf.ArtifactReader, error)
