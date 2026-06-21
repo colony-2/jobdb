@@ -2,23 +2,27 @@ type: shai-sandbox
 version: 1
 image: ghcr.io/colony-2/shai-mega
 resources:
-  shai-default-allow:
+  default:
     vars:
+      - source: GOPRIVATE
+      - source: MOON_TOOLCHAIN_FORCE_GLOBALS
+      - source: ANTHROPIC_API_KEY
       - source: GEMINI_API_KEY
+    calls:
+      - name: uname
+        command: uname -a
     mounts:
-      - source: ${{ env.HOME }}/.shai/.netrc
-        target: /home/shai/.netrc
-      - source: ${{ env.HOME }}/.codex
-        target: /home/${{ conf.TARGET_USER }}/.codex
+      - source: /src/colony2
+        target: /colony2
+      - source: ${{ env.HOME }}/shaihome
+        target: /home/shai/
         mode: rw
-      - source: ${{ env.HOME }}/.claude
-        target: /home/${{ conf.TARGET_USER }}/.claude
+      - source: ${{ env.HOME }}/.cache/go-build
+        target: /home/shai/go/pkg
         mode: rw
-      - source: ${{ env.HOME }}/.claude.json
-        target: /home/${{ conf.TARGET_USER }}/.claude.json
+      - source: ${{ env.HOME }}/.cache/go-mod
+        target: /home/shai/go/mod
         mode: rw
-      - source: ${{ env.HOME }}/.claude.json.backup
-        target: /home/${{ conf.TARGET_USER }}/.claude.json.backup
         mode: rw
     http:
       - openai.com
@@ -96,4 +100,4 @@ resources:
 apply:
   - path: ./
     resources:
-      - shai-default-allow
+      - default

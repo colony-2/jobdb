@@ -1,0 +1,41 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        include:
+          # Linux AMD64
+          - os: ubuntu-latest
+          # Linux ARM64
+          - os: ubuntu-22.04-arm
+          # macOS Arm
+          - os: macos-latest
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.1'
+
+      - name: Run tests (Unix)
+        run: go test -v -tags=integration ./...
+
+  # Summary job that depends on all matrix jobs completing
+  test-summary:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: All tests passed
+        run: echo "All test matrix jobs completed successfully"

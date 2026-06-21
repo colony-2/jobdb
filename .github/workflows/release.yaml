@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write # for npm oidc trusted packages
+  checks: read
+
+jobs:
+  # Step 1: Wait for tests (only when triggered by main push)
+  wait-for-tests:
+    if: github.ref_type == 'branch' && github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for test workflow to complete
+        uses: lewagon/wait-on-check-action@v1.6.1
+        with:
+          ref: ${{ github.sha }}
+          check-name: 'test-summary'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 10
+
+  # Step 2: Create tag (only when triggered by main push, after tests pass)
+  create-tag:
+    needs: wait-for-tests
+    if: github.ref_type == 'branch' && github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag_version.outputs.new_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump version and push tag
+        id: tag_version
+        uses: anothrNick/github-tag-action@1.75.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BUMP: patch
+          WITH_V: true
+          PRERELEASE: false
+          RELEASE_BRANCHES: main
+
+  # Step 3: Run GoReleaser (for both main push after tag creation, and manual tag pushes)
+  goreleaser:
+    needs: [ create-tag ]
+    if: |
+      always() &&
+      (needs.create-tag.result == 'success' || needs.create-tag.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-tag.outputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.1'
+
+      - name: Configure Git and Go for Private Modules
+        run: |
+          go env -w GOPRIVATE=github.com/colony-2/*
+          echo "machine github.com login x-access-token password ${{ secrets.READ_ALL_C2_REPOS }}" > ~/.netrc
+          chmod 600 ~/.netrc
+
+      - name: Run tests
+        # Custom HOME ONLY for this step, and outside the workspace
+        env:
+          HOME: ${{ runner.temp }}/test-home
+        run: |
+          mkdir -p "$HOME"
+          go test -v -tags=integration ./...
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser-pro
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GIT_C2_RELEASE_PAT }}
+          GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
