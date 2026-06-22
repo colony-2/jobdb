@@ -65,7 +65,7 @@ changelog:
 release:
   github:
     owner: colony-2
-    name: swf-go-release
+    name: swf-go
   draft: false
   prerelease: auto
   mode: replace
