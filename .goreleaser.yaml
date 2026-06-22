@@ -97,7 +97,6 @@ notarize:
 # npm publishing - GoReleaser Pro feature
 npms:
   - name: "@colony2/swfd"
-    url_template: "https://github.com/colony-2/swf-go/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
     homepage: https://github.com/colony-2/swf-go
     description: swfd job system
     license: Apache-2.0
