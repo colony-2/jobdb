@@ -56,6 +56,19 @@ CREATE TABLE IF NOT EXISTS jobdb_schedules (
 
 CREATE INDEX IF NOT EXISTS jobdb_schedules_list_idx
 	ON jobdb_schedules (tenant_id, state, updated_at_ns DESC, schedule_id DESC);
+
+CREATE TABLE IF NOT EXISTS jobdb_schemas (
+	tenant_id TEXT NOT NULL,
+	schema_hash TEXT NOT NULL,
+	schema_json BLOB NOT NULL,
+	state TEXT NOT NULL,
+	created_at_ns INTEGER NOT NULL,
+	archived_at_ns INTEGER,
+	PRIMARY KEY (tenant_id, schema_hash)
+);
+
+CREATE INDEX IF NOT EXISTS jobdb_schemas_list_idx
+	ON jobdb_schemas (tenant_id, state, created_at_ns DESC, schema_hash ASC);
 `
 
 func migrate(ctx context.Context, db *sql.DB) error {

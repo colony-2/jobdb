@@ -43,6 +43,7 @@ func WithJobIDGenerator(gen JobIDGenerator) Option {
 type ToyEngine struct {
 	mu               sync.Mutex
 	jobRecords       map[jobdb.JobKey]*jobRecord
+	schemas          map[jobdb.JobSchemaKey]*toySchemaRecord
 	schedules        map[jobdb.ScheduleKey]*toyScheduleRecord
 	runtimeChapters  map[jobdb.JobKey]map[int64]jobdb.Chapter
 	runtimeArtifacts map[runtimeArtifactKey][]byte
@@ -80,6 +81,10 @@ type jobRecord struct {
 
 type toyScheduleRecord struct {
 	info jobdb.ScheduleInfo
+}
+
+type toySchemaRecord struct {
+	info jobdb.JobSchemaInfo
 }
 
 type toyChapter struct {
@@ -210,6 +215,7 @@ func metadataMatches(raw json.RawMessage, predicates []normalizedMetadataPredica
 func NewToyEngine(opts ...Option) *ToyEngine {
 	engine := &ToyEngine{
 		jobRecords:       make(map[jobdb.JobKey]*jobRecord),
+		schemas:          make(map[jobdb.JobSchemaKey]*toySchemaRecord),
 		schedules:        make(map[jobdb.ScheduleKey]*toyScheduleRecord),
 		runtimeChapters:  make(map[jobdb.JobKey]map[int64]jobdb.Chapter),
 		runtimeArtifacts: make(map[runtimeArtifactKey][]byte),

@@ -56,6 +56,9 @@ func New(db *gorm.DB, strataClient *strataclient.Client) *Runtime {
 		if err := migrateSchedules(context.Background(), udb); err != nil {
 			rt.logger.Warn("failed to migrate schedule tables", "error", err)
 		}
+		if err := migrateJobSchemas(context.Background(), udb); err != nil {
+			rt.logger.Warn("failed to migrate schema tables", "error", err)
+		}
 	}
 	return rt
 }
