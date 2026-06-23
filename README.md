@@ -1,722 +1,119 @@
 # jobdb
 
-A durable workflow library for Go that provides reliable, long-running workflow orchestration with built-in retry logic, timeout handling, and persistent state management.
+`jobdb` is a runtime server for durable jobs. The main entry point in this repo
+is `cmd/jobdb`, which serves the JobDB runtime REST API over HTTP using one of
+the available storage backends.
 
-## What is jobdb?
+Use the server when you want a standalone runtime process that workers and other
+clients can talk to over the remote runtime protocol.
 
-jobdb is a workflow orchestration library that helps you build reliable, distributed workflows. It handles the complexity of managing workflow state, retries, timeouts, and task coordination so you can focus on your business logic.
+## Quick Start
 
-**Key Features:**
-- **Durable Workflows**: Workflow state persists across failures and restarts
-- **Task Orchestration**: Break workflows into reusable task units
-- **Automatic Retries**: Configurable retry policies with exponential backoff
-- **Timeout Management**: Set invocation and total timeout limits
-- **Async Child Workflows**: Spawn and await child workflows
-- **Artifact Support**: Handle large files and binary data efficiently
-- **Multi-Tenant**: Built-in tenant isolation
-- **Job Querying**: List and filter jobs with flexible criteria
-- **Schedules**: First-class recurring jobs with pause/resume/archive support
-- **Embedded SQLite Runtime**: Durable local execution without external services
-- **Remote Runtime Protocol**: REST runtime adapter with tokenized lease operations
-
-## Installation
-
-```bash
-go get github.com/colony-2/jobdb
-```
-
-## Local Runtime CLI
-
-The repo includes a Cobra-based local runtime server at `cmd/jobdb`.
-
-Run the default SQLite-backed embedded runtime:
+Run the default SQLite-backed server:
 
 ```bash
 go run ./cmd/jobdb --listen 127.0.0.1:9047 --db jobdb.db
 ```
 
-The SQLite runtime stores jobs, chapters, artifacts, leases, and schedules in a
-local SQLite database plus a blob directory.
+This starts the runtime API at `http://127.0.0.1:9047`. SQLite is the default
+backend and persists runtime state in `jobdb.db`; large artifacts are stored in a
+blob directory that defaults to `<db>.blobs`.
 
-Run the in-memory toy runtime explicitly:
+The explicit SQLite subcommand is equivalent:
+
+```bash
+go run ./cmd/jobdb sqlite --listen 127.0.0.1:9047 --db jobdb.db
+```
+
+Stop the server with `Ctrl-C` or `SIGTERM`; the command shuts the HTTP server
+down before closing backend resources.
+
+## Backend Options
+
+### SQLite
+
+SQLite is the default embedded durable backend.
+
+```bash
+go run ./cmd/jobdb sqlite \
+  --listen 127.0.0.1:9047 \
+  --db ./jobdb.db \
+  --blob-dir ./jobdb.blobs
+```
+
+Flags:
+
+- `--db`: SQLite database path. Defaults to `jobdb.db`.
+- `--blob-dir`: directory for large artifacts. Defaults to `<db>.blobs`.
+- `--sqlite-dsn`: SQLite DSN. Overrides `--db` and `JOBDB_SQLITE_DSN`.
+- `--listen`: HTTP listen address. Defaults to `127.0.0.1:9047`.
+
+Environment:
+
+- `JOBDB_SQLITE_DSN`: SQLite DSN used when `--sqlite-dsn` is not set.
+
+### Toy
+
+The toy backend is in-memory. It is useful for local experiments and tests, not
+for durable execution.
 
 ```bash
 go run ./cmd/jobdb toy --listen 127.0.0.1:9047
 ```
 
-For Go module migration details, including moving embedded direct-runtime users
-to SQLite, see
-[`docs/MIGRATION-SQLITE-EMBEDDED-RUNTIME.md`](docs/MIGRATION-SQLITE-EMBEDDED-RUNTIME.md).
+### Direct
 
-## Quick Start
+The direct backend uses Postgres-backed `pgwf` for job state and an embedded
+Strata daemon for chapter and artifact storage. It installs or verifies the
+`pgwf` schema on startup.
 
-Here's a simple workflow that processes data through multiple tasks:
-
-```go
-package main
-
-import (
-    "context"
-    "log"
-
-    "github.com/colony-2/jobdb/pkg/jobdb"
-    "github.com/colony-2/jobdb/pkg/workflow"
-    toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
-)
-
-// Define a job worker (orchestrates tasks)
-type DataProcessingJob struct{}
-
-func (j DataProcessingJob) Name() string { return "data_processing" }
-
-func (j DataProcessingJob) Run(ctx workflow.JobContext, input jobdb.JobData) (jobdb.JobData, error) {
-    // Execute tasks in sequence
-    result, err := ctx.DoTask(jobdb.DefaultRunPolicy(), "validate", input)
-    if err != nil {
-        return nil, err
-    }
-
-    result, err = ctx.DoTask(jobdb.DefaultRunPolicy(), "transform", result)
-    if err != nil {
-        return nil, err
-    }
-
-    return result, nil
-}
-
-// Define task workers
-type ValidateTask struct{}
-
-func (t ValidateTask) Name() string { return "validate" }
-
-func (t ValidateTask) Run(ctx workflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
-    // Your validation logic here
-    return input, nil
-}
-
-type TransformTask struct{}
-
-func (t TransformTask) Name() string { return "transform" }
-
-func (t TransformTask) Run(ctx workflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
-    // Your transformation logic here
-    return input, nil
-}
-
-func main() {
-    ctx := context.Background()
-    runtime := toyruntime.New()
-
-    // Build the engine
-    engine, err := workflow.NewEngineBuilder().
-        WithRuntime(runtime).
-        WithWorkerTenantId("my-tenant").
-        PlusWorkers(DataProcessingJob{}, ValidateTask{}, TransformTask{}).
-        BuildEngine()
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    // Start the engine worker loop
-    go engine.Run(ctx)
-
-    // Start a job
-    input := jobdb.NewTaskDataOrPanic(map[string]interface{}{"value": 42})
-    jobKey, err := engine.SubmitJob(ctx, jobdb.SubmitJob{
-        TenantId: "my-tenant",
-        JobType:  "data_processing",
-        Data:     input,
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    log.Printf("Started job: %s", jobKey)
-}
+```bash
+JOBDB_POSTGRES_DSN='postgres://user:pass@localhost:5432/jobdb?sslmode=disable' \
+  go run ./cmd/jobdb direct --listen 127.0.0.1:9047
 ```
 
-## Core Concepts
+Flags:
 
-### Jobs vs Tasks
+- `--postgres-dsn`: Postgres DSN for `pgwf` state.
+- `--listen`: HTTP listen address. Defaults to `127.0.0.1:9047`.
 
-- **Jobs** are the top-level workflows that orchestrate tasks. A job worker defines the workflow logic.
-- **Tasks** are individual units of work within a job. Task workers implement specific operations.
+Environment:
 
-Jobs use `workflow.JobContext` to execute tasks, wait, and spawn child workflows. Tasks receive `workflow.TaskContext` for execution context.
+- `JOBDB_POSTGRES_DSN`: Postgres DSN used when `--postgres-dsn` is not set.
 
-### JobWorker Interface
+## Runtime API
 
-```go
-type JobWorker interface {
-    Name() string
-    Run(workflow.JobContext, jobdb.JobData) (jobdb.JobData, error)
-}
-```
+The server exposes the JobDB runtime REST API. The wire contract is documented
+in [openapi/jobdb-runtime.yaml](openapi/jobdb-runtime.yaml).
 
-Your job worker orchestrates the workflow:
+Go clients normally use the remote runtime adapter:
 
 ```go
-func (j MyJob) Run(ctx workflow.JobContext, input jobdb.JobData) (jobdb.JobData, error) {
-    // Execute tasks
-    result, err := ctx.DoTask(policy, "task-name", taskInput)
-    if err != nil {
-        return nil, err
-    }
-
-    // Wait/sleep
-    if err := ctx.AwaitDuration(jobdb.Duration(5 * time.Minute)); err != nil {
-        return nil, err
-    }
-
-    // Wait for another job in the same tenant
-    if err := ctx.AwaitJobs(childJobID); err != nil {
-        return nil, err
-    }
-
-    return result, nil
-}
+runtime, err := remoteruntime.New("http://127.0.0.1:9047", nil)
 ```
 
-### TaskWorker Interface
+See [pkg/jobdb/README.md](pkg/jobdb/README.md) for the Go runtime API, data
+types, and runtime package reference.
 
-```go
-type TaskWorker interface {
-    Name() string
-    Run(workflow.TaskContext, jobdb.TaskData) (jobdb.TaskData, error)
-}
+## Go Workflow Workers
+
+Workflow workers are intentionally documented separately from the server. If you
+are writing job workers, task workers, or a process that runs worker loops, use
+the `pkg/workflow` package.
+
+See [pkg/workflow/README.md](pkg/workflow/README.md).
+
+## Development
+
+Run the full test suite:
+
+```bash
+go test ./...
 ```
 
-Your task worker implements a specific operation:
-
-```go
-func (t MyTask) Run(ctx workflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
-    // Access job context
-    ctx.Logger.Info("processing task", "job", ctx.JobKey, "step", ctx.Step)
-
-    // Wait if needed
-    ctx.AwaitDuration(jobdb.Duration(30 * time.Second))
-
-    // Return result
-    return jobdb.NewTaskData(result)
-}
-```
-
-## Working with Data
-
-### Creating TaskData
-
-```go
-// From a struct or map
-data, err := jobdb.NewTaskData(map[string]interface{}{
-    "userId": 123,
-    "action": "process",
-})
-
-// Panic version for tests/simple cases
-data := jobdb.NewTaskDataOrPanic(myStruct)
-
-// With artifacts
-data, err := jobdb.NewTaskData(payload, artifact1, artifact2)
-```
-
-### Reading TaskData
-
-```go
-func (t MyTask) Run(ctx workflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
-    // Get raw JSON data
-    rawData, err := input.GetData()
-    if err != nil {
-        return nil, err
-    }
-
-    // Unmarshal into your struct
-    var payload MyPayload
-    if err := json.Unmarshal(rawData, &payload); err != nil {
-        return nil, err
-    }
-
-    // Access artifacts
-    artifacts, err := input.GetArtifacts()
-    if err != nil {
-        return nil, err
-    }
-
-    return jobdb.NewTaskData(result)
-}
-```
-
-## Working with Artifacts
-
-Artifacts represent file-like data that flows through workflows. They support lazy loading and automatic cleanup.
-
-### Creating Artifacts
-
-```go
-// From bytes (in-memory)
-artifact := jobdb.NewArtifactFromBytes("config.json", jsonBytes)
-
-// From a reader
-artifact := jobdb.NewArtifactFromReader("output.txt", reader, size)
-
-// From a file (auto-cleanup enabled)
-artifact, err := jobdb.NewArtifactFromFile("build.tar.gz", "/tmp/build.tar.gz")
-
-// From a file (no cleanup)
-artifact, err := jobdb.NewArtifactFromFileNoCleanup("data.csv", "/data/input.csv")
-
-// Custom artifact with full control
-artifact := jobdb.NewArtifact("custom.dat",
-    func() (io.ReadCloser, int64, error) {
-        // Your opener logic
-        f, _ := os.Open(path)
-        info, _ := f.Stat()
-        return f, info.Size(), nil
-    },
-    func() error {
-        // Your cleanup logic
-        return os.Remove(path)
-    },
-)
-```
-
-### Using Artifacts
-
-```go
-// Get artifact metadata
-name := artifact.Name()           // "output.tar.gz"
-size := artifact.Size()            // size in bytes
-
-// Stream artifact contents
-rc, err := artifact.Open()
-if err != nil {
-    return err
-}
-defer rc.Close()
-// ... read from rc
-
-// Write to a file
-err = artifact.SaveToFile(ctx, "/output/file.tar.gz")
-
-// Get full contents (use carefully for large files)
-data, err := artifact.Bytes(ctx)
-
-// Compute SHA256 hash
-hash, err := artifact.Sha256(ctx)
-```
-
-### Artifacts in Tasks
-
-```go
-func (t ProcessFileTask) Run(ctx workflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
-    artifacts, err := input.GetArtifacts()
-    if err != nil {
-        return nil, err
-    }
-
-    // Process the first artifact
-    if len(artifacts) > 0 {
-        inputFile := artifacts[0]
-
-        // Save to local file for processing
-        tmpPath := "/tmp/input.dat"
-        if err := inputFile.SaveToFile(context.Background(), tmpPath); err != nil {
-            return nil, err
-        }
-
-        // Process the file...
-        processFile(tmpPath)
-
-        // Create output artifact
-        outputArtifact, err := jobdb.NewArtifactFromFile("output.dat", "/tmp/output.dat")
-        if err != nil {
-            return nil, err
-        }
-
-        return jobdb.NewTaskData(result, outputArtifact)
-    }
-
-    return input, nil
-}
-```
-
-## Retry and Timeout Policies
-
-### RunPolicy Configuration
-
-```go
-policy := jobdb.RunPolicy{
-    Retry: jobdb.RetryPolicy{
-        InitialInterval:    jobdb.Duration(100 * time.Millisecond),
-        BackoffCoefficient: 2.0,
-        MaximumInterval:    jobdb.Duration(30 * time.Second),
-        MaximumAttempts:    5,
-        NonRetryableErrorTypes: []string{"ValidationError"},
-    },
-    InvocationTimeout: jobdb.AsDuration(30 * time.Second),  // Per attempt
-    TotalTimeout:      jobdb.AsDuration(10 * time.Minute),  // Overall
-}
-
-result, err := ctx.DoTask(policy, "my-task", input)
-```
-
-### Default Policy
-
-```go
-// Use the default policy
-result, err := ctx.DoTask(jobdb.DefaultRunPolicy(), "my-task", input)
-
-// Default values:
-// - InvocationTimeout: 30 seconds
-// - TotalTimeout: 30 minutes
-// - InitialInterval: 100ms
-// - BackoffCoefficient: 2.0
-// - MaximumInterval: 30 seconds
-// - MaximumAttempts: 3
-```
-
-## Error Handling
-
-### Application Errors
-
-Regular errors returned from your workers are treated as application errors and will trigger retries according to the retry policy:
-
-```go
-func (t MyTask) Run(ctx workflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
-    if err := validateInput(input); err != nil {
-        return nil, fmt.Errorf("validation failed: %w", err)
-    }
-    return result, nil
-}
-```
-
-### System Errors
-
-System errors represent infrastructure failures:
-
-```go
-if err := connectToDatabase(); err != nil {
-    return nil, jobdb.NewSystemError(jobdb.SystemErrorPayload{
-        Message:   "database connection failed",
-        Component: "database",
-        Code:      "connection_error",
-        Retryable: true,
-    })
-}
-```
-
-### Non-Retryable Errors
-
-Mark errors as non-retryable to stop retry attempts immediately:
-
-```go
-type ValidationError struct {
-    error
-}
-
-func (e ValidationError) NonRetryable() bool {
-    return true
-}
-
-// Usage
-if !isValid(input) {
-    return nil, ValidationError{errors.New("invalid input")}
-}
-```
-
-### Checking Error Types
-
-```go
-if jobdb.IsAppError(err) {
-    // Handle application error
-}
-
-if jobdb.IsSystemError(err) {
-    // Handle system error
-}
-```
-
-## Advanced Features
-
-### Awaiting Jobs
-
-Wait for previously submitted jobs before continuing:
-
-```go
-func (j ParentJob) Run(ctx workflow.JobContext, input jobdb.JobData) (jobdb.JobData, error) {
-    if err := ctx.AwaitJobs(childJobID); err != nil {
-        return nil, err
-    }
-
-    return input, nil
-}
-```
-
-### Job Restart
-
-Restart a failed job from a specific step:
-
-```go
-newJobKey, err := engine.SubmitRestartJob(ctx, jobdb.SubmitRestartJob{
-    PriorJobKey:    failedJobKey,
-    LastStepToKeep: 5,  // Replay from step 6 onwards
-    ExtraTaskInput:  newInput,
-    ExtraTaskOutput: newOutput,
-})
-```
-
-### Job Cancellation
-
-```go
-err := engine.CancelJob(ctx, jobdb.CancelJob{
-    JobKey: jobKey,
-    Reason: "user requested cancellation",
-})
-```
-
-### Checking Job Status
-
-```go
-status, err := engine.CheckJobStatus(ctx, jobKey)
-
-switch status {
-case jobdb.JobStatusCompleted:
-    // Job finished successfully
-case jobdb.JobStatusActive:
-    // Job is running
-case jobdb.JobStatusCancelled:
-    // Job was cancelled
-case jobdb.JobStatusReady:
-    // Job is ready to run
-}
-```
-
-### Getting Job Results
-
-```go
-result, err := engine.GetJobResult(ctx, jobKey)
-if err == jobdb.ErrJobNotComplete {
-    // Job hasn't completed yet
-    return
-}
-
-// Use result
-data, _ := result.GetData()
-```
-
-### Listing Jobs
-
-```go
-resp, err := engine.ListJobs(ctx, jobdb.ListJobsRequest{
-    TenantIds:     []string{"my-tenant"},
-    Statuses:      []jobdb.JobStatus{jobdb.JobStatusActive, jobdb.JobStatusCompleted},
-    JobTypes:      []string{"data-processing"},
-    PageSize:      50,
-    PageToken:     "", // empty for first page
-})
-
-for _, job := range resp.Jobs {
-    log.Printf("Job %s: %s", job.JobKey, job.Status)
-}
-
-// Get next page
-if resp.NextPageToken != "" {
-    nextResp, err := engine.ListJobs(ctx, jobdb.ListJobsRequest{
-        PageToken: resp.NextPageToken,
-        // ... other filters
-    })
-}
-```
-
-### Schedules
-
-Schedules are runtime-owned recurring job definitions. A schedule target is the
-same shape as a job start: job type, input `TaskData`, run policy, and app
-metadata. The runtime stores the target, including an artifact snapshot, and
-materializes each occurrence as a normal app job.
-
-```go
-start := time.Now().UTC()
-
-info, err := engine.UpsertSchedule(ctx, jobdb.UpsertScheduleRequest{
-    TenantId:   "my-tenant",
-    ScheduleId: "daily-cleanup",
-    Trigger: jobdb.ScheduleTrigger{
-        Kind:     jobdb.ScheduleTriggerInterval,
-        Interval: 24 * time.Hour,
-        StartAt:  &start,
-    },
-    Target: jobdb.ScheduleTarget{
-        JobType:  "data-processing",
-        Data:     jobdb.JobData(jobdb.NewTaskDataOrPanic(map[string]any{"bucket": "reports"})),
-        Metadata: json.RawMessage(`{"owner":"analytics"}`),
-    },
-    OverlapPolicy: jobdb.ScheduleOverlapSerial,
-})
-if err != nil {
-    return err
-}
-
-log.Printf("next scheduled job: %s", info.NextJobKey)
-```
-
-The schedule API includes `GetSchedule`, `ListSchedules`, `PauseSchedule`,
-`ResumeSchedule`, `ArchiveSchedule`, `TriggerSchedule`, and
-`ListScheduleRuns`. With serial overlap policy, the runtime submits the next
-occurrence before app execution starts, but makes it wait for the previous
-occurrence to complete before it can be leased.
-
-### External Task Completion
-
-For tasks that require external input (e.g., human approval), you can complete them externally:
-
-```go
-// Find tasks waiting for capability
-handles, err := engine.FindTasksWaitingForCapability(ctx,
-    "approval-job",    // job type
-    "human-approval",  // task type
-    []string{"tenant-1"}, // tenants (nil for all)
-)
-
-for _, handle := range handles {
-    // Get task input
-    input, err := handle.Data()
-
-    // ... process externally ...
-
-    // Complete the task
-    output := jobdb.NewTaskDataOrPanic(approvalResult)
-    err = handle.Finish(ctx, output)
-}
-```
-
-## Engine Configuration
-
-### Builder Options
-
-```go
-runtime := toyruntime.New()
-
-engine, err := workflow.NewEngineBuilder().
-    WithRuntime(runtime).                                  // Required
-    WithWorkerTenantId("tenant-1").                        // Required when running workers
-    WithMaxActive(10).                                      // Concurrent task limit
-    WithLogger(logger).                                     // Custom logger
-    WithAwaitRecycleThreshold(5 * time.Minute).            // Await recycle threshold
-    PlusWorkers(job1, task1, task2).                       // Register workers
-    PlusWorkers(job2, task3).                               // Add more workers
-    BuildEngine()
-```
-
-### Registering Workers
-
-#### At Engine Build Time
-
-Workers can be registered during engine construction:
-
-```go
-builder := workflow.NewEngineBuilder().
-    WithRuntime(runtime).
-    WithWorkerTenantId("tenant-1")
-
-// Register a job with its tasks
-builder.PlusWorkers(
-    MyJobWorker{},
-    Task1{},
-    Task2{},
-)
-
-// Register another job
-builder.PlusWorkers(
-    AnotherJobWorker{},
-    Task3{},
-)
-
-engine, err := builder.BuildEngine()
-```
-
-#### After Engine Start (Dynamic Registration)
-
-Workers can also be registered after the engine has started:
-
-```go
-// Engine was built with WithWorkerTenantId("my-tenant") and is already running.
-go engine.Run(ctx)
-
-// Create a workset
-workset, err := workflow.AsWorkSet(
-    NewJobWorker{},
-    NewTask1{},
-    NewTask2{},
-)
-if err != nil {
-    log.Fatal(err)
-}
-
-// Register dynamically
-err = engine.RegisterWorkers(workset)
-if err != nil {
-    log.Fatal(err)
-}
-
-// The engine can now process jobs of type NewJobWorker.Name()
-```
-
-This is useful for:
-- Plugin systems where workers are loaded dynamically
-- Multi-tenant systems where different tenants have different workflows
-- Hot-reloading worker implementations without restarting the engine
-
-### Running the Engine
-
-```go
-ctx := context.Background()
-
-// Run the engine worker loop (blocks)
-engine.Run(ctx)
-
-// Or run in background
-go engine.Run(ctx)
-
-// Cancel when done
-ctx, cancel := context.WithCancel(context.Background())
-defer cancel()
-
-go engine.Run(ctx)
-// ... do work ...
-cancel() // Gracefully stop the engine
-```
-
-Engines with registered workers must be built with `WithWorkerTenantId`.
-The worker loop polls only that tenant; run a separate engine for another
-tenant.
-
-## Best Practices
-
-1. **Keep Tasks Idempotent**: Tasks may be retried, so ensure they can safely run multiple times
-2. **Use Appropriate Timeouts**: Set realistic invocation and total timeouts based on expected task duration
-3. **Handle Large Data with Artifacts**: Use artifacts for files and binary data instead of embedding in TaskData
-4. **Log Generously**: Use `ctx.Logger` to log progress and debug issues
-5. **Design for Failure**: Workflows should gracefully handle task failures and retries
-6. **Clean Up Resources**: Implement proper cleanup in artifact handlers
-7. **Use Singleton Keys**: For jobs that should only run once (e.g., daily reports)
-8. **Monitor Job Status**: Use ListJobs and CheckJobStatus to monitor workflow health
-
-## Architecture Notes
-
-jobdb can run against several runtime backends:
-
-- **SQLite runtime**: Stores workflow state, leases, schedules, Strata row data,
-  and blobfs artifacts locally. This is the default embedded runtime and the
-  default `jobdb` mode.
-- **Postgres/Strata direct runtime**: Stores workflow state and coordinates
-  distributed execution through pgwf, with workflow data and artifacts in
-  Strata.
-- **Remote runtime**: Uses the same `WorkflowRuntime` API over REST. The server
-  owns lease tokens and schedule preflight; clients and workers stay generic.
-
-Multiple engine instances can run concurrently when the selected runtime backend
-supports shared coordination.
-
-## License
-
-See LICENSE file for details.
+Useful references:
+
+- [pkg/jobdb/README.md](pkg/jobdb/README.md): runtime API, data types, and backend packages.
+- [pkg/workflow/README.md](pkg/workflow/README.md): workflow SDK, workers, and engines.
+- [docs/API-SURFACE.md](docs/API-SURFACE.md): supported public packages.
+- [docs/SPEC-OpenAPI-Runtime-Contract.md](docs/SPEC-OpenAPI-Runtime-Contract.md): runtime REST contract notes.
