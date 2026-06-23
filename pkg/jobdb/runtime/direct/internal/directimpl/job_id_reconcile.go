@@ -31,7 +31,7 @@ type restartExtraExpectation struct {
 	Prerequisites []jobdb.JobPrerequisite
 }
 
-func (r *Runtime) reconcileExistingSubmitJob(ctx context.Context, req jobdb.SubmitJobRequest, jobKey jobdb.JobKey, inputHash string, prereqs []jobdb.JobPrerequisite, waitFor []pgwf.JobID, jobPolicy jobdb.RunPolicy) (jobdb.JobHandle, bool, error) {
+func (r *Runtime) reconcileExistingSubmitJob(ctx context.Context, req jobdb.SubmitJobRequest, jobKey jobdb.JobKey, inputHash string, prereqs []jobdb.JobPrerequisite, waitFor []pgwf.JobID, jobPolicy jobdb.RunPolicy, schemaHash string) (jobdb.JobHandle, bool, error) {
 	start, exists, err := r.loadExistingStartChapter(ctx, jobKey)
 	if err != nil {
 		return jobdb.JobHandle{}, false, err
@@ -50,7 +50,7 @@ func (r *Runtime) reconcileExistingSubmitJob(ctx context.Context, req jobdb.Subm
 	if err := compareSubmitStartChapter(jobKey, start, req.Job.JobType, inputHash, req.Job.Metadata, prereqs, jobPolicy); err != nil {
 		return jobdb.JobHandle{}, true, err
 	}
-	storedMetadata, err := jobdb.BuildJobMetadataEnvelope(req.Job.Metadata, jobdb.RuntimeJobMetadata{})
+	storedMetadata, err := jobdb.BuildJobMetadataEnvelope(req.Job.Metadata, jobdb.RuntimeJobMetadata{SchemaHash: schemaHash})
 	if err != nil {
 		return jobdb.JobHandle{}, true, err
 	}
@@ -79,7 +79,7 @@ func (r *Runtime) reconcileExistingSubmitJob(ctx context.Context, req jobdb.Subm
 	return jobdb.JobHandle{JobKey: jobKey}, true, nil
 }
 
-func (r *Runtime) reconcileExistingRestartJob(ctx context.Context, req jobdb.SubmitRestartJobRequest, jobKey jobdb.JobKey, prereqs []jobdb.JobPrerequisite, waitFor []pgwf.JobID, jobType string, jobPolicy jobdb.RunPolicy, extra restartExtraExpectation) (jobdb.JobHandle, bool, error) {
+func (r *Runtime) reconcileExistingRestartJob(ctx context.Context, req jobdb.SubmitRestartJobRequest, jobKey jobdb.JobKey, prereqs []jobdb.JobPrerequisite, waitFor []pgwf.JobID, jobType string, jobPolicy jobdb.RunPolicy, extra restartExtraExpectation, storedMetadata json.RawMessage) (jobdb.JobHandle, bool, error) {
 	storyExists, err := r.storyExists(ctx, jobKey)
 	if err != nil {
 		return jobdb.JobHandle{}, false, err
@@ -113,14 +113,14 @@ func (r *Runtime) reconcileExistingRestartJob(ctx context.Context, req jobdb.Sub
 		if lastOrdinal != expectedLast {
 			return jobdb.JobHandle{}, true, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s has strata history through ordinal %d but no pgwf record to recover", jobKey, lastOrdinal))
 		}
-		if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, nil, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, nil); err != nil {
+		if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, nil); err != nil {
 			return jobdb.JobHandle{}, true, err
 		}
 	case err != nil:
 		return jobdb.JobHandle{}, true, err
 	default:
-		if !jsonObjectsEqual(detail.Metadata, nil) {
-			return jobdb.JobHandle{}, true, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with unexpected metadata", jobKey))
+		if !jsonObjectsEqual(detail.Metadata, storedMetadata) {
+			return jobdb.JobHandle{}, true, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different metadata", jobKey))
 		}
 	}
 

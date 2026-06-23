@@ -13,6 +13,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobschema"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/leaseauth"
 	strataartifact "github.com/colony-2/strata-go/pkg/client/artifact"
 	"github.com/colony-2/strata-go/pkg/client/core"
@@ -40,7 +41,11 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 	if err := jobdb.ValidateApplicationMetadata(req.Job.Metadata); err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	storedMetadata, err := jobdb.BuildJobMetadataEnvelope(req.Job.Metadata, jobdb.RuntimeJobMetadata{})
+	schemaHash, err := jobschema.ResolveActiveForNewJob(ctx, r, req.Job.TenantId, req.Job.Schema)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	storedMetadata, err := jobdb.BuildJobMetadataEnvelope(req.Job.Metadata, jobdb.RuntimeJobMetadata{SchemaHash: schemaHash})
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -66,7 +71,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 	}
 	if _, err := r.strataClient.CreateStory(sctx, storyKeyForJob(jobKey), story.CreateOptions{RequestID: uuid.New().String(), InitialChapter: initialChapter}); err != nil {
 		if req.Job.JobID != "" && errors.Is(err, core.ErrConflict) {
-			if handle, handled, reconcileErr := r.reconcileExistingSubmitJob(ctx, req, jobKey, inputHash, prereqs, waitFor, jobPolicy); handled || reconcileErr != nil {
+			if handle, handled, reconcileErr := r.reconcileExistingSubmitJob(ctx, req, jobKey, inputHash, prereqs, waitFor, jobPolicy, schemaHash); handled || reconcileErr != nil {
 				return handle, reconcileErr
 			}
 		}
@@ -98,6 +103,14 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 		jobKey.JobId = ksuid.New().String()
 	}
 	if err := jobKey.Validate(); err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	schemaHash, err := jobschema.ResolveActiveForNewJob(ctx, r, job.PriorJobKey.TenantId, job.Schema)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	storedMetadata, err := jobdb.BuildJobMetadataEnvelope(nil, jobdb.RuntimeJobMetadata{SchemaHash: schemaHash})
+	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
 	sctx := strataContext(ctx)
@@ -170,7 +183,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 		CreateOptions:  createOptions,
 	}); err != nil {
 		if job.JobID != "" && errors.Is(err, core.ErrConflict) {
-			if handle, handled, reconcileErr := r.reconcileExistingRestartJob(ctx, req, jobKey, prereqs, waitFor, jobType, jobPolicy, extra); handled || reconcileErr != nil {
+			if handle, handled, reconcileErr := r.reconcileExistingRestartJob(ctx, req, jobKey, prereqs, waitFor, jobType, jobPolicy, extra, storedMetadata); handled || reconcileErr != nil {
 				return handle, reconcileErr
 			}
 		}
@@ -182,7 +195,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 			cleanupArtifacts(artifacts, r.logger)
 		}
 	}
-	if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, nil, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, nil); err != nil {
+	if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, nil); err != nil {
 		return jobdb.JobHandle{}, err
 	}
 	return jobdb.JobHandle{JobKey: jobKey}, nil
@@ -546,8 +559,9 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 		return jobdb.JobInfo{}, err
 	}
 	job := jobdb.JobInfo{
-		Status: status,
-		Data:   &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
+		Status:     status,
+		Data:       &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
+		SchemaHash: jobmetadata.SchemaHashFromStoredMetadata(row.metadata),
 	}
 	if row.archivedAtNS.Valid {
 		st, err := r.strataClient.Story(strataContext(ctx), storyKeyForJob(jobKey))
@@ -701,6 +715,7 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 			ArchivedAt:      nullTimeFromNS(row.archivedAtNS),
 			Payload:         jobPayloadVisibleJSON(row.payload),
 			Metadata:        jobdb.StripRuntimeMetadata(row.metadata),
+			SchemaHash:      jobmetadata.SchemaHashFromStoredMetadata(row.metadata),
 		}
 		if tw, waitErr := extractTaskWaitFromRaw(row.payload); waitErr == nil && tw != nil {
 			summary.TaskWaitInput = &tw.InputStep

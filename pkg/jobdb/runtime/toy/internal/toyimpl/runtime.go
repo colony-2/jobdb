@@ -14,6 +14,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobschema"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/leaseauth"
 	"github.com/segmentio/ksuid"
 )
@@ -67,7 +68,11 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 	if err := jobdb.ValidateApplicationMetadata(req.Job.Metadata); err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	storedMetadata, err := jobdb.BuildJobMetadataEnvelope(req.Job.Metadata, jobdb.RuntimeJobMetadata{})
+	schemaHash, err := jobschema.ResolveActiveForNewJob(ctx, r, req.Job.TenantId, req.Job.Schema)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	storedMetadata, err := jobdb.BuildJobMetadataEnvelope(req.Job.Metadata, jobdb.RuntimeJobMetadata{SchemaHash: schemaHash})
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -76,7 +81,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 		if err != nil {
 			return jobdb.JobHandle{}, err
 		}
-		if handle, ok, err := r.existingEquivalentJob(jobKey, req.Job, inputHash); ok || err != nil {
+		if handle, ok, err := r.existingEquivalentJob(jobKey, req.Job, inputHash, schemaHash); ok || err != nil {
 			return handle, err
 		}
 	}
@@ -162,7 +167,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 	return jobdb.JobHandle{JobKey: jobKey}, nil
 }
 
-func (r *Runtime) existingEquivalentJob(jobKey jobdb.JobKey, job jobdb.SubmitJob, inputHash string) (jobdb.JobHandle, bool, error) {
+func (r *Runtime) existingEquivalentJob(jobKey jobdb.JobKey, job jobdb.SubmitJob, inputHash string, schemaHash string) (jobdb.JobHandle, bool, error) {
 	r.engine.mu.Lock()
 	defer r.engine.mu.Unlock()
 
@@ -180,7 +185,7 @@ func (r *Runtime) existingEquivalentJob(jobKey jobdb.JobKey, job jobdb.SubmitJob
 	if start.InputHash != inputHash {
 		return jobdb.JobHandle{}, false, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different input", jobKey))
 	}
-	storedMetadata, err := jobdb.BuildJobMetadataEnvelope(job.Metadata, jobdb.RuntimeJobMetadata{})
+	storedMetadata, err := jobdb.BuildJobMetadataEnvelope(job.Metadata, jobdb.RuntimeJobMetadata{SchemaHash: schemaHash})
 	if err != nil {
 		return jobdb.JobHandle{}, false, err
 	}
@@ -225,6 +230,17 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 		}
 		jobKey = genKey
 	}
+	if err := jobKey.Validate(); err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	schemaHash, err := jobschema.ResolveActiveForNewJob(ctx, r, req.Job.PriorJobKey.TenantId, req.Job.Schema)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	storedMetadata, err := jobdb.BuildJobMetadataEnvelope(nil, jobdb.RuntimeJobMetadata{SchemaHash: schemaHash})
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
 
 	r.engine.mu.Lock()
 	defer r.engine.mu.Unlock()
@@ -262,7 +278,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 		return jobdb.JobHandle{}, jobdb.ErrJobNotFound
 	}
 	if req.Job.JobID != "" {
-		if handle, ok, err := r.existingEquivalentRestartJob(jobKey, req.Job, targetChapters); ok || err != nil {
+		if handle, ok, err := r.existingEquivalentRestartJob(jobKey, req.Job, targetChapters, storedMetadata); ok || err != nil {
 			return handle, err
 		}
 	}
@@ -282,6 +298,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 		status:      jobdb.JobStatusReady,
 		jobType:     jobType,
 		createdAt:   time.Now().UTC(),
+		metadata:    cloneJSON(storedMetadata),
 		payload:     payloadJSON,
 		capability:  jobType,
 		chapters:    make(map[int64]*toyChapter),
@@ -305,13 +322,16 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 	return jobdb.JobHandle{JobKey: jobKey}, nil
 }
 
-func (r *Runtime) existingEquivalentRestartJob(jobKey jobdb.JobKey, job jobdb.SubmitRestartJob, expected map[int64]jobdb.Chapter) (jobdb.JobHandle, bool, error) {
+func (r *Runtime) existingEquivalentRestartJob(jobKey jobdb.JobKey, job jobdb.SubmitRestartJob, expected map[int64]jobdb.Chapter, expectedMetadata json.RawMessage) (jobdb.JobHandle, bool, error) {
 	record, ok := r.engine.jobRecords[jobKey]
 	if !ok {
 		return jobdb.JobHandle{}, false, nil
 	}
 	if record == nil {
 		return jobdb.JobHandle{}, false, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists without state", jobKey))
+	}
+	if !bytes.Equal(record.metadata, expectedMetadata) {
+		return jobdb.JobHandle{}, false, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different metadata", jobKey))
 	}
 	existing := r.engine.runtimeChapters[jobKey]
 	if existing == nil {
@@ -548,8 +568,9 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 	record.mu.Lock()
 	defer record.mu.Unlock()
 	job := jobdb.JobInfo{
-		Status: record.status,
-		Data:   &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
+		Status:     record.status,
+		Data:       &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
+		SchemaHash: jobmetadata.SchemaHashFromStoredMetadata(record.metadata),
 	}
 	if record.status == jobdb.JobStatusCompleted || record.status == jobdb.JobStatusCancelled {
 		job.Data = &jobInfoTaskData{taskData: record.result, err: record.err}

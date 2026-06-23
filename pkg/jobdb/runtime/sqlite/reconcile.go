@@ -3,6 +3,7 @@ package sqlite
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -12,7 +13,7 @@ import (
 	"github.com/colony-2/strata-go/pkg/client/story"
 )
 
-func (r *Runtime) reconcileExistingSubmitJob(ctx context.Context, req jobdb.SubmitJobRequest, jobKey jobdb.JobKey, inputHash string, prereqs []jobdb.JobPrerequisite, waitFor []string, jobPolicy jobdb.RunPolicy) (jobdb.JobHandle, bool, error) {
+func (r *Runtime) reconcileExistingSubmitJob(ctx context.Context, req jobdb.SubmitJobRequest, jobKey jobdb.JobKey, inputHash string, prereqs []jobdb.JobPrerequisite, waitFor []string, jobPolicy jobdb.RunPolicy, schemaHash string) (jobdb.JobHandle, bool, error) {
 	start, exists, err := r.loadExistingStartChapter(ctx, jobKey)
 	if err != nil {
 		return jobdb.JobHandle{}, false, err
@@ -26,7 +27,7 @@ func (r *Runtime) reconcileExistingSubmitJob(ctx context.Context, req jobdb.Subm
 	if err := compareSubmitStartChapter(jobKey, start, req.Job.JobType, inputHash, req.Job.Metadata, prereqs, jobPolicy); err != nil {
 		return jobdb.JobHandle{}, true, err
 	}
-	storedMetadata, err := jobdb.BuildJobMetadataEnvelope(req.Job.Metadata, jobdb.RuntimeJobMetadata{})
+	storedMetadata, err := jobdb.BuildJobMetadataEnvelope(req.Job.Metadata, jobdb.RuntimeJobMetadata{SchemaHash: schemaHash})
 	if err != nil {
 		return jobdb.JobHandle{}, true, err
 	}
@@ -36,7 +37,7 @@ func (r *Runtime) reconcileExistingSubmitJob(ctx context.Context, req jobdb.Subm
 	return jobdb.JobHandle{JobKey: jobKey}, true, nil
 }
 
-func (r *Runtime) reconcileExistingRestartJob(ctx context.Context, req jobdb.SubmitRestartJobRequest, jobKey jobdb.JobKey, prereqs []jobdb.JobPrerequisite, waitFor []string, jobType string, jobPolicy jobdb.RunPolicy, extra restartExtraExpectation) (jobdb.JobHandle, bool, error) {
+func (r *Runtime) reconcileExistingRestartJob(ctx context.Context, req jobdb.SubmitRestartJobRequest, jobKey jobdb.JobKey, prereqs []jobdb.JobPrerequisite, waitFor []string, jobType string, jobPolicy jobdb.RunPolicy, extra restartExtraExpectation, storedMetadata json.RawMessage) (jobdb.JobHandle, bool, error) {
 	storyExists, err := r.storyExists(ctx, jobKey)
 	if err != nil {
 		return jobdb.JobHandle{}, false, err
@@ -50,7 +51,7 @@ func (r *Runtime) reconcileExistingRestartJob(ctx context.Context, req jobdb.Sub
 	if err := r.compareRestartStoryPrefix(ctx, req.Job, jobKey, extra); err != nil {
 		return jobdb.JobHandle{}, true, err
 	}
-	if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, nil, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, nil); err != nil {
+	if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, nil); err != nil {
 		return jobdb.JobHandle{}, true, err
 	}
 	return jobdb.JobHandle{JobKey: jobKey}, true, nil

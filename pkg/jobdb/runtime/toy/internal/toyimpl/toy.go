@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
 	"github.com/segmentio/ksuid"
 )
 
@@ -823,6 +824,7 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 			ArchivedAt:        rec.archived,
 			Payload:           payloadCopy,
 			Metadata:          metadataCopy,
+			SchemaHash:        jobmetadata.SchemaHashFromStoredMetadata(rec.metadata),
 			TaskWaitInput:     nil,
 			TaskWaitOutput:    nil,
 			TaskWaitInputHash: nil,
