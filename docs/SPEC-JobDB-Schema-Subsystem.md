@@ -2,10 +2,10 @@
 
 ## Status
 
-**Design proposal** | Author: Codex | Updated: 2026-06-23
+**Implemented design** | Author: Codex | Updated: 2026-06-23
 
-This document describes the intended JobDB schema subsystem after the package
-rename from SWF to JobDB. It also records what exists in the current tree.
+This document describes the implemented JobDB schema subsystem after the package
+rename from SWF to JobDB.
 
 ## Decision
 
@@ -21,35 +21,41 @@ job state. A schema is an opaque validation contract associated with a job.
 
 Implemented today:
 
-- Package layout is now `github.com/colony-2/jobdb`.
-- Schema hash extraction exists in
-  `pkg/jobdb/internal/jobmetadata/schema_hash.go`.
-- The reserved metadata key is currently `jobdb_schema_hash`.
-- Remote lease tokens carry `schema_hash` in
-  `pkg/jobdb/runtime/remote/lease_token.go`.
-- `AddChapterWithLease` validates the signed lease token once and passes trusted
-  claims through `pkg/jobdb/internal/leaseauth`.
-- Direct, SQLite, and toy runtimes can stamp a schema hash on execution leases
-  and skip the extra lease-row lookup for token-authorized chapter appends.
-- Keepalive replacement tokens are minted from renewed lease expiry when the
-  backend exposes `KeepAliveLeaseByIDWithExpiry`.
+- Public schema model and errors live in `pkg/jobdb/schema.go` and
+  `pkg/jobdb/errors.go`.
+- Toy, SQLite, direct, and remote runtimes implement `jobdb.JobSchemaRegistry`.
+- SQLite and direct runtimes persist tenant-local schema rows in
+  `jobdb_schemas`.
+- OpenAPI schema endpoints live in `openapi/jobdb-runtime.yaml`; generated
+  runtime bindings live in `pkg/jobdb/internal/runtimeapi/zz_generated.go`.
+- `SubmitJob` and `SubmitRestartJob` accept `JobSchemaSelector`, with either
+  `schemaHash`, inline `schema`, or neither.
+- Inline schemas are canonicalized, hashed, compiled, and registered
+  tenant-locally with put-if-absent semantics.
+- Referenced schemas must exist and be active for new jobs. Archived schemas are
+  rejected for new job creation.
+- Jobs without schemas continue to work with no schema resolution or validation.
+- Resolved schema hashes are stored in the JobDB metadata envelope as
+  `internal.schemaHash`.
+- `JobInfo`, `JobSummary`, remote `ExecutionLease`, and concrete lease test
+  hooks expose `schemaHash`.
+- Remote lease tokens carry `schema_hash`, and
+  `pkg/jobdb/internal/leaseauth` passes trusted claims through the request
+  context.
+- Schema-bound writes validate visible chapter records using JSON Schema draft
+  2020-12 via `pkg/jobdb/internal/jobschema`.
+- Validation runs on `SubmitJob`, `SubmitRestartJob`, `PutChapter`, and
+  `CompleteTaskIfWaiting`.
+- Schema documents are compiled into a process-local cache keyed by
+  `(tenantId, schemaHash)`.
 
-Not implemented yet:
+Remaining intentional gaps:
 
-- No schema registry tables or persistence exist.
-- No public Go schema types or schema registry API exist.
-- No OpenAPI schema registration/get/list/archive endpoints exist.
-- `SubmitJob` and `SubmitRestartJob` cannot formally carry `schemaHash` or an
-  inline schema.
-- No JSON Schema validation runs on submit, chapter append, or
-  commit-if-waiting.
-- No schema archive enforcement exists.
-- No schema document cache exists.
-- `JobInfo`, `JobSummary`, and `ExecutionLease` do not expose schema info as a
-  public field.
-
-The existing hash plumbing is therefore only preparatory. It does not provide
-the complete schema subsystem.
+- Schema validation errors are typed, but the public error payload is still a
+  plain message rather than a structured JSON-pointer report.
+- Schema list APIs are not paginated.
+- There are no schema-specific job query indexes beyond exposing `schemaHash`.
+- The compiled schema cache is process-local and has no eviction policy.
 
 ## Goals
 
@@ -110,8 +116,8 @@ Example:
       "properties": {
         "ordinal": { "const": 0 },
         "body": {
-          "properties": { "type": { "const": "jobStart" } },
-          "required": ["type"]
+          "properties": { "kind": { "const": "jobStart" } },
+          "required": ["kind"]
         }
       },
       "required": ["ordinal", "body"]
@@ -121,11 +127,11 @@ Example:
         "ordinal": { "minimum": 1 },
         "body": {
           "properties": {
-            "type": {
+            "kind": {
               "enum": ["taskAttemptOutcome", "jobAttemptOutcome", "restartExtra"]
             }
           },
-          "required": ["type"]
+          "required": ["kind"]
         }
       },
       "required": ["ordinal", "body"]
@@ -187,7 +193,7 @@ put-if-absent registration. If both `schema` and `schemaHash` are supplied, the
 computed hash must equal `schemaHash`.
 
 When a job uses a schema, JobDB stores the resolved hash in immutable stored job
-metadata. The canonical internal metadata field should be:
+metadata. The canonical internal metadata field is:
 
 ```json
 {
@@ -197,9 +203,9 @@ metadata. The canonical internal metadata field should be:
 }
 ```
 
-The current interim helper also recognizes `jobdb_schema_hash`, `schema_hash`,
-and `schemaHash` at the root, app, or internal metadata level. That compatibility
-behavior should not become the public API for schema selection.
+The metadata helper also recognizes `jobdb_schema_hash`, `schema_hash`, and
+`schemaHash` at the root, app, or internal metadata level for compatibility.
+That compatibility behavior is not the public API for schema selection.
 
 ## Write Enforcement
 
@@ -218,24 +224,24 @@ If no schema is supplied, skip all schema resolution and validation.
 
 ### Submit Restart Job
 
-`SubmitRestartJob` should accept the same schema selector. If omitted, the new
-job has no schema. If supplied, retained restart chapters and the new start
-state must be valid under the new job's schema.
+`SubmitRestartJob` accepts the same schema selector. If omitted, the new job has
+no schema. If supplied, retained restart chapters and the new start state must
+be valid under the new job's schema.
 
 ### Add Chapter With Lease
 
-Remote `add_chapter` should not read the pgwf/job table solely to discover the
+Remote `add_chapter` does not read the pgwf/job table solely to discover the
 schema hash.
 
-The intended path is:
+The path is:
 
 1. Poll or targeted lease acquisition reads the job metadata it already needs.
 2. The lease response and signed lease token include the resolved schema hash.
 3. `add_chapter` validates the token and extracts `(tenantId, jobId, leaseId,
    schemaHash)`.
 4. If `schemaHash` is empty, skip schema validation.
-5. If present, load the schema document from a tenant/hash cache backed by the
-   schema registry.
+5. If present, load the compiled schema validator from a tenant/hash cache
+   backed by the schema registry.
 6. Validate the incoming chapter JSON before storing it.
 
 An archived schema is accepted here because the job already chose that schema
@@ -244,8 +250,8 @@ when it was created.
 ### Commit If Waiting
 
 `commit-if-waiting` is lease-less, so it cannot rely on a lease token. It already
-has to inspect job wait state to enforce guards. During that read/lock, it must
-also obtain the job's schema hash from metadata and validate the output chapter
+has to inspect job wait state to enforce guards. During that read/lock, it
+obtains the job's schema hash from metadata and validates the output chapter
 before committing it.
 
 ### Complete And Reschedule
@@ -260,24 +266,23 @@ job's schema.
 The daemon remains stateless with respect to job execution. A schema document
 cache is allowed because schemas are immutable by hash.
 
-Recommended cache key:
+Cache key:
 
 ```text
 (tenantId, schemaHash)
 ```
 
-Cache values:
+Cache value:
 
-- canonical schema document;
-- compiled JSON Schema validator;
-- registry state at load time.
+- compiled JSON Schema validator.
 
-Archive state is only needed when selecting a schema for a new job. Existing job
-writes may validate against an archived schema by hash.
+Archive state is intentionally not part of the validation cache. Archive state
+is checked only when selecting a schema for a new job. Existing job writes may
+validate against an archived schema by hash.
 
-## Public Go API Additions
+## Public Go API
 
-Recommended public types in `pkg/jobdb`:
+Implemented public types in `pkg/jobdb`:
 
 ```go
 type JobSchemaSelector struct {
@@ -305,9 +310,31 @@ const (
     JobSchemaStateActive   JobSchemaState = "ACTIVE"
     JobSchemaStateArchived JobSchemaState = "ARCHIVED"
 )
+
+type JobSchemaListState string
+
+const (
+    JobSchemaListStateActive   JobSchemaListState = "ACTIVE"
+    JobSchemaListStateArchived JobSchemaListState = "ARCHIVED"
+    JobSchemaListStateAll      JobSchemaListState = "ALL"
+)
+
+type RegisterJobSchemaRequest struct {
+    TenantId string
+    Schema   json.RawMessage
+}
+
+type ListJobSchemasRequest struct {
+    TenantId string
+    State    JobSchemaListState
+}
+
+type ListJobSchemasResponse struct {
+    Schemas []JobSchemaInfo
+}
 ```
 
-Add schema selection to job creation structs:
+Schema selection is available on job creation structs:
 
 ```go
 type SubmitJob struct {
@@ -321,7 +348,7 @@ type SubmitRestartJob struct {
 }
 ```
 
-Add a registry interface implemented by concrete runtimes and the remote
+The registry interface is implemented by concrete runtimes and the remote
 runtime:
 
 ```go
@@ -333,14 +360,16 @@ type JobSchemaRegistry interface {
 }
 ```
 
-Whether this interface is embedded into `WorkflowRuntime` should be decided at
-implementation time. Keeping it separate avoids forcing schema-listing methods
-onto workflow-only fakes, while still allowing complete JobDB runtimes to expose
-the registry.
+`JobSchemaRegistry` remains separate from `WorkflowRuntime`. Complete runtimes
+implement both interfaces; workflow-only fakes do not need schema-listing
+methods.
 
-## OpenAPI Additions
+## OpenAPI
 
-Add reusable schemas:
+Implemented in `openapi/jobdb-runtime.yaml` with generated bindings in
+`pkg/jobdb/internal/runtimeapi/zz_generated.go`.
+
+Reusable schemas:
 
 ```yaml
 JobSchemaHash:
@@ -348,9 +377,8 @@ JobSchemaHash:
   pattern: '^sha256:[0-9a-f]{64}$'
 
 JobSchemaDocument:
-  type: object
-  description: JSON Schema draft 2020-12 document.
-  additionalProperties: true
+  description: JSON Schema draft 2020-12 document used to validate visible JobDB chapter records.
+  x-go-type: json.RawMessage
 
 JobSchemaSelector:
   type: object
@@ -371,7 +399,7 @@ JobSchemaInfo:
   required: [tenantId, schemaHash, schema, state, createdAt]
   properties:
     tenantId:
-      $ref: '#/components/schemas/TenantId'
+      type: string
     schemaHash:
       $ref: '#/components/schemas/JobSchemaHash'
     schema:
@@ -382,11 +410,13 @@ JobSchemaInfo:
       type: string
       format: date-time
     archivedAt:
-      type: string
-      format: date-time
+      oneOf:
+        - type: string
+          format: date-time
+        - type: 'null'
 ```
 
-Extend job creation schemas:
+Job creation schemas include:
 
 ```yaml
 SubmitJob:
@@ -400,7 +430,7 @@ SubmitRestartJob:
       $ref: '#/components/schemas/JobSchemaSelector'
 ```
 
-Add read fields:
+Read models include:
 
 ```yaml
 JobInfo:
@@ -419,7 +449,7 @@ ExecutionLease:
       $ref: '#/components/schemas/JobSchemaHash'
 ```
 
-Add endpoints:
+Schema endpoints:
 
 ```text
 POST /v1/tenants/{tenantId}/schemas
@@ -440,17 +470,17 @@ RegisterJobSchemaRequest:
       $ref: '#/components/schemas/JobSchemaDocument'
 ```
 
-List should support a state filter:
+List supports a state filter:
 
 ```text
 state=ACTIVE | ARCHIVED | ALL
 ```
 
-Default list behavior should be active-only.
+Default list behavior is active-only.
 
-## Storage Additions
+## Storage
 
-SQLite and direct/Postgres runtimes need a tenant-local schema table.
+SQLite and direct/Postgres runtimes use a tenant-local schema table.
 
 Logical columns:
 
@@ -469,39 +499,47 @@ Primary key:
 (tenant_id, schema_hash)
 ```
 
-The direct runtime should store this in JobDB-owned tables, not in pgwf's core
-queue schema. The SQLite runtime should add the equivalent table to
-`pkg/jobdb/runtime/sqlite/schema.go`.
+The direct runtime stores this in JobDB-owned tables, not in pgwf's core queue
+schema. The SQLite runtime owns the equivalent table in its local schema setup.
 
 ## Validation Errors
 
-Schema validation failure should be a typed JobDB error that maps to HTTP `400`
-for malformed new-job requests and HTTP `409` for stale/conflicting chapter
-writes only when the write conflict is lease/ordinal related.
+Schema validation failure uses a typed JobDB error that maps to HTTP `400`.
+Stale/conflicting chapter writes continue to map to `409` only when the write
+conflict is lease/ordinal related.
 
-Suggested error:
+Implemented error:
 
 ```go
-var ErrSchemaValidationFailed = errors.New("job schema validation failed")
+var ErrJobSchemaValidation = errors.New("job schema validation failed")
 ```
 
-The error payload should include:
+Current errors include the schema hash, chapter ordinal when available, and the
+underlying validator message. A future structured payload could add:
 
-- schema hash;
-- chapter ordinal when available;
 - JSON pointer to the failing location;
-- concise validation message.
+- machine-readable validation keyword/detail.
 
-## Implementation Order
+## Implementation Record
 
-1. Add public schema types and error type in `pkg/jobdb`.
-2. Add registry storage to SQLite, direct, and toy runtimes.
-3. Add OpenAPI endpoints and regenerate `pkg/jobdb/internal/runtimeapi`.
-4. Implement remote client/server registry methods.
-5. Add `SubmitJob` and `SubmitRestartJob` schema selectors.
-6. Store resolved schema hash in internal job metadata.
-7. Add schema document cache and JSON Schema validator.
-8. Enforce validation on submit, `add_chapter`, and `commit-if-waiting`.
-9. Expose `schemaHash` in job/lease read models.
-10. Add conformance tests covering no-schema jobs, active schema jobs, inline
-    schema registration, archived schema behavior, and chapter-zero branching.
+Completed:
+
+1. Added public schema types and schema errors in `pkg/jobdb`.
+2. Added registry storage to toy, SQLite, and direct runtimes.
+3. Added OpenAPI endpoints and regenerated `pkg/jobdb/internal/runtimeapi`.
+4. Implemented remote client/server registry methods.
+5. Added `SubmitJob` and `SubmitRestartJob` schema selectors.
+6. Stored resolved schema hashes in the internal metadata envelope.
+7. Added JSON Schema document compilation and compiled-validator caching.
+8. Enforced validation on submit, restart submit, chapter append, and
+   commit-if-waiting.
+9. Exposed `schemaHash` in job and lease read models.
+10. Added tests covering no-schema jobs, inline schema registration, archived
+    schema behavior, invalid schema registration, remote error mapping, and
+    chapter-zero/later-chapter branching.
+
+Verification used during implementation:
+
+```text
+go test ./pkg/jobdb ./pkg/jobdb/runtime/remote ./pkg/jobdb/runtime/toy ./pkg/jobdb/runtime/toy/internal/toyimpl ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/direct/internal/directimpl
+```
