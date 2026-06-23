@@ -33,7 +33,7 @@ by c2j.
 
 Remote lease operations use runtime-minted lease tokens. Poll and targeted
 lease responses include a `leaseToken`; lease-mutating HTTP calls must present
-that token in `X-SWF-Lease-Token`. Keepalive returns a fresh token for the
+that token in `X-JobDB-Lease-Token`. Keepalive returns a fresh token for the
 renewed lease.
 
 ### `github.com/colony-2/swf-go/pkg/swf/runtime/sqlite`

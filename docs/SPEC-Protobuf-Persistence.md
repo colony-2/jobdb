@@ -701,7 +701,7 @@ SQLite scheduler rows should use scalar columns for indexed polling state and
 protobuf blobs for structured state:
 
 ```sql
-CREATE TABLE IF NOT EXISTS swf_jobs (
+CREATE TABLE IF NOT EXISTS jobdb_jobs (
     tenant_id TEXT NOT NULL,
     job_id TEXT NOT NULL,
     job_type TEXT NOT NULL,
@@ -734,7 +734,7 @@ Blob meanings:
 If dependency checks need indexing, add a projection table:
 
 ```sql
-CREATE TABLE IF NOT EXISTS swf_job_dependencies (
+CREATE TABLE IF NOT EXISTS jobdb_job_dependencies (
     tenant_id TEXT NOT NULL,
     job_id TEXT NOT NULL,
     dependency_job_id TEXT NOT NULL,

@@ -1,0 +1,1811 @@
+openapi: 3.1.0
+info:
+  title: jobdb Runtime API
+  version: 0.1.0
+  summary: Backend-agnostic runtime protocol for jobdb remote execution
+  description: |
+    This API mirrors the current `jobdb.WorkflowRuntime` boundary. It
+    intentionally avoids exposing direct Strata or pgwf concepts over the wire.
+
+    Artifact bytes are committed as part of a chapter-scoped write.
+    Implementations may stage uploads internally, but artifacts are not an
+    independently durable write resource.
+
+    The normative runtime guarantees for chapter ordering, chapter
+    single-assignment, lease and short-lock coordination, restart boundaries,
+    and artifact visibility are documented in
+    `docs/SPEC-WorkflowRuntime-Guarantees.md`.
+servers:
+  - url: https://jobdb-runtime.example.com
+tags:
+  - name: jobs
+    description: Job lifecycle and job-level read APIs.
+  - name: schedules
+    description: Schedule lifecycle, projection, and run APIs.
+  - name: leases
+    description: Worker polling and lease lifecycle operations.
+  - name: chapters
+    description: Chapter read and commit operations.
+  - name: artifacts
+    description: Artifact byte reads for chapter-attached artifacts.
+security:
+  - bearerAuth: []
+paths:
+  /v1/tenants/{tenantId}/jobs:
+    post:
+      tags: [jobs]
+      operationId: submitJob
+      summary: Submit job
+      description: |
+        Submits a new job and writes the initial chapter (ordinal `0`). Any
+        input artifacts are attached as part of that chapter creation. The
+        server generates the job ID.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitJobRequest'
+      responses:
+        '200':
+          description: Job submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobHandle'
+  /v1/tenants/{tenantId}/jobs/{jobId}:
+    put:
+      tags: [jobs]
+      operationId: putJob
+      summary: Submit job with explicit job ID
+      description: |
+        Submits a new job with the path-supplied job ID and writes the initial
+        chapter (ordinal `0`). This operation is idempotent for equivalent
+        requests: when the job already exists with matching durable state, the
+        runtime returns success; when the durable story exists but the internal
+        runtime record is missing, the runtime repairs that record and returns
+        success. If the existing job's durable state does not match the
+        request, the runtime returns `409 existing_job_mismatch`.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitJobRequest'
+      responses:
+        '200':
+          description: Job submitted or confirmed/recovered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobHandle'
+        '409':
+          description: Existing job does not match the requested durable state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      tags: [jobs]
+      operationId: getJob
+      summary: Get job
+      description: |
+        Returns the current job status and a task-data view of the terminal
+        payload when it is available. For non-terminal jobs, clients should
+        treat an absent `data` value as a lazy `TaskData` that will surface the
+        deferred runtime error when accessed.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Job info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobInfo'
+  /v1/tenants/{tenantId}/jobs/restarts:
+    post:
+      tags: [jobs]
+      operationId: submitRestartJob
+      summary: Submit restart job
+      description: |
+        Submits a restart derived from a prior run. Any `extraTaskInput` or
+        `extraTaskOutput` artifacts are written as part of the restart chapter
+        they belong to. The server generates the new job ID.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitRestartJobRequest'
+      responses:
+        '200':
+          description: Job restart submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobHandle'
+  /v1/tenants/{tenantId}/jobs/{jobId}/restart:
+    put:
+      tags: [jobs]
+      operationId: putRestartJob
+      summary: Submit restart job with explicit job ID
+      description: |
+        Submits a restart using the path-supplied destination job ID. This
+        operation is idempotent for equivalent requests: when the target job
+        already exists with the same copied restart prefix (and restart extra
+        chapter when requested), the runtime returns success; when that durable
+        state exists but the internal runtime record is missing, the runtime
+        repairs that record and returns success. If the existing durable state
+        does not match the request, the runtime returns
+        `409 existing_job_mismatch`.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitRestartJobRequest'
+      responses:
+        '200':
+          description: Job restart submitted or confirmed/recovered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobHandle'
+        '409':
+          description: Existing job does not match the requested durable state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/tenants/{tenantId}/jobs/query:
+    post:
+      tags: [jobs]
+      operationId: listJobs
+      summary: List jobs
+      description: |
+        Lists jobs within the tenant identified by the path.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListJobsRequest'
+      responses:
+        '200':
+          description: Listed jobs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListJobsResponse'
+  /v1/tenants/{tenantId}/schedules/{scheduleId}:
+    put:
+      tags: [schedules]
+      operationId: upsertSchedule
+      summary: Upsert schedule
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ScheduleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertScheduleRequest'
+      responses:
+        '200':
+          description: Schedule created or updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleInfo'
+        '409':
+          description: Schedule generation or state conflict
+    get:
+      tags: [schedules]
+      operationId: getSchedule
+      summary: Get schedule
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ScheduleId'
+      responses:
+        '200':
+          description: Schedule loaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleInfo'
+  /v1/tenants/{tenantId}/schedules/query:
+    post:
+      tags: [schedules]
+      operationId: listSchedules
+      summary: List schedules
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListSchedulesRequest'
+      responses:
+        '200':
+          description: Schedules listed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListSchedulesResponse'
+  /v1/tenants/{tenantId}/schedules/{scheduleId}/pause:
+    post:
+      tags: [schedules]
+      operationId: pauseSchedule
+      summary: Pause schedule
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ScheduleId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleMutationRequest'
+      responses:
+        '200':
+          description: Schedule paused
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleInfo'
+  /v1/tenants/{tenantId}/schedules/{scheduleId}/resume:
+    post:
+      tags: [schedules]
+      operationId: resumeSchedule
+      summary: Resume schedule
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ScheduleId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleMutationRequest'
+      responses:
+        '200':
+          description: Schedule resumed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleInfo'
+  /v1/tenants/{tenantId}/schedules/{scheduleId}/archive:
+    post:
+      tags: [schedules]
+      operationId: archiveSchedule
+      summary: Archive schedule
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ScheduleId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleMutationRequest'
+      responses:
+        '200':
+          description: Schedule archived
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleInfo'
+  /v1/tenants/{tenantId}/schedules/{scheduleId}/trigger:
+    post:
+      tags: [schedules]
+      operationId: triggerSchedule
+      summary: Trigger schedule now
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ScheduleId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TriggerScheduleRequest'
+      responses:
+        '200':
+          description: Manual occurrence submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobHandle'
+  /v1/tenants/{tenantId}/schedules/{scheduleId}/runs/query:
+    post:
+      tags: [schedules]
+      operationId: listScheduleRuns
+      summary: List schedule runs
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ScheduleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListScheduleRunsRequest'
+      responses:
+        '200':
+          description: Schedule runs listed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListScheduleRunsResponse'
+  /v1/jobs/poll:
+    post:
+      tags: [leases]
+      operationId: pollWork
+      summary: Poll work
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PollWorkRequest'
+      responses:
+        '200':
+          description: Work leases
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [leases]
+                properties:
+                  leases:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ExecutionLease'
+  /v1/tenants/{tenantId}/jobs/{jobId}/lease:
+    post:
+      tags: [leases]
+      operationId: getJobLease
+      summary: Get job lease
+      description: |
+        Attempts to acquire a lease for one specific job. The response always
+        succeeds at the transport level when the lookup itself succeeds; a
+        missing lease is represented as `lease: null`.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GetJobLeaseRequest'
+      responses:
+        '200':
+          description: Lease acquired or currently unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetJobLeaseResponse'
+  /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/keepalive:
+    post:
+      tags: [leases]
+      operationId: keepAliveLease
+      summary: Keep lease alive
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      responses:
+        '200':
+          description: Lease extended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeepAliveLeaseResponse'
+  /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/complete:
+    post:
+      tags: [leases]
+      operationId: completeJobWithLease
+      summary: Complete job with lease
+      description: |
+        Completes the current job attempt in the context of the identified
+        lease.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteExecutionRequest'
+      responses:
+        '204':
+          description: Job completion applied
+  /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/reschedule:
+    post:
+      tags: [leases]
+      operationId: rescheduleJobWithLease
+      summary: Reschedule job with lease
+      description: |
+        Reschedules the current job in the context of the identified lease.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RescheduleExecutionRequest'
+      responses:
+        '204':
+          description: Job rescheduled
+  /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/add_chapter:
+    post:
+      tags: [leases]
+      operationId: addChapterWithLease
+      summary: Add chapter with lease
+      description: |
+        Commits a chapter in the context of the identified lease, including any
+        attached artifact bytes. The target chapter ordinal is supplied in the
+        request body as `chapter.ordinal`. Artifacts are chapter-scoped
+        attachments, not standalone durable resources. Conflicting writes, such
+        as duplicate ordinals or non-appendable ordinals, must fail rather than
+        being treated as successful no-ops.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddChapterRequest'
+      responses:
+        '204':
+          description: Chapter stored
+        '409':
+          description: Conflicting chapter write
+  /v1/tenants/{tenantId}/jobs/{jobId}/cancel:
+    post:
+      tags: [jobs]
+      operationId: cancelJob
+      summary: Cancel job
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelJobRequest'
+      responses:
+        '204':
+          description: Job cancelled
+  /v1/tenants/{tenantId}/jobs/{jobId}/chapters:
+    get:
+      tags: [chapters]
+      operationId: listChapters
+      summary: List chapters
+      description: |
+        Returns stored chapters ordered by ascending ordinal within the
+        requested inclusive range. Supplying an `endOrdinal` greater than the
+        highest stored ordinal is allowed and simply returns the available
+        suffix. If `startOrdinal` is above the highest stored ordinal, the
+        response is empty.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/StartOrdinal'
+        - $ref: '#/components/parameters/EndOrdinal'
+      responses:
+        '200':
+          description: Chapter range loaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListChaptersResponse'
+  /v1/tenants/{tenantId}/jobs/{jobId}/chapters/{ordinal}:
+    get:
+      tags: [chapters]
+      operationId: getChapter
+      summary: Get chapter
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/Ordinal'
+      responses:
+        '200':
+          description: Chapter loaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChapterRecord'
+  /v1/tenants/{tenantId}/jobs/{jobId}/chapters/{ordinal}/commit-if-waiting:
+    post:
+      tags: [chapters]
+      operationId: commitChapterIfWaiting
+      summary: Commit chapter if waiting
+      description: |
+        Conditional chapter commit used to implement
+        `TaskHandle.Finish(...)` above the runtime. The runtime acquires the
+        necessary job-level coordination, verifies the supplied waiting-task
+        guards, writes the chapter at `{ordinal}`, and advances the job
+        atomically. If the job is no longer waiting on the described task, or
+        the supplied guard fields do not match, the runtime must fail with a
+        conflict response rather than silently succeeding.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/Ordinal'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommitChapterIfWaitingRequest'
+      responses:
+        '204':
+          description: Chapter commit applied
+        '409':
+          description: Waiting-task conflict
+  /v1/tenants/{tenantId}/jobs/{jobId}/chapters/{ordinal}/artifacts/{name}:
+    get:
+      tags: [artifacts]
+      operationId: openArtifact
+      summary: Open artifact
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/Ordinal'
+        - $ref: '#/components/parameters/ArtifactName'
+      responses:
+        '200':
+          description: Artifact bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    TenantId:
+      name: tenantId
+      in: path
+      required: true
+      schema:
+        type: string
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema:
+        type: string
+    Ordinal:
+      name: ordinal
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    StartOrdinal:
+      name: startOrdinal
+      in: query
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+    EndOrdinal:
+      name: endOrdinal
+      in: query
+      required: false
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+    ArtifactName:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+    LeaseId:
+      name: leaseId
+      in: path
+      required: true
+      schema:
+        type: string
+    ScheduleId:
+      name: scheduleId
+      in: path
+      required: true
+      schema:
+        type: string
+    LeaseTokenHeader:
+      name: X-JobDB-Lease-Token
+      in: header
+      required: true
+      schema:
+        type: string
+  schemas:
+    ErrorCode:
+      type: string
+      enum:
+        - invalid_request
+        - not_found
+        - conflict
+        - execution_lease_lost
+        - existing_job_mismatch
+        - chapter_not_found
+        - job_not_found
+        - job_not_complete
+        - workflow_not_deterministic
+        - internal
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      additionalProperties: false
+      properties:
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        message:
+          type: string
+    ApplicationPayload:
+      description: |
+        Caller-owned application JSON payload embedded directly in REST
+        requests and responses. This value is any valid JSON value: object,
+        array, string, number, boolean, or null. It is never base64-encoded and
+        never wrapped in a protobuf `Any`-style envelope on the REST boundary.
+      x-go-type: json.RawMessage
+    JobStatus:
+      type: string
+      enum:
+        - READY
+        - EXPIRED
+        - PENDING_JOBS
+        - AWAITING_FUTURE
+        - ACTIVE
+        - CRASH_CONCERN
+        - CANCELLED
+        - COMPLETED
+    JobStore:
+      type: string
+      enum:
+        - ACTIVE
+        - ARCHIVED
+    CompletionStatus:
+      type: string
+      enum:
+        - succeeded
+        - failed
+        - cancelled
+    Metadata:
+      type: object
+      required: [fields]
+      additionalProperties: false
+      properties:
+        fields:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/MetadataValue'
+    MetadataValue:
+      oneOf:
+        - $ref: '#/components/schemas/MetadataNull'
+        - $ref: '#/components/schemas/MetadataBool'
+        - $ref: '#/components/schemas/MetadataInt'
+        - $ref: '#/components/schemas/MetadataDouble'
+        - $ref: '#/components/schemas/MetadataString'
+        - $ref: '#/components/schemas/MetadataList'
+        - $ref: '#/components/schemas/MetadataMap'
+      discriminator:
+        propertyName: kind
+        mapping:
+          'null': '#/components/schemas/MetadataNull'
+          bool: '#/components/schemas/MetadataBool'
+          int: '#/components/schemas/MetadataInt'
+          double: '#/components/schemas/MetadataDouble'
+          string: '#/components/schemas/MetadataString'
+          list: '#/components/schemas/MetadataList'
+          map: '#/components/schemas/MetadataMap'
+    MetadataNull:
+      type: object
+      required: [kind]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: ['null']
+    MetadataBool:
+      type: object
+      required: [kind, boolValue]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [bool]
+        boolValue:
+          type: boolean
+    MetadataInt:
+      type: object
+      required: [kind, intValue]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [int]
+        intValue:
+          type: integer
+          format: int64
+    MetadataDouble:
+      type: object
+      required: [kind, doubleValue]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [double]
+        doubleValue:
+          type: number
+          format: double
+    MetadataString:
+      type: object
+      required: [kind, stringValue]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [string]
+        stringValue:
+          type: string
+    MetadataList:
+      type: object
+      required: [kind, listValue]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [list]
+        listValue:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetadataValue'
+    MetadataMap:
+      type: object
+      required: [kind, mapValue]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [map]
+        mapValue:
+          $ref: '#/components/schemas/Metadata'
+    RetryPolicy:
+      type: object
+      additionalProperties: false
+      properties:
+        initialInterval:
+          type: string
+        backoffCoefficient:
+          type: number
+          format: double
+        maximumInterval:
+          type: string
+        maximumAttempts:
+          type: integer
+          format: int32
+        nonRetryableErrorTypes:
+          type: array
+          items:
+            type: string
+    RunPolicy:
+      type: object
+      additionalProperties: false
+      properties:
+        retry:
+          $ref: '#/components/schemas/RetryPolicy'
+        invocationTimeout:
+          type: string
+        totalTimeout:
+          type: string
+    JobKey:
+      type: object
+      required: [tenantId, jobId]
+      additionalProperties: false
+      properties:
+        tenantId:
+          type: string
+        jobId:
+          type: string
+    JobHandle:
+      type: object
+      required: [jobKey]
+      additionalProperties: false
+      properties:
+        jobKey:
+          $ref: '#/components/schemas/JobKey'
+    ScheduleState:
+      type: string
+      enum:
+        - ACTIVE
+        - PAUSED
+        - ARCHIVED
+        - FAILURE_PAUSED
+    ScheduleOverlapPolicy:
+      type: string
+      enum:
+        - serial
+    ScheduleTriggerKind:
+      type: string
+      enum:
+        - cron
+        - interval
+    ScheduleTrigger:
+      type: object
+      required: [kind]
+      additionalProperties: false
+      properties:
+        kind:
+          $ref: '#/components/schemas/ScheduleTriggerKind'
+        expression:
+          type: string
+        timezone:
+          type: string
+        startAt:
+          type: string
+          format: date-time
+        endAt:
+          type: string
+          format: date-time
+        interval:
+          type: string
+          description: Duration string for interval schedules.
+    ScheduleTarget:
+      type: object
+      required: [jobType, data]
+      additionalProperties: false
+      properties:
+        jobType:
+          type: string
+        data:
+          $ref: '#/components/schemas/TaskDataWrite'
+        runPolicy:
+          $ref: '#/components/schemas/RunPolicy'
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+    ScheduleFailurePolicy:
+      type: object
+      additionalProperties: false
+      properties:
+        minSuccessPercent:
+          type: integer
+          format: int32
+        windowSize:
+          type: integer
+          format: int32
+        maxSequentialFailures:
+          type: integer
+          format: int32
+    UpsertScheduleRequest:
+      type: object
+      required: [trigger, target]
+      additionalProperties: false
+      properties:
+        trigger:
+          $ref: '#/components/schemas/ScheduleTrigger'
+        target:
+          $ref: '#/components/schemas/ScheduleTarget'
+        overlapPolicy:
+          $ref: '#/components/schemas/ScheduleOverlapPolicy'
+        failurePolicy:
+          $ref: '#/components/schemas/ScheduleFailurePolicy'
+        paused:
+          type: boolean
+        expectedGeneration:
+          type: integer
+          format: int64
+        requestTime:
+          type: string
+          format: date-time
+        workerId:
+          type: string
+    ScheduleMutationRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        expectedGeneration:
+          type: integer
+          format: int64
+        requestTime:
+          type: string
+          format: date-time
+        workerId:
+          type: string
+    TriggerScheduleRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        requestId:
+          type: string
+        requestTime:
+          type: string
+          format: date-time
+        workerId:
+          type: string
+    ScheduleInfo:
+      type: object
+      required:
+        - tenantId
+        - scheduleId
+        - scheduleKey
+        - state
+        - effectiveState
+        - generation
+        - specHash
+        - trigger
+        - target
+        - overlapPolicy
+        - failurePolicy
+        - createdAt
+        - updatedAt
+      additionalProperties: false
+      properties:
+        tenantId:
+          type: string
+        scheduleId:
+          type: string
+        scheduleKey:
+          $ref: '#/components/schemas/ScheduleKey'
+        state:
+          $ref: '#/components/schemas/ScheduleState'
+        effectiveState:
+          $ref: '#/components/schemas/ScheduleState'
+        generation:
+          type: integer
+          format: int64
+        specHash:
+          type: string
+        trigger:
+          $ref: '#/components/schemas/ScheduleTrigger'
+        target:
+          $ref: '#/components/schemas/ScheduleTarget'
+        overlapPolicy:
+          $ref: '#/components/schemas/ScheduleOverlapPolicy'
+        failurePolicy:
+          $ref: '#/components/schemas/ScheduleFailurePolicy'
+        nextFireAt:
+          type: string
+          format: date-time
+        nextJobKey:
+          $ref: '#/components/schemas/JobKey'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ScheduleKey:
+      type: object
+      required: [tenantId, scheduleId]
+      additionalProperties: false
+      properties:
+        tenantId:
+          type: string
+        scheduleId:
+          type: string
+    ListSchedulesRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        scheduleIds:
+          type: array
+          items:
+            type: string
+        states:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScheduleState'
+        targetJobTypes:
+          type: array
+          items:
+            type: string
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 200
+        pageToken:
+          type: string
+    ListSchedulesResponse:
+      type: object
+      required: [schedules]
+      additionalProperties: false
+      properties:
+        schedules:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScheduleInfo'
+        nextPageToken:
+          type: string
+    ListScheduleRunsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        scheduledAfter:
+          type: string
+          format: date-time
+        scheduledBefore:
+          type: string
+          format: date-time
+        statuses:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobStatus'
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 200
+        pageToken:
+          type: string
+    ScheduleRunSummary:
+      type: object
+      required: [job, scheduleId, scheduledAt]
+      additionalProperties: false
+      properties:
+        job:
+          $ref: '#/components/schemas/JobSummary'
+        scheduleId:
+          type: string
+        scheduledAt:
+          type: string
+          format: date-time
+        reasonCode:
+          type: string
+    ListScheduleRunsResponse:
+      type: object
+      required: [runs]
+      additionalProperties: false
+      properties:
+        runs:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScheduleRunSummary'
+        nextPageToken:
+          type: string
+    JobPrerequisite:
+      type: object
+      required: [jobId, condition]
+      additionalProperties: false
+      properties:
+        jobId:
+          type: string
+        condition:
+          type: string
+          enum: [complete, success]
+    InputReference:
+      type: object
+      required: [ordinal]
+      additionalProperties: false
+      properties:
+        ordinal:
+          type: integer
+          format: int64
+        hash:
+          type: string
+    AppErrorPayload:
+      type: object
+      required: [message]
+      additionalProperties: false
+      properties:
+        message:
+          type: string
+        level:
+          type: string
+        attrs:
+          $ref: '#/components/schemas/Metadata'
+        inputRef:
+          $ref: '#/components/schemas/InputReference'
+        stacktrace:
+          type: array
+          items:
+            type: string
+    SystemErrorPayload:
+      type: object
+      required: [message]
+      additionalProperties: false
+      properties:
+        message:
+          type: string
+        component:
+          type: string
+        code:
+          type: string
+        retryable:
+          type: boolean
+        inputRef:
+          $ref: '#/components/schemas/InputReference'
+        stacktrace:
+          type: array
+          items:
+            type: string
+    TimeoutPayload:
+      type: object
+      required: [scope, after, retryable]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+        after:
+          type: string
+        scope:
+          type: string
+        inputRef:
+          $ref: '#/components/schemas/InputReference'
+        retryable:
+          type: boolean
+        component:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+    TaskOutcome:
+      oneOf:
+        - $ref: '#/components/schemas/TaskOutcomeSuccess'
+        - $ref: '#/components/schemas/TaskOutcomeAppError'
+        - $ref: '#/components/schemas/TaskOutcomeSystemError'
+        - $ref: '#/components/schemas/TaskOutcomeTimeout'
+      discriminator:
+        propertyName: kind
+        mapping:
+          success: '#/components/schemas/TaskOutcomeSuccess'
+          appError: '#/components/schemas/TaskOutcomeAppError'
+          systemError: '#/components/schemas/TaskOutcomeSystemError'
+          timeout: '#/components/schemas/TaskOutcomeTimeout'
+    TaskOutcomeSuccess:
+      type: object
+      required: [kind, output]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [success]
+        output:
+          $ref: '#/components/schemas/ApplicationPayload'
+    TaskOutcomeAppError:
+      type: object
+      required: [kind, error]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [appError]
+        error:
+          $ref: '#/components/schemas/AppErrorPayload'
+    TaskOutcomeSystemError:
+      type: object
+      required: [kind, error]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [systemError]
+        error:
+          $ref: '#/components/schemas/SystemErrorPayload'
+    TaskOutcomeTimeout:
+      type: object
+      required: [kind, timeout]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [timeout]
+        timeout:
+          $ref: '#/components/schemas/TimeoutPayload'
+    TaskDataWrite:
+      type: object
+      required: [data, artifacts]
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/ApplicationPayload'
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArtifactWrite'
+    StoredTaskData:
+      type: object
+      required: [outcome, artifacts]
+      additionalProperties: false
+      properties:
+        outcome:
+          $ref: '#/components/schemas/TaskOutcome'
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/StoredArtifact'
+    SubmitJob:
+      type: object
+      required: [jobType, data]
+      additionalProperties: false
+      properties:
+        jobType:
+          type: string
+        data:
+          $ref: '#/components/schemas/TaskDataWrite'
+        runPolicy:
+          $ref: '#/components/schemas/RunPolicy'
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        prerequisites:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobPrerequisite'
+        availableAt:
+          type: string
+          format: date-time
+    SubmitJobRequest:
+      type: object
+      required: [job]
+      additionalProperties: false
+      properties:
+        job:
+          $ref: '#/components/schemas/SubmitJob'
+        workerId:
+          type: string
+        requestTime:
+          type: string
+          format: date-time
+    SubmitRestartJob:
+      type: object
+      required: [priorJobKey, lastStepToKeep]
+      additionalProperties: false
+      properties:
+        priorJobKey:
+          $ref: '#/components/schemas/JobKey'
+        lastStepToKeep:
+          type: integer
+          format: int64
+        extraTaskInput:
+          $ref: '#/components/schemas/TaskDataWrite'
+        extraTaskOutput:
+          $ref: '#/components/schemas/TaskDataWrite'
+        prerequisites:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobPrerequisite'
+    SubmitRestartJobRequest:
+      type: object
+      required: [job]
+      additionalProperties: false
+      properties:
+        job:
+          $ref: '#/components/schemas/SubmitRestartJob'
+        workerId:
+          type: string
+        requestTime:
+          type: string
+          format: date-time
+    CancelJobRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+        workerId:
+          type: string
+    MetadataPredicate:
+      type: object
+      required: [path, values]
+      additionalProperties: false
+      properties:
+        path:
+          type: array
+          minItems: 1
+          description: Metadata field path segments.
+          items:
+            type: string
+        values:
+          type: array
+          minItems: 1
+          description: Equality match values for the field at `path`; multiple values mean OR on the same field.
+          items:
+            $ref: '#/components/schemas/MetadataValue'
+    PollWorkRequest:
+      type: object
+      additionalProperties: false
+      required: [tenantId, workerId, capabilities, limit]
+      properties:
+        tenantId:
+          type: string
+          minLength: 1
+          description: Required tenant polling target. Polling is scoped only to this tenant.
+        workerId:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        limit:
+          type: integer
+        longPollUntil:
+          type: string
+          format: date-time
+        leaseDuration:
+          type: string
+          description: Duration string controlling how long acquired leases should be held.
+        metadataEquals:
+          type: array
+          description: |
+            Metadata equality predicates applied during polling. Multiple
+            predicates mean AND across fields; multiple `values` on one
+            predicate mean OR on the same field.
+          items:
+            $ref: '#/components/schemas/MetadataPredicate'
+    GetJobLeaseRequest:
+      type: object
+      additionalProperties: false
+      required: [capabilities]
+      properties:
+        workerId:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        leaseDuration:
+          type: string
+          description: Duration string controlling how long the acquired lease should be held.
+    GetJobLeaseResponse:
+      type: object
+      additionalProperties: false
+      required: [lease]
+      properties:
+        lease:
+          x-go-type: "*ExecutionLease"
+          oneOf:
+            - $ref: '#/components/schemas/ExecutionLease'
+            - type: 'null'
+          description: Targeted lease when the job is currently leaseable; `null` otherwise.
+    KeepAliveLeaseResponse:
+      type: object
+      additionalProperties: false
+      required: [leaseToken]
+      properties:
+        leaseToken:
+          type: string
+    TaskWait:
+      type: object
+      required: [inputOrdinal, outputOrdinal, resumeNeed, inputHash]
+      additionalProperties: false
+      properties:
+        inputOrdinal:
+          type: integer
+          format: int64
+        outputOrdinal:
+          type: integer
+          format: int64
+        resumeNeed:
+          type: string
+        inputHash:
+          type: string
+    SchedulerPayload:
+      type: object
+      additionalProperties: false
+      properties:
+        runPolicy:
+          $ref: '#/components/schemas/RunPolicy'
+        taskWait:
+          $ref: '#/components/schemas/TaskWait'
+        leasePayload:
+          $ref: '#/components/schemas/ApplicationPayload'
+    ExecutionLease:
+      type: object
+      required: [leaseId, leaseToken, job, capability, payload]
+      additionalProperties: false
+      properties:
+        leaseId:
+          type: string
+        leaseToken:
+          type: string
+        job:
+          $ref: '#/components/schemas/JobHandle'
+        capability:
+          type: string
+        payload:
+          $ref: '#/components/schemas/SchedulerPayload'
+    CompleteExecutionRequest:
+      type: object
+      required: [status]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+        detail:
+          type: string
+    RescheduleExecutionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        nextNeed:
+          type: string
+        waitUntil:
+          type: string
+          format: date-time
+        waitForJobIds:
+          type: array
+          items:
+            type: string
+        payload:
+          $ref: '#/components/schemas/SchedulerPayload'
+        alternateNeed:
+          type: string
+        alternateAfter:
+          type: string
+          description: Duration string.
+    CommitChapterIfWaitingRequest:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        capability:
+          type: string
+          description: Optional guard for the currently waiting capability.
+        resumeNeed:
+          type: string
+          description: Optional guard or override for the resume capability.
+        inputOrdinal:
+          type: integer
+          format: int64
+          description: Optional guard for the input chapter ordinal.
+        outputOrdinal:
+          type: integer
+          format: int64
+          description: Optional guard for the output chapter ordinal; should match the path ordinal when provided.
+        inputHash:
+          type: string
+          description: Optional guard for deterministic input matching.
+        data:
+          $ref: '#/components/schemas/TaskDataWrite'
+    StoredArtifact:
+      type: object
+      required: [name, digest, size]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        digest:
+          type: string
+        size:
+          type: integer
+          format: int64
+    ArtifactUpload:
+      type: object
+      required: [name, size, contentBase64]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        size:
+          type: integer
+          format: int64
+        contentBase64:
+          type: string
+          format: byte
+    ArtifactWrite:
+      allOf:
+        - $ref: '#/components/schemas/ArtifactUpload'
+      description: |
+        Inline artifact content written as part of a parent chapter or task-data
+        write. This is a write-only shape.
+    ChapterBody:
+      oneOf:
+        - $ref: '#/components/schemas/JobStartChapter'
+        - $ref: '#/components/schemas/JobAttemptOutcomeChapter'
+        - $ref: '#/components/schemas/TaskAttemptOutcomeChapter'
+        - $ref: '#/components/schemas/RestartExtraChapter'
+      discriminator:
+        propertyName: kind
+        mapping:
+          jobStart: '#/components/schemas/JobStartChapter'
+          jobAttemptOutcome: '#/components/schemas/JobAttemptOutcomeChapter'
+          taskAttemptOutcome: '#/components/schemas/TaskAttemptOutcomeChapter'
+          restartExtra: '#/components/schemas/RestartExtraChapter'
+    JobStartChapter:
+      type: object
+      required: [kind, input]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [jobStart]
+        input:
+          $ref: '#/components/schemas/ApplicationPayload'
+    JobAttemptOutcomeChapter:
+      type: object
+      required: [kind, outcome]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [jobAttemptOutcome]
+        outcome:
+          $ref: '#/components/schemas/TaskOutcome'
+    TaskAttemptOutcomeChapter:
+      type: object
+      required: [kind, outcome]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [taskAttemptOutcome]
+        outcome:
+          $ref: '#/components/schemas/TaskOutcome'
+    RestartExtraChapter:
+      type: object
+      required: [kind, output]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [restartExtra]
+        output:
+          $ref: '#/components/schemas/ApplicationPayload'
+    ChapterRecord:
+      type: object
+      required: [ordinal, createdAt, body, artifacts]
+      additionalProperties: false
+      properties:
+        ordinal:
+          type: integer
+          format: int64
+        taskType:
+          type: string
+        workerId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+        inputHash:
+          type: string
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        input:
+          $ref: '#/components/schemas/ApplicationPayload'
+        attempt:
+          type: integer
+          format: int32
+        maxAttempts:
+          type: integer
+          format: int32
+        nextAttemptAt:
+          type: string
+          format: date-time
+        backoffMillis:
+          type: integer
+          format: int64
+        retryable:
+          type: boolean
+        inputRef:
+          $ref: '#/components/schemas/InputReference'
+        runPolicy:
+          $ref: '#/components/schemas/RunPolicy'
+        prerequisites:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobPrerequisite'
+        body:
+          $ref: '#/components/schemas/ChapterBody'
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/StoredArtifact'
+    ListChaptersResponse:
+      type: object
+      required: [chapters]
+      additionalProperties: false
+      properties:
+        chapters:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChapterRecord'
+    AddChapterRequest:
+      type: object
+      required: [chapter, artifactUploads]
+      additionalProperties: false
+      properties:
+        chapter:
+          $ref: '#/components/schemas/ChapterRecord'
+        artifactUploads:
+          type: array
+          description: |
+            Artifact payloads attached to this chapter write. They do not exist
+            as independent durable resources until the chapter commit succeeds.
+          items:
+            $ref: '#/components/schemas/ArtifactWrite'
+    JobInfo:
+      type: object
+      required: [status, data]
+      additionalProperties: false
+      properties:
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        data:
+          x-go-type: "*StoredTaskData"
+          oneOf:
+            - $ref: '#/components/schemas/StoredTaskData'
+            - type: 'null'
+          description: |
+            Terminal task data when materialized. A `null` value should be
+            treated as a lazily unavailable `TaskData`, for example when the job
+            has not completed yet.
+    JobTaskFilter:
+      type: object
+      required: [jobType, taskType]
+      additionalProperties: false
+      properties:
+        jobType:
+          type: string
+        taskType:
+          type: string
+    ListJobsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        statuses:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobStatus'
+        stores:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobStore'
+        jobTypes:
+          type: array
+          items:
+            type: string
+        jobTasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobTaskFilter'
+        jobKeys:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobKey'
+        metadataPredicates:
+          type: array
+          description: |
+            Wire-format projection of `MetadataFilter`. Each predicate is a
+            top-level equality match; multiple `values` on one predicate mean OR
+            on the same field.
+          items:
+            $ref: '#/components/schemas/MetadataPredicate'
+        createdAfter:
+          type: string
+          format: date-time
+        createdBefore:
+          type: string
+          format: date-time
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 200
+        pageToken:
+          type: string
+    JobSummary:
+      type: object
+      required: [jobKey, status, jobType, waitFor, availableAt, cancelRequested, createdAt]
+      additionalProperties: false
+      properties:
+        jobKey:
+          $ref: '#/components/schemas/JobKey'
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        jobType:
+          type: string
+        nextNeed:
+          x-go-type: string
+          oneOf:
+            - type: string
+            - type: 'null'
+        waitFor:
+          type: array
+          items:
+            type: string
+        availableAt:
+          type: string
+          format: date-time
+        expiresAt:
+          x-go-type: time.Time
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        leaseExpiresAt:
+          x-go-type: time.Time
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        cancelRequested:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        archivedAt:
+          x-go-type: time.Time
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        payload:
+          $ref: '#/components/schemas/SchedulerPayload'
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        taskWaitInput:
+          x-go-type: int64
+          oneOf:
+            - type: integer
+              format: int64
+            - type: 'null'
+        taskWaitOutput:
+          x-go-type: int64
+          oneOf:
+            - type: integer
+              format: int64
+            - type: 'null'
+        taskWaitInputHash:
+          x-go-type: string
+          oneOf:
+            - type: string
+            - type: 'null'
+        taskWaitNext:
+          x-go-type: string
+          oneOf:
+            - type: string
+            - type: 'null'
+    ListJobsResponse:
+      type: object
+      required: [jobs]
+      additionalProperties: false
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobSummary'
+        nextPageToken:
+          type: string

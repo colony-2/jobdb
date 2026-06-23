@@ -876,7 +876,7 @@ versioned transition.
 Remote lease mutation is authorized by a runtime-minted lease token rather than
 by a caller-supplied worker ID. `pollWork` and `getJobLease` return
 `ExecutionLease.leaseToken`. Every lease-mutating REST operation must require
-that token in the `X-SWF-Lease-Token` header.
+that token in the `X-JobDB-Lease-Token` header.
 
 The token binds tenant ID, job ID, lease ID, worker ID, schema hash, lease
 duration, and expiry. The runtime server validates those claims before calling
@@ -1030,10 +1030,10 @@ schemas:
 | `submitRestartJob`, `putRestartJob` | restart payload fields are `TaskDataWrite`; `lastStepToKeep` is `integer/int64`. |
 | `listJobs` | filters use typed `MetadataPredicate`; summaries expose `SchedulerPayload` and `Metadata`. |
 | `pollWork`, `getJobLease` | `ExecutionLease.payload` is `SchedulerPayload`; responses include a runtime-minted `leaseToken`. |
-| `keepAliveLease` | requires `X-SWF-Lease-Token`; response returns a fresh `leaseToken` for the renewed lease. |
-| `rescheduleJobWithLease` | requires `X-SWF-Lease-Token`; request payload is typed `SchedulerPayload`; caller-owned lease payload is `ApplicationPayload`. |
-| `completeJobWithLease` | requires `X-SWF-Lease-Token`; terminal detail remains the operation detail payload. |
-| `addChapterWithLease` | requires `X-SWF-Lease-Token`; request body uses `ChapterWrite`; chapter body is a discriminated union. |
+| `keepAliveLease` | requires `X-JobDB-Lease-Token`; response returns a fresh `leaseToken` for the renewed lease. |
+| `rescheduleJobWithLease` | requires `X-JobDB-Lease-Token`; request payload is typed `SchedulerPayload`; caller-owned lease payload is `ApplicationPayload`. |
+| `completeJobWithLease` | requires `X-JobDB-Lease-Token`; terminal detail remains the operation detail payload. |
+| `addChapterWithLease` | requires `X-JobDB-Lease-Token`; request body uses `ChapterWrite`; chapter body is a discriminated union. |
 | `commitChapterIfWaiting` | completion data is `TaskDataWrite`; ordinal guards use `integer/int64`. |
 | `listChapters`, `getChapter` | responses are `ChapterRecord`; no `chapterType`/`payloadKind`/`data` triple. |
 | `openArtifact` | remains `application/octet-stream`; artifact metadata comes from descriptors. |

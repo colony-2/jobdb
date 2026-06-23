@@ -1,10 +1,10 @@
-# swf-go
+# jobdb
 
 A durable workflow library for Go that provides reliable, long-running workflow orchestration with built-in retry logic, timeout handling, and persistent state management.
 
-## What is swf-go?
+## What is jobdb?
 
-swf-go is a workflow orchestration library that helps you build reliable, distributed workflows. It handles the complexity of managing workflow state, retries, timeouts, and task coordination so you can focus on your business logic.
+jobdb is a workflow orchestration library that helps you build reliable, distributed workflows. It handles the complexity of managing workflow state, retries, timeouts, and task coordination so you can focus on your business logic.
 
 **Key Features:**
 - **Durable Workflows**: Workflow state persists across failures and restarts
@@ -22,17 +22,17 @@ swf-go is a workflow orchestration library that helps you build reliable, distri
 ## Installation
 
 ```bash
-go get github.com/colony-2/swf-go
+go get github.com/colony-2/jobdb
 ```
 
 ## Local Runtime CLI
 
-The repo includes a Cobra-based local runtime server at `cmd/swfd`.
+The repo includes a Cobra-based local runtime server at `cmd/jobdb`.
 
 Run the default SQLite-backed embedded runtime:
 
 ```bash
-go run ./cmd/swfd --listen 127.0.0.1:9047 --db swf.db
+go run ./cmd/jobdb --listen 127.0.0.1:9047 --db jobdb.db
 ```
 
 The SQLite runtime stores jobs, chapters, artifacts, leases, and schedules in a
@@ -41,7 +41,7 @@ local SQLite database plus a blob directory.
 Run the in-memory toy runtime explicitly:
 
 ```bash
-go run ./cmd/swfd toy --listen 127.0.0.1:9047
+go run ./cmd/jobdb toy --listen 127.0.0.1:9047
 ```
 
 For Go module migration details, including moving embedded direct-runtime users
@@ -58,8 +58,9 @@ package main
 import (
     "context"
     "log"
-    "github.com/colony-2/swf-go/pkg/swf"
-    "github.com/colony-2/swf-go/pkg/swf/impl"
+
+    "github.com/colony-2/jobdb/pkg/jobdb"
+    toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 )
 
 // Define a job worker (orchestrates tasks)
@@ -67,14 +68,14 @@ type DataProcessingJob struct{}
 
 func (j DataProcessingJob) Name() string { return "data_processing" }
 
-func (j DataProcessingJob) Run(ctx swf.JobContext, input swf.JobData) (swf.JobData, error) {
+func (j DataProcessingJob) Run(ctx jobdb.JobContext, input jobdb.JobData) (jobdb.JobData, error) {
     // Execute tasks in sequence
-    result, err := ctx.DoTask(swf.DefaultRunPolicy(), "validate", input)
+    result, err := ctx.DoTask(jobdb.DefaultRunPolicy(), "validate", input)
     if err != nil {
         return nil, err
     }
 
-    result, err = ctx.DoTask(swf.DefaultRunPolicy(), "transform", result)
+    result, err = ctx.DoTask(jobdb.DefaultRunPolicy(), "transform", result)
     if err != nil {
         return nil, err
     }
@@ -87,7 +88,7 @@ type ValidateTask struct{}
 
 func (t ValidateTask) Name() string { return "validate" }
 
-func (t ValidateTask) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
+func (t ValidateTask) Run(ctx jobdb.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
     // Your validation logic here
     return input, nil
 }
@@ -96,32 +97,31 @@ type TransformTask struct{}
 
 func (t TransformTask) Name() string { return "transform" }
 
-func (t TransformTask) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
+func (t TransformTask) Run(ctx jobdb.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
     // Your transformation logic here
     return input, nil
 }
 
 func main() {
+    ctx := context.Background()
+    runtime := toyruntime.New()
+
     // Build the engine
-    engine, err := swf.NewEngineBuilder().
-        WithPostgresDSN("postgres://user:pass@localhost/db").
-        WithStrata("http://strata-server:8080").
-        WithStrataAPIKey("your-api-key").
+    engine, err := jobdb.NewEngineBuilder().
+        WithRuntime(runtime).
         WithWorkerTenantId("my-tenant").
         PlusWorkers(DataProcessingJob{}, ValidateTask{}, TransformTask{}).
-        Build(impl.Builder)
+        BuildEngine()
     if err != nil {
         log.Fatal(err)
     }
-
-    ctx := context.Background()
 
     // Start the engine worker loop
     go engine.Run(ctx)
 
     // Start a job
-    input := swf.NewTaskDataOrPanic(map[string]interface{}{"value": 42})
-    jobKey, err := engine.StartJob(ctx, swf.StartJob{
+    input := jobdb.NewTaskDataOrPanic(map[string]interface{}{"value": 42})
+    jobKey, err := engine.SubmitJob(ctx, jobdb.SubmitJob{
         TenantId: "my-tenant",
         JobType:  "data_processing",
         Data:     input,
@@ -155,18 +155,24 @@ type JobWorker interface {
 Your job worker orchestrates the workflow:
 
 ```go
-func (j MyJob) Run(ctx swf.JobContext, input swf.JobData) (swf.JobData, error) {
+func (j MyJob) Run(ctx jobdb.JobContext, input jobdb.JobData) (jobdb.JobData, error) {
     // Execute tasks
     result, err := ctx.DoTask(policy, "task-name", taskInput)
+    if err != nil {
+        return nil, err
+    }
 
     // Wait/sleep
-    ctx.AwaitDuration(swf.Duration(5 * time.Minute))
+    if err := ctx.AwaitDuration(jobdb.Duration(5 * time.Minute)); err != nil {
+        return nil, err
+    }
 
-    // Spawn async child workflow
-    future, err := ctx.SpawnAsync("child-job-type", childInput)
-    output, err := future.Await(context.Background())
+    // Wait for another job in the same tenant
+    if err := ctx.AwaitJobs(childJobID); err != nil {
+        return nil, err
+    }
 
-    return output, nil
+    return result, nil
 }
 ```
 
@@ -182,15 +188,15 @@ type TaskWorker interface {
 Your task worker implements a specific operation:
 
 ```go
-func (t MyTask) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
+func (t MyTask) Run(ctx jobdb.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
     // Access job context
     ctx.Logger.Info("processing task", "job", ctx.JobKey, "step", ctx.Step)
 
     // Wait if needed
-    ctx.AwaitDuration(swf.Duration(30 * time.Second))
+    ctx.AwaitDuration(jobdb.Duration(30 * time.Second))
 
     // Return result
-    return swf.NewTaskData(result)
+    return jobdb.NewTaskData(result)
 }
 ```
 
@@ -200,22 +206,22 @@ func (t MyTask) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskData, erro
 
 ```go
 // From a struct or map
-data, err := swf.NewTaskData(map[string]interface{}{
+data, err := jobdb.NewTaskData(map[string]interface{}{
     "userId": 123,
     "action": "process",
 })
 
 // Panic version for tests/simple cases
-data := swf.NewTaskDataOrPanic(myStruct)
+data := jobdb.NewTaskDataOrPanic(myStruct)
 
 // With artifacts
-data, err := swf.NewTaskData(payload, artifact1, artifact2)
+data, err := jobdb.NewTaskData(payload, artifact1, artifact2)
 ```
 
 ### Reading TaskData
 
 ```go
-func (t MyTask) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
+func (t MyTask) Run(ctx jobdb.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
     // Get raw JSON data
     rawData, err := input.GetData()
     if err != nil {
@@ -234,7 +240,7 @@ func (t MyTask) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskData, erro
         return nil, err
     }
 
-    return swf.NewTaskData(result)
+    return jobdb.NewTaskData(result)
 }
 ```
 
@@ -246,19 +252,19 @@ Artifacts represent file-like data that flows through workflows. They support la
 
 ```go
 // From bytes (in-memory)
-artifact := swf.NewArtifactFromBytes("config.json", jsonBytes)
+artifact := jobdb.NewArtifactFromBytes("config.json", jsonBytes)
 
 // From a reader
-artifact := swf.NewArtifactFromReader("output.txt", reader, size)
+artifact := jobdb.NewArtifactFromReader("output.txt", reader, size)
 
 // From a file (auto-cleanup enabled)
-artifact, err := swf.NewArtifactFromFile("build.tar.gz", "/tmp/build.tar.gz")
+artifact, err := jobdb.NewArtifactFromFile("build.tar.gz", "/tmp/build.tar.gz")
 
 // From a file (no cleanup)
-artifact, err := swf.NewArtifactFromFileNoCleanup("data.csv", "/data/input.csv")
+artifact, err := jobdb.NewArtifactFromFileNoCleanup("data.csv", "/data/input.csv")
 
 // Custom artifact with full control
-artifact := swf.NewArtifact("custom.dat",
+artifact := jobdb.NewArtifact("custom.dat",
     func() (io.ReadCloser, int64, error) {
         // Your opener logic
         f, _ := os.Open(path)
@@ -300,7 +306,7 @@ hash, err := artifact.Sha256(ctx)
 ### Artifacts in Tasks
 
 ```go
-func (t ProcessFileTask) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
+func (t ProcessFileTask) Run(ctx jobdb.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
     artifacts, err := input.GetArtifacts()
     if err != nil {
         return nil, err
@@ -320,12 +326,12 @@ func (t ProcessFileTask) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskD
         processFile(tmpPath)
 
         // Create output artifact
-        outputArtifact, err := swf.NewArtifactFromFile("output.dat", "/tmp/output.dat")
+        outputArtifact, err := jobdb.NewArtifactFromFile("output.dat", "/tmp/output.dat")
         if err != nil {
             return nil, err
         }
 
-        return swf.NewTaskData(result, outputArtifact)
+        return jobdb.NewTaskData(result, outputArtifact)
     }
 
     return input, nil
@@ -337,16 +343,16 @@ func (t ProcessFileTask) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskD
 ### RunPolicy Configuration
 
 ```go
-policy := swf.RunPolicy{
-    Retry: swf.RetryPolicy{
-        InitialInterval:    swf.Duration(100 * time.Millisecond),
+policy := jobdb.RunPolicy{
+    Retry: jobdb.RetryPolicy{
+        InitialInterval:    jobdb.Duration(100 * time.Millisecond),
         BackoffCoefficient: 2.0,
-        MaximumInterval:    swf.Duration(30 * time.Second),
+        MaximumInterval:    jobdb.Duration(30 * time.Second),
         MaximumAttempts:    5,
         NonRetryableErrorTypes: []string{"ValidationError"},
     },
-    InvocationTimeout: swf.AsDuration(30 * time.Second),  // Per attempt
-    TotalTimeout:      swf.AsDuration(10 * time.Minute),  // Overall
+    InvocationTimeout: jobdb.AsDuration(30 * time.Second),  // Per attempt
+    TotalTimeout:      jobdb.AsDuration(10 * time.Minute),  // Overall
 }
 
 result, err := ctx.DoTask(policy, "my-task", input)
@@ -356,7 +362,7 @@ result, err := ctx.DoTask(policy, "my-task", input)
 
 ```go
 // Use the default policy
-result, err := ctx.DoTask(swf.DefaultRunPolicy(), "my-task", input)
+result, err := ctx.DoTask(jobdb.DefaultRunPolicy(), "my-task", input)
 
 // Default values:
 // - InvocationTimeout: 30 seconds
@@ -374,7 +380,7 @@ result, err := ctx.DoTask(swf.DefaultRunPolicy(), "my-task", input)
 Regular errors returned from your workers are treated as application errors and will trigger retries according to the retry policy:
 
 ```go
-func (t MyTask) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
+func (t MyTask) Run(ctx jobdb.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
     if err := validateInput(input); err != nil {
         return nil, fmt.Errorf("validation failed: %w", err)
     }
@@ -388,7 +394,7 @@ System errors represent infrastructure failures:
 
 ```go
 if err := connectToDatabase(); err != nil {
-    return nil, swf.NewSystemError(swf.SystemErrorPayload{
+    return nil, jobdb.NewSystemError(jobdb.SystemErrorPayload{
         Message:   "database connection failed",
         Component: "database",
         Code:      "connection_error",
@@ -419,36 +425,28 @@ if !isValid(input) {
 ### Checking Error Types
 
 ```go
-if swf.IsAppError(err) {
+if jobdb.IsAppError(err) {
     // Handle application error
 }
 
-if swf.IsSystemError(err) {
+if jobdb.IsSystemError(err) {
     // Handle system error
 }
 ```
 
 ## Advanced Features
 
-### Async Child Workflows
+### Awaiting Jobs
 
-Spawn child workflows and await their completion:
+Wait for previously submitted jobs before continuing:
 
 ```go
-func (j ParentJob) Run(ctx swf.JobContext, input swf.JobData) (swf.JobData, error) {
-    // Spawn async child
-    future, err := ctx.SpawnAsync("child-job-type", childInput)
-    if err != nil {
+func (j ParentJob) Run(ctx jobdb.JobContext, input jobdb.JobData) (jobdb.JobData, error) {
+    if err := ctx.AwaitJobs(childJobID); err != nil {
         return nil, err
     }
 
-    // Await completion
-    result, err := future.Await(context.Background())
-    if err != nil {
-        return nil, err
-    }
-
-    return result, nil
+    return input, nil
 }
 ```
 
@@ -457,21 +455,18 @@ func (j ParentJob) Run(ctx swf.JobContext, input swf.JobData) (swf.JobData, erro
 Restart a failed job from a specific step:
 
 ```go
-newJobKey, err := engine.RestartJob(ctx, swf.RestartJob{
+newJobKey, err := engine.SubmitRestartJob(ctx, jobdb.SubmitRestartJob{
     PriorJobKey:    failedJobKey,
     LastStepToKeep: 5,  // Replay from step 6 onwards
-    StartJob: swf.StartJob{
-        TenantId: "my-tenant",
-        JobType:  "my-job",
-        Data:     newInput,
-    },
+    ExtraTaskInput:  newInput,
+    ExtraTaskOutput: newOutput,
 })
 ```
 
 ### Job Cancellation
 
 ```go
-err := engine.CancelJob(ctx, swf.CancelJob{
+err := engine.CancelJob(ctx, jobdb.CancelJob{
     JobKey: jobKey,
     Reason: "user requested cancellation",
 })
@@ -483,13 +478,13 @@ err := engine.CancelJob(ctx, swf.CancelJob{
 status, err := engine.CheckJobStatus(ctx, jobKey)
 
 switch status {
-case swf.JobStatusCompleted:
+case jobdb.JobStatusCompleted:
     // Job finished successfully
-case swf.JobStatusActive:
+case jobdb.JobStatusActive:
     // Job is running
-case swf.JobStatusCancelled:
+case jobdb.JobStatusCancelled:
     // Job was cancelled
-case swf.JobStatusReady:
+case jobdb.JobStatusReady:
     // Job is ready to run
 }
 ```
@@ -498,7 +493,7 @@ case swf.JobStatusReady:
 
 ```go
 result, err := engine.GetJobResult(ctx, jobKey)
-if err == swf.ErrJobNotComplete {
+if err == jobdb.ErrJobNotComplete {
     // Job hasn't completed yet
     return
 }
@@ -510,9 +505,9 @@ data, _ := result.GetData()
 ### Listing Jobs
 
 ```go
-resp, err := engine.ListJobs(ctx, swf.ListJobsRequest{
+resp, err := engine.ListJobs(ctx, jobdb.ListJobsRequest{
     TenantIds:     []string{"my-tenant"},
-    Statuses:      []swf.JobStatus{swf.JobStatusActive, swf.JobStatusCompleted},
+    Statuses:      []jobdb.JobStatus{jobdb.JobStatusActive, jobdb.JobStatusCompleted},
     JobTypes:      []string{"data-processing"},
     PageSize:      50,
     PageToken:     "", // empty for first page
@@ -524,7 +519,7 @@ for _, job := range resp.Jobs {
 
 // Get next page
 if resp.NextPageToken != "" {
-    nextResp, err := engine.ListJobs(ctx, swf.ListJobsRequest{
+    nextResp, err := engine.ListJobs(ctx, jobdb.ListJobsRequest{
         PageToken: resp.NextPageToken,
         // ... other filters
     })
@@ -541,20 +536,20 @@ materializes each occurrence as a normal app job.
 ```go
 start := time.Now().UTC()
 
-info, err := engine.UpsertSchedule(ctx, swf.UpsertScheduleRequest{
+info, err := engine.UpsertSchedule(ctx, jobdb.UpsertScheduleRequest{
     TenantId:   "my-tenant",
     ScheduleId: "daily-cleanup",
-    Trigger: swf.ScheduleTrigger{
-        Kind:     swf.ScheduleTriggerInterval,
+    Trigger: jobdb.ScheduleTrigger{
+        Kind:     jobdb.ScheduleTriggerInterval,
         Interval: 24 * time.Hour,
         StartAt:  &start,
     },
-    Target: swf.ScheduleTarget{
+    Target: jobdb.ScheduleTarget{
         JobType:  "data-processing",
-        Data:     swf.JobData(swf.NewTaskDataOrPanic(map[string]any{"bucket": "reports"})),
+        Data:     jobdb.JobData(jobdb.NewTaskDataOrPanic(map[string]any{"bucket": "reports"})),
         Metadata: json.RawMessage(`{"owner":"analytics"}`),
     },
-    OverlapPolicy: swf.ScheduleOverlapSerial,
+    OverlapPolicy: jobdb.ScheduleOverlapSerial,
 })
 if err != nil {
     return err
@@ -588,7 +583,7 @@ for _, handle := range handles {
     // ... process externally ...
 
     // Complete the task
-    output := swf.NewTaskDataOrPanic(approvalResult)
+    output := jobdb.NewTaskDataOrPanic(approvalResult)
     err = handle.Finish(ctx, output)
 }
 ```
@@ -598,16 +593,17 @@ for _, handle := range handles {
 ### Builder Options
 
 ```go
-engine, err := swf.NewEngineBuilder().
-    WithPostgresDSN("postgres://user:pass@localhost/db").  // Required
-    WithStrata("http://strata:8080").                      // Required
-    WithStrataAPIKey("api-key").                            // Required
+runtime := toyruntime.New()
+
+engine, err := jobdb.NewEngineBuilder().
+    WithRuntime(runtime).                                  // Required
+    WithWorkerTenantId("tenant-1").                        // Required when running workers
     WithMaxActive(10).                                      // Concurrent task limit
     WithLogger(logger).                                     // Custom logger
     WithAwaitRecycleThreshold(5 * time.Minute).            // Await recycle threshold
     PlusWorkers(job1, task1, task2).                       // Register workers
     PlusWorkers(job2, task3).                               // Add more workers
-    Build(impl.Builder)
+    BuildEngine()
 ```
 
 ### Registering Workers
@@ -617,10 +613,9 @@ engine, err := swf.NewEngineBuilder().
 Workers can be registered during engine construction:
 
 ```go
-builder := swf.NewEngineBuilder().
-    WithPostgresDSN(dsn).
-    WithStrata(url).
-    WithStrataAPIKey(key)
+builder := jobdb.NewEngineBuilder().
+    WithRuntime(runtime).
+    WithWorkerTenantId("tenant-1")
 
 // Register a job with its tasks
 builder.PlusWorkers(
@@ -635,7 +630,7 @@ builder.PlusWorkers(
     Task3{},
 )
 
-engine, err := builder.Build(impl.Builder)
+engine, err := builder.BuildEngine()
 ```
 
 #### After Engine Start (Dynamic Registration)
@@ -647,7 +642,7 @@ Workers can also be registered after the engine has started:
 go engine.Run(ctx)
 
 // Create a workset
-workset, err := swf.AsWorkSet(
+workset, err := jobdb.AsWorkSet(
     NewJobWorker{},
     NewTask1{},
     NewTask2{},
@@ -707,11 +702,11 @@ tenant.
 
 ## Architecture Notes
 
-swf-go can run against several runtime backends:
+jobdb can run against several runtime backends:
 
 - **SQLite runtime**: Stores workflow state, leases, schedules, Strata row data,
   and blobfs artifacts locally. This is the default embedded runtime and the
-  default `swfd` mode.
+  default `jobdb` mode.
 - **Postgres/Strata direct runtime**: Stores workflow state and coordinates
   distributed execution through pgwf, with workflow data and artifacts in
   Strata.

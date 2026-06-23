@@ -8,7 +8,7 @@ Current reference | Updated: 2026-06-21
 
 Add schedules as first-class resources at the SWF remote REST API layer.
 
-Schedules are stored as durable rows in `swf_schedules`. Scheduled occurrences
+Schedules are stored as durable rows in `jobdb_schedules`. Scheduled occurrences
 are normal application jobs. There is no schedule controller job type and no
 `swfd`-owned tenant worker responsible for advancing schedules.
 
@@ -69,7 +69,7 @@ database concurrency controls. Children do not mutate the schedule row.
 Suggested table identity:
 
 ```text
-swf_schedules(tenant_id, schedule_id)
+jobdb_schedules(tenant_id, schedule_id)
 ```
 
 Both Postgres/direct and SQLite runtimes should expose the same logical table.
@@ -101,9 +101,9 @@ metadata. The schedule spec hash includes the target data and artifact
 fingerprints. Occurrence submission uses this stored target snapshot; it does
 not reopen client-local files or depend on the original upsert request body.
 
-A runtime may also keep a companion `swf_schedule_events` table for update
+A runtime may also keep a companion `jobdb_schedule_events` table for update
 history and admin inspection, but lease preflight reads the current
-`swf_schedules` row directly.
+`jobdb_schedules` row directly.
 
 ### Schedule States
 
@@ -181,7 +181,7 @@ For an occurrence `J_k`, hidden metadata contains:
       "scheduledAt": "2026-06-17T13:00:00Z",
       "runId": "20260617T130000000000000Z",
       "manual": false,
-      "previousJobId": "swfsched_daily-cleanup_g8_run_20260617T120000000000000Z",
+      "previousJobId": "jobdbsched_daily-cleanup_g8_run_20260617T120000000000000Z",
       "failureHistory": {
         "bits": "101101",
         "windowSize": 10
@@ -207,7 +207,7 @@ Preflight algorithm:
    read chapter bodies.
 4. If `chapter_count > 1`, app execution has already written at least one
    post-start chapter. Skip schedule validation and return the lease.
-5. Load the `swf_schedules` row.
+5. Load the `jobdb_schedules` row.
 6. If the schedule is paused, archived, missing, past `endAt`, or
    generation/spec do not match, record a scheduler-side schedule cancellation
    outcome, complete the job as `CANCELLED`, and do not return the lease.
@@ -264,7 +264,7 @@ Suggested pgwf/SQLite job metadata shape:
 {
   "app": {
     "owner": "analytics",
-    "_swf": "ordinary app metadata is allowed"
+    "_jobdb": "ordinary app metadata is allowed"
   },
   "internal": {
     "schedule": {
@@ -275,7 +275,7 @@ Suggested pgwf/SQLite job metadata shape:
       "scheduledAt": "2026-06-17T13:00:00Z",
       "runId": "20260617T130000000000000Z",
       "manual": false,
-      "previousJobId": "swfsched_daily-cleanup_g8_run_20260617T120000000000000Z",
+      "previousJobId": "jobdbsched_daily-cleanup_g8_run_20260617T120000000000000Z",
       "failureHistory": {
         "bits": "101101",
         "windowSize": 10
@@ -379,7 +379,7 @@ current app job starts, but with a prerequisite on the current job:
 
 ```go
 SubmitJob{
-    JobID:       "swfsched_daily-cleanup_g8_run_20260617T140000000000000Z",
+    JobID:       "jobdbsched_daily-cleanup_g8_run_20260617T140000000000000Z",
     AvailableAt: nextFireAt,
     Prerequisites: []swf.JobPrerequisite{
         {JobID: currentJobID, Condition: swf.JobPrereqComplete},
@@ -525,7 +525,7 @@ Response:
   "nextFireAt": "2026-06-17T13:00:00Z",
   "nextJobKey": {
     "tenantId": "tenant-a",
-    "jobId": "swfsched_daily-cleanup_g8_run_20260617T130000000000000Z"
+    "jobId": "jobdbsched_daily-cleanup_g8_run_20260617T130000000000000Z"
   },
   "createdAt": "2026-06-17T12:00:00Z",
   "updatedAt": "2026-06-17T12:00:00Z"
@@ -565,7 +565,7 @@ when the chain stopped due to failure policy.
 POST /v1/tenants/{tenantId}/schedules/query
 ```
 
-Projects schedules from indexed `swf_schedules` rows.
+Projects schedules from indexed `jobdb_schedules` rows.
 
 Request:
 
@@ -696,14 +696,14 @@ behavior without embedding schedule logic.
 The app target metadata from the schedule spec is stored under the scheduler
 job metadata envelope's `app` field and is passed to the app job in the same
 way as normal job metadata. App metadata owns its full key space, including
-keys such as `swf_`, `_swf`, `app`, or `internal`.
+keys such as `jobdb_`, `_jobdb`, `app`, or `internal`.
 
 Public app-facing metadata is the envelope's `app` object. Public metadata
 filters are translated to `app.<field>` in pgwf/SQLite.
 
 ### Schedule Run Metadata
 
-Schedule rows are found through `swf_schedules`, not through public job
+Schedule rows are found through `jobdb_schedules`, not through public job
 metadata. Schedule list filters should use indexed table columns such as
 `tenant_id`, `schedule_id`, `state`, `generation`, and target job type.
 
@@ -731,7 +731,7 @@ Storage rule:
 - Remote runtime: the HTTP client never sends or receives this field. `swfd`
   reads and writes it locally while handling schedule APIs and lease APIs.
 
-The lease path may read pgwf/SQLite scheduler metadata and the `swf_schedules`
+The lease path may read pgwf/SQLite scheduler metadata and the `jobdb_schedules`
 row. It must not read Strata chapters to decide whether to return a lease.
 
 A scheduled occurrence is not fully submitted until both the scheduler job row
@@ -752,9 +752,9 @@ Suggested IDs:
 
 ```text
 <scheduleId>                                      # schedule table key
-swfsched_<scheduleId>_g<generation>_run_<fireTime> # recurring occurrence
-swfsched_<scheduleId>_manual_<requestId>         # manual occurrence
-swfsched_<scheduleId>_backfill_<requestId>_<fireTime>
+jobdbsched_<scheduleId>_g<generation>_run_<fireTime> # recurring occurrence
+jobdbsched_<scheduleId>_manual_<requestId>         # manual occurrence
+jobdbsched_<scheduleId>_backfill_<requestId>_<fireTime>
 ```
 
 Include generation in recurring occurrence IDs so an updated schedule can file a
@@ -775,11 +775,11 @@ rows, and Strata chapters.
 Logical state ownership:
 
 ```text
-schedule identity             swf_schedules(tenant_id, schedule_id)
-schedule spec/generation      swf_schedules row
-target start spec             swf_schedules target_json
-desired state                 swf_schedules row
-next due occurrence           swf_schedules next_fire_at/next_job_id + availableAt
+schedule identity             jobdb_schedules(tenant_id, schedule_id)
+schedule spec/generation      jobdb_schedules row
+target start spec             jobdb_schedules target_json
+desired state                 jobdb_schedules row
+next due occurrence           jobdb_schedules next_fire_at/next_job_id + availableAt
 serial chain                  occurrence prerequisites
 failure window                hidden scheduler-side metadata on occurrence jobs
 preflight execution           runtime server lease path
@@ -798,7 +798,7 @@ materialize due work.
 
 No cross-job transaction is required.
 
-The schedule API mutates the `swf_schedules` row and, when active, submits the
+The schedule API mutates the `jobdb_schedules` row and, when active, submits the
 first occurrence for that generation. After that, the runtime server's lease
 preflight reads the schedule row and submits successors idempotently before
 returning scheduled occurrence leases to app workers.
@@ -873,7 +873,7 @@ Future versions can add `allow`, `skip`, or `cancel_previous`.
 
 ## Recommendation
 
-Use `swf_schedules` for control-plane state and make recurring occurrences
+Use `jobdb_schedules` for control-plane state and make recurring occurrences
 ordinary app jobs. Store immutable hidden scheduler-side schedule metadata in
 pgwf or the SQLite scheduler metadata field. During lease acquisition, scheduled
 jobs may do a Strata story metadata read to check chapter count, but they do not
