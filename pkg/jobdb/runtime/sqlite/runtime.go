@@ -69,6 +69,13 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
+	initialStoredChapter, err := chapterFromStoryChapter(initialChapter)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	if err := jobschema.ValidateChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, initialStoredChapter); err != nil {
+		return jobdb.JobHandle{}, err
+	}
 	if _, err := r.strataClient.CreateStory(sctx, storyKeyForJob(jobKey), story.CreateOptions{RequestID: uuid.New().String(), InitialChapter: initialChapter}); err != nil {
 		if req.Job.JobID != "" && errors.Is(err, core.ErrConflict) {
 			if handle, handled, reconcileErr := r.reconcileExistingSubmitJob(ctx, req, jobKey, inputHash, prereqs, waitFor, jobPolicy, schemaHash); handled || reconcileErr != nil {
@@ -174,6 +181,30 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 		})
 		if err != nil {
 			return jobdb.JobHandle{}, err
+		}
+	}
+	if schemaHash != "" {
+		for ordinal := int64(0); ordinal <= job.LastStepToKeep; ordinal++ {
+			sourceChapter, err := r.strataClient.Chapter(sctx, sourceJob, ordinal)
+			if err != nil {
+				return jobdb.JobHandle{}, err
+			}
+			storedChapter, err := chapterFromStoryChapter(sourceChapter)
+			if err != nil {
+				return jobdb.JobHandle{}, err
+			}
+			if err := jobschema.ValidateChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, storedChapter); err != nil {
+				return jobdb.JobHandle{}, err
+			}
+		}
+		if createOptions.InitialChapter != nil {
+			storedChapter, err := chapterFromStoryChapter(createOptions.InitialChapter)
+			if err != nil {
+				return jobdb.JobHandle{}, err
+			}
+			if err := jobschema.ValidateChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, storedChapter); err != nil {
+				return jobdb.JobHandle{}, err
+			}
 		}
 	}
 
@@ -820,18 +851,27 @@ func (r *Runtime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) e
 	if req.Chapter.Ordinal != req.Ref.Ordinal {
 		return fmt.Errorf("chapter ordinal %d does not match target ordinal %d", req.Chapter.Ordinal, req.Ref.Ordinal)
 	}
+	schemaHash := ""
+	if claims, ok := leaseauth.ClaimsFromContext(ctx); ok && leaseauth.Matches(claims, req.Ref.JobKey, req.LeaseID) {
+		schemaHash = claims.SchemaHash
+	}
 	if authorized, err := leaseauth.Authorize(ctx, req.Ref.JobKey, req.LeaseID); err != nil {
 		return err
 	} else if !authorized {
-		if err := r.validateLease(ctx, req.Ref.JobKey, req.LeaseID, ""); err != nil {
+		row, err := r.validateLease(ctx, req.Ref.JobKey, req.LeaseID, "")
+		if err != nil {
 			return err
 		}
+		schemaHash = jobmetadata.SchemaHashFromStoredMetadata(row.metadata)
 	}
 	if err := r.ensureNextVisibleChapterOrdinal(ctx, req.Ref.JobKey, req.Ref.Ordinal); err != nil {
 		return err
 	}
 	chapter, attached, err := r.prepareChapterWrite(ctx, req)
 	if err != nil {
+		return err
+	}
+	if err := jobschema.ValidateChapter(ctx, r, jobdb.JobSchemaKey{TenantId: req.Ref.JobKey.TenantId, SchemaHash: schemaHash}, chapter); err != nil {
 		return err
 	}
 	body, err := encodeChapter(chapter)
@@ -965,6 +1005,13 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	}
 	chapter, err := taskDataToChapter(req.Data, tw.OutputStep, taskType, r.workerID, chapterTypeTaskAttemptOutcome, payloadKindApp, tw.InputHash, time.Now().UTC(), meta)
 	if err != nil {
+		return err
+	}
+	storedChapter, err := chapterFromStoryChapter(chapter)
+	if err != nil {
+		return err
+	}
+	if err := jobschema.ValidateChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: jobmetadata.SchemaHashFromStoredMetadata(row.metadata)}, storedChapter); err != nil {
 		return err
 	}
 	if err := r.ensureNextVisibleChapterOrdinal(ctx, jobKey, tw.OutputStep); err != nil {

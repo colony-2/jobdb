@@ -202,12 +202,12 @@ WHERE tenant_id = ? AND job_id = ?`,
 	})
 }
 
-func (r *Runtime) validateLease(ctx context.Context, jobKey jobdb.JobKey, leaseID string, workerID string) error {
+func (r *Runtime) validateLease(ctx context.Context, jobKey jobdb.JobKey, leaseID string, workerID string) (jobRow, error) {
 	row, err := r.loadJobRow(ctx, jobKey)
 	if err != nil {
-		return err
+		return jobRow{}, err
 	}
-	return validateLeaseRow(row, leaseID, workerID, time.Now().UTC())
+	return row, validateLeaseRow(row, leaseID, workerID, time.Now().UTC())
 }
 
 func validateLeaseRow(row jobRow, leaseID string, workerID string, now time.Time) error {

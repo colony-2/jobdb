@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobschema"
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
 	"github.com/colony-2/strata-go/pkg/client/core"
 	"github.com/colony-2/strata-go/pkg/client/story"
@@ -186,6 +188,13 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	}
 	chap, err := taskDataToChapter(req.Data, tw.OutputStep, taskType, workerID, chapterTypeTaskAttemptOutcome, payloadKindApp, tw.InputHash, time.Now().UTC(), meta)
 	if err != nil {
+		return err
+	}
+	storedChapter, err := ChapterFromStoryChapter(chap)
+	if err != nil {
+		return err
+	}
+	if err := jobschema.ValidateChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: jobmetadata.SchemaHashFromStoredMetadata(job.Metadata)}, storedChapter); err != nil {
 		return err
 	}
 	if err := r.ensureNextVisibleChapterOrdinal(ctx, jobKey, tw.OutputStep); err != nil {

@@ -491,6 +491,123 @@ func TestRemoteRuntimeSchemaRegistryRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRemoteRuntimeSchemaValidationErrors(t *testing.T) {
+	underlying := toyruntime.New()
+	server := httptest.NewServer(NewServer(underlying))
+	defer server.Close()
+
+	runtime, err := New(server.URL, server.Client())
+	if err != nil {
+		t.Fatalf("new remote runtime: %v", err)
+	}
+
+	ctx := context.Background()
+	tenantID := "tenant-schema-validation-remote"
+	schema := remoteChapterValidationSchemaForTest()
+
+	_, err = runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+		Job: jobdb.SubmitJob{
+			TenantId: tenantID,
+			JobType:  "schema-job",
+			Data:     jobdb.NewTaskDataOrPanic(map[string]string{"kind": "invalid"}),
+			Schema:   &jobdb.JobSchemaSelector{Schema: schema},
+		},
+	})
+	if !errors.Is(err, jobdb.ErrJobSchemaValidation) {
+		t.Fatalf("submit invalid schema job error = %v, want ErrJobSchemaValidation", err)
+	}
+
+	handle, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+		Job: jobdb.SubmitJob{
+			TenantId: tenantID,
+			JobType:  "schema-job",
+			Data:     jobdb.NewTaskDataOrPanic(map[string]string{"kind": "valid"}),
+			Schema:   &jobdb.JobSchemaSelector{Schema: schema},
+		},
+	})
+	if err != nil {
+		t.Fatalf("submit schema job: %v", err)
+	}
+	leases, err := runtime.PollWork(ctx, jobdb.PollWorkRequest{
+		TenantId:      tenantID,
+		WorkerID:      "schema-worker",
+		Capabilities:  []string{"schema-job"},
+		Limit:         1,
+		LeaseDuration: 2 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("poll work: %v", err)
+	}
+	if len(leases) != 1 {
+		t.Fatalf("leases = %d, want 1", len(leases))
+	}
+	err = runtime.PutChapter(ctx, jobdb.PutChapterRequest{
+		LeaseID:    leases[0].LeaseID(),
+		LeaseToken: leaseTokenForTest(leases[0]),
+		Ref: jobdb.ChapterRef{
+			JobKey:  handle.JobKey,
+			Ordinal: 1,
+		},
+		Chapter: jobdb.Chapter{
+			Ordinal:   1,
+			TaskType:  "schema-job",
+			CreatedAt: time.Now().UTC(),
+			Body: jobdb.TaskAttemptOutcomeChapter{Outcome: jobdb.ApplicationOutputOutcome{
+				Output: jobdb.ApplicationOutputBytes{Data: []byte(`{"ok":false}`)},
+			}},
+		},
+	})
+	if !errors.Is(err, jobdb.ErrJobSchemaValidation) {
+		t.Fatalf("put invalid schema chapter error = %v, want ErrJobSchemaValidation", err)
+	}
+}
+
+func remoteChapterValidationSchemaForTest() []byte {
+	return []byte(`{
+		"type":"object",
+		"required":["ordinal","body"],
+		"allOf":[
+			{
+				"if":{"properties":{"ordinal":{"const":0}},"required":["ordinal"]},
+				"then":{"properties":{"body":{
+					"type":"object",
+					"required":["kind","input"],
+					"properties":{
+						"kind":{"const":"jobStart"},
+						"input":{
+							"type":"object",
+							"required":["kind"],
+							"properties":{"kind":{"const":"valid"}}
+						}
+					}
+				}}}
+			},
+			{
+				"if":{"properties":{"ordinal":{"minimum":1}},"required":["ordinal"]},
+				"then":{"properties":{"body":{
+					"type":"object",
+					"required":["kind","outcome"],
+					"properties":{
+						"kind":{"const":"taskAttemptOutcome"},
+						"outcome":{
+							"type":"object",
+							"required":["kind","output"],
+							"properties":{
+								"kind":{"const":"success"},
+								"output":{
+									"type":"object",
+									"required":["ok"],
+									"properties":{"ok":{"const":true}}
+								}
+							}
+						}
+					}
+				}}}
+			}
+		]
+	}`)
+}
+
 func waitForRuntimeStatus(t *testing.T, ctx context.Context, runtime jobdb.WorkflowRuntime, jobKey jobdb.JobKey, want jobdb.JobStatus) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)

@@ -122,6 +122,9 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 		Body:      jobdb.JobStartChapter{Input: jobdb.ApplicationInputBytes{Data: append([]byte(nil), payload...)}},
 		Artifacts: storedArtifacts,
 	}
+	if err := jobschema.ValidateChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, stored); err != nil {
+		return jobdb.JobHandle{}, err
+	}
 
 	payloadJSON, err := json.Marshal(workerJobPayload{
 		RunPolicy: runPolicy,
@@ -241,6 +244,9 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
+	if err := jobschema.Prime(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}); err != nil {
+		return jobdb.JobHandle{}, err
+	}
 
 	r.engine.mu.Lock()
 	defer r.engine.mu.Unlock()
@@ -276,6 +282,11 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 	}
 	if _, ok := targetChapters[0]; !ok {
 		return jobdb.JobHandle{}, jobdb.ErrJobNotFound
+	}
+	for _, chapter := range targetChapters {
+		if err := jobschema.ValidateChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, chapter); err != nil {
+			return jobdb.JobHandle{}, err
+		}
 	}
 	if req.Job.JobID != "" {
 		if handle, ok, err := r.existingEquivalentRestartJob(jobKey, req.Job, targetChapters, storedMetadata); ok || err != nil {
@@ -658,6 +669,18 @@ func (r *Runtime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) e
 
 	chapter, err := r.prepareChapterWrite(ctx, req)
 	if err != nil {
+		return err
+	}
+	schemaHash := ""
+	if claims, ok := leaseauth.ClaimsFromContext(ctx); ok && leaseauth.Matches(claims, req.Ref.JobKey, req.LeaseID) {
+		schemaHash = claims.SchemaHash
+	}
+	if schemaHash == "" {
+		record.mu.Lock()
+		schemaHash = jobmetadata.SchemaHashFromStoredMetadata(record.metadata)
+		record.mu.Unlock()
+	}
+	if err := jobschema.ValidateChapter(ctx, r, jobdb.JobSchemaKey{TenantId: req.Ref.JobKey.TenantId, SchemaHash: schemaHash}, chapter); err != nil {
 		return err
 	}
 	return r.storeRuntimeChapter(req.Ref.JobKey, req.Ref.Ordinal, chapter)
@@ -1153,7 +1176,7 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	if taskType == "" || taskType == currentCapability {
 		return fmt.Errorf("task type not found in capability")
 	}
-	if err := r.storeRuntimeChapter(req.JobKey, wait.OutputStep, jobdb.Chapter{
+	chapter := jobdb.Chapter{
 		Ordinal:   wait.OutputStep,
 		TaskType:  taskType,
 		InputHash: wait.InputHash,
@@ -1163,7 +1186,14 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 			Output: jobdb.ApplicationOutputBytes{Data: append([]byte(nil), dataPayload...)},
 		}},
 		Artifacts: storedArtifacts,
-	}); err != nil {
+	}
+	record.mu.Lock()
+	schemaHash := jobmetadata.SchemaHashFromStoredMetadata(record.metadata)
+	record.mu.Unlock()
+	if err := jobschema.ValidateChapter(ctx, r, jobdb.JobSchemaKey{TenantId: req.JobKey.TenantId, SchemaHash: schemaHash}, chapter); err != nil {
+		return err
+	}
+	if err := r.storeRuntimeChapter(req.JobKey, wait.OutputStep, chapter); err != nil {
 		return err
 	}
 	record = r.engine.getJobRecord(req.JobKey)

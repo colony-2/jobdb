@@ -815,6 +815,9 @@ func responseError(operation string, status int, body []byte, sentinel error) er
 			return fmt.Errorf("%w: %s", sentinel, message)
 		}
 	case http.StatusBadRequest:
+		if strings.Contains(message, jobdb.ErrJobSchemaValidation.Error()) {
+			return fmt.Errorf("%w: %s", jobdb.ErrJobSchemaValidation, message)
+		}
 		return fmt.Errorf("%s: %s", operation, message)
 	}
 	if sentinel != nil && (status == http.StatusNotFound || status == http.StatusConflict) {
@@ -830,6 +833,9 @@ func responseErrorWithConflict(operation string, status int, body []byte, notFou
 	}
 	switch status {
 	case http.StatusBadRequest:
+		if strings.Contains(message, jobdb.ErrJobSchemaValidation.Error()) {
+			return fmt.Errorf("%w: %s", jobdb.ErrJobSchemaValidation, message)
+		}
 		return fmt.Errorf("%s: %s", operation, message)
 	case http.StatusNotFound:
 		if notFoundSentinel != nil {
@@ -853,6 +859,9 @@ func explicitJobCreateError(operation string, status int, body []byte, conflict 
 	}
 	switch status {
 	case http.StatusBadRequest:
+		if strings.Contains(message, jobdb.ErrJobSchemaValidation.Error()) {
+			return fmt.Errorf("%w: %s", jobdb.ErrJobSchemaValidation, message)
+		}
 		return fmt.Errorf("%s: %s", operation, message)
 	case http.StatusConflict:
 		if conflict != nil && conflict.Code == runtimeapi.ExistingJobMismatch {
