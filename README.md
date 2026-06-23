@@ -1,18 +1,32 @@
 # jobdb
 
-`jobdb` is a runtime server for durable jobs. The main entry point in this repo
-is `cmd/jobdb`, which serves the JobDB runtime REST API over HTTP using one of
-the available storage backends.
+`jobdb` is a runtime server for durable jobs. The installed `jobdb` command
+serves the JobDB runtime REST API over HTTP using one of the available storage
+backends.
 
 Use the server when you want a standalone runtime process that workers and other
 clients can talk to over the remote runtime protocol.
+
+## Installation
+
+Install the CLI with npm:
+
+```bash
+npm install -g @colony2/jobdb
+```
+
+Verify the command is available:
+
+```bash
+jobdb --help
+```
 
 ## Quick Start
 
 Run the default SQLite-backed server:
 
 ```bash
-go run ./cmd/jobdb --listen 127.0.0.1:9047 --db jobdb.db
+jobdb --listen 127.0.0.1:9047 --db jobdb.db
 ```
 
 This starts the runtime API at `http://127.0.0.1:9047`. SQLite is the default
@@ -22,7 +36,7 @@ blob directory that defaults to `<db>.blobs`.
 The explicit SQLite subcommand is equivalent:
 
 ```bash
-go run ./cmd/jobdb sqlite --listen 127.0.0.1:9047 --db jobdb.db
+jobdb sqlite --listen 127.0.0.1:9047 --db jobdb.db
 ```
 
 Stop the server with `Ctrl-C` or `SIGTERM`; the command shuts the HTTP server
@@ -35,7 +49,7 @@ down before closing backend resources.
 SQLite is the default embedded durable backend.
 
 ```bash
-go run ./cmd/jobdb sqlite \
+jobdb sqlite \
   --listen 127.0.0.1:9047 \
   --db ./jobdb.db \
   --blob-dir ./jobdb.blobs
@@ -58,7 +72,7 @@ The toy backend is in-memory. It is useful for local experiments and tests, not
 for durable execution.
 
 ```bash
-go run ./cmd/jobdb toy --listen 127.0.0.1:9047
+jobdb toy --listen 127.0.0.1:9047
 ```
 
 ### Direct
@@ -69,7 +83,7 @@ Strata daemon for chapter and artifact storage. It installs or verifies the
 
 ```bash
 JOBDB_POSTGRES_DSN='postgres://user:pass@localhost:5432/jobdb?sslmode=disable' \
-  go run ./cmd/jobdb direct --listen 127.0.0.1:9047
+  jobdb direct --listen 127.0.0.1:9047
 ```
 
 Flags:
@@ -104,6 +118,12 @@ the `pkg/workflow` package.
 See [pkg/workflow/README.md](pkg/workflow/README.md).
 
 ## Development
+
+The CLI source lives in `cmd/jobdb`. To run it directly from a checkout:
+
+```bash
+go run ./cmd/jobdb --listen 127.0.0.1:9047 --db jobdb.db
+```
 
 Run the full test suite:
 

@@ -15,14 +15,15 @@ runtime implementations.
 - A `TaskWorker` is a reusable unit of work called by a job.
 - An `Engine` binds workers to a `jobdb.WorkflowRuntime`.
 - The runtime can be local (`sqlite`, `toy`, `direct`) or remote
-  (`runtime/remote`) against a running `cmd/jobdb` server.
+  (`runtime/remote`) against a running `jobdb` server.
 
 ## Quick Start Against A Server
 
-Start a server from the repository root:
+Install and start a server:
 
 ```bash
-go run ./cmd/jobdb --listen 127.0.0.1:9047 --db jobdb.db
+npm install -g @colony2/jobdb
+jobdb --listen 127.0.0.1:9047 --db jobdb.db
 ```
 
 Then run workers against it through the remote runtime adapter:

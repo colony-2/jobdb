@@ -47,7 +47,7 @@ external artifact service.
 
 HTTP client/server adapter for the JobDB runtime REST API.
 
-Create a client for a running `cmd/jobdb` server:
+Create a client for a running `jobdb` server:
 
 ```go
 runtime, err := remoteruntime.New("http://127.0.0.1:9047", nil)
@@ -88,7 +88,7 @@ if err != nil {
 }
 ```
 
-`cmd/jobdb direct` wraps this runtime with an embedded Strata daemon and serves
+`jobdb direct` wraps this runtime with an embedded Strata daemon and serves
 it over the remote runtime API.
 
 ## Runtime Usage
