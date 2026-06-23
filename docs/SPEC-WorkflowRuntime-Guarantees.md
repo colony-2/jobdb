@@ -1,10 +1,10 @@
 # Workflow Runtime Guarantees Reference
 
-This document is the normative behavioral reference for [`openapi/swf-runtime.yaml`](../openapi/swf-runtime.yaml).
+This document is the normative behavioral reference for [`openapi/jobdb-runtime.yaml`](../openapi/jobdb-runtime.yaml).
 
 Its purpose is to make the runtime contract implementation-independent. A runtime may be backed by `pgwf` + `strata` or by some other queue and storage stack, but it must preserve the same externally visible rules.
 
-These rules are derived from the current SWF runtime boundary, the direct runtime's use of `pgwf` for job state and leases, the direct runtime's use of `strata` for chapter storage, and the existing SWF conformance and integration tests.
+These rules are derived from the current JobDB runtime boundary, the direct runtime's use of `pgwf` for job state and leases, the direct runtime's use of `strata` for chapter storage, and the existing JobDB conformance and integration tests.
 
 ## Model
 
@@ -77,7 +77,7 @@ Additional requirements:
 
 ## Waiting Task Completion Guarantees
 
-When SWF suspends a job on an external task, the runtime records a waiting slot with:
+When JobDB suspends a job on an external task, the runtime records a waiting slot with:
 
 - The current task capability.
 - The resume capability.

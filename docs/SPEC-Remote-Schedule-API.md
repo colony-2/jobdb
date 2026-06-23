@@ -2,17 +2,17 @@
 
 ## Status
 
-Current reference | Updated: 2026-06-21
+Current reference | Updated: 2026-06-23
 
 ## Summary
 
-Add schedules as first-class resources at the SWF remote REST API layer.
+Add schedules as first-class resources at the JobDB remote REST API layer.
 
 Schedules are stored as durable rows in `jobdb_schedules`. Scheduled occurrences
 are normal application jobs. There is no schedule controller job type and no
-`swfd`-owned tenant worker responsible for advancing schedules.
+JobDB-owned tenant worker responsible for advancing schedules.
 
-Instead, SWF gains hidden scheduler-side schedule metadata on occurrence jobs
+Instead, JobDB gains hidden scheduler-side schedule metadata on occurrence jobs
 and the runtime server performs schedule administration inside the lease
 acquisition path. When `PollWork` or `GetJobLease` acquires a candidate
 scheduled occurrence from pgwf or another scheduler backend, the server performs
@@ -29,7 +29,7 @@ schedule preflight before a lease is returned to any app worker:
 If the occurrence is stale, paused, archived, or blocked by failure policy, the
 server records the schedule outcome, completes the job as `CANCELLED`, and does
 not include that lease in the response. This keeps scheduling progress tied to
-ordinary SWF job lease attempts while keeping the REST API standalone: tenants
+ordinary JobDB job lease attempts while keeping the REST API standalone: tenants
 only run normal app workers, and clients do not need schedule-specific lease
 logic.
 
@@ -246,7 +246,7 @@ repeats preflight.
 
 ### Scheduled Occurrence Metadata And Started Boundary
 
-SWF should add immutable scheduler-side metadata for scheduled occurrences. This
+JobDB should add immutable scheduler-side metadata for scheduled occurrences. This
 metadata lives with pgwf or the pgwf-like scheduler tables, not in the app
 chapter stream. It must be readable in the lease path before opening any chapter
 body.
@@ -355,7 +355,7 @@ system chapters, but those projections are not part of the lease decision path.
 
 ## Delayed Submit And Serial Chaining
 
-SWF submit supports delayed initial leaseability:
+JobDB submit supports delayed initial leaseability:
 
 ```go
 type SubmitJob struct {
@@ -381,8 +381,8 @@ current app job starts, but with a prerequisite on the current job:
 SubmitJob{
     JobID:       "jobdbsched_daily-cleanup_g8_run_20260617T140000000000000Z",
     AvailableAt: nextFireAt,
-    Prerequisites: []swf.JobPrerequisite{
-        {JobID: currentJobID, Condition: swf.JobPrereqComplete},
+    Prerequisites: []jobdb.JobPrerequisite{
+        {JobID: currentJobID, Condition: jobdb.JobPrereqComplete},
     },
 }
 ```
@@ -728,7 +728,7 @@ Storage rule:
   column under the envelope's `internal` key.
 - SQLite runtime: store it in the SQLite scheduler job record's `metadata`
   column under the envelope's `internal` key.
-- Remote runtime: the HTTP client never sends or receives this field. `swfd`
+- Remote runtime: the HTTP client never sends or receives this field. `jobdb`
   reads and writes it locally while handling schedule APIs and lease APIs.
 
 The lease path may read pgwf/SQLite scheduler metadata and the `jobdb_schedules`
@@ -791,7 +791,7 @@ schedule/run projections      schedule rows, internal run metadata, terminal det
 
 Any in-memory cache, timer, or cursor is an optimization only. Correctness must
 survive process restart because due occurrences are ordinary jobs in the runtime.
-There is no background `swfd` scheduler loop that has to scan schedules and
+There is no background `jobdb` scheduler loop that has to scan schedules and
 materialize due work.
 
 ## Transaction Model
@@ -821,7 +821,7 @@ Crash cases:
 - Crash before a second chapter followed by pause/update/archive/failure-pause:
   the occurrence may be cancelled on the next lease attempt.
 - Crash after a second chapter: retry skips schedule validation and runs app
-  code. Normal SWF retry semantics apply.
+  code. Normal JobDB retry semantics apply.
 
 ## Overlap Policy
 
@@ -880,6 +880,6 @@ jobs may do a Strata story metadata read to check chapter count, but they do not
 read chapter bodies. The server submits the next occurrence and records clear
 cancellation reasons without exposing schedule internals to app code.
 
-This removes controller-worker ownership from `swfd`, avoids tenant-managed
+This removes controller-worker ownership from JobDB, avoids tenant-managed
 schedule workers, keeps REST clients generic, and advances schedules only when
-normal SWF workers request ordinary app work.
+normal JobDB workers request ordinary app work.

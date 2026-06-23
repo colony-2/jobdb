@@ -11,7 +11,7 @@ runtime contract.
 
 ## Context
 
-The Cloudflare SWF runtime worker maps SWF tenants directly to `jobs` project
+The Cloudflare JobDB runtime worker maps JobDB tenants directly to `jobs` project
 ids. The underlying scheduler is project-scoped, so efficient polling needs a
 specific tenant/project target.
 
@@ -50,7 +50,7 @@ known tenants, or ambient configuration.
 
 ## OpenAPI Change
 
-In `/swf-go/openapi/swf-runtime.yaml`, change `PollWorkRequest` to:
+In `/jobdb/openapi/jobdb-runtime.yaml`, change `PollWorkRequest` to:
 
 ```yaml
 PollWorkRequest:
@@ -144,11 +144,11 @@ Update all TypeScript runtime/client code that calls `pollWork` to pass
 
 ## Implementation Plan
 
-1. Update `openapi/swf-runtime.yaml` so `PollWorkRequest` requires `tenantId`
+1. Update `openapi/jobdb-runtime.yaml` so `PollWorkRequest` requires `tenantId`
    and removes `tenantIds`.
-2. Regenerate Go OpenAPI bindings under `pkg/swf/internal/runtimeapi`.
+2. Regenerate Go OpenAPI bindings under `pkg/jobdb/internal/runtimeapi`.
 3. Regenerate downstream TypeScript API bindings.
-4. Update `swf.PollWorkRequest` to use `TenantId string`.
+4. Update `jobdb.PollWorkRequest` to use `TenantId string`.
 5. Update all Go callers and runtime implementations:
    - Direct runtime: pass one project/tenant to the scheduler.
    - SQLite runtime: filter polling by the required tenant.
@@ -222,13 +222,13 @@ to:
 Existing Go clients must change:
 
 ```go
-swf.PollWorkRequest{TenantIds: []string{"tenant-a"}}
+jobdb.PollWorkRequest{TenantIds: []string{"tenant-a"}}
 ```
 
 to:
 
 ```go
-swf.PollWorkRequest{TenantId: "tenant-a"}
+jobdb.PollWorkRequest{TenantId: "tenant-a"}
 ```
 
 Clients that omitted tenant identity must choose a tenant before polling. There
@@ -240,7 +240,7 @@ is no upstream-supported replacement for global polling in this contract.
 - OpenAPI no longer exposes `tenantIds` on `PollWorkRequest`.
 - Generated Go API type uses required `TenantId string`.
 - Generated TypeScript API type uses required `tenantId: string`.
-- Public Go `swf.PollWorkRequest` uses `TenantId string`.
+- Public Go `jobdb.PollWorkRequest` uses `TenantId string`.
 - Built-in runtimes reject empty tenant ids and poll only the requested tenant.
 - Remote client no longer implements omitted-tenant known-tenant fanout.
 - Worker engine has an explicit configured poll tenant and passes it to

@@ -1,4 +1,4 @@
-# SWF Replay Run User Guide
+# JobDB Replay Run User Guide
 
 This guide explains how to use **ReplayJobRun** to replay a workflow using cached results only. Replay runs execute your **job worker code path**, but **never mutate state** and **never wait** for timers or pending jobs. Replay is supported in both the real engine and the toy engine.
 
@@ -15,13 +15,13 @@ This guide explains how to use **ReplayJobRun** to replay a workflow using cache
 ### Go API
 ```go
 type ReplayRunRequest struct {
-    JobKey    swf.JobKey
-    Observer  swf.ReplayObserver // optional
-    JobWorker swf.JobWorker      // optional override
+    JobKey    jobdb.JobKey
+    Observer  jobdb.ReplayObserver // optional
+    JobWorker jobdb.JobWorker      // optional override
 }
 
 // Executes a job with cached results only.
-ReplayJobRun(ctx context.Context, req ReplayRunRequest) (swf.JobData, error)
+ReplayJobRun(ctx context.Context, req ReplayRunRequest) (jobdb.JobData, error)
 ```
 
 ### Retry Boundary Observer
@@ -69,7 +69,7 @@ type ReplayObserver interface {
 ### Cache Miss
 ```go
 type ReplayCacheMissError struct {
-    JobKey   swf.JobKey
+    JobKey   jobdb.JobKey
     TaskType string
     Ordinal  int64
     Attempt  int
@@ -85,17 +85,17 @@ Reasons:
 
 ### Determinism Errors
 Replay uses the same determinism errors as real runs:
-- `swf.TaskInputMismatchError`
-- `swf.ErrWorkflowNotDeterministic`
+- `jobdb.TaskInputMismatchError`
+- `jobdb.ErrWorkflowNotDeterministic`
 
 ---
 
 ## Example: Real Engine
 ```go
 ctx := context.Background()
-jobKey := swf.JobKey{TenantId: "t1", JobId: "job123"}
+jobKey := jobdb.JobKey{TenantId: "t1", JobId: "job123"}
 
-result, err := engine.ReplayJobRun(ctx, swf.ReplayRunRequest{JobKey: jobKey})
+result, err := engine.ReplayJobRun(ctx, jobdb.ReplayRunRequest{JobKey: jobKey})
 if err != nil {
     // handle ReplayCacheMissError, determinism errors, timeouts, etc.
 }
@@ -105,7 +105,7 @@ _ = result
 With observer:
 ```go
 obs := myObserver{}
-result, err := engine.ReplayJobRun(ctx, swf.ReplayRunRequest{
+result, err := engine.ReplayJobRun(ctx, jobdb.ReplayRunRequest{
     JobKey:   jobKey,
     Observer: obs,
 })
@@ -116,9 +116,9 @@ result, err := engine.ReplayJobRun(ctx, swf.ReplayRunRequest{
 ## Example: Toy Engine
 ```go
 ctx := context.Background()
-jobKey := swf.JobKey{TenantId: "t1", JobId: "job123"}
+jobKey := jobdb.JobKey{TenantId: "t1", JobId: "job123"}
 
-result, err := toyEngine.ReplayJobRun(ctx, swf.ReplayRunRequest{JobKey: jobKey})
+result, err := toyEngine.ReplayJobRun(ctx, jobdb.ReplayRunRequest{JobKey: jobKey})
 if err != nil {
     // handle replay errors
 }

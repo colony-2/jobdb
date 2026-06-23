@@ -2,18 +2,18 @@
 
 ## Status
 
-**Current REST contract reference** | Author: Codex | Updated: 2026-06-21
+**Current REST contract reference** | Author: Codex | Updated: 2026-06-23
 
 ## Decision
 
-The SWF REST API must be a complete, first-class OpenAPI contract for SWF
+The JobDB REST API must be a complete, first-class OpenAPI contract for JobDB
 runtime concepts. It should keep the current REST resource shape, but replace
 the loose JSON projection with fully specified JSON schemas that mirror the
 structured runtime model:
 
 1. Closed discriminated unions for chapter bodies and task outcomes.
 2. Explicit JSON payload schemas instead of arbitrary undocumented payload fields.
-3. Typed SWF-owned metadata, errors, retry policy, task-wait state, scheduler
+3. Typed JobDB-owned metadata, errors, retry policy, task-wait state, scheduler
    payloads, and artifact descriptors.
 4. Rigid validation rules expressed in OpenAPI descriptions and conformance
    tests.
@@ -21,11 +21,11 @@ structured runtime model:
 The REST contract must not require clients or alternative runtime
 implementations to read the storage protobuf schema. A server may store the
 same concepts as protobuf, SQL rows, or any other representation, but the REST
-wire contract is defined by `openapi/swf-runtime.yaml`.
+wire contract is defined by `openapi/jobdb-runtime.yaml`.
 
 ## Goals
 
-1. Make `openapi/swf-runtime.yaml` sufficient to implement a conforming REST
+1. Make `openapi/jobdb-runtime.yaml` sufficient to implement a conforming REST
    client or server without consulting Go code or protobuf definitions.
 2. Preserve the current high-level REST path layout for jobs, leases, chapters,
    and artifacts.
@@ -33,7 +33,7 @@ wire contract is defined by `openapi/swf-runtime.yaml`.
    typed schemas.
 4. Preserve caller-owned application payloads as JSON subtrees across REST round
    trips.
-5. Make SWF-owned data queryable and validatable through explicit REST
+5. Make JobDB-owned data queryable and validatable through explicit REST
    schemas.
 6. Make generated clients useful in strongly typed languages.
 7. Keep runtime behavior aligned with
@@ -50,7 +50,7 @@ wire contract is defined by `openapi/swf-runtime.yaml`.
 ## Relationship To Protobuf
 
 The REST schemas should intentionally have the same conceptual shape as the
-structured runtime model, especially for one-of choices and typed SWF-owned
+structured runtime model, especially for one-of choices and typed JobDB-owned
 state. The OpenAPI document remains normative for HTTP clients.
 
 Rules:
@@ -85,7 +85,7 @@ explicitly a map or recursively arbitrary JSON, such as `Metadata.fields` or an
 object inside `ApplicationPayload`.
 
 Generated Go or TypeScript client models for the new contract should not contain
-`interface{}` or `any` for SWF-owned state. `ApplicationPayload` is the
+`interface{}` or `any` for JobDB-owned state. `ApplicationPayload` is the
 intentional open JSON value; metadata, scheduler state, chapters, outcomes, and
 errors must still generate typed models.
 
@@ -148,7 +148,7 @@ page size, poll limit, attempt count, and maximum attempts.
 Timestamps are RFC 3339 date-time strings. Servers should return UTC timestamps
 with a `Z` offset. Clients may send any valid RFC 3339 offset.
 
-Durations use an SWF duration string. The grammar is a non-empty sequence of
+Durations use a JobDB duration string. The grammar is a non-empty sequence of
 decimal number plus unit segments with no whitespace:
 
 ```text
@@ -206,7 +206,7 @@ YAML fragments to make the intended rewrite concrete.
 Duration:
   type: string
   pattern: '^(0|[0-9]+(\.[0-9]+)?(ns|us|ms|s|m|h))([0-9]+(\.[0-9]+)?(ns|us|ms|s|m|h))*$'
-  description: Non-negative SWF duration string.
+  description: Non-negative jobdb duration string.
 
 Sha256Hex:
   type: string
@@ -579,7 +579,7 @@ TimeoutPayload:
       type: string
 ```
 
-If `JobFailedError` remains a public SWF concept, it must be represented as a
+If `JobFailedError` remains a public JobDB concept, it must be represented as a
 first-class REST outcome instead of a private marker inside `AppErrorPayload`
 attrs.
 
@@ -1048,7 +1048,7 @@ Use this domain-separated algorithm for the target structured REST contract:
 
 ```text
 hash = SHA-256(
-  "swf-input-v2-openapi" NUL
+  "jobdb-input-v2-openapi" NUL
   canonical_json(task_data.data) NUL
   artifact_1.name NUL artifact_1.digest NUL artifact_1.size NUL
   artifact_2.name NUL artifact_2.digest NUL artifact_2.size NUL
@@ -1113,7 +1113,7 @@ current JSON-shaped contract, expose the structured contract under one of:
 
 1. `/v2/...` paths.
 2. A versioned media type such as
-   `application/vnd.swf.runtime.v2+json`.
+   `application/vnd.jobdb.runtime.v2+json`.
 
 Do not keep the old shape by adding optional untyped fields beside the new typed
 fields. That would preserve the same ambiguity this spec removes.
@@ -1124,7 +1124,7 @@ fields. That would preserve the same ambiguity this spec removes.
    `JsonValue`, and `ApplicationPayload`.
 2. Add artifact, metadata, policy, error, outcome, scheduler, and chapter
    schemas from this spec.
-3. Replace all free-form payload fields in `openapi/swf-runtime.yaml`.
+3. Replace all free-form payload fields in `openapi/jobdb-runtime.yaml`.
 4. Replace `PayloadKind` and `ChapterType` response fields with discriminated
    unions.
 5. Regenerate REST clients and servers.
@@ -1141,7 +1141,7 @@ fields. That would preserve the same ambiguity this spec removes.
 ## Acceptance Criteria
 
 1. A new runtime implementation can implement the REST API by reading only
-   `openapi/swf-runtime.yaml` and
+   `openapi/jobdb-runtime.yaml` and
    [`SPEC-WorkflowRuntime-Guarantees.md`](SPEC-WorkflowRuntime-Guarantees.md).
 2. Generated API models contain no untyped fields for task data, metadata,
    scheduler payloads, chapters, or outcomes.
