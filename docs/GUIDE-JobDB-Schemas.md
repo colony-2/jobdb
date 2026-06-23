@@ -391,7 +391,7 @@ ordinal conflicts remain conflict errors.
 - JobDB does not apply JSON Schema defaults. Validation never mutates stored
   chapters.
 - Runtime daemons keep a process-local compiled-schema cache keyed by
-  `(tenantId, schemaHash)`.
+  `schemaHash`; the registry lifecycle remains tenant-local.
 - Remote chapter appends use the signed lease token's schema hash when present,
   so the append path does not need an extra job-row read just to discover the
   schema.

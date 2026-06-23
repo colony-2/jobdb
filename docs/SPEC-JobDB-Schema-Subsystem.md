@@ -47,7 +47,7 @@ Implemented today:
 - Validation runs on `SubmitJob`, `SubmitRestartJob`, `PutChapter`, and
   `CompleteTaskIfWaiting`.
 - Schema documents are compiled into a process-local cache keyed by
-  `(tenantId, schemaHash)`.
+  `schemaHash`.
 
 Remaining intentional gaps:
 
@@ -240,8 +240,8 @@ The path is:
 3. `add_chapter` validates the token and extracts `(tenantId, jobId, leaseId,
    schemaHash)`.
 4. If `schemaHash` is empty, skip schema validation.
-5. If present, load the compiled schema validator from a tenant/hash cache
-   backed by the schema registry.
+5. If present, load the compiled schema validator from a hash-keyed cache backed
+   by the schema registry.
 6. Validate the incoming chapter JSON before storing it.
 
 An archived schema is accepted here because the job already chose that schema
@@ -269,7 +269,7 @@ cache is allowed because schemas are immutable by hash.
 Cache key:
 
 ```text
-(tenantId, schemaHash)
+schemaHash
 ```
 
 Cache value:
@@ -279,6 +279,10 @@ Cache value:
 Archive state is intentionally not part of the validation cache. Archive state
 is checked only when selecting a schema for a new job. Existing job writes may
 validate against an archived schema by hash.
+
+Tenant ID is intentionally not part of the compiled-validator cache key. The
+registry remains tenant-local for lifecycle state, but the hash identifies the
+schema bytes globally.
 
 ## Public Go API
 

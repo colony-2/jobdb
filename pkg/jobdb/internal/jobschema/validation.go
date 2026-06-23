@@ -15,12 +15,12 @@ import (
 )
 
 var defaultValidator = &validatorCache{
-	schemas: make(map[jobdb.JobSchemaKey]*jsonschema.Schema),
+	schemas: make(map[string]*jsonschema.Schema),
 }
 
 type validatorCache struct {
 	mu      sync.RWMutex
-	schemas map[jobdb.JobSchemaKey]*jsonschema.Schema
+	schemas map[string]*jsonschema.Schema
 }
 
 func ValidateChapter(ctx context.Context, registry jobdb.JobSchemaRegistry, key jobdb.JobSchemaKey, chapter jobdb.Chapter) error {
@@ -72,7 +72,7 @@ func ValidateSchemaDocument(schemaHash string, raw json.RawMessage) error {
 
 func (c *validatorCache) schema(ctx context.Context, registry jobdb.JobSchemaRegistry, key jobdb.JobSchemaKey) (*jsonschema.Schema, error) {
 	c.mu.RLock()
-	schema := c.schemas[key]
+	schema := c.schemas[key.SchemaHash]
 	c.mu.RUnlock()
 	if schema != nil {
 		return schema, nil
@@ -89,11 +89,11 @@ func (c *validatorCache) schema(ctx context.Context, registry jobdb.JobSchemaReg
 		return nil, err
 	}
 	c.mu.Lock()
-	if existing := c.schemas[key]; existing != nil {
+	if existing := c.schemas[key.SchemaHash]; existing != nil {
 		c.mu.Unlock()
 		return existing, nil
 	}
-	c.schemas[key] = compiled
+	c.schemas[key.SchemaHash] = compiled
 	c.mu.Unlock()
 	return compiled, nil
 }
