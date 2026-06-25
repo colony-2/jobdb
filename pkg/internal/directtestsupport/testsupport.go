@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 
 	"github.com/colony-2/pgwf-go/installer"
-	"github.com/colony-2/strata-go/pkg/daemon"
 	"github.com/fergusstrange/embedded-postgres"
 )
 
@@ -19,55 +18,6 @@ func InstallPGWF(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	return inst.Verify(ctx)
-}
-
-type EmbeddedStrataHandle struct {
-	BaseURL  string
-	APIKey   string
-	Shutdown func()
-}
-
-func StartEmbeddedStrata() (*EmbeddedStrataHandle, error) {
-	rowDir, err := os.MkdirTemp("", "strata-rows-*")
-	if err != nil {
-		return nil, fmt.Errorf("create row store dir: %w", err)
-	}
-	blobDir, err := os.MkdirTemp("", "strata-blobs-*")
-	if err != nil {
-		_ = os.RemoveAll(rowDir)
-		return nil, fmt.Errorf("create blob store dir: %w", err)
-	}
-
-	cfg := daemon.Config{
-		ListenAddr:             "127.0.0.1:0",
-		RowStoreURI:            fmt.Sprintf("sqlite://%s", filepath.ToSlash(filepath.Join(rowDir, "strata.db"))),
-		BlobStoreURI:           fmt.Sprintf("blobfs://%s", filepath.ToSlash(blobDir)),
-		MaxInlineArtifactBytes: daemon.DefaultMaxInlineArtifactBytes,
-	}
-
-	d, err := daemon.StartEmbedded(context.Background(), cfg)
-	if err != nil {
-		_ = os.RemoveAll(rowDir)
-		_ = os.RemoveAll(blobDir)
-		return nil, err
-	}
-	addr, err := d.Addr()
-	if err != nil {
-		_ = d.Shutdown(context.Background())
-		_ = os.RemoveAll(rowDir)
-		_ = os.RemoveAll(blobDir)
-		return nil, err
-	}
-
-	return &EmbeddedStrataHandle{
-		BaseURL: "http://" + addr,
-		APIKey:  "test-token",
-		Shutdown: func() {
-			_ = d.Shutdown(context.Background())
-			_ = os.RemoveAll(rowDir)
-			_ = os.RemoveAll(blobDir)
-		},
-	}, nil
 }
 
 func StartEmbeddedPostgres() (string, func(), error) {

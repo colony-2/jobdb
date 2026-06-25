@@ -15,13 +15,13 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	chapterartifact "github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/artifact"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/core"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/pagination"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobschema"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/leaseauth"
-	strataartifact "github.com/colony-2/strata-go/pkg/client/artifact"
-	"github.com/colony-2/strata-go/pkg/client/core"
-	"github.com/colony-2/strata-go/pkg/client/pagination"
-	"github.com/colony-2/strata-go/pkg/client/story"
 	"github.com/google/uuid"
 	"github.com/segmentio/ksuid"
 )
@@ -52,7 +52,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	sctx := strataContext(ctx)
+	sctx := chapterContext(ctx)
 	prereqs, waitFor, err := normalizePrerequisites(jobKey, req.Job.Prerequisites)
 	if err != nil {
 		return jobdb.JobHandle{}, err
@@ -79,7 +79,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 	if err := jobschema.ValidateChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, initialStoredChapter); err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	if _, err := r.strataClient.CreateStory(sctx, storyKeyForJob(jobKey), story.CreateOptions{RequestID: uuid.New().String(), InitialChapter: initialChapter}); err != nil {
+	if _, err := r.chapterStore.CreateStory(sctx, storyKeyForJob(jobKey), story.CreateOptions{RequestID: uuid.New().String(), InitialChapter: initialChapter}); err != nil {
 		if req.Job.JobID != "" && errors.Is(err, core.ErrConflict) {
 			if handle, handled, reconcileErr := r.reconcileExistingSubmitJob(ctx, req, jobKey, inputHash, prereqs, waitFor, jobPolicy, schemaHash); handled || reconcileErr != nil {
 				return handle, reconcileErr
@@ -123,7 +123,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	sctx := strataContext(ctx)
+	sctx := chapterContext(ctx)
 	prereqs, waitFor, err := normalizePrerequisites(jobKey, job.Prerequisites)
 	if err != nil {
 		return jobdb.JobHandle{}, err
@@ -131,7 +131,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 	sourceJob := storyKeyForJob(job.PriorJobKey)
 	targetJob := storyKeyForJob(jobKey)
 
-	chap0, err := r.strataClient.Chapter(sctx, sourceJob, 0)
+	chap0, err := r.chapterStore.Chapter(sctx, sourceJob, 0)
 	if err != nil {
 		return jobdb.JobHandle{}, fmt.Errorf("load source initial chapter: %w", err)
 	}
@@ -146,7 +146,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 	}
 
 	nextOrdinal := job.LastStepToKeep + 1
-	nextChap, err := r.strataClient.Chapter(sctx, sourceJob, nextOrdinal)
+	nextChap, err := r.chapterStore.Chapter(sctx, sourceJob, nextOrdinal)
 	if err != nil {
 		return jobdb.JobHandle{}, fmt.Errorf("LastStepToKeep %d invalid: no chapter at ordinal %d: %w", job.LastStepToKeep, nextOrdinal, err)
 	}
@@ -188,7 +188,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 	}
 	if schemaHash != "" {
 		for ordinal := int64(0); ordinal <= job.LastStepToKeep; ordinal++ {
-			sourceChapter, err := r.strataClient.Chapter(sctx, sourceJob, ordinal)
+			sourceChapter, err := r.chapterStore.Chapter(sctx, sourceJob, ordinal)
 			if err != nil {
 				return jobdb.JobHandle{}, err
 			}
@@ -211,7 +211,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 		}
 	}
 
-	if _, err := r.strataClient.CloneStory(sctx, sourceJob, story.CloneOptions{
+	if _, err := r.chapterStore.CloneStory(sctx, sourceJob, story.CloneOptions{
 		DestinationKey: targetJob,
 		LastOrdinal:    job.LastStepToKeep,
 		CreateOptions:  createOptions,
@@ -598,11 +598,11 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 		SchemaHash: jobmetadata.SchemaHashFromStoredMetadata(row.metadata),
 	}
 	if row.archivedAtNS.Valid {
-		st, err := r.strataClient.Story(strataContext(ctx), storyKeyForJob(jobKey))
+		st, err := r.chapterStore.Story(chapterContext(ctx), storyKeyForJob(jobKey))
 		if err != nil {
 			return jobdb.JobInfo{}, err
 		}
-		chap, err := st.GetLastChapter(strataContext(ctx))
+		chap, err := st.GetLastChapter(chapterContext(ctx))
 		if err != nil {
 			return jobdb.JobInfo{}, err
 		}
@@ -783,7 +783,7 @@ func (r *Runtime) GetChapter(ctx context.Context, ref jobdb.ChapterRef) (jobdb.C
 	if err := r.validate(); err != nil {
 		return jobdb.Chapter{}, err
 	}
-	chapter, err := r.strataClient.Chapter(strataContext(ctx), storyKeyForJob(ref.JobKey), ref.Ordinal)
+	chapter, err := r.chapterStore.Chapter(chapterContext(ctx), storyKeyForJob(ref.JobKey), ref.Ordinal)
 	if err != nil {
 		if errors.Is(err, core.ErrNotFound) {
 			return jobdb.Chapter{}, jobdb.ErrChapterNotFound
@@ -803,20 +803,20 @@ func (r *Runtime) ListChapters(ctx context.Context, req jobdb.ListChaptersReques
 	if req.StartOrdinal < 0 {
 		return nil, fmt.Errorf("start ordinal must be >= 0")
 	}
-	st, err := r.strataClient.Story(strataContext(ctx), storyKeyForJob(req.JobKey))
+	st, err := r.chapterStore.Story(chapterContext(ctx), storyKeyForJob(req.JobKey))
 	if err != nil {
 		if errors.Is(err, core.ErrNotFound) {
 			return nil, jobdb.ErrJobNotFound
 		}
 		return nil, err
 	}
-	iter, err := st.Chapters(strataContext(ctx), story.ChaptersOptions{PageSize: 100, Direction: story.DirectionForward})
+	iter, err := st.Chapters(chapterContext(ctx), story.ChaptersOptions{PageSize: 100, Direction: story.DirectionForward})
 	if err != nil {
 		return nil, err
 	}
 	out := make([]jobdb.Chapter, 0)
 	for iter.HasNext() {
-		chapter, err := iter.Next(strataContext(ctx))
+		chapter, err := iter.Next(chapterContext(ctx))
 		if errors.Is(err, pagination.ErrNoMoreItems) {
 			break
 		}
@@ -885,7 +885,7 @@ func (r *Runtime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) e
 	for _, art := range attached {
 		builder.AddArtifact(art)
 	}
-	err = r.strataClient.SaveChapter(strataContext(ctx), storyKeyForJob(req.Ref.JobKey), builder)
+	err = r.chapterStore.SaveChapter(chapterContext(ctx), storyKeyForJob(req.Ref.JobKey), builder)
 	if err != nil {
 		if errors.Is(err, core.ErrConflict) {
 			return fmt.Errorf("%w: chapter ordinal %d already exists or is not appendable", jobdb.ErrConflict, req.Ref.Ordinal)
@@ -959,7 +959,7 @@ func (r *Runtime) ensureCompletionChapter(ctx context.Context, jobKey jobdb.JobK
 	for _, art := range attached {
 		builder.AddArtifact(art)
 	}
-	err = r.strataClient.SaveChapter(strataContext(ctx), storyKeyForJob(jobKey), builder)
+	err = r.chapterStore.SaveChapter(chapterContext(ctx), storyKeyForJob(jobKey), builder)
 	if err != nil {
 		if errors.Is(err, core.ErrConflict) {
 			return fmt.Errorf("%w: chapter ordinal %d already exists or is not appendable", jobdb.ErrConflict, ref.Ordinal)
@@ -970,7 +970,7 @@ func (r *Runtime) ensureCompletionChapter(ctx context.Context, jobKey jobdb.JobK
 }
 
 func (r *Runtime) existingCompletionChapter(ctx context.Context, ref jobdb.ChapterRef) (jobdb.Chapter, bool, error) {
-	chapter, err := r.strataClient.Chapter(strataContext(ctx), storyKeyForJob(ref.JobKey), ref.Ordinal)
+	chapter, err := r.chapterStore.Chapter(chapterContext(ctx), storyKeyForJob(ref.JobKey), ref.Ordinal)
 	if err != nil {
 		if errors.Is(err, core.ErrNotFound) {
 			return jobdb.Chapter{}, false, nil
@@ -1012,14 +1012,14 @@ func (r *Runtime) OpenArtifact(ctx context.Context, ref jobdb.ArtifactRef) (jobd
 	if err := r.validate(); err != nil {
 		return nil, err
 	}
-	chapter, err := r.strataClient.Chapter(strataContext(ctx), storyKeyForJob(ref.JobKey), ref.Ordinal)
+	chapter, err := r.chapterStore.Chapter(chapterContext(ctx), storyKeyForJob(ref.JobKey), ref.Ordinal)
 	if err != nil {
 		if errors.Is(err, core.ErrNotFound) {
 			return nil, jobdb.ErrChapterNotFound
 		}
 		return nil, err
 	}
-	var descriptor *strataartifact.Descriptor
+	var found chapterartifact.Artifact
 	for _, existing := range chapter.Artifacts() {
 		if existing == nil || existing.Name() != ref.Name {
 			continue
@@ -1028,24 +1028,13 @@ func (r *Runtime) OpenArtifact(ctx context.Context, ref jobdb.ArtifactRef) (jobd
 		if ref.Digest != "" && digest != "" && ref.Digest != digest {
 			continue
 		}
-		descriptor = &strataartifact.Descriptor{
-			Name:        existing.Name(),
-			ContentType: existing.ContentType(),
-			SizeBytes:   existing.SizeBytes(),
-			Sha256:      digest,
-		}
+		found = existing
 		break
 	}
-	if descriptor == nil {
+	if found == nil {
 		return nil, fmt.Errorf("artifact %s not found for job %s ordinal %d", ref.Name, ref.JobKey.JobId, ref.Ordinal)
 	}
-	art := strataartifact.FromRemote(*descriptor, strataartifact.Locator{
-		AnthologyID: ref.JobKey.TenantId,
-		StoryID:     ref.JobKey.JobId,
-		Ordinal:     ref.Ordinal,
-		Name:        descriptor.Name,
-	}, r.strataClient.Core())
-	return artifactReader{art: fromStrataArtifact(art)}, nil
+	return artifactReader{art: fromChapterArtifact(found)}, nil
 }
 
 func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteTaskIfWaitingRequest) error {
@@ -1086,7 +1075,7 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 
 	var inputChapter story.Chapter
 	if tw.InputStep > 0 {
-		inputChapter, err = r.strataClient.Chapter(strataContext(ctx), storyKeyForJob(jobKey), tw.InputStep)
+		inputChapter, err = r.chapterStore.Chapter(chapterContext(ctx), storyKeyForJob(jobKey), tw.InputStep)
 		if err != nil {
 			return fmt.Errorf("failed to load input chapter: %w", err)
 		}
@@ -1130,7 +1119,7 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	if err := r.ensureNextVisibleChapterOrdinal(ctx, jobKey, tw.OutputStep); err != nil {
 		return err
 	}
-	err = r.strataClient.SaveChapter(strataContext(ctx), storyKeyForJob(jobKey), chapter)
+	err = r.chapterStore.SaveChapter(chapterContext(ctx), storyKeyForJob(jobKey), chapter)
 	if err != nil {
 		if errors.Is(err, core.ErrConflict) {
 			return fmt.Errorf("%w: output chapter %d already exists or is not appendable", jobdb.ErrConflict, tw.OutputStep)
@@ -1170,14 +1159,14 @@ WHERE tenant_id = ? AND job_id = ? AND archived_at_ns IS NULL AND next_need = ?`
 }
 
 func (r *Runtime) ensureNextVisibleChapterOrdinal(ctx context.Context, jobKey jobdb.JobKey, ordinal int64) error {
-	st, err := r.strataClient.Story(strataContext(ctx), storyKeyForJob(jobKey))
+	st, err := r.chapterStore.Story(chapterContext(ctx), storyKeyForJob(jobKey))
 	if err != nil {
 		if errors.Is(err, core.ErrNotFound) {
 			return jobdb.ErrJobNotFound
 		}
 		return err
 	}
-	last, err := st.GetLastChapter(strataContext(ctx))
+	last, err := st.GetLastChapter(chapterContext(ctx))
 	if err != nil {
 		if errors.Is(err, core.ErrNotFound) {
 			if ordinal == 0 {
@@ -1198,7 +1187,7 @@ func (r *Runtime) ensureNextVisibleChapterOrdinal(ctx context.Context, jobKey jo
 	}
 }
 
-func (r *Runtime) prepareChapterWrite(ctx context.Context, req jobdb.PutChapterRequest) (jobdb.Chapter, []strataartifact.Artifact, error) {
+func (r *Runtime) prepareChapterWrite(ctx context.Context, req jobdb.PutChapterRequest) (jobdb.Chapter, []chapterartifact.Artifact, error) {
 	chapter := req.Chapter
 	if len(req.ArtifactUploads) == 0 {
 		if len(chapter.Artifacts) > 0 {
@@ -1207,7 +1196,7 @@ func (r *Runtime) prepareChapterWrite(ctx context.Context, req jobdb.PutChapterR
 		return chapter, nil, nil
 	}
 	stored := make([]jobdb.StoredArtifact, 0, len(req.ArtifactUploads))
-	attached := make([]strataartifact.Artifact, 0, len(req.ArtifactUploads))
+	attached := make([]chapterartifact.Artifact, 0, len(req.ArtifactUploads))
 	for _, item := range req.ArtifactUploads {
 		if item.Open == nil {
 			return jobdb.Chapter{}, nil, fmt.Errorf("artifact %q is missing opener", item.Name)
@@ -1227,7 +1216,7 @@ func (r *Runtime) prepareChapterWrite(ctx context.Context, req jobdb.PutChapterR
 			return jobdb.Chapter{}, nil, err
 		}
 		stored = append(stored, jobdb.StoredArtifact{Name: item.Name, Digest: digest, Size: int64(len(data))})
-		attached = append(attached, toStrataArtifact(art))
+		attached = append(attached, toChapterArtifact(art))
 	}
 	if err := validateChapterArtifactDescriptors(chapter.Artifacts, stored); err != nil {
 		return jobdb.Chapter{}, nil, err

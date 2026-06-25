@@ -182,7 +182,7 @@ Workflow workers can use any runtime implementation:
 - Remote server: `remoteruntime.New("http://127.0.0.1:9047", nil)`.
 - SQLite embedded: `sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{...})`.
 - Toy in-memory: `toyruntime.New()`.
-- Direct Postgres/Strata: `directruntime.NewFromConfig(...)`.
+- Direct Postgres: `directruntime.NewFromConfig(directruntime.Config{...})`.
 
 For server operation and backend flags, see the root
 [README](../../README.md). For runtime package details, see

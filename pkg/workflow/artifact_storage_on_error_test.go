@@ -29,10 +29,8 @@ func TestArtifactStorageOnTaskError(t *testing.T) {
 			t.Fatalf("failed to install pgwf schema: %v", err)
 		}
 
-		// Start Strata
-		baseURL, strata := startStrata(t)
-		defer strata.Shutdown()
-		waitForStrataReady(t, baseURL)
+		blobStoreURI, blobs := startChapterBlobStore(t)
+		defer blobs.Shutdown()
 
 		// Create a temporary file artifact for error diagnostics
 		tempDir := t.TempDir()
@@ -60,7 +58,7 @@ func TestArtifactStorageOnTaskError(t *testing.T) {
 		taskWorker := &errorWithArtifactsTask{artifact: errorArtifact}
 
 		// Build engine with the job and task worker
-		engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *workflow.EngineBuilder) {
+		engine := buildDirectEngine(t, postgresDSN, blobStoreURI, func(b *workflow.EngineBuilder) {
 			b.WithWorkerTenantId("test-tenant").PlusWorkers(jobWorker, taskWorker)
 		})
 
@@ -88,18 +86,15 @@ func TestArtifactStorageOnTaskError(t *testing.T) {
 		_, err = os.Stat(errorLogFile)
 		assert.True(t, os.IsNotExist(err), "error artifact file should be cleaned up after storage")
 
-		// Verify the error artifact was stored by reading from strata
-		client := mustStrataClient(t, baseURL, strata.APIKey)
-		taskChapter := waitForChapter(t, client, storyKeyForJob(jobKey), 1, 10*time.Second)
+		taskChapter := waitForChapter(t, engine, jobKey, 1, 10*time.Second)
 
 		// Verify the chapter has the error artifact
-		artifacts := taskChapter.Artifacts()
+		artifacts := taskChapter.Artifacts
 		require.Len(t, artifacts, 1, "task chapter should have one error artifact")
-		assert.Equal(t, "error-diagnostics.log", artifacts[0].Name(), "artifact name should match")
+		assert.Equal(t, "error-diagnostics.log", artifacts[0].Name, "artifact name should match")
 
 		// Verify we can read the artifact data from storage
-		storedData, err := artifacts[0].Bytes(ctx)
-		require.NoError(t, err)
+		storedData := readStoredArtifact(t, engine, jobKey, 1, artifacts[0])
 		assert.Equal(t, diagnosticData, storedData, "stored artifact data should match original")
 	})
 
@@ -114,10 +109,8 @@ func TestArtifactStorageOnTaskError(t *testing.T) {
 			t.Fatalf("failed to install pgwf schema: %v", err)
 		}
 
-		// Start Strata
-		baseURL, strata := startStrata(t)
-		defer strata.Shutdown()
-		waitForStrataReady(t, baseURL)
+		blobStoreURI, blobs := startChapterBlobStore(t)
+		defer blobs.Shutdown()
 
 		// Create a single artifact that will be attached on each retry
 		tempDir := t.TempDir()
@@ -142,7 +135,7 @@ func TestArtifactStorageOnTaskError(t *testing.T) {
 		taskWorker := &simpleRetryErrorTask{artifact: artifact}
 
 		// Build engine with retry policy
-		engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *workflow.EngineBuilder) {
+		engine := buildDirectEngine(t, postgresDSN, blobStoreURI, func(b *workflow.EngineBuilder) {
 			b.WithWorkerTenantId("test-tenant").PlusWorkers(jobWorker, taskWorker)
 		})
 
@@ -172,16 +165,14 @@ func TestArtifactStorageOnTaskError(t *testing.T) {
 		}, 30*time.Second, 200*time.Millisecond)
 
 		// Verify each task attempt chapter has its artifact
-		client := mustStrataClient(t, baseURL, strata.APIKey)
 		for i := 1; i <= 3; i++ {
-			chapter := waitForChapter(t, client, storyKeyForJob(jobKey), int64(i), 10*time.Second)
-			artifacts := chapter.Artifacts()
+			chapter := waitForChapter(t, engine, jobKey, int64(i), 10*time.Second)
+			artifacts := chapter.Artifacts
 			require.Len(t, artifacts, 1, fmt.Sprintf("attempt %d should have one artifact", i))
-			assert.Equal(t, "retry-error.log", artifacts[0].Name(), fmt.Sprintf("attempt %d artifact name should match", i))
+			assert.Equal(t, "retry-error.log", artifacts[0].Name, fmt.Sprintf("attempt %d artifact name should match", i))
 
 			// Verify we can read the artifact data
-			storedData, err := artifacts[0].Bytes(ctx)
-			require.NoError(t, err)
+			storedData := readStoredArtifact(t, engine, jobKey, int64(i), artifacts[0])
 			assert.Equal(t, logData, storedData, fmt.Sprintf("attempt %d artifact data should match", i))
 		}
 	})
@@ -200,10 +191,8 @@ func TestArtifactStorageOnJobError(t *testing.T) {
 			t.Fatalf("failed to install pgwf schema: %v", err)
 		}
 
-		// Start Strata
-		baseURL, strata := startStrata(t)
-		defer strata.Shutdown()
-		waitForStrataReady(t, baseURL)
+		blobStoreURI, blobs := startChapterBlobStore(t)
+		defer blobs.Shutdown()
 
 		// Create artifact for job-level error
 		tempDir := t.TempDir()
@@ -229,7 +218,7 @@ func TestArtifactStorageOnJobError(t *testing.T) {
 		jobWorker := &errorJobWithArtifacts{artifact: jobErrorArtifact}
 
 		// Build engine
-		engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *workflow.EngineBuilder) {
+		engine := buildDirectEngine(t, postgresDSN, blobStoreURI, func(b *workflow.EngineBuilder) {
 			b.WithWorkerTenantId("test-tenant").PlusWorkers(jobWorker)
 		})
 
@@ -255,16 +244,14 @@ func TestArtifactStorageOnJobError(t *testing.T) {
 
 		// Verify the error artifact was stored
 		// Job result should be in ordinal 1 (after job input at ordinal 0)
-		client := mustStrataClient(t, baseURL, strata.APIKey)
-		jobResultChapter := waitForChapter(t, client, storyKeyForJob(jobKey), 1, 10*time.Second)
+		jobResultChapter := waitForChapter(t, engine, jobKey, 1, 10*time.Second)
 
-		artifacts := jobResultChapter.Artifacts()
+		artifacts := jobResultChapter.Artifacts
 		require.Len(t, artifacts, 1, "job result should have error artifact")
-		assert.Equal(t, "job-error.log", artifacts[0].Name())
+		assert.Equal(t, "job-error.log", artifacts[0].Name)
 
 		// Verify we can read the artifact data
-		storedData, err := artifacts[0].Bytes(ctx)
-		require.NoError(t, err)
+		storedData := readStoredArtifact(t, engine, jobKey, 1, artifacts[0])
 		assert.Equal(t, jobErrorData, storedData, "stored job error artifact should match original")
 	})
 }

@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/core"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
-	"github.com/colony-2/strata-go/pkg/client/core"
-	"github.com/colony-2/strata-go/pkg/client/story"
 )
 
 type artifactFingerprint struct {
@@ -42,7 +42,7 @@ func (r *Runtime) reconcileExistingSubmitJob(ctx context.Context, req jobdb.Subm
 			return jobdb.JobHandle{}, false, err
 		}
 		if pgwfExists {
-			return jobdb.JobHandle{}, true, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists in pgwf without a matching strata story", jobKey))
+			return jobdb.JobHandle{}, true, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists in pgwf without a matching chapter story", jobKey))
 		}
 		return jobdb.JobHandle{}, false, nil
 	}
@@ -63,7 +63,7 @@ func (r *Runtime) reconcileExistingSubmitJob(ctx context.Context, req jobdb.Subm
 			return jobdb.JobHandle{}, true, ordinalErr
 		}
 		if lastOrdinal != 0 {
-			return jobdb.JobHandle{}, true, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s has strata history through ordinal %d but no pgwf record to recover", jobKey, lastOrdinal))
+			return jobdb.JobHandle{}, true, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s has chapter history through ordinal %d but no pgwf record to recover", jobKey, lastOrdinal))
 		}
 		if err := r.ensureSubmittedJobRecord(ctx, jobKey, req.Job.JobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, req.Job.AvailableAt); err != nil {
 			return jobdb.JobHandle{}, true, err
@@ -90,7 +90,7 @@ func (r *Runtime) reconcileExistingRestartJob(ctx context.Context, req jobdb.Sub
 			return jobdb.JobHandle{}, false, err
 		}
 		if pgwfExists {
-			return jobdb.JobHandle{}, true, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists in pgwf without a matching strata story", jobKey))
+			return jobdb.JobHandle{}, true, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists in pgwf without a matching chapter story", jobKey))
 		}
 		return jobdb.JobHandle{}, false, nil
 	}
@@ -111,7 +111,7 @@ func (r *Runtime) reconcileExistingRestartJob(ctx context.Context, req jobdb.Sub
 			return jobdb.JobHandle{}, true, ordinalErr
 		}
 		if lastOrdinal != expectedLast {
-			return jobdb.JobHandle{}, true, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s has strata history through ordinal %d but no pgwf record to recover", jobKey, lastOrdinal))
+			return jobdb.JobHandle{}, true, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s has chapter history through ordinal %d but no pgwf record to recover", jobKey, lastOrdinal))
 		}
 		if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, nil); err != nil {
 			return jobdb.JobHandle{}, true, err
@@ -180,7 +180,7 @@ func (r *Runtime) storyLastOrdinal(ctx context.Context, jobKey jobdb.JobKey) (in
 	st, err := r.loadStory(ctx, storyKeyForJob(jobKey))
 	if err != nil {
 		if errors.Is(err, core.ErrNotFound) {
-			return -1, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s is missing its strata story", jobKey))
+			return -1, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s is missing its chapter story", jobKey))
 		}
 		return -1, err
 	}

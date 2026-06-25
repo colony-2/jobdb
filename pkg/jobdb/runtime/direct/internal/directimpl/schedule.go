@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/core"
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
-	"github.com/colony-2/strata-go/pkg/client/core"
 )
 
 type scheduleRow struct {
@@ -430,7 +430,7 @@ func (r *Runtime) submitScheduledOccurrenceWithJobID(ctx context.Context, row sc
 	if err != nil {
 		return jobdb.JobKey{}, err
 	}
-	if _, err := r.strataClient.CreateStory(ctx, storyKeyForJob(jobKey), co); err != nil {
+	if _, err := r.chapterStore.CreateStory(ctx, storyKeyForJob(jobKey), co); err != nil {
 		if !errors.Is(err, core.ErrConflict) {
 			return jobdb.JobKey{}, err
 		}

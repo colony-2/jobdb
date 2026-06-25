@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	strata "github.com/colony-2/strata-go/pkg/client/artifact"
+	chapterartifact "github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/artifact"
 )
 
 func TestTaskAppErrorEnvelopeRoundTrip(t *testing.T) {
@@ -51,7 +51,7 @@ func TestTaskAppErrorEnvelopeRoundTrip(t *testing.T) {
 		t.Fatalf("payload message mismatch: %s", payloadBody.Message)
 	}
 
-	artifacts := convertStrataArtifactsToJobDB(chap.Artifacts())
+	artifacts := convertChapterArtifactsToJobDB(chap.Artifacts())
 	td, payloadErr := envelopeToTaskData(env, artifacts)
 	if td == nil {
 		t.Fatalf("expected task data envelope on error payload")
@@ -76,7 +76,7 @@ func TestTaskSystemErrorEnvelopeRoundTrip(t *testing.T) {
 		t.Fatalf("hash input: %v", err)
 	}
 
-	sysErr := jobdb.SystemError{Payload: jobdb.SystemErrorPayload{Message: "infra fail", Component: "strata"}}
+	sysErr := jobdb.SystemError{Payload: jobdb.SystemErrorPayload{Message: "infra fail", Component: "chapterstore"}}
 	payload, kind, err := errorPayloadFromError(sysErr, nil)
 	if err != nil {
 		t.Fatalf("taskDataFromError: %v", err)
@@ -108,7 +108,7 @@ func TestTaskSystemErrorEnvelopeRoundTrip(t *testing.T) {
 		t.Fatalf("payload message mismatch: %s", payloadBody.Message)
 	}
 
-	artifacts := convertStrataArtifactsToJobDB(chap.Artifacts())
+	artifacts := convertChapterArtifactsToJobDB(chap.Artifacts())
 	td, payloadErr := envelopeToTaskData(env, artifacts)
 	if td == nil {
 		t.Fatalf("expected task data envelope on system error payload")
@@ -158,7 +158,7 @@ func TestJobAppErrorEnvelopeRoundTrip(t *testing.T) {
 		t.Fatalf("expected task type %s, got %s", taskType, env.Meta.TaskType)
 	}
 
-	artifacts := convertStrataArtifactsToJobDB(chap.Artifacts())
+	artifacts := convertChapterArtifactsToJobDB(chap.Artifacts())
 	td, payloadErr := envelopeToTaskData(env, artifacts)
 	if td == nil {
 		t.Fatalf("expected task data envelope on job app error payload")
@@ -205,7 +205,7 @@ func TestJobSystemErrorEnvelopeRoundTrip(t *testing.T) {
 		t.Fatalf("expected task type %s, got %s", taskType, env.Meta.TaskType)
 	}
 
-	artifacts := convertStrataArtifactsToJobDB(chap.Artifacts())
+	artifacts := convertChapterArtifactsToJobDB(chap.Artifacts())
 	td, payloadErr := envelopeToTaskData(env, artifacts)
 	if td == nil {
 		t.Fatalf("expected task data envelope on job system error payload")
@@ -219,11 +219,11 @@ func TestJobSystemErrorEnvelopeRoundTrip(t *testing.T) {
 	}
 }
 
-// convertStrataArtifactsToJobDB converts strata artifacts to jobdb artifacts
-func convertStrataArtifactsToJobDB(strataArts []strata.Artifact) []jobdb.Artifact {
-	artifacts := make([]jobdb.Artifact, 0, len(strataArts))
-	for _, a := range strataArts {
-		artifacts = append(artifacts, fromStrataArtifact(a))
+// convertChapterArtifactsToJobDB converts chapter artifacts to jobdb artifacts
+func convertChapterArtifactsToJobDB(chapterArts []chapterartifact.Artifact) []jobdb.Artifact {
+	artifacts := make([]jobdb.Artifact, 0, len(chapterArts))
+	for _, a := range chapterArts {
+		artifacts = append(artifacts, fromChapterArtifact(a))
 	}
 	return artifacts
 }

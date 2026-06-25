@@ -8,8 +8,6 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/workflow"
-	strataclient "github.com/colony-2/strata-go/pkg/client"
-	"github.com/colony-2/strata-go/pkg/client/story"
 )
 
 func TestTaskErrorsAreEnvelopedAndReturned(t *testing.T) {
@@ -35,15 +33,14 @@ func TestTaskErrorsAreEnvelopedAndReturned(t *testing.T) {
 				t.Fatalf("failed to install pgwf: %v", err)
 			}
 
-			baseURL, strata := startStrata(t)
-			defer strata.Shutdown()
-			waitForStrataReady(t, baseURL)
+			blobStoreURI, blobs := startChapterBlobStore(t)
+			defer blobs.Shutdown()
 
 			jobWorker := singleTaskJob{taskType: "err_task"}
 			taskWorker := errorTaskWorker{err: tt.taskErr}
 			tenantID := "tenant-task-" + tt.name
 
-			engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *workflow.EngineBuilder) {
+			engine := buildDirectEngine(t, postgresDSN, blobStoreURI, func(b *workflow.EngineBuilder) {
 				b.WithWorkerTenantId(tenantID).PlusWorkers(jobWorker, taskWorker)
 			})
 
@@ -93,14 +90,13 @@ func TestJobErrorsAreEnvelopedAndReturned(t *testing.T) {
 				t.Fatalf("failed to install pgwf: %v", err)
 			}
 
-			baseURL, strata := startStrata(t)
-			defer strata.Shutdown()
-			waitForStrataReady(t, baseURL)
+			blobStoreURI, blobs := startChapterBlobStore(t)
+			defer blobs.Shutdown()
 
 			jobWorker := errorJobWorker{err: tt.jobErr}
 			tenantID := "tenant-job-" + tt.name
 
-			engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *workflow.EngineBuilder) {
+			engine := buildDirectEngine(t, postgresDSN, blobStoreURI, func(b *workflow.EngineBuilder) {
 				b.WithWorkerTenantId(tenantID).PlusWorkers(jobWorker)
 			})
 
@@ -186,27 +182,19 @@ func assertJobOutcomePayloadKind(t *testing.T, engine workflow.Engine, jobKey jo
 	t.Fatalf("expected job outcome payload kind %s in job run: %+v", expected, run.Attempts)
 }
 
-func mustStrataClient(t *testing.T, baseURL, apiKey string) *strataclient.Client {
+func waitForChapter(t *testing.T, source any, jobKey jobdb.JobKey, ordinal int64, timeout time.Duration) jobdb.Chapter {
 	t.Helper()
-	client, err := strataclient.New(strataclient.Config{BaseURL: baseURL, APIKey: apiKey})
-	if err != nil {
-		t.Fatalf("failed to create strata client: %v", err)
-	}
-	return client
-}
-
-func waitForChapter(t *testing.T, client *strataclient.Client, key story.Key, ordinal int64, timeout time.Duration) story.Chapter {
-	t.Helper()
+	reader := mustChapterReader(t, source)
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		chap, err := client.Chapter(context.Background(), key, ordinal)
+		chap, err := reader.GetChapter(context.Background(), jobdb.ChapterRef{JobKey: jobKey, Ordinal: ordinal})
 		if err == nil {
 			return chap
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for chapter %d", ordinal)
-	return nil
+	return jobdb.Chapter{}
 }
 
 func waitForJobResult(t *testing.T, engine workflow.Engine, dsn string, jobKey jobdb.JobKey, expectAppError, expectSysError bool) (jobdb.TaskData, error) {

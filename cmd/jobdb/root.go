@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 
 	directruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/direct"
@@ -17,7 +16,6 @@ import (
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/colony-2/pgwf-go/installer"
-	"github.com/colony-2/strata-go/pkg/daemon"
 	"github.com/spf13/cobra"
 
 	_ "github.com/lib/pq"
@@ -27,7 +25,6 @@ const (
 	defaultListenAddr      = "127.0.0.1:9047"
 	postgresDSNEnvVar      = "JOBDB_POSTGRES_DSN"
 	sqliteDSNEnvVar        = "JOBDB_SQLITE_DSN"
-	embeddedStrataAPIKey   = "local-dev-token"
 	defaultSetupTimeout    = 45 * time.Second
 	defaultShutdownTimeout = 10 * time.Second
 )
@@ -90,10 +87,11 @@ func newToyCmd(listenAddr *string) *cobra.Command {
 
 func newDirectCmd(listenAddr *string) *cobra.Command {
 	var postgresDSN string
+	var blobStoreURI string
 
 	cmd := &cobra.Command{
 		Use:   "direct",
-		Short: "Run a direct runtime with embedded Strata and postgres-backed pgwf",
+		Short: "Run a direct runtime with postgres-backed records",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			dsn, err := resolveRequiredString(postgresDSN, postgresDSNEnvVar, "postgres DSN")
@@ -108,27 +106,21 @@ func newDirectCmd(listenAddr *string) *cobra.Command {
 				return fmt.Errorf("install pgwf schema: %w", err)
 			}
 
-			strata, err := startEmbeddedStrata(setupCtx)
+			runtime, err := directruntime.NewFromConfig(directruntime.Config{
+				PostgresDSN:  dsn,
+				BlobStoreURI: blobStoreURI,
+			})
 			if err != nil {
-				return fmt.Errorf("start embedded strata: %w", err)
+				return fmt.Errorf("build direct runtime: %w", err)
 			}
 
-			runtime, err := directruntime.NewFromConfig(dsn, strata.BaseURL, strata.APIKey)
-			if err != nil {
-				shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
-				defer shutdownCancel()
-				return errors.Join(
-					fmt.Errorf("build direct runtime: %w", err),
-					strata.Shutdown(shutdownCtx),
-				)
-			}
-
-			log.Printf("embedded strata listening at %s", strata.BaseURL)
-			return serveHTTPFunc(cmd.Context(), *listenAddr, remoteruntime.NewServer(runtime), strata.Shutdown)
+			log.Printf("using direct Postgres runtime")
+			return serveHTTPFunc(cmd.Context(), *listenAddr, remoteruntime.NewServer(runtime), nil)
 		},
 	}
 
 	cmd.Flags().StringVar(&postgresDSN, "postgres-dsn", "", "postgres DSN for pgwf state (overrides "+postgresDSNEnvVar+")")
+	cmd.Flags().StringVar(&blobStoreURI, "blob-store-uri", "", "blobstore URI for large artifacts (defaults to local blobfs)")
 	return cmd
 }
 
@@ -229,65 +221,4 @@ func installPGWF(ctx context.Context, dsn string) error {
 		return err
 	}
 	return inst.Verify(ctx)
-}
-
-type embeddedStrataHandle struct {
-	BaseURL string
-	APIKey  string
-	close   func(context.Context) error
-}
-
-func (h *embeddedStrataHandle) Shutdown(ctx context.Context) error {
-	if h == nil || h.close == nil {
-		return nil
-	}
-	return h.close(ctx)
-}
-
-func startEmbeddedStrata(ctx context.Context) (*embeddedStrataHandle, error) {
-	rowDir, err := os.MkdirTemp("", "jobdb-strata-rows-*")
-	if err != nil {
-		return nil, fmt.Errorf("create row store dir: %w", err)
-	}
-	blobDir, err := os.MkdirTemp("", "jobdb-strata-blobs-*")
-	if err != nil {
-		_ = os.RemoveAll(rowDir)
-		return nil, fmt.Errorf("create blob store dir: %w", err)
-	}
-
-	cfg := daemon.Config{
-		ListenAddr:             "127.0.0.1:0",
-		RowStoreURI:            fmt.Sprintf("sqlite://%s", filepath.ToSlash(filepath.Join(rowDir, "strata.db"))),
-		BlobStoreURI:           fmt.Sprintf("blobfs://%s", filepath.ToSlash(blobDir)),
-		MaxInlineArtifactBytes: daemon.DefaultMaxInlineArtifactBytes,
-	}
-
-	d, err := daemon.StartEmbedded(ctx, cfg)
-	if err != nil {
-		_ = os.RemoveAll(rowDir)
-		_ = os.RemoveAll(blobDir)
-		return nil, err
-	}
-
-	addr, err := d.Addr()
-	if err != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
-		defer cancel()
-		_ = d.Shutdown(shutdownCtx)
-		_ = os.RemoveAll(rowDir)
-		_ = os.RemoveAll(blobDir)
-		return nil, fmt.Errorf("resolve embedded strata address: %w", err)
-	}
-
-	return &embeddedStrataHandle{
-		BaseURL: "http://" + addr,
-		APIKey:  embeddedStrataAPIKey,
-		close: func(ctx context.Context) error {
-			return errors.Join(
-				d.Shutdown(ctx),
-				os.RemoveAll(rowDir),
-				os.RemoveAll(blobDir),
-			)
-		},
-	}, nil
 }

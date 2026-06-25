@@ -9,8 +9,8 @@ import (
 	"reflect"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	"github.com/colony-2/strata-go/pkg/client/core"
-	"github.com/colony-2/strata-go/pkg/client/story"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/core"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
 )
 
 func (r *Runtime) reconcileExistingSubmitJob(ctx context.Context, req jobdb.SubmitJobRequest, jobKey jobdb.JobKey, inputHash string, prereqs []jobdb.JobPrerequisite, waitFor []string, jobPolicy jobdb.RunPolicy, schemaHash string) (jobdb.JobHandle, bool, error) {
@@ -20,7 +20,7 @@ func (r *Runtime) reconcileExistingSubmitJob(ctx context.Context, req jobdb.Subm
 	}
 	if !exists {
 		if _, err := r.loadJobRow(ctx, jobKey); err == nil {
-			return jobdb.JobHandle{}, true, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists in scheduler without a matching strata story", jobKey))
+			return jobdb.JobHandle{}, true, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists in scheduler without a matching chapter story", jobKey))
 		}
 		return jobdb.JobHandle{}, false, nil
 	}
@@ -44,7 +44,7 @@ func (r *Runtime) reconcileExistingRestartJob(ctx context.Context, req jobdb.Sub
 	}
 	if !storyExists {
 		if _, err := r.loadJobRow(ctx, jobKey); err == nil {
-			return jobdb.JobHandle{}, true, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists in scheduler without a matching strata story", jobKey))
+			return jobdb.JobHandle{}, true, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists in scheduler without a matching chapter story", jobKey))
 		}
 		return jobdb.JobHandle{}, false, nil
 	}
@@ -58,8 +58,8 @@ func (r *Runtime) reconcileExistingRestartJob(ctx context.Context, req jobdb.Sub
 }
 
 func (r *Runtime) loadExistingStartChapter(ctx context.Context, jobKey jobdb.JobKey) (story.Chapter, bool, error) {
-	sctx := strataContext(ctx)
-	chapter, err := r.strataClient.Chapter(sctx, storyKeyForJob(jobKey), 0)
+	sctx := chapterContext(ctx)
+	chapter, err := r.chapterStore.Chapter(sctx, storyKeyForJob(jobKey), 0)
 	if err == nil {
 		return chapter, true, nil
 	}
@@ -75,7 +75,7 @@ func (r *Runtime) loadExistingStartChapter(ctx context.Context, jobKey jobdb.Job
 }
 
 func (r *Runtime) storyExists(ctx context.Context, jobKey jobdb.JobKey) (bool, error) {
-	_, err := r.strataClient.Story(strataContext(ctx), storyKeyForJob(jobKey))
+	_, err := r.chapterStore.Story(chapterContext(ctx), storyKeyForJob(jobKey))
 	if err == nil {
 		return true, nil
 	}
@@ -88,16 +88,16 @@ func (r *Runtime) storyExists(ctx context.Context, jobKey jobdb.JobKey) (bool, e
 func (r *Runtime) compareRestartStoryPrefix(ctx context.Context, job jobdb.SubmitRestartJob, targetJobKey jobdb.JobKey, extra restartExtraExpectation) error {
 	sourceKey := storyKeyForJob(job.PriorJobKey)
 	targetKey := storyKeyForJob(targetJobKey)
-	sctx := strataContext(ctx)
+	sctx := chapterContext(ctx)
 	for ordinal := int64(0); ordinal <= job.LastStepToKeep; ordinal++ {
-		sourceChapter, err := r.strataClient.Chapter(sctx, sourceKey, ordinal)
+		sourceChapter, err := r.chapterStore.Chapter(sctx, sourceKey, ordinal)
 		if err != nil {
 			if errors.Is(err, core.ErrNotFound) {
 				return jobdb.NewExistingJobMismatchError(fmt.Sprintf("source job %s is missing chapter %d required for restart", job.PriorJobKey, ordinal))
 			}
 			return err
 		}
-		targetChapter, err := r.strataClient.Chapter(sctx, targetKey, ordinal)
+		targetChapter, err := r.chapterStore.Chapter(sctx, targetKey, ordinal)
 		if err != nil {
 			if errors.Is(err, core.ErrNotFound) {
 				return jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s is missing copied restart chapter %d", targetJobKey, ordinal))
@@ -113,7 +113,7 @@ func (r *Runtime) compareRestartStoryPrefix(ctx context.Context, job jobdb.Submi
 		}
 	}
 	nextOrdinal := job.LastStepToKeep + 1
-	targetNext, err := r.strataClient.Chapter(sctx, targetKey, nextOrdinal)
+	targetNext, err := r.chapterStore.Chapter(sctx, targetKey, nextOrdinal)
 	switch {
 	case errors.Is(err, core.ErrNotFound):
 		if extra.Present {

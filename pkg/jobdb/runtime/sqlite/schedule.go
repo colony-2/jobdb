@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	"github.com/colony-2/strata-go/pkg/client/core"
-	"github.com/colony-2/strata-go/pkg/client/story"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/core"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
 	"github.com/google/uuid"
 )
 
@@ -525,7 +525,7 @@ func (r *Runtime) submitScheduledOccurrenceWithJobID(ctx context.Context, row sc
 	if err != nil {
 		return jobdb.JobKey{}, err
 	}
-	if _, err := r.strataClient.CreateStory(strataContext(ctx), storyKeyForJob(jobKey), story.CreateOptions{RequestID: uuid.New().String(), InitialChapter: initialChapter}); err != nil {
+	if _, err := r.chapterStore.CreateStory(chapterContext(ctx), storyKeyForJob(jobKey), story.CreateOptions{RequestID: uuid.New().String(), InitialChapter: initialChapter}); err != nil {
 		if !errors.Is(err, core.ErrConflict) {
 			return jobdb.JobKey{}, err
 		}

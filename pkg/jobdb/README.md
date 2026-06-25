@@ -78,18 +78,20 @@ The toy runtime is not durable.
 
 ### `runtime/direct`
 
-Postgres/Strata direct runtime. It uses Postgres-backed `pgwf` for job state and
-Strata for chapters and artifacts.
+Postgres direct runtime. It stores job records and chapter records in Postgres
+and stores large artifact bytes through a configured blobstore URI.
 
 ```go
-runtime, err := directruntime.NewFromConfig(postgresDSN, strataBaseURL, strataAPIKey)
+runtime, err := directruntime.NewFromConfig(directruntime.Config{
+    PostgresDSN:  postgresDSN,
+    BlobStoreURI: "blobfs:///var/lib/jobdb/blobs",
+})
 if err != nil {
     return err
 }
 ```
 
-`jobdb direct` wraps this runtime with an embedded Strata daemon and serves
-it over the remote runtime API.
+`jobdb direct` wraps this runtime and serves it over the remote runtime API.
 
 ## Runtime Usage
 

@@ -10,8 +10,6 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/workflow"
-	strataclient "github.com/colony-2/strata-go/pkg/client"
-	"github.com/colony-2/strata-go/pkg/client/story"
 	_ "github.com/lib/pq"
 )
 
@@ -28,19 +26,18 @@ func TestBasicWorkflowIntegration(t *testing.T) {
 		t.Fatalf("failed to install pgwf schema: %v", err)
 	}
 
-	baseURL, strata := startStrata(t)
-	defer strata.Shutdown()
-	waitForStrataReady(t, baseURL)
+	blobStoreURI, blobs := startChapterBlobStore(t)
+	defer blobs.Shutdown()
 
 	tenantID := "test-tenant"
 	logCapture := newCaptureHandler()
 	logger := slog.New(logCapture)
 
-	engine1 := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *workflow.EngineBuilder) {
+	engine1 := buildDirectEngine(t, postgresDSN, blobStoreURI, func(b *workflow.EngineBuilder) {
 		b.WithLogger(logger).WithWorkerTenantId(tenantID).PlusWorkers(pipeJob{}, addOneTask{})
 	})
 
-	engine2 := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *workflow.EngineBuilder) {
+	engine2 := buildDirectEngine(t, postgresDSN, blobStoreURI, func(b *workflow.EngineBuilder) {
 		b.WithLogger(logger).WithWorkerTenantId(tenantID).PlusWorkers(pipeJob{}, doubleTask{})
 	})
 
@@ -58,18 +55,12 @@ func TestBasicWorkflowIntegration(t *testing.T) {
 		t.Fatalf("failed to start job: %v", err)
 	}
 
-	strataClient, err := strataclient.New(strataclient.Config{BaseURL: baseURL, APIKey: strata.APIKey})
-	if err != nil {
-		t.Fatalf("failed to create strata client: %v", err)
-	}
-	key := story.Key{AnthologyID: jobKey.TenantId, StoryID: jobKey.JobId}
-
 	// Expect five task chapters (ordinals 1-5) plus the final job output at ordinal 5.
 	// Steps: t1(+1), t2(*2), userInput(+3), t1(+1), t2(*2) starting from 1 -> 2,4,7,8,16.
 	expecteds := []int{2, 4, 7, 8, 16}
 	for idx, expected := range expecteds {
 		ordinal := int64(idx + 1) // job data is ordinal 0
-		got := waitForChapterValue(t, strataClient, key, ordinal, 30*time.Second)
+		got := waitForChapterValue(t, engine1, jobKey, ordinal, 30*time.Second)
 		if got != expected {
 			t.Fatalf("ordinal %d: want %d, got %d", ordinal, expected, got)
 		}

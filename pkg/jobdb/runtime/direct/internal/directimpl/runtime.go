@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -17,32 +18,64 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore"
+	chapterartifact "github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/artifact"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/blobstore"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/core"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/pagination"
+	postgresrowstore "github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/postgres"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobschema"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/leaseauth"
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
-	strataclient "github.com/colony-2/strata-go/pkg/client"
-	strataartifact "github.com/colony-2/strata-go/pkg/client/artifact"
-	"github.com/colony-2/strata-go/pkg/client/core"
-	"github.com/colony-2/strata-go/pkg/client/pagination"
-	"github.com/colony-2/strata-go/pkg/client/story"
 	"github.com/segmentio/ksuid"
-	"gorm.io/driver/postgres"
+	pgdriver "gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
-// Runtime is the direct in-process WorkflowRuntime backed by strata + pgwf.
+// Config describes a direct Postgres-backed JobDB runtime.
+type Config struct {
+	PostgresDSN            string
+	BlobStoreURI           string
+	MaxInlineArtifactBytes int64
+	Logger                 *slog.Logger
+}
+
+// Runtime is the direct in-process WorkflowRuntime backed by Postgres records.
 type Runtime struct {
 	db           *gorm.DB
 	udb          *sql.DB
-	strataClient *strataclient.Client
+	chapterStore *chapterstore.Store
 	logger       *slog.Logger
 	workerID     string
 }
 
 var _ jobdb.WorkflowRuntime = (*Runtime)(nil)
 
-func New(db *gorm.DB, strataClient *strataclient.Client) *Runtime {
+func New(db *gorm.DB, cfg Config) (*Runtime, error) {
+	if db == nil {
+		return nil, fmt.Errorf("db is required")
+	}
+	rows, err := postgresrowstore.New(db)
+	if err != nil {
+		return nil, fmt.Errorf("create chapter rowstore: %w", err)
+	}
+	blobs, err := blobstore.OpenURI(resolveBlobStoreURI(cfg.BlobStoreURI))
+	if err != nil {
+		return nil, fmt.Errorf("create chapter blobstore: %w", err)
+	}
+	chapterStore, err := chapterstore.New(rows, blobs, chapterstore.Config{
+		MaxInlineArtifactBytes: cfg.MaxInlineArtifactBytes,
+		Logger:                 cfg.Logger,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return newRuntime(db, chapterStore, cfg), nil
+}
+
+func newRuntime(db *gorm.DB, chapterStore *chapterstore.Store, cfg Config) *Runtime {
 	var udb *sql.DB
 	if db != nil {
 		udb, _ = db.DB()
@@ -54,8 +87,8 @@ func New(db *gorm.DB, strataClient *strataclient.Client) *Runtime {
 	rt := &Runtime{
 		db:           db,
 		udb:          udb,
-		strataClient: strataClient,
-		logger:       slog.Default(),
+		chapterStore: chapterStore,
+		logger:       cfg.logger(),
 		workerID:     fmt.Sprintf("%s:%d-%s", host, os.Getpid(), ksuid.New().String()),
 	}
 	if udb != nil {
@@ -69,33 +102,41 @@ func New(db *gorm.DB, strataClient *strataclient.Client) *Runtime {
 	return rt
 }
 
-func NewFromConfig(postgresDSN, strataBaseURL, strataAPIKey string) (*Runtime, error) {
-	if postgresDSN == "" {
+func NewFromConfig(cfg Config) (*Runtime, error) {
+	if cfg.PostgresDSN == "" {
 		return nil, fmt.Errorf("postgres DSN is required")
 	}
-	if strataBaseURL == "" {
-		return nil, fmt.Errorf("strata base URL is required")
-	}
-	if strataAPIKey == "" {
-		return nil, fmt.Errorf("strata API key is required")
-	}
 
-	db, err := gorm.Open(postgres.Open(postgresDSN), &gorm.Config{})
+	db, err := gorm.Open(pgdriver.Open(cfg.PostgresDSN), &gorm.Config{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to postgres: %w", err)
 	}
-	strataClient, err := strataclient.New(strataclient.Config{
-		BaseURL: strataBaseURL,
-		APIKey:  strataAPIKey,
-	})
+	rt, err := New(db, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create strata client: %w", err)
+		return nil, err
 	}
-	rt := New(db, strataClient)
 	if err := migrateSchedules(context.Background(), rt.udb); err != nil {
 		return nil, err
 	}
 	return rt, nil
+}
+
+func (c Config) logger() *slog.Logger {
+	if c.Logger != nil {
+		return c.Logger
+	}
+	return slog.Default()
+}
+
+func resolveBlobStoreURI(uri string) string {
+	if strings.TrimSpace(uri) != "" {
+		return uri
+	}
+	path, err := filepath.Abs("jobdb-blobs")
+	if err != nil {
+		path = "jobdb-blobs"
+	}
+	return "blobfs://" + filepath.ToSlash(path)
 }
 
 func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {
@@ -154,7 +195,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 	if err := jobschema.ValidateChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, initialStoredChapter); err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	if _, err := r.strataClient.CreateStory(ctx, storyKeyForJob(jobKey), co); err != nil {
+	if _, err := r.chapterStore.CreateStory(ctx, storyKeyForJob(jobKey), co); err != nil {
 		if req.Job.JobID != "" && errors.Is(err, core.ErrConflict) {
 			if handle, handled, reconcileErr := r.reconcileExistingSubmitJob(ctx, req, jobKey, inputHash, prereqs, waitFor, jobPolicy, schemaHash); handled || reconcileErr != nil {
 				return handle, reconcileErr
@@ -213,7 +254,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 	sourceJob := storyKeyForJob(job.PriorJobKey)
 	targetJob := storyKeyForJob(jobKey)
 
-	chap0, err := r.strataClient.Chapter(ctx, sourceJob, 0)
+	chap0, err := r.chapterStore.Chapter(ctx, sourceJob, 0)
 	if err != nil {
 		return jobdb.JobHandle{}, fmt.Errorf("load source initial chapter: %w", err)
 	}
@@ -228,7 +269,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 	}
 
 	nextOrdinal := job.LastStepToKeep + 1
-	nextChap, err := r.strataClient.Chapter(ctx, sourceJob, nextOrdinal)
+	nextChap, err := r.chapterStore.Chapter(ctx, sourceJob, nextOrdinal)
 	if err != nil {
 		return jobdb.JobHandle{}, fmt.Errorf("LastStepToKeep %d invalid: no chapter at ordinal %d: %w", job.LastStepToKeep, nextOrdinal, err)
 	}
@@ -271,7 +312,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 	}
 	if schemaHash != "" {
 		for ordinal := int64(0); ordinal <= job.LastStepToKeep; ordinal++ {
-			sourceChapter, err := r.strataClient.Chapter(ctx, sourceJob, ordinal)
+			sourceChapter, err := r.chapterStore.Chapter(ctx, sourceJob, ordinal)
 			if err != nil {
 				return jobdb.JobHandle{}, err
 			}
@@ -294,7 +335,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 		}
 	}
 
-	if _, err := r.strataClient.CloneStory(ctx, sourceJob, story.CloneOptions{
+	if _, err := r.chapterStore.CloneStory(ctx, sourceJob, story.CloneOptions{
 		DestinationKey: targetJob,
 		LastOrdinal:    job.LastStepToKeep,
 		CreateOptions:  createOptions,
@@ -495,7 +536,7 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 		return job, nil
 	}
 
-	st, err := r.strataClient.Story(ctx, storyKeyForJob(jobKey))
+	st, err := r.chapterStore.Story(ctx, storyKeyForJob(jobKey))
 	if err != nil {
 		return jobdb.JobInfo{}, err
 	}
@@ -596,7 +637,7 @@ func (r *Runtime) GetChapter(ctx context.Context, ref jobdb.ChapterRef) (jobdb.C
 	if err := r.validate(); err != nil {
 		return jobdb.Chapter{}, err
 	}
-	chapter, err := r.strataClient.Chapter(ctx, StoryKeyForJob(ref.JobKey), ref.Ordinal)
+	chapter, err := r.chapterStore.Chapter(ctx, StoryKeyForJob(ref.JobKey), ref.Ordinal)
 	if err != nil {
 		if errors.Is(err, core.ErrNotFound) {
 			return jobdb.Chapter{}, jobdb.ErrChapterNotFound
@@ -702,7 +743,7 @@ func (r *Runtime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) e
 	for _, art := range attached {
 		builder.AddArtifact(art)
 	}
-	err = r.strataClient.SaveChapter(ctx, StoryKeyForJob(req.Ref.JobKey), builder)
+	err = r.chapterStore.SaveChapter(ctx, StoryKeyForJob(req.Ref.JobKey), builder)
 	if err != nil {
 		if errors.Is(err, core.ErrConflict) {
 			return fmt.Errorf("%w: chapter ordinal %d already exists or is not appendable", jobdb.ErrConflict, req.Ref.Ordinal)
@@ -785,7 +826,7 @@ func (r *Runtime) ensureCompletionChapter(ctx context.Context, jobKey jobdb.JobK
 	for _, art := range attached {
 		builder.AddArtifact(art)
 	}
-	err = r.strataClient.SaveChapter(ctx, StoryKeyForJob(jobKey), builder)
+	err = r.chapterStore.SaveChapter(ctx, StoryKeyForJob(jobKey), builder)
 	if err != nil {
 		if errors.Is(err, core.ErrConflict) {
 			return fmt.Errorf("%w: chapter ordinal %d already exists or is not appendable", jobdb.ErrConflict, ref.Ordinal)
@@ -839,7 +880,7 @@ func (r *Runtime) OpenArtifact(ctx context.Context, ref jobdb.ArtifactRef) (jobd
 	if err != nil {
 		return nil, err
 	}
-	var descriptor *strataartifact.Descriptor
+	var found chapterartifact.Artifact
 	for _, existing := range chapter.Artifacts() {
 		if existing == nil || existing.Name() != ref.Name {
 			continue
@@ -848,28 +889,13 @@ func (r *Runtime) OpenArtifact(ctx context.Context, ref jobdb.ArtifactRef) (jobd
 		if ref.Digest != "" && digest != "" && ref.Digest != digest {
 			continue
 		}
-		descriptor = &strataartifact.Descriptor{
-			Name:        existing.Name(),
-			ContentType: existing.ContentType(),
-			SizeBytes:   existing.SizeBytes(),
-			Sha256:      digest,
-		}
+		found = existing
 		break
 	}
-	if descriptor == nil {
+	if found == nil {
 		return nil, fmt.Errorf("artifact %s not found for job %s ordinal %d", ref.Name, ref.JobKey.JobId, ref.Ordinal)
 	}
-	art := strataartifact.FromRemote(
-		*descriptor,
-		strataartifact.Locator{
-			AnthologyID: ref.JobKey.TenantId,
-			StoryID:     ref.JobKey.JobId,
-			Ordinal:     ref.Ordinal,
-			Name:        descriptor.Name,
-		},
-		r.strataClient.Core(),
-	)
-	return artifactReader{art: FromStrataArtifactForRuntime(art)}, nil
+	return artifactReader{art: FromChapterArtifactForRuntime(found)}, nil
 }
 
 func (r *Runtime) validate() error {
@@ -879,8 +905,8 @@ func (r *Runtime) validate() error {
 	if r.db == nil || r.udb == nil {
 		return fmt.Errorf("db is required")
 	}
-	if r.strataClient == nil {
-		return fmt.Errorf("strata client is required")
+	if r.chapterStore == nil {
+		return fmt.Errorf("chapter store is required")
 	}
 	return nil
 }
@@ -920,11 +946,11 @@ func (r *Runtime) requestWorkerID(workerID string) string {
 }
 
 func (r *Runtime) loadStory(ctx context.Context, key story.Key) (story.Story, error) {
-	return r.strataClient.Story(ctx, key)
+	return r.chapterStore.Story(ctx, key)
 }
 
 func (r *Runtime) loadChapter(ctx context.Context, key story.Key, ordinal int64) (story.Chapter, error) {
-	return r.strataClient.Chapter(ctx, key, ordinal)
+	return r.chapterStore.Chapter(ctx, key, ordinal)
 }
 
 func (r *Runtime) ensureNextVisibleChapterOrdinal(ctx context.Context, jobKey jobdb.JobKey, ordinal int64) error {
@@ -956,7 +982,7 @@ func (r *Runtime) ensureNextVisibleChapterOrdinal(ctx context.Context, jobKey jo
 	}
 }
 
-func (r *Runtime) prepareChapterWrite(ctx context.Context, req jobdb.PutChapterRequest) (jobdb.Chapter, []strataartifact.Artifact, error) {
+func (r *Runtime) prepareChapterWrite(ctx context.Context, req jobdb.PutChapterRequest) (jobdb.Chapter, []chapterartifact.Artifact, error) {
 	chapter := req.Chapter
 	if len(req.ArtifactUploads) == 0 {
 		if len(chapter.Artifacts) > 0 {
@@ -966,7 +992,7 @@ func (r *Runtime) prepareChapterWrite(ctx context.Context, req jobdb.PutChapterR
 	}
 
 	stored := make([]jobdb.StoredArtifact, 0, len(req.ArtifactUploads))
-	attached := make([]strataartifact.Artifact, 0, len(req.ArtifactUploads))
+	attached := make([]chapterartifact.Artifact, 0, len(req.ArtifactUploads))
 	for _, item := range req.ArtifactUploads {
 		if item.Open == nil {
 			return jobdb.Chapter{}, nil, fmt.Errorf("artifact %q is missing opener", item.Name)
@@ -990,7 +1016,7 @@ func (r *Runtime) prepareChapterWrite(ctx context.Context, req jobdb.PutChapterR
 			Digest: digest,
 			Size:   int64(len(data)),
 		})
-		attached = append(attached, ToStrataArtifactForRuntime(art))
+		attached = append(attached, ToChapterArtifactForRuntime(art))
 	}
 	if err := validateChapterArtifactDescriptors(chapter.Artifacts, stored); err != nil {
 		return jobdb.Chapter{}, nil, err

@@ -77,18 +77,19 @@ jobdb toy --listen 127.0.0.1:9047
 
 ### Direct
 
-The direct backend uses Postgres-backed `pgwf` for job state and an embedded
-Strata daemon for chapter and artifact storage. It installs or verifies the
-`pgwf` schema on startup.
+The direct backend uses Postgres for job and chapter records, and a blobstore
+URI for large artifact bytes. It installs or verifies the `pgwf` schema on
+startup.
 
 ```bash
 JOBDB_POSTGRES_DSN='postgres://user:pass@localhost:5432/jobdb?sslmode=disable' \
-  jobdb direct --listen 127.0.0.1:9047
+  jobdb direct --blob-store-uri 'blobfs:///var/lib/jobdb/blobs' --listen 127.0.0.1:9047
 ```
 
 Flags:
 
 - `--postgres-dsn`: Postgres DSN for `pgwf` state.
+- `--blob-store-uri`: Blobstore URI for large artifacts. Defaults to local blobfs.
 - `--listen`: HTTP listen address. Defaults to `127.0.0.1:9047`.
 
 Environment:
@@ -135,5 +136,6 @@ Useful references:
 
 - [pkg/jobdb/README.md](pkg/jobdb/README.md): runtime API, data types, and backend packages.
 - [pkg/workflow/README.md](pkg/workflow/README.md): workflow SDK, workers, and engines.
+- [docs/MIGRATION-SWF-GO-TO-JOBDB.md](docs/MIGRATION-SWF-GO-TO-JOBDB.md): concise import migration from `swf-go`.
 - [docs/API-SURFACE.md](docs/API-SURFACE.md): supported public packages.
 - [docs/SPEC-OpenAPI-Runtime-Contract.md](docs/SPEC-OpenAPI-Runtime-Contract.md): runtime REST contract notes.

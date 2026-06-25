@@ -2,7 +2,7 @@ package sqlite
 
 import "context"
 
-func strataContext(ctx context.Context) context.Context {
+func chapterContext(ctx context.Context) context.Context {
 	if ctx == nil {
 		return context.Background()
 	}

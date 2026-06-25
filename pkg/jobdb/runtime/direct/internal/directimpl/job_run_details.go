@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/artifact"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/pagination"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
-	"github.com/colony-2/strata-go/pkg/client/artifact"
-	"github.com/colony-2/strata-go/pkg/client/pagination"
-	"github.com/colony-2/strata-go/pkg/client/story"
 )
 
 const defaultJobRunChaptersPageSize = 200

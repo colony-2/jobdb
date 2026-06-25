@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	jobdbtest "github.com/colony-2/jobdb/pkg/workflow/internal/jobdbtest"
 	"github.com/colony-2/jobdb/pkg/workflow"
+	jobdbtest "github.com/colony-2/jobdb/pkg/workflow/internal/jobdbtest"
 )
 
 func leaseTokenForTest(lease jobdb.ExecutionLease) string {

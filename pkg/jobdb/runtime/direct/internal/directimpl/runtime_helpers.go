@@ -7,7 +7,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	"github.com/colony-2/strata-go/pkg/client/story"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
 )
 
 // StoryKeyForJob exposes the direct-runtime story-key mapping.

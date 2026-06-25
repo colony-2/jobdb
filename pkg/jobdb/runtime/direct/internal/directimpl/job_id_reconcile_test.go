@@ -5,6 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -348,21 +351,24 @@ func newEmbeddedDirectRuntimeForTest(t *testing.T) (*Runtime, func()) {
 		cleanup()
 		t.Fatalf("install pgwf: %v", err)
 	}
-	strata, err := directtestsupport.StartEmbeddedStrata()
+	blobDir, err := os.MkdirTemp("", "jobdb-direct-reconcile-blobs-*")
 	if err != nil {
 		cleanup()
-		t.Fatalf("start embedded strata: %v", err)
+		t.Fatalf("create blob dir: %v", err)
 	}
 
-	rt, err := NewFromConfig(dsn, strata.BaseURL, strata.APIKey)
+	rt, err := NewFromConfig(Config{
+		PostgresDSN:  dsn,
+		BlobStoreURI: fmt.Sprintf("blobfs://%s", filepath.ToSlash(blobDir)),
+	})
 	if err != nil {
-		strata.Shutdown()
+		_ = os.RemoveAll(blobDir)
 		cleanup()
 		t.Fatalf("new direct runtime: %v", err)
 	}
 
 	return rt, func() {
-		strata.Shutdown()
+		_ = os.RemoveAll(blobDir)
 		cleanup()
 	}
 }

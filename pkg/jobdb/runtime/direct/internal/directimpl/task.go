@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/core"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobschema"
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
-	"github.com/colony-2/strata-go/pkg/client/core"
-	"github.com/colony-2/strata-go/pkg/client/story"
 )
 
 type taskHandleImpl struct {
@@ -56,7 +56,7 @@ func (h *taskHandleImpl) chapter() (story.Chapter, error) {
 		if h.runtime == nil {
 			return nil, fmt.Errorf("task handle backend is nil")
 		}
-		chapter, err := h.runtime.strataClient.Chapter(context.TODO(), storyKeyForJob(jobKey), h.inputOrdinal)
+		chapter, err := h.runtime.chapterStore.Chapter(context.TODO(), storyKeyForJob(jobKey), h.inputOrdinal)
 		if err != nil {
 			return nil, err
 		}
@@ -140,7 +140,7 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 
 	var inputChapter story.Chapter
 	if tw.InputStep > 0 {
-		inputChapter, err = r.strataClient.Chapter(ctx, storyKeyForJob(jobKey), tw.InputStep)
+		inputChapter, err = r.chapterStore.Chapter(ctx, storyKeyForJob(jobKey), tw.InputStep)
 		if err != nil {
 			return fmt.Errorf("failed to load input chapter: %w", err)
 		}
@@ -200,7 +200,7 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	if err := r.ensureNextVisibleChapterOrdinal(ctx, jobKey, tw.OutputStep); err != nil {
 		return err
 	}
-	err = r.strataClient.SaveChapter(ctx, storyKeyForJob(jobKey), chap)
+	err = r.chapterStore.SaveChapter(ctx, storyKeyForJob(jobKey), chap)
 	if err != nil {
 		if errors.Is(err, core.ErrConflict) {
 			return fmt.Errorf("%w: output chapter %d already exists or is not appendable", jobdb.ErrConflict, tw.OutputStep)
@@ -243,7 +243,7 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 func chapterToTaskData(chapter story.Chapter, jobKey jobdb.JobKey) (jobdb.TaskData, error) {
 	artifacts := make([]jobdb.Artifact, 0, len(chapter.Artifacts()))
 	for _, a := range chapter.Artifacts() {
-		artifacts = append(artifacts, fromStrataArtifact(a))
+		artifacts = append(artifacts, fromChapterArtifact(a))
 	}
 	assignArtifactKeys(artifacts, jobKey.JobId, chapter.Ordinal())
 

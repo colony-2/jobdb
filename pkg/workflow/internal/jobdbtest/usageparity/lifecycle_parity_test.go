@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	jobdbtest "github.com/colony-2/jobdb/pkg/workflow/internal/jobdbtest"
 	"github.com/colony-2/jobdb/pkg/workflow"
+	jobdbtest "github.com/colony-2/jobdb/pkg/workflow/internal/jobdbtest"
 )
 
 type cancelObservation struct {

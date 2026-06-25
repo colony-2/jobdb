@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	"github.com/colony-2/strata-go/pkg/client/core"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/core"
 )
 
 func (r *Runtime) preflightScheduleLease(ctx context.Context, lease *executionLease, metadata json.RawMessage) (bool, error) {
@@ -71,7 +71,7 @@ func (r *Runtime) preflightScheduleLease(ctx context.Context, lease *executionLe
 }
 
 func (r *Runtime) storyChapterCount(ctx context.Context, jobKey jobdb.JobKey) (int64, error) {
-	st, err := r.strataClient.Story(strataContext(ctx), storyKeyForJob(jobKey))
+	st, err := r.chapterStore.Story(chapterContext(ctx), storyKeyForJob(jobKey))
 	if err != nil {
 		if errors.Is(err, core.ErrNotFound) {
 			return 0, jobdb.ErrJobNotFound

@@ -10,8 +10,8 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
-	"github.com/colony-2/strata-go/pkg/client/story"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -213,7 +213,7 @@ func payloadToChapter(payload json.RawMessage, artifacts []jobdb.Artifact, ordin
 
 	builder := story.NewChapter().WithOrdinal(ordinal).WithBytes(envBytes)
 	for _, art := range artifacts {
-		builder.AddArtifact(toStrataArtifact(art))
+		builder.AddArtifact(toChapterArtifact(art))
 	}
 	return builder, nil
 }

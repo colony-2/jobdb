@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	strataclient "github.com/colony-2/strata-go/pkg/client"
-	"github.com/colony-2/strata-go/pkg/daemon/storage/blobstore"
-	sqliterowstore "github.com/colony-2/strata-go/pkg/daemon/storage/sqlite"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/blobstore"
+	sqliterowstore "github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/sqlite"
 	"github.com/segmentio/ksuid"
 
 	_ "modernc.org/sqlite"
@@ -34,20 +34,24 @@ type Config struct {
 	DSN string
 	// DBPath is the durable SQLite database path used when DSN is empty.
 	DBPath string
-	// BlobDir stores large Strata artifacts. If empty, it is derived from DBPath.
+	// BlobDir stores large chapter artifacts. If empty, it is derived from DBPath.
 	BlobDir string
+	// BlobStoreURI stores large chapter artifacts. If set, it overrides BlobDir.
+	BlobStoreURI string
+	// MaxInlineArtifactBytes controls when artifacts move from rows to blobstore.
+	MaxInlineArtifactBytes int64
 	// Logger is used for runtime diagnostics.
 	Logger *slog.Logger
 	// WorkerID overrides the runtime's fallback worker id.
 	WorkerID string
 }
 
-// Runtime is a SQLite WorkflowRuntime that composes a pgwf-like scheduler table
-// with strata-go's SQLite rowstore and blobfs artifact storage.
+// Runtime is a SQLite WorkflowRuntime that composes scheduler rows, chapter
+// rows, and blobfs artifact storage.
 type Runtime struct {
 	db           *sql.DB
 	ownsDB       bool
-	strataClient *strataclient.Client
+	chapterStore *chapterstore.Store
 	logger       *slog.Logger
 	workerID     string
 
@@ -57,16 +61,14 @@ type Runtime struct {
 
 var _ jobdb.WorkflowRuntime = (*Runtime)(nil)
 
-// New builds a runtime around caller-owned SQLite and Strata client handles.
-func New(db *sql.DB, strataClient *strataclient.Client, opts ...Option) (*Runtime, error) {
+// New builds a runtime around a caller-owned SQLite handle.
+func New(db *sql.DB, opts ...Option) (*Runtime, error) {
 	if db == nil {
 		return nil, fmt.Errorf("sqlite runtime: db is required")
 	}
-	if strataClient == nil {
-		return nil, fmt.Errorf("sqlite runtime: strata client is required")
-	}
 	cfg := runtimeOptions{
-		logger: slog.Default(),
+		logger:       slog.Default(),
+		blobStoreURI: defaultBlobStoreURI(),
 	}
 	for _, opt := range opts {
 		opt(&cfg)
@@ -74,9 +76,13 @@ func New(db *sql.DB, strataClient *strataclient.Client, opts ...Option) (*Runtim
 	if cfg.workerID == "" {
 		cfg.workerID = defaultWorkerID()
 	}
+	chapterStore, err := buildChapterStore(db, cfg.blobStoreURI, cfg.maxInlineArtifactBytes, cfg.logger)
+	if err != nil {
+		return nil, err
+	}
 	rt := &Runtime{
 		db:           db,
-		strataClient: strataClient,
+		chapterStore: chapterStore,
 		logger:       cfg.logger,
 		workerID:     cfg.workerID,
 	}
@@ -86,8 +92,8 @@ func New(db *sql.DB, strataClient *strataclient.Client, opts ...Option) (*Runtim
 	return rt, nil
 }
 
-// NewFromConfig opens a SQLite database, creates a strata-go embedded client
-// over the same *sql.DB rowstore, and returns the composed runtime.
+// NewFromConfig opens a SQLite database, creates a chapter store over the same
+// *sql.DB rowstore, and returns the composed runtime.
 func NewFromConfig(ctx context.Context, cfg Config) (*Runtime, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -105,14 +111,6 @@ func NewFromConfig(ctx context.Context, cfg Config) (*Runtime, error) {
 			return nil, fmt.Errorf("sqlite runtime: create db dir: %w", err)
 		}
 	}
-	blobDir, err := resolveBlobDir(cfg, dbPath)
-	if err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(blobDir, 0o755); err != nil {
-		return nil, fmt.Errorf("sqlite runtime: create blob dir: %w", err)
-	}
-
 	db, err := sql.Open(sqliteDriverName, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite runtime: open db: %w", err)
@@ -133,21 +131,13 @@ func NewFromConfig(ctx context.Context, cfg Config) (*Runtime, error) {
 		return nil, err
 	}
 
-	rows, err := sqliterowstore.New(db)
+	blobURI, err := resolveConfiguredBlobStoreURI(cfg, dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("sqlite runtime: create strata rowstore: %w", err)
+		return nil, err
 	}
-	blobs, err := blobstore.NewFS(blobDir)
+	chapterStore, err := buildChapterStore(db, blobURI, cfg.MaxInlineArtifactBytes, logger)
 	if err != nil {
-		return nil, fmt.Errorf("sqlite runtime: create strata blobstore: %w", err)
-	}
-	strataClient, err := strataclient.NewBuilder().
-		WithEmbeddedStores(rows, blobs).
-		WithRetryPolicy(strataclient.RetryPolicy{MaxRetries: 0}).
-		WithLogger(logger).
-		Build(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sqlite runtime: build embedded strata client: %w", err)
+		return nil, err
 	}
 
 	workerID := cfg.WorkerID
@@ -158,7 +148,7 @@ func NewFromConfig(ctx context.Context, cfg Config) (*Runtime, error) {
 	return &Runtime{
 		db:           db,
 		ownsDB:       true,
-		strataClient: strataClient,
+		chapterStore: chapterStore,
 		logger:       logger,
 		workerID:     workerID,
 	}, nil
@@ -174,8 +164,8 @@ func (r *Runtime) Close(ctx context.Context) error {
 	}
 	r.closeOnce.Do(func() {
 		var errs []error
-		if r.strataClient != nil {
-			errs = append(errs, r.strataClient.Close(ctx))
+		if r.chapterStore != nil {
+			errs = append(errs, r.chapterStore.Close(ctx))
 		}
 		if r.ownsDB && r.db != nil {
 			errs = append(errs, r.db.Close())
@@ -186,8 +176,10 @@ func (r *Runtime) Close(ctx context.Context) error {
 }
 
 type runtimeOptions struct {
-	logger   *slog.Logger
-	workerID string
+	logger                 *slog.Logger
+	workerID               string
+	blobStoreURI           string
+	maxInlineArtifactBytes int64
 }
 
 // Option customizes New.
@@ -207,6 +199,20 @@ func WithWorkerID(workerID string) Option {
 	}
 }
 
+func WithBlobStoreURI(uri string) Option {
+	return func(o *runtimeOptions) {
+		if strings.TrimSpace(uri) != "" {
+			o.blobStoreURI = uri
+		}
+	}
+}
+
+func WithMaxInlineArtifactBytes(limit int64) Option {
+	return func(o *runtimeOptions) {
+		o.maxInlineArtifactBytes = limit
+	}
+}
+
 func (r *Runtime) validate() error {
 	if r == nil {
 		return fmt.Errorf("sqlite runtime is required")
@@ -214,8 +220,8 @@ func (r *Runtime) validate() error {
 	if r.db == nil {
 		return fmt.Errorf("sqlite runtime db is required")
 	}
-	if r.strataClient == nil {
-		return fmt.Errorf("sqlite runtime strata client is required")
+	if r.chapterStore == nil {
+		return fmt.Errorf("sqlite runtime chapter store is required")
 	}
 	return nil
 }
@@ -233,6 +239,47 @@ func defaultWorkerID() string {
 		host = "jobdb"
 	}
 	return fmt.Sprintf("%s:%d-%s", host, os.Getpid(), ksuid.New().String())
+}
+
+func buildChapterStore(db *sql.DB, blobURI string, maxInline int64, logger *slog.Logger) (*chapterstore.Store, error) {
+	rows, err := sqliterowstore.New(db)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite runtime: create chapter rowstore: %w", err)
+	}
+	blobs, err := blobstore.OpenURI(blobURI)
+	if err != nil {
+		return nil, fmt.Errorf("sqlite runtime: create chapter blobstore: %w", err)
+	}
+	store, err := chapterstore.New(rows, blobs, chapterstore.Config{
+		MaxInlineArtifactBytes: maxInline,
+		Logger:                 logger,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("sqlite runtime: create chapter store: %w", err)
+	}
+	return store, nil
+}
+
+func resolveConfiguredBlobStoreURI(cfg Config, dbPath string) (string, error) {
+	if strings.TrimSpace(cfg.BlobStoreURI) != "" {
+		return cfg.BlobStoreURI, nil
+	}
+	blobDir, err := resolveBlobDir(cfg, dbPath)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(blobDir, 0o755); err != nil {
+		return "", fmt.Errorf("sqlite runtime: create blob dir: %w", err)
+	}
+	return "blobfs://" + filepath.ToSlash(blobDir), nil
+}
+
+func defaultBlobStoreURI() string {
+	path, err := filepath.Abs("jobdb-blobs")
+	if err != nil {
+		path = "jobdb-blobs"
+	}
+	return "blobfs://" + filepath.ToSlash(path)
 }
 
 func resolveDSN(cfg Config) (dsn string, dbPath string, err error) {

@@ -17,10 +17,10 @@ func TestListJobsRoutesByStatusAndOrdersWithUnion(t *testing.T) {
 		t.Fatalf("failed to install pgwf: %v", err)
 	}
 
-	baseURL, strata := startStrata(t)
-	defer strata.Shutdown()
+	blobStoreURI, blobs := startChapterBlobStore(t)
+	defer blobs.Shutdown()
 
-	engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, nil)
+	engine := buildDirectEngine(t, postgresDSN, blobStoreURI, nil)
 
 	db, err := sql.Open("postgres", postgresDSN)
 	if err != nil {

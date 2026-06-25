@@ -10,7 +10,6 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/workflow"
-	strataclient "github.com/colony-2/strata-go/pkg/client"
 	"github.com/stretchr/testify/require"
 )
 
@@ -52,9 +51,8 @@ func TestArtifactCleanupAcrossEngines(t *testing.T) {
 			t.Fatalf("failed to install pgwf schema: %v", err)
 		}
 
-		baseURL, strata := startStrata(t)
-		defer strata.Shutdown()
-		waitForStrataReady(t, baseURL)
+		blobStoreURI, blobs := startChapterBlobStore(t)
+		defer blobs.Shutdown()
 
 		tempDir := t.TempDir()
 		fileNames := []string{"artifact-a.txt", "artifact-b.txt"}
@@ -62,14 +60,12 @@ func TestArtifactCleanupAcrossEngines(t *testing.T) {
 		filePaths := artifactPaths(tempDir, append(append(fileNames, copyNames...), jobArtifactName))
 
 		jobWorker := &artifactCleanupJob{
-			dir:           tempDir,
-			jobFileName:   jobArtifactName,
-			taskOrdinal:   1,
-			strataBaseURL: baseURL,
-			strataAPIKey:  strata.APIKey,
+			dir:         tempDir,
+			jobFileName: jobArtifactName,
+			taskOrdinal: 1,
 		}
 		taskWorker := &artifactCleanupTask{dir: tempDir, fileNames: fileNames}
-		engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *workflow.EngineBuilder) {
+		engine := buildDirectEngine(t, postgresDSN, blobStoreURI, func(b *workflow.EngineBuilder) {
 			b.WithWorkerTenantId("test-tenant").PlusWorkers(jobWorker, taskWorker)
 		})
 
@@ -79,11 +75,9 @@ func TestArtifactCleanupAcrossEngines(t *testing.T) {
 }
 
 type artifactCleanupJob struct {
-	dir           string
-	jobFileName   string
-	taskOrdinal   int64
-	strataBaseURL string
-	strataAPIKey  string
+	dir         string
+	jobFileName string
+	taskOrdinal int64
 }
 
 func (j *artifactCleanupJob) Name() string { return artifactCleanupJobName }
@@ -113,32 +107,9 @@ func (j *artifactCleanupJob) Run(ctx workflow.JobContext, input jobdb.JobData) (
 }
 
 func (j *artifactCleanupJob) downloadTaskArtifacts(ctx workflow.JobContext, taskOutput jobdb.TaskData) ([]jobdb.Artifact, error) {
-	if j.strataBaseURL == "" {
-		taskArtifacts, err := taskOutput.GetArtifacts()
-		if err != nil {
-			return nil, err
-		}
-		return j.copyArtifacts(taskArtifacts)
-	}
-
-	client, err := strataclient.New(strataclient.Config{BaseURL: j.strataBaseURL, APIKey: j.strataAPIKey})
+	taskArtifacts, err := taskOutput.GetArtifacts()
 	if err != nil {
 		return nil, err
-	}
-
-	key := storyKeyForJob(ctx.GetJobKey())
-	chapter, err := client.Chapter(context.Background(), key, j.taskOrdinal)
-	if err != nil {
-		return nil, err
-	}
-
-	strataArtifacts := chapter.Artifacts()
-	taskArtifacts := make([]jobdb.Artifact, 0, len(strataArtifacts))
-	for _, art := range strataArtifacts {
-		taskArtifacts = append(taskArtifacts, jobdb.NewArtifact(art.Name(), func() (io.ReadCloser, int64, error) {
-			_, rc, err := art.ToInput(context.Background())
-			return rc, art.SizeBytes(), err
-		}, nil))
 	}
 	return j.copyArtifacts(taskArtifacts)
 }

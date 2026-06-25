@@ -3,15 +3,18 @@ package direct
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/internal/directtestsupport"
 )
 
 type EmbeddedRuntime struct {
-	Runtime        *Runtime
-	stopPG         func()
-	strataShutdown func()
+	Runtime *Runtime
+	stopPG  func()
+	blobDir string
 }
 
 func (e *EmbeddedRuntime) Shutdown() {
@@ -19,7 +22,9 @@ func (e *EmbeddedRuntime) Shutdown() {
 		return
 	}
 	e.stopPG()
-	e.strataShutdown()
+	if e.blobDir != "" {
+		_ = os.RemoveAll(e.blobDir)
+	}
 }
 
 func StartEmbeddedRuntime(ctx context.Context) (*EmbeddedRuntime, error) {
@@ -45,22 +50,25 @@ func StartEmbeddedRuntime(ctx context.Context) (*EmbeddedRuntime, error) {
 		cleanup()
 		return nil, err
 	}
-	s, err := directtestsupport.StartEmbeddedStrata()
+	blobDir, err := os.MkdirTemp("", "jobdb-direct-blobs-*")
 	if err != nil {
 		cleanup()
 		return nil, err
 	}
 
-	rt, err := NewFromConfig(dsn, s.BaseURL, s.APIKey)
+	rt, err := NewFromConfig(Config{
+		PostgresDSN:  dsn,
+		BlobStoreURI: fmt.Sprintf("blobfs://%s", filepath.ToSlash(blobDir)),
+	})
 	if err != nil {
-		s.Shutdown()
+		_ = os.RemoveAll(blobDir)
 		cleanup()
 		return nil, err
 	}
 
 	return &EmbeddedRuntime{
-		Runtime:        rt,
-		stopPG:         cleanup,
-		strataShutdown: s.Shutdown,
+		Runtime: rt,
+		stopPG:  cleanup,
+		blobDir: blobDir,
 	}, nil
 }

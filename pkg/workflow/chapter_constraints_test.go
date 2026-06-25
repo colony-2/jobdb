@@ -14,7 +14,7 @@ import (
 )
 
 // TestChapterConstraintsAcrossEngines validates that both the toy and direct
-// Strata-backed engine enforce the same chapter constraints:
+// Durable engines enforce the same chapter constraints:
 // - Chapters must be written once (no duplicates)
 // - Chapters must be written in monotonic order starting at 0
 func TestChapterConstraintsAcrossEngines(t *testing.T) {
@@ -43,17 +43,16 @@ func TestChapterConstraintsAcrossEngines(t *testing.T) {
 					t.Fatalf("failed to install pgwf schema: %v", err)
 				}
 
-				baseURL, strata := startStrata(t)
-				waitForStrataReady(t, baseURL)
+				blobStoreURI, blobs := startChapterBlobStore(t)
 
 				logCapture := newCaptureHandler()
 				logger := slog.New(logCapture)
-				engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *workflow.EngineBuilder) {
+				engine := buildDirectEngine(t, postgresDSN, blobStoreURI, func(b *workflow.EngineBuilder) {
 					b.WithLogger(logger).WithWorkerTenantId("test-tenant").PlusWorkers(&deterministicJob{}, &incrementTask{})
 				})
 
 				cleanup := func() {
-					strata.Shutdown()
+					blobs.Shutdown()
 					stopPG()
 				}
 

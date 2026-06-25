@@ -18,7 +18,7 @@ import (
 )
 
 // TestArtifactCleanupAfterUpload verifies that artifact cleanup only happens
-// after the upload to strata completes successfully. This prevents race conditions
+// after the upload to chapter storage completes successfully. This prevents race conditions
 // where files are deleted before they can be uploaded.
 func TestArtifactCleanupAfterUpload(t *testing.T) {
 	t.Run("file artifact cleanup waits for upload", func(t *testing.T) {
@@ -32,10 +32,8 @@ func TestArtifactCleanupAfterUpload(t *testing.T) {
 			t.Fatalf("failed to install pgwf schema: %v", err)
 		}
 
-		// Start Strata
-		baseURL, strata := startStrata(t)
-		defer strata.Shutdown()
-		waitForStrataReady(t, baseURL)
+		blobStoreURI, blobs := startChapterBlobStore(t)
+		defer blobs.Shutdown()
 
 		// Create a temporary file artifact
 		tempDir := t.TempDir()
@@ -67,7 +65,7 @@ func TestArtifactCleanupAfterUpload(t *testing.T) {
 		taskWorker := &artifactProducingTask{artifact: artifact}
 
 		// Build engine with the job and task worker
-		engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *workflow.EngineBuilder) {
+		engine := buildDirectEngine(t, postgresDSN, blobStoreURI, func(b *workflow.EngineBuilder) {
 			b.WithWorkerTenantId("test-tenant").PlusWorkers(jobWorker, taskWorker)
 		})
 
@@ -126,10 +124,8 @@ func TestArtifactCleanupAfterUpload(t *testing.T) {
 			t.Fatalf("failed to install pgwf schema: %v", err)
 		}
 
-		// Start Strata
-		baseURL, strata := startStrata(t)
-		defer strata.Shutdown()
-		waitForStrataReady(t, baseURL)
+		blobStoreURI, blobs := startChapterBlobStore(t)
+		defer blobs.Shutdown()
 
 		// Create a temporary file artifact
 		tempDir := t.TempDir()
@@ -155,7 +151,7 @@ func TestArtifactCleanupAfterUpload(t *testing.T) {
 		taskWorker := &failingTask{}
 
 		// Build engine with the job and task worker
-		engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *workflow.EngineBuilder) {
+		engine := buildDirectEngine(t, postgresDSN, blobStoreURI, func(b *workflow.EngineBuilder) {
 			b.WithWorkerTenantId("test-tenant").PlusWorkers(jobWorker, taskWorker)
 		})
 
@@ -197,9 +193,8 @@ func TestArtifactCleanupAfterUpload(t *testing.T) {
 			t.Fatalf("failed to install pgwf schema: %v", err)
 		}
 
-		baseURL, strata := startStrata(t)
-		defer strata.Shutdown()
-		waitForStrataReady(t, baseURL)
+		blobStoreURI, blobs := startChapterBlobStore(t)
+		defer blobs.Shutdown()
 
 		tempDir := t.TempDir()
 		testFile := filepath.Join(tempDir, "fallback-output.bin")
@@ -215,7 +210,7 @@ func TestArtifactCleanupAfterUpload(t *testing.T) {
 			payload:  testData,
 		}
 
-		engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *workflow.EngineBuilder) {
+		engine := buildDirectEngine(t, postgresDSN, blobStoreURI, func(b *workflow.EngineBuilder) {
 			b.WithWorkerTenantId("test-tenant").PlusWorkers(jobWorker, taskWorker)
 		})
 

@@ -60,9 +60,8 @@ used by c2j tests and standalone execution paths.
 
 ### `github.com/colony-2/jobdb/pkg/jobdb/runtime/direct`
 
-Postgres/Strata direct runtime. This package is public for compatibility with
-existing users and current JobDB commands, even though c2j no longer imports it
-directly.
+Postgres direct runtime. This package is public for compatibility with existing
+users and current JobDB commands, even though c2j no longer imports it directly.
 
 Do not expand this package's public API during the protobuf migration unless
 there is a separate design decision to keep direct/Postgres as a long-term
@@ -94,7 +93,7 @@ snapshot.
 
 ### `github.com/colony-2/jobdb/pkg/jobdb/runtime/direct/testsupport`
 
-This package was test infrastructure for embedded Postgres/Strata setup. It is
+This package was test infrastructure for embedded direct-runtime setup. It is
 not used by c2j and is not intended for downstream runtime construction. It has
 been moved under `pkg/internal/directtestsupport`.
 

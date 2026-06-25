@@ -1020,11 +1020,16 @@ type Worker interface
 type WorkflowRuntime = github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime
 
 package github.com/colony-2/jobdb/pkg/jobdb/runtime/direct
+type Config struct
+  field PostgresDSN string
+  field BlobStoreURI string
+  field MaxInlineArtifactBytes int64
+  field Logger *log/slog.Logger
 type EmbeddedRuntime struct
   field Runtime *Runtime
 method EmbeddedRuntime.Shutdown func()
-func New func(db *gorm.io/gorm.DB, strataClient *github.com/colony-2/strata-go/pkg/client.Client) *Runtime
-func NewFromConfig func(postgresDSN string, strataBaseURL string, strataAPIKey string) (*Runtime, error)
+func New func(db *gorm.io/gorm.DB, cfg Config) (*Runtime, error)
+func NewFromConfig func(cfg Config) (*Runtime, error)
 type Runtime = github.com/colony-2/jobdb/pkg/jobdb/runtime/direct/internal/directimpl.Runtime
 func StartEmbeddedRuntime func(ctx context.Context) (*EmbeddedRuntime, error)
 
@@ -1062,12 +1067,14 @@ type Config struct
   field DSN string
   field DBPath string
   field BlobDir string
+  field BlobStoreURI string
+  field MaxInlineArtifactBytes int64
   field Logger *log/slog.Logger
   field WorkerID string
 type EmbeddedRuntime struct
   field Runtime *Runtime
 method EmbeddedRuntime.Shutdown func()
-func New func(db *database/sql.DB, strataClient *github.com/colony-2/strata-go/pkg/client.Client, opts ...Option) (*Runtime, error)
+func New func(db *database/sql.DB, opts ...Option) (*Runtime, error)
 func NewFromConfig func(ctx context.Context, cfg Config) (*Runtime, error)
 type Option func(*runtimeOptions)
 type Runtime struct
@@ -1101,7 +1108,9 @@ method Runtime.SubmitRestartJob func(ctx context.Context, req github.com/colony-
 method Runtime.TriggerSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.TriggerScheduleRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.UpsertSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.UpsertScheduleRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 func StartEmbeddedRuntime func(ctx context.Context) (*EmbeddedRuntime, error)
+func WithBlobStoreURI func(uri string) Option
 func WithLogger func(logger *log/slog.Logger) Option
+func WithMaxInlineArtifactBytes func(limit int64) Option
 func WithWorkerID func(workerID string) Option
 
 package github.com/colony-2/jobdb/pkg/jobdb/runtime/toy

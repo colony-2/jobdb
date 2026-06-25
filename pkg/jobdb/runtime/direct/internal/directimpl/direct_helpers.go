@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	chapterartifact "github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/artifact"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
-	strata "github.com/colony-2/strata-go/pkg/client/artifact"
-	"github.com/colony-2/strata-go/pkg/client/story"
 )
 
 func storyKeyForJob(jobKey jobdb.JobKey) story.Key {
@@ -97,88 +97,88 @@ func durationToLeaseSeconds(d time.Duration) int {
 	return seconds
 }
 
-func fromStrataArtifact(strataArt strata.Artifact) jobdb.Artifact {
-	return &strataArtifactAdapter{art: strataArt}
+func fromChapterArtifact(chapterArt chapterartifact.Artifact) jobdb.Artifact {
+	return &chapterArtifactAdapter{art: chapterArt}
 }
 
-func toStrataArtifact(art jobdb.Artifact) strata.Artifact {
-	if adapter, ok := art.(*strataArtifactAdapter); ok {
+func toChapterArtifact(art jobdb.Artifact) chapterartifact.Artifact {
+	if adapter, ok := art.(*chapterArtifactAdapter); ok {
 		return adapter.art
 	}
-	return &jobdbToStrataAdapter{art: art}
+	return &jobdbToChapterAdapter{art: art}
 }
 
-// FromStrataArtifactForRuntime exposes the direct artifact adapter to runtime packages.
-func FromStrataArtifactForRuntime(strataArt strata.Artifact) jobdb.Artifact {
-	return fromStrataArtifact(strataArt)
+// FromChapterArtifactForRuntime exposes the direct artifact adapter to runtime packages.
+func FromChapterArtifactForRuntime(chapterArt chapterartifact.Artifact) jobdb.Artifact {
+	return fromChapterArtifact(chapterArt)
 }
 
-// ToStrataArtifactForRuntime exposes the reverse artifact adapter to runtime packages.
-func ToStrataArtifactForRuntime(art jobdb.Artifact) strata.Artifact {
-	return toStrataArtifact(art)
+// ToChapterArtifactForRuntime exposes the reverse artifact adapter to runtime packages.
+func ToChapterArtifactForRuntime(art jobdb.Artifact) chapterartifact.Artifact {
+	return toChapterArtifact(art)
 }
 
-type strataArtifactAdapter struct {
-	art strata.Artifact
+type chapterArtifactAdapter struct {
+	art chapterartifact.Artifact
 	key atomic.Pointer[jobdb.ArtifactKey]
 }
 
-func (a *strataArtifactAdapter) Name() string { return a.art.Name() }
-func (a *strataArtifactAdapter) Size() int64  { return a.art.SizeBytes() }
-func (a *strataArtifactAdapter) Sha256(ctx context.Context) (string, error) {
+func (a *chapterArtifactAdapter) Name() string { return a.art.Name() }
+func (a *chapterArtifactAdapter) Size() int64  { return a.art.SizeBytes() }
+func (a *chapterArtifactAdapter) Sha256(ctx context.Context) (string, error) {
 	return a.art.Sha256(ctx)
 }
-func (a *strataArtifactAdapter) WriteTo(ctx context.Context, w io.Writer) error {
+func (a *chapterArtifactAdapter) WriteTo(ctx context.Context, w io.Writer) error {
 	return a.art.WriteTo(ctx, w)
 }
-func (a *strataArtifactAdapter) SaveToFile(ctx context.Context, path string) error {
+func (a *chapterArtifactAdapter) SaveToFile(ctx context.Context, path string) error {
 	return a.art.SaveToFile(ctx, path)
 }
-func (a *strataArtifactAdapter) Bytes(ctx context.Context) ([]byte, error) {
+func (a *chapterArtifactAdapter) Bytes(ctx context.Context) ([]byte, error) {
 	return a.art.Bytes(ctx)
 }
-func (a *strataArtifactAdapter) Open() (io.ReadCloser, error) {
+func (a *chapterArtifactAdapter) Open() (io.ReadCloser, error) {
 	_, rc, err := a.art.ToInput(context.Background())
 	return rc, err
 }
-func (a *strataArtifactAdapter) ArtifactKey() (jobdb.ArtifactKey, error) {
+func (a *chapterArtifactAdapter) ArtifactKey() (jobdb.ArtifactKey, error) {
 	if value := a.key.Load(); value != nil {
 		return *value, nil
 	}
 	return jobdb.ArtifactKey{}, jobdb.ErrArtifactKeyUnavailable
 }
-func (a *strataArtifactAdapter) setArtifactKey(key jobdb.ArtifactKey) { a.key.Store(&key) }
-func (a *strataArtifactAdapter) Cleanup() error {
+func (a *chapterArtifactAdapter) setArtifactKey(key jobdb.ArtifactKey) { a.key.Store(&key) }
+func (a *chapterArtifactAdapter) Cleanup() error {
 	if cleanup, ok := a.art.(interface{ Cleanup() error }); ok {
 		return cleanup.Cleanup()
 	}
 	return nil
 }
 
-type jobdbToStrataAdapter struct {
+type jobdbToChapterAdapter struct {
 	art jobdb.Artifact
 }
 
-func (a *jobdbToStrataAdapter) ID() string                                 { return "" }
-func (a *jobdbToStrataAdapter) Name() string                               { return a.art.Name() }
-func (a *jobdbToStrataAdapter) ContentType() string                        { return "application/octet-stream" }
-func (a *jobdbToStrataAdapter) SizeBytes() int64                           { return a.art.Size() }
-func (a *jobdbToStrataAdapter) Sha256(ctx context.Context) (string, error) { return a.art.Sha256(ctx) }
-func (a *jobdbToStrataAdapter) WriteTo(ctx context.Context, w io.Writer) error {
+func (a *jobdbToChapterAdapter) ID() string                                 { return "" }
+func (a *jobdbToChapterAdapter) Name() string                               { return a.art.Name() }
+func (a *jobdbToChapterAdapter) ContentType() string                        { return "application/octet-stream" }
+func (a *jobdbToChapterAdapter) SizeBytes() int64                           { return a.art.Size() }
+func (a *jobdbToChapterAdapter) Sha256(ctx context.Context) (string, error) { return a.art.Sha256(ctx) }
+func (a *jobdbToChapterAdapter) WriteTo(ctx context.Context, w io.Writer) error {
 	return a.art.WriteTo(ctx, w)
 }
-func (a *jobdbToStrataAdapter) SaveToFile(ctx context.Context, path string) error {
+func (a *jobdbToChapterAdapter) SaveToFile(ctx context.Context, path string) error {
 	return a.art.SaveToFile(ctx, path)
 }
-func (a *jobdbToStrataAdapter) Bytes(ctx context.Context) ([]byte, error) {
+func (a *jobdbToChapterAdapter) Bytes(ctx context.Context) ([]byte, error) {
 	return a.art.Bytes(ctx)
 }
-func (a *jobdbToStrataAdapter) ToInput(ctx context.Context) (strata.Descriptor, io.ReadCloser, error) {
+func (a *jobdbToChapterAdapter) ToInput(ctx context.Context) (chapterartifact.Descriptor, io.ReadCloser, error) {
 	rc, err := a.art.Open()
 	if err != nil {
-		return strata.Descriptor{}, nil, err
+		return chapterartifact.Descriptor{}, nil, err
 	}
-	return strata.Descriptor{
+	return chapterartifact.Descriptor{
 		Name:        a.art.Name(),
 		ContentType: "application/octet-stream",
 		SizeBytes:   a.art.Size(),

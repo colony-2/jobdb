@@ -63,12 +63,11 @@ func TestPrerequisitesSuccessAndComplete(t *testing.T) {
 		t.Fatalf("failed to install pgwf: %v", err)
 	}
 
-	baseURL, strata := startStrata(t)
-	defer strata.Shutdown()
-	waitForStrataReady(t, baseURL)
+	blobStoreURI, blobs := startChapterBlobStore(t)
+	defer blobs.Shutdown()
 
 	tenantID := "prereq-tenant"
-	engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *workflow.EngineBuilder) {
+	engine := buildDirectEngine(t, postgresDSN, blobStoreURI, func(b *workflow.EngineBuilder) {
 		b.WithWorkerTenantId(tenantID).
 			PlusWorkers(prereqSuccessWorker{}).
 			PlusWorkers(prereqFailWorker{}).
@@ -170,12 +169,11 @@ func TestRestartPrerequisitesCheckedAtRestartExtra(t *testing.T) {
 		t.Fatalf("failed to install pgwf: %v", err)
 	}
 
-	baseURL, strata := startStrata(t)
-	defer strata.Shutdown()
-	waitForStrataReady(t, baseURL)
+	blobStoreURI, blobs := startChapterBlobStore(t)
+	defer blobs.Shutdown()
 
 	tenantID := "restart-prereq-tenant"
-	engine := buildDirectEngine(t, postgresDSN, baseURL, strata.APIKey, func(b *workflow.EngineBuilder) {
+	engine := buildDirectEngine(t, postgresDSN, blobStoreURI, func(b *workflow.EngineBuilder) {
 		b.WithWorkerTenantId(tenantID).
 			PlusWorkers(prereqSuccessWorker{}).
 			PlusWorkers(prereqFailWorker{}).

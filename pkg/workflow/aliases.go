@@ -171,16 +171,16 @@ type JobFailedError = jobdb.JobFailedError
 type NonRetryableError = jobdb.NonRetryableError
 
 var (
-	ErrArtifactKeyUnavailable  = jobdb.ErrArtifactKeyUnavailable
-	ErrChapterNotFound         = jobdb.ErrChapterNotFound
-	ErrConflict                = jobdb.ErrConflict
-	ErrExecutionLeaseLost      = jobdb.ErrExecutionLeaseLost
-	ErrExistingJobMismatch     = jobdb.ErrExistingJobMismatch
-	ErrJobCancelled            = jobdb.ErrJobCancelled
-	ErrJobFailed               = jobdb.ErrJobFailed
-	ErrJobNotComplete          = jobdb.ErrJobNotComplete
-	ErrJobNotFound             = jobdb.ErrJobNotFound
-	ErrMissingInputHash        = jobdb.ErrMissingInputHash
+	ErrArtifactKeyUnavailable   = jobdb.ErrArtifactKeyUnavailable
+	ErrChapterNotFound          = jobdb.ErrChapterNotFound
+	ErrConflict                 = jobdb.ErrConflict
+	ErrExecutionLeaseLost       = jobdb.ErrExecutionLeaseLost
+	ErrExistingJobMismatch      = jobdb.ErrExistingJobMismatch
+	ErrJobCancelled             = jobdb.ErrJobCancelled
+	ErrJobFailed                = jobdb.ErrJobFailed
+	ErrJobNotComplete           = jobdb.ErrJobNotComplete
+	ErrJobNotFound              = jobdb.ErrJobNotFound
+	ErrMissingInputHash         = jobdb.ErrMissingInputHash
 	ErrWorkflowNotDeterministic = jobdb.ErrWorkflowNotDeterministic
 )
 
@@ -223,11 +223,11 @@ func NewTimeoutError(kind string, after time.Duration, scope string, inputRef *I
 
 func NewSystemError(payload SystemErrorPayload) error { return jobdb.NewSystemError(payload) }
 
-func IsAppError(err error) bool             { return jobdb.IsAppError(err) }
-func IsSystemError(err error) bool          { return jobdb.IsSystemError(err) }
-func IsExecutionLeaseLost(err error) bool   { return jobdb.IsExecutionLeaseLost(err) }
-func IsConflict(err error) bool             { return jobdb.IsConflict(err) }
-func IsExistingJobMismatch(err error) bool  { return jobdb.IsExistingJobMismatch(err) }
+func IsAppError(err error) bool            { return jobdb.IsAppError(err) }
+func IsSystemError(err error) bool         { return jobdb.IsSystemError(err) }
+func IsExecutionLeaseLost(err error) bool  { return jobdb.IsExecutionLeaseLost(err) }
+func IsConflict(err error) bool            { return jobdb.IsConflict(err) }
+func IsExistingJobMismatch(err error) bool { return jobdb.IsExistingJobMismatch(err) }
 func ExtractTaskDataResult(data TaskData) (TaskData, error) {
 	return jobdb.ExtractTaskDataResult(data)
 }
