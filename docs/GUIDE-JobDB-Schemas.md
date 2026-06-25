@@ -1,47 +1,42 @@
 # Guide: Using JobDB Schemas
 
-JobDB schemas are optional tenant-local JSON Schemas for validating the visible
-chapter records written by a job. Jobs without a schema behave exactly like
-ordinary jobs: no schema is resolved, no schema hash is stored, and no schema
-validation runs.
+JobDB schemas are optional validation contracts for visible job chapters. A job
+can omit `Schema` and everything still works: no schema is resolved, no schema
+hash is stored, and no schema validation runs.
 
-Use a schema when a tenant wants a stable contract for job inputs, outputs,
-metadata, or chapter kinds. Do not use schemas for execution behavior. Schemas
-do not control leasing, polling, scheduling, retries, artifact storage, or job
-state transitions.
+Use schemas to validate job input/output shape, chapter body variants, metadata,
+or artifact descriptors. Do not use schemas to control leasing, polling,
+scheduling, retries, state transitions, or artifact storage.
 
-## What A Schema Validates
+## Schema Document
 
-A schema validates each visible `ChapterRecord` document. The important fields
-are:
+JobDB does not accept a raw JSON Schema as the schema document. Consumers send a
+JobDB schema envelope:
 
 ```json
 {
-  "ordinal": 0,
-  "createdAt": "2026-06-23T00:00:00Z",
-  "taskType": "example-job",
-  "body": {
-    "kind": "jobStart",
-    "input": {
-      "kind": "example",
-      "version": 1
-    }
-  },
-  "artifacts": []
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Example tenant contract",
+  "chapterShape": {},
+  "firstChapterShape": {},
+  "lastChapterShape": {}
 }
 ```
 
-Supported `body.kind` values are:
+`chapterShape` is required. It validates ordinary chapters. If
+`firstChapterShape` is omitted, the first chapter uses `chapterShape`. If
+`lastChapterShape` is omitted, the final completion chapter uses
+`chapterShape`.
 
-- `jobStart`
-- `taskAttemptOutcome`
-- `jobAttemptOutcome`
-- `restartExtra`
-
-Successful outcomes use:
+Each shape is a JSON Schema draft 2020-12 object or boolean schema fragment. It
+validates the full visible `ChapterRecord` document, not only the application
+payload:
 
 ```json
 {
+  "ordinal": 1,
+  "createdAt": "2026-06-25T00:00:00Z",
+  "taskType": "example-job",
   "body": {
     "kind": "taskAttemptOutcome",
     "outcome": {
@@ -50,81 +45,64 @@ Successful outcomes use:
         "ok": true
       }
     }
-  }
+  },
+  "artifacts": []
 }
 ```
 
-Application, system, and timeout failures use `outcome.kind` values of
-`appError`, `systemError`, and `timeout`.
+JSON Schema object fields are open by default. Extra fields are allowed unless a
+shape explicitly sets `additionalProperties: false` or
+`unevaluatedProperties: false`. JobDB does not apply JSON Schema defaults and
+never mutates stored chapters during validation.
 
-JSON Schema fields are open by default. Extra fields are allowed unless the
-schema explicitly sets `additionalProperties: false` or
-`unevaluatedProperties: false`.
+## Chapter Roles
 
-## Chapter-Specific Shapes
+JobDB selects a shape by operation:
 
-Use normal JSON Schema conditionals or `oneOf` to give chapter zero a different
-shape from later chapters.
+| Operation | Shape |
+| --- | --- |
+| `SubmitJob` initial chapter | `firstChapterShape`, falling back to `chapterShape` |
+| Retained restart chapter with ordinal `0` | `firstChapterShape`, falling back to `chapterShape` |
+| `PutChapter` | `chapterShape` |
+| `CompleteTaskIfWaiting` output chapter | `chapterShape` |
+| Retained restart chapter with ordinal greater than `0` | `chapterShape` |
+| Restart extra chapter | `chapterShape` |
+| `ExecutionLease.Complete` final chapter | `lastChapterShape`, falling back to `chapterShape` |
+
+`lastChapterShape` is only for the final chapter supplied to complete the job.
+It is not used for ordinary appends, even if the ordinary append has the
+highest ordinal so far.
+
+## Example Schema
+
+This schema requires:
+
+- chapter zero input to have `{ "kind": "valid" }`;
+- ordinary task output to have `{ "ok": true }`;
+- final completion output to have `{ "final": true }`.
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "required": ["ordinal", "body"],
-  "allOf": [
-    {
-      "if": {
+  "chapterShape": {
+    "type": "object",
+    "required": ["body"],
+    "properties": {
+      "body": {
+        "type": "object",
+        "required": ["kind", "outcome"],
         "properties": {
-          "ordinal": { "const": 0 }
-        },
-        "required": ["ordinal"]
-      },
-      "then": {
-        "properties": {
-          "body": {
+          "kind": { "const": "taskAttemptOutcome" },
+          "outcome": {
             "type": "object",
-            "required": ["kind", "input"],
+            "required": ["kind", "output"],
             "properties": {
-              "kind": { "const": "jobStart" },
-              "input": {
+              "kind": { "const": "success" },
+              "output": {
                 "type": "object",
-                "required": ["kind", "version"],
+                "required": ["ok"],
                 "properties": {
-                  "kind": { "const": "example" },
-                  "version": { "const": 1 }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "ordinal": { "minimum": 1 }
-        },
-        "required": ["ordinal"]
-      },
-      "then": {
-        "properties": {
-          "body": {
-            "type": "object",
-            "required": ["kind", "outcome"],
-            "properties": {
-              "kind": { "const": "taskAttemptOutcome" },
-              "outcome": {
-                "type": "object",
-                "required": ["kind", "output"],
-                "properties": {
-                  "kind": { "const": "success" },
-                  "output": {
-                    "type": "object",
-                    "required": ["ok"],
-                    "properties": {
-                      "ok": { "const": true }
-                    }
-                  }
+                  "ok": { "const": true }
                 }
               }
             }
@@ -132,11 +110,59 @@ shape from later chapters.
         }
       }
     }
-  ]
+  },
+  "firstChapterShape": {
+    "type": "object",
+    "required": ["ordinal", "body"],
+    "properties": {
+      "ordinal": { "const": 0 },
+      "body": {
+        "type": "object",
+        "required": ["kind", "input"],
+        "properties": {
+          "kind": { "const": "jobStart" },
+          "input": {
+            "type": "object",
+            "required": ["kind"],
+            "properties": {
+              "kind": { "const": "valid" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "lastChapterShape": {
+    "type": "object",
+    "required": ["body"],
+    "properties": {
+      "body": {
+        "type": "object",
+        "required": ["kind", "outcome"],
+        "properties": {
+          "kind": { "const": "jobAttemptOutcome" },
+          "outcome": {
+            "type": "object",
+            "required": ["kind", "output"],
+            "properties": {
+              "kind": { "const": "success" },
+              "output": {
+                "type": "object",
+                "required": ["final"],
+                "properties": {
+                  "final": { "const": true }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }
 ```
 
-## Register A Schema
+## Register And Use
 
 Concrete runtimes and the remote runtime implement `jobdb.JobSchemaRegistry`.
 
@@ -147,19 +173,9 @@ if !ok {
 }
 
 schema := json.RawMessage(`{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "required": ["ordinal", "body"],
-  "properties": {
-    "body": {
-      "type": "object",
-      "required": ["kind"],
-      "properties": {
-        "kind": {
-          "enum": ["jobStart", "taskAttemptOutcome", "jobAttemptOutcome", "restartExtra"]
-        }
-      }
-    }
+  "chapterShape": {
+    "type": "object",
+    "required": ["body"]
   }
 }`)
 
@@ -170,36 +186,29 @@ info, err := registry.RegisterJobSchema(ctx, jobdb.RegisterJobSchemaRequest{
 if err != nil {
     return err
 }
-fmt.Println(info.SchemaHash)
 ```
 
-Registration canonicalizes the JSON, computes a `sha256:<hex>` hash, compiles
-the JSON Schema, and stores it for that tenant. Registering the same schema for
-the same tenant is idempotent.
-
-## Submit A Job With A Schema
-
-You can attach a schema inline:
+Attach a schema inline:
 
 ```go
 handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{
     Job: jobdb.SubmitJob{
         TenantId: "tenant-a",
         JobType:  "example-job",
-        Data:     jobdb.NewTaskDataOrPanic(map[string]any{"kind": "example", "version": 1}),
+        Data:     jobdb.NewTaskDataOrPanic(map[string]any{"kind": "valid"}),
         Schema:   &jobdb.JobSchemaSelector{Schema: schema},
     },
 })
 ```
 
-Or reference a registered active schema by hash:
+Or attach a registered active schema by hash:
 
 ```go
 handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{
     Job: jobdb.SubmitJob{
         TenantId: "tenant-a",
         JobType:  "example-job",
-        Data:     jobdb.NewTaskDataOrPanic(map[string]any{"kind": "example", "version": 1}),
+        Data:     jobdb.NewTaskDataOrPanic(map[string]any{"kind": "valid"}),
         Schema:   &jobdb.JobSchemaSelector{Hash: info.SchemaHash},
     },
 })
@@ -208,79 +217,22 @@ handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{
 If both `Hash` and `Schema` are supplied, JobDB computes the inline schema hash
 and requires it to match `Hash`.
 
-The resolved hash is stored in JobDB's internal job metadata and exposed on job
-and lease read models as `SchemaHash`.
+## Lifecycle
 
-## Submit A Job Without A Schema
-
-Leave `Schema` unset:
-
-```go
-handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{
-    Job: jobdb.SubmitJob{
-        TenantId: "tenant-a",
-        JobType:  "plain-job",
-        Data:     jobdb.NewTaskDataOrPanic(map[string]any{"anything": true}),
-    },
-})
-```
-
-No schema validation runs for that job.
-
-## Restarts
-
-`SubmitRestartJob` accepts the same schema selector:
-
-```go
-restart, err := rt.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{
-    Job: jobdb.SubmitRestartJob{
-        PriorJobKey:    handle.JobKey,
-        LastStepToKeep: 2,
-        Schema:         &jobdb.JobSchemaSelector{Hash: info.SchemaHash},
-    },
-})
-```
-
-If a restart supplies a schema, retained chapters and any new restart chapter
-must validate against the new job's schema. If the restart omits `Schema`, the
-new job has no schema even if the prior job had one.
-
-## Reads And Lifecycle
-
-Get a schema:
+Registration canonicalizes the envelope, computes a `sha256:<hex>` hash,
+compiles the schema fragments, and stores the canonical document for the tenant.
+Registering the same schema for the same tenant is idempotent.
 
 ```go
 got, err := registry.GetJobSchema(ctx, jobdb.JobSchemaKey{
     TenantId:   "tenant-a",
     SchemaHash: info.SchemaHash,
 })
-```
 
-List active schemas:
-
-```go
 active, err := registry.ListJobSchemas(ctx, jobdb.ListJobSchemasRequest{
     TenantId: "tenant-a",
 })
-```
 
-List archived or all schemas:
-
-```go
-archived, err := registry.ListJobSchemas(ctx, jobdb.ListJobSchemasRequest{
-    TenantId: "tenant-a",
-    State:    jobdb.JobSchemaListStateArchived,
-})
-
-all, err := registry.ListJobSchemas(ctx, jobdb.ListJobSchemasRequest{
-    TenantId: "tenant-a",
-    State:    jobdb.JobSchemaListStateAll,
-})
-```
-
-Archive a schema:
-
-```go
 archived, err := registry.ArchiveJobSchema(ctx, jobdb.JobSchemaKey{
     TenantId:   "tenant-a",
     SchemaHash: info.SchemaHash,
@@ -288,15 +240,12 @@ archived, err := registry.ArchiveJobSchema(ctx, jobdb.JobSchemaKey{
 ```
 
 Archive is one-way. Archived schemas remain readable and remain valid for
-already-created mutable jobs. New jobs cannot select an archived schema.
-
-There is no delete operation.
+already-created mutable jobs. New jobs cannot select an archived schema. There
+is no delete operation.
 
 ## REST Shape
 
 REST uses `schemaHash` instead of the Go field name `Hash`.
-
-Register:
 
 ```http
 POST /v1/tenants/tenant-a/schemas
@@ -304,9 +253,10 @@ Content-Type: application/json
 
 {
   "schema": {
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "type": "object",
-    "required": ["ordinal", "body"]
+    "chapterShape": {
+      "type": "object",
+      "required": ["body"]
+    }
   }
 }
 ```
@@ -319,16 +269,16 @@ Submit with an inline schema:
     "jobType": "example-job",
     "data": {
       "data": {
-        "kind": "example",
-        "version": 1
+        "kind": "valid"
       },
       "artifacts": []
     },
     "schema": {
       "schema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "type": "object",
-        "required": ["ordinal", "body"]
+        "chapterShape": {
+          "type": "object",
+          "required": ["body"]
+        }
       }
     }
   }
@@ -343,8 +293,7 @@ Submit with a registered schema:
     "jobType": "example-job",
     "data": {
       "data": {
-        "kind": "example",
-        "version": 1
+        "kind": "valid"
       },
       "artifacts": []
     },
@@ -355,9 +304,9 @@ Submit with a registered schema:
 }
 ```
 
-List and archive:
+Schema lifecycle endpoints:
 
-```http
+```text
 GET  /v1/tenants/tenant-a/schemas?state=ALL
 GET  /v1/tenants/tenant-a/schemas/{schemaHash}
 POST /v1/tenants/tenant-a/schemas/{schemaHash}/archive
@@ -365,7 +314,7 @@ POST /v1/tenants/tenant-a/schemas/{schemaHash}/archive
 
 ## Errors
 
-Use `errors.Is` with the typed errors:
+Use typed errors with `errors.Is`:
 
 ```go
 switch {
@@ -383,15 +332,13 @@ ordinal conflicts remain conflict errors.
 
 ## Operational Notes
 
-- Schema hashes are tenant-local for lifecycle state. The same content can have
-  the same hash in multiple tenants, but each tenant registers and archives it
-  independently.
+- Schema lifecycle is tenant-local, but compiled validators are cached by
+  schema hash only. Identical schema bytes share one compiled validator across
+  tenants.
 - Schema documents are immutable by hash. Register a new schema to change a
   contract.
-- JobDB does not apply JSON Schema defaults. Validation never mutates stored
-  chapters.
-- Runtime daemons keep a process-local compiled-schema cache keyed by
-  `schemaHash`; the registry lifecycle remains tenant-local.
+- The resolved schema hash is stored in JobDB internal job metadata and exposed
+  on job and lease read models as `SchemaHash`.
 - Remote chapter appends use the signed lease token's schema hash when present,
   so the append path does not need an extra job-row read just to discover the
   schema.
