@@ -31,7 +31,7 @@ jobdb --listen 127.0.0.1:9047 --db jobdb.db
 
 This starts the runtime API at `http://127.0.0.1:9047`. SQLite is the default
 backend and persists runtime state in `jobdb.db`; large artifacts are stored in a
-blob directory that defaults to `<db>.blobs`.
+blob bucket URL that defaults to a local directory at `<db>.blobs`.
 
 The explicit SQLite subcommand is equivalent:
 
@@ -52,13 +52,17 @@ SQLite is the default embedded durable backend.
 jobdb sqlite \
   --listen 127.0.0.1:9047 \
   --db ./jobdb.db \
-  --blob-dir ./jobdb.blobs
+  --blob-store-uri 'file:///var/lib/jobdb/blobs'
 ```
 
 Flags:
 
 - `--db`: SQLite database path. Defaults to `jobdb.db`.
-- `--blob-dir`: directory for large artifacts. Defaults to `<db>.blobs`.
+- `--blob-store-uri`: Go CDK blob bucket URL for large artifacts. Supports
+  `file://`, `gs://`, `s3://`, and `azblob://`; defaults to local blobfs at
+  `<db>.blobs`.
+- `--blob-dir`: legacy directory shortcut for local large artifacts. Ignored
+  when `--blob-store-uri` is set.
 - `--sqlite-dsn`: SQLite DSN. Overrides `--db` and `JOBDB_SQLITE_DSN`.
 - `--listen`: HTTP listen address. Defaults to `127.0.0.1:9047`.
 
@@ -83,18 +87,52 @@ startup.
 
 ```bash
 JOBDB_POSTGRES_DSN='postgres://user:pass@localhost:5432/jobdb?sslmode=disable' \
-  jobdb direct --blob-store-uri 'blobfs:///var/lib/jobdb/blobs' --listen 127.0.0.1:9047
+  jobdb direct --blob-store-uri 's3://jobdb-artifacts?region=us-east-1' --listen 127.0.0.1:9047
 ```
 
 Flags:
 
 - `--postgres-dsn`: Postgres DSN for `pgwf` state.
-- `--blob-store-uri`: Blobstore URI for large artifacts. Defaults to local blobfs.
+- `--blob-store-uri`: Go CDK blob bucket URL for large artifacts. Defaults to
+  local blobfs.
 - `--listen`: HTTP listen address. Defaults to `127.0.0.1:9047`.
 
 Environment:
 
 - `JOBDB_POSTGRES_DSN`: Postgres DSN used when `--postgres-dsn` is not set.
+
+Blob URL examples:
+
+- Local filesystem: `file:///var/lib/jobdb/blobs` or legacy
+  `blobfs:///var/lib/jobdb/blobs`.
+- Google Cloud Storage: `gs://jobdb-artifacts?prefix=prod/`.
+- Amazon S3: `s3://jobdb-artifacts?region=us-east-1&prefix=prod/`.
+- Azure Blob Storage: `azblob://jobdb-artifacts?prefix=prod/`.
+
+Credential resolution is handled by the Go CDK provider drivers, so `jobdb`
+does not need separate credential flags:
+
+- GCS uses Application Default Credentials. Use
+  `GOOGLE_APPLICATION_CREDENTIALS`, `gcloud auth application-default login`, or
+  attached Google Cloud service account credentials in VM/container
+  environments.
+- S3 uses the AWS SDK for Go v2 configuration chain. Provide `AWS_REGION` and
+  credentials through environment variables, shared `~/.aws/config` and
+  `~/.aws/credentials` profiles, or attached instance/task roles.
+- Azure Blob Storage uses Go CDK's Azure driver. Provide
+  `AZURE_STORAGE_ACCOUNT` with `AZURE_STORAGE_KEY`, a connection string, a SAS
+  token, or Azure default credentials such as environment credentials, Azure
+  CLI credentials, or managed identity.
+
+References:
+
+- [Go CDK blob storage guide](https://gocloud.dev/howto/blob/)
+- [Go CDK URL opener concepts](https://gocloud.dev/concepts/urls/)
+- [Go CDK GCS driver credentials](https://pkg.go.dev/gocloud.dev/blob/gcsblob)
+- [AWS SDK for Go v2 configuration](https://docs.aws.amazon.com/sdk-for-go/v2/developer-guide/configure-gosdk.html)
+- [Google Application Default Credentials](https://docs.cloud.google.com/docs/authentication/application-default-credentials)
+- [Go CDK Azure Blob driver credentials](https://pkg.go.dev/gocloud.dev/blob/azureblob)
+- [Azure Identity credential chains for Go](https://learn.microsoft.com/en-us/azure/developer/go/sdk/authentication/credential-chains)
 
 ## Runtime API
 

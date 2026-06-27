@@ -27,12 +27,12 @@ The runtime implementations live below `pkg/jobdb/runtime`.
 
 ### `runtime/sqlite`
 
-Durable embedded runtime backed by SQLite plus local blob storage.
+Durable embedded runtime backed by SQLite plus Go CDK blob storage.
 
 ```go
 runtime, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{
-    DBPath:  "jobdb.db",
-    BlobDir: "jobdb.blobs",
+    DBPath:       "jobdb.db",
+    BlobStoreURI: "file:///var/lib/jobdb/blobs",
 })
 if err != nil {
     return err
@@ -41,7 +41,11 @@ defer runtime.Close(context.Background())
 ```
 
 Use this when you want local durable execution without running Postgres or an
-external artifact service.
+external artifact service. Set `BlobStoreURI` to a Go CDK bucket URL such as
+`gs://bucket`, `s3://bucket?region=us-east-1`, or `azblob://container` when
+artifacts should live outside the local filesystem. Credential lookup is handled
+by the Go CDK provider drivers; see the repository README for provider-specific
+environment variables, VM role behavior, and references.
 
 ### `runtime/remote`
 
@@ -84,7 +88,7 @@ and stores large artifact bytes through a configured blobstore URI.
 ```go
 runtime, err := directruntime.NewFromConfig(directruntime.Config{
     PostgresDSN:  postgresDSN,
-    BlobStoreURI: "blobfs:///var/lib/jobdb/blobs",
+    BlobStoreURI: "s3://jobdb-artifacts?region=us-east-1",
 })
 if err != nil {
     return err

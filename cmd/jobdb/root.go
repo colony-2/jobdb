@@ -36,6 +36,7 @@ func newRootCmd() *cobra.Command {
 	var dbPath string
 	var sqliteDSN string
 	var blobDir string
+	var blobStoreURI string
 
 	cmd := &cobra.Command{
 		Use:          "jobdb",
@@ -43,30 +44,31 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage: true,
 		Args:         cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runSQLite(cmd.Context(), listenAddr, sqliteConfigFromFlags(dbPath, sqliteDSN, blobDir))
+			return runSQLite(cmd.Context(), listenAddr, sqliteConfigFromFlags(dbPath, sqliteDSN, blobDir, blobStoreURI))
 		},
 	}
 
 	cmd.AddCommand(
-		newSQLiteCmd(&listenAddr, &dbPath, &sqliteDSN, &blobDir),
+		newSQLiteCmd(&listenAddr, &dbPath, &sqliteDSN, &blobDir, &blobStoreURI),
 		newToyCmd(&listenAddr),
-		newDirectCmd(&listenAddr),
+		newDirectCmd(&listenAddr, &blobStoreURI),
 	)
 	cmd.PersistentFlags().StringVar(&listenAddr, "listen", defaultListenAddr, "listen address for the HTTP API")
 	cmd.PersistentFlags().StringVar(&dbPath, "db", "jobdb.db", "SQLite database path for the default embedded runtime")
 	cmd.PersistentFlags().StringVar(&sqliteDSN, "sqlite-dsn", "", "SQLite DSN for the default embedded runtime (overrides --db and "+sqliteDSNEnvVar+")")
 	cmd.PersistentFlags().StringVar(&blobDir, "blob-dir", "", "blobfs directory for large artifacts (defaults to <db>.blobs)")
+	cmd.PersistentFlags().StringVar(&blobStoreURI, "blob-store-uri", "", "Go CDK blob bucket URL for large artifacts (overrides --blob-dir)")
 
 	return cmd
 }
 
-func newSQLiteCmd(listenAddr *string, dbPath *string, sqliteDSN *string, blobDir *string) *cobra.Command {
+func newSQLiteCmd(listenAddr *string, dbPath *string, sqliteDSN *string, blobDir *string, blobStoreURI *string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sqlite",
 		Short: "Run a SQLite-backed embedded workflow runtime over HTTP",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runSQLite(cmd.Context(), *listenAddr, sqliteConfigFromFlags(*dbPath, *sqliteDSN, *blobDir))
+			return runSQLite(cmd.Context(), *listenAddr, sqliteConfigFromFlags(*dbPath, *sqliteDSN, *blobDir, *blobStoreURI))
 		},
 	}
 	return cmd
@@ -85,9 +87,8 @@ func newToyCmd(listenAddr *string) *cobra.Command {
 	return cmd
 }
 
-func newDirectCmd(listenAddr *string) *cobra.Command {
+func newDirectCmd(listenAddr *string, blobStoreURI *string) *cobra.Command {
 	var postgresDSN string
-	var blobStoreURI string
 
 	cmd := &cobra.Command{
 		Use:   "direct",
@@ -108,19 +109,18 @@ func newDirectCmd(listenAddr *string) *cobra.Command {
 
 			runtime, err := directruntime.NewFromConfig(directruntime.Config{
 				PostgresDSN:  dsn,
-				BlobStoreURI: blobStoreURI,
+				BlobStoreURI: *blobStoreURI,
 			})
 			if err != nil {
 				return fmt.Errorf("build direct runtime: %w", err)
 			}
 
 			log.Printf("using direct Postgres runtime")
-			return serveHTTPFunc(cmd.Context(), *listenAddr, remoteruntime.NewServer(runtime), nil)
+			return serveHTTPFunc(cmd.Context(), *listenAddr, remoteruntime.NewServer(runtime), runtime.Close)
 		},
 	}
 
 	cmd.Flags().StringVar(&postgresDSN, "postgres-dsn", "", "postgres DSN for pgwf state (overrides "+postgresDSNEnvVar+")")
-	cmd.Flags().StringVar(&blobStoreURI, "blob-store-uri", "", "blobstore URI for large artifacts (defaults to local blobfs)")
 	return cmd
 }
 
@@ -138,10 +138,11 @@ func runSQLite(ctx context.Context, listenAddr string, cfg sqliteruntime.Config)
 	return serveHTTPFunc(ctx, listenAddr, remoteruntime.NewServer(runtime), runtime.Close)
 }
 
-func sqliteConfigFromFlags(dbPath string, sqliteDSN string, blobDir string) sqliteruntime.Config {
+func sqliteConfigFromFlags(dbPath string, sqliteDSN string, blobDir string, blobStoreURI string) sqliteruntime.Config {
 	cfg := sqliteruntime.Config{
-		DBPath:  dbPath,
-		BlobDir: blobDir,
+		DBPath:       dbPath,
+		BlobDir:      blobDir,
+		BlobStoreURI: blobStoreURI,
 	}
 	if sqliteDSN != "" {
 		cfg.DSN = sqliteDSN

@@ -11,7 +11,8 @@ type Runtime = directimpl.Runtime
 
 // Config describes a direct Postgres-backed JobDB runtime.
 type Config struct {
-	PostgresDSN            string
+	PostgresDSN string
+	// BlobStoreURI is a Go CDK blob bucket URL for large chapter artifacts.
 	BlobStoreURI           string
 	MaxInlineArtifactBytes int64
 	Logger                 *slog.Logger

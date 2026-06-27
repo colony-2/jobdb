@@ -81,3 +81,14 @@ func TestResolveRequiredStringRequiresValue(t *testing.T) {
 		t.Fatalf("resolveRequiredString error = %q, want %q", got, want)
 	}
 }
+
+func TestSQLiteConfigFromFlagsUsesBlobStoreURI(t *testing.T) {
+	cfg := sqliteConfigFromFlags("jobdb.db", "", "local.blobs", "s3://jobdb-artifacts?region=us-east-1")
+
+	if cfg.BlobStoreURI != "s3://jobdb-artifacts?region=us-east-1" {
+		t.Fatalf("BlobStoreURI = %q, want configured URL", cfg.BlobStoreURI)
+	}
+	if cfg.BlobDir != "local.blobs" {
+		t.Fatalf("BlobDir = %q, want legacy flag preserved", cfg.BlobDir)
+	}
+}

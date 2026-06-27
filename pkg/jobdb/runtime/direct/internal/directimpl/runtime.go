@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
@@ -36,7 +37,8 @@ import (
 
 // Config describes a direct Postgres-backed JobDB runtime.
 type Config struct {
-	PostgresDSN            string
+	PostgresDSN string
+	// BlobStoreURI is a Go CDK blob bucket URL for large chapter artifacts.
 	BlobStoreURI           string
 	MaxInlineArtifactBytes int64
 	Logger                 *slog.Logger
@@ -46,9 +48,13 @@ type Config struct {
 type Runtime struct {
 	db           *gorm.DB
 	udb          *sql.DB
+	ownsDB       bool
 	chapterStore *chapterstore.Store
 	logger       *slog.Logger
 	workerID     string
+
+	closeOnce sync.Once
+	closeErr  error
 }
 
 var _ jobdb.WorkflowRuntime = (*Runtime)(nil)
@@ -113,12 +119,37 @@ func NewFromConfig(cfg Config) (*Runtime, error) {
 	}
 	rt, err := New(db, cfg)
 	if err != nil {
+		if sqlDB, dbErr := db.DB(); dbErr == nil {
+			_ = sqlDB.Close()
+		}
 		return nil, err
 	}
+	rt.ownsDB = true
 	if err := migrateSchedules(context.Background(), rt.udb); err != nil {
+		_ = rt.Close(context.Background())
 		return nil, err
 	}
 	return rt, nil
+}
+
+func (r *Runtime) Close(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if r == nil {
+		return nil
+	}
+	r.closeOnce.Do(func() {
+		var errs []error
+		if r.chapterStore != nil {
+			errs = append(errs, r.chapterStore.Close(ctx))
+		}
+		if r.ownsDB && r.udb != nil {
+			errs = append(errs, r.udb.Close())
+		}
+		r.closeErr = errors.Join(errs...)
+	})
+	return r.closeErr
 }
 
 func (c Config) logger() *slog.Logger {

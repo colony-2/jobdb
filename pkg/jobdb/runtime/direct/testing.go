@@ -21,6 +21,9 @@ func (e *EmbeddedRuntime) Shutdown() {
 	if e == nil {
 		return
 	}
+	if e.Runtime != nil {
+		_ = e.Runtime.Close(context.Background())
+	}
 	e.stopPG()
 	if e.blobDir != "" {
 		_ = os.RemoveAll(e.blobDir)

@@ -64,6 +64,9 @@ func (s *Store) Close(context.Context) error {
 	if closer, ok := s.rows.(interface{ Close() error }); ok {
 		errs = append(errs, closer.Close())
 	}
+	if closer, ok := s.blobs.(interface{ Close() error }); ok {
+		errs = append(errs, closer.Close())
+	}
 	return errors.Join(errs...)
 }
 
