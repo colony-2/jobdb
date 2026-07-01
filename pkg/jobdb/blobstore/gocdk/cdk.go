@@ -1,13 +1,18 @@
-package blobstore
+package gocdk
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 
+	internalblobstore "github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/blobstore"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/storage"
 	"github.com/google/uuid"
 	"gocloud.dev/blob"
 	_ "gocloud.dev/blob/azureblob"
@@ -18,20 +23,64 @@ import (
 	"gocloud.dev/gcerrors"
 )
 
-// CDK stores large artifacts in any Go CDK blob bucket.
-type CDK struct {
+func init() {
+	internalblobstore.RegisterOpener(openURI)
+}
+
+func openURI(ctx context.Context, uri string) (storage.BlobStore, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	u, err := url.Parse(uri)
+	if err != nil {
+		return nil, fmt.Errorf("blobstore: parse uri: %w", err)
+	}
+	if !blob.DefaultURLMux().ValidBucketScheme(u.Scheme) {
+		return nil, internalblobstore.UnsupportedSchemeError{Scheme: u.Scheme}
+	}
+	if u.Scheme == "file" {
+		if err := ensureFileBucketDir(u); err != nil {
+			return nil, err
+		}
+	}
+	bucket, err := blob.OpenBucket(ctx, uri)
+	if err != nil {
+		return nil, fmt.Errorf("blobstore: open Go CDK bucket: %w", err)
+	}
+	store, err := newCDK(bucket)
+	if err != nil {
+		_ = bucket.Close()
+		return nil, err
+	}
+	return store, nil
+}
+
+func ensureFileBucketDir(u *url.URL) error {
+	path := u.Path
+	if u.Host == "." || os.PathSeparator != '/' {
+		path = strings.TrimPrefix(path, "/")
+	}
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("blobstore: file path is required")
+	}
+	if err := os.MkdirAll(filepath.FromSlash(path), 0o755); err != nil {
+		return fmt.Errorf("blobstore: ensure file bucket directory: %w", err)
+	}
+	return nil
+}
+
+type cdkStore struct {
 	bucket *blob.Bucket
 }
 
-func newCDK(bucket *blob.Bucket) (*CDK, error) {
+func newCDK(bucket *blob.Bucket) (*cdkStore, error) {
 	if bucket == nil {
 		return nil, fmt.Errorf("blobstore: Go CDK bucket is required")
 	}
-	return &CDK{bucket: bucket}, nil
+	return &cdkStore{bucket: bucket}, nil
 }
 
-// Save writes the provided bytes to a unique object and returns the object key.
-func (c *CDK) Save(ctx context.Context, body io.Reader) (string, error) {
+func (c *cdkStore) Save(ctx context.Context, body io.Reader) (string, error) {
 	if c == nil || c.bucket == nil {
 		return "", fmt.Errorf("blobstore: Go CDK bucket not initialized")
 	}
@@ -61,8 +110,7 @@ func (c *CDK) Save(ctx context.Context, body io.Reader) (string, error) {
 	return key, nil
 }
 
-// Open exposes the stored bytes for reading.
-func (c *CDK) Open(blobPath string) (io.ReadCloser, error) {
+func (c *cdkStore) Open(blobPath string) (io.ReadCloser, error) {
 	if c == nil || c.bucket == nil {
 		return nil, fmt.Errorf("blobstore: Go CDK bucket not initialized")
 	}
@@ -77,8 +125,7 @@ func (c *CDK) Open(blobPath string) (io.ReadCloser, error) {
 	return reader, nil
 }
 
-// Delete removes the referenced blob when it exists.
-func (c *CDK) Delete(blobPath string) error {
+func (c *cdkStore) Delete(blobPath string) error {
 	if c == nil || c.bucket == nil || blobPath == "" {
 		return nil
 	}
@@ -95,8 +142,7 @@ func (c *CDK) Delete(blobPath string) error {
 	return nil
 }
 
-// Close releases the underlying Go CDK bucket resources.
-func (c *CDK) Close() error {
+func (c *cdkStore) Close() error {
 	if c == nil || c.bucket == nil {
 		return nil
 	}

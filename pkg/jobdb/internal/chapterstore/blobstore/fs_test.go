@@ -8,7 +8,6 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/blobstore"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/storagetest"
-	"gocloud.dev/blob"
 )
 
 func TestFSContract(t *testing.T) {
@@ -23,48 +22,6 @@ func TestFSContract(t *testing.T) {
 	})
 }
 
-func TestOpenURIFileContract(t *testing.T) {
-	storagetest.RunBlobStoreSuite(t, func(t testing.TB) storagetest.BlobStoreFixture {
-		t.Helper()
-		baseDir := t.TempDir()
-		store, err := blobstore.OpenURI("file://" + baseDir + "?metadata=skip")
-		if err != nil {
-			t.Fatalf("OpenURI file: %v", err)
-		}
-		return storagetest.BlobStoreFixture{Store: store, BaseDir: baseDir}
-	})
-}
-
-func TestGoCDKProviderSchemesRegistered(t *testing.T) {
-	for _, scheme := range []string{"gs", "s3", "azblob", "file", "mem"} {
-		if !blob.DefaultURLMux().ValidBucketScheme(scheme) {
-			t.Fatalf("Go CDK bucket scheme %q is not registered", scheme)
-		}
-	}
-}
-
-func TestOpenURIFileCreatesDirectory(t *testing.T) {
-	baseDir := t.TempDir()
-	target := baseDir + "/nested/blobs"
-	store, err := blobstore.OpenURI("file://" + target + "?metadata=skip")
-	if err != nil {
-		t.Fatalf("OpenURI file: %v", err)
-	}
-	t.Cleanup(func() {
-		if closer, ok := store.(interface{ Close() error }); ok {
-			_ = closer.Close()
-		}
-	})
-
-	path, err := store.Save(context.Background(), strings.NewReader("ok"))
-	if err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-	if path == "" {
-		t.Fatal("Save returned empty path")
-	}
-}
-
 func TestOpenURIBlobFSCompatibility(t *testing.T) {
 	baseDir := t.TempDir()
 	store, err := blobstore.OpenURI(fmt.Sprintf("blobfs://%s", baseDir))
@@ -77,5 +34,16 @@ func TestOpenURIBlobFSCompatibility(t *testing.T) {
 	}
 	if path == "" {
 		t.Fatal("Save returned empty path")
+	}
+}
+
+func TestOpenURIProviderSchemeRequiresExplicitImport(t *testing.T) {
+	_, err := blobstore.OpenURI("s3://jobdb-artifacts?region=us-east-1")
+	if err == nil {
+		t.Fatal("OpenURI s3 returned nil error, want unsupported scheme")
+	}
+	want := `unsupported blob store scheme "s3"`
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("OpenURI error = %q, want to contain %q", err.Error(), want)
 	}
 }

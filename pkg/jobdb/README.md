@@ -27,12 +27,12 @@ The runtime implementations live below `pkg/jobdb/runtime`.
 
 ### `runtime/sqlite`
 
-Durable embedded runtime backed by SQLite plus Go CDK blob storage.
+Durable embedded runtime backed by SQLite plus local blob storage by default.
 
 ```go
 runtime, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{
-    DBPath:       "jobdb.db",
-    BlobStoreURI: "file:///var/lib/jobdb/blobs",
+    DBPath:  "jobdb.db",
+    BlobDir: "/var/lib/jobdb/blobs",
 })
 if err != nil {
     return err
@@ -41,11 +41,13 @@ defer runtime.Close(context.Background())
 ```
 
 Use this when you want local durable execution without running Postgres or an
-external artifact service. Set `BlobStoreURI` to a Go CDK bucket URL such as
-`gs://bucket`, `s3://bucket?region=us-east-1`, or `azblob://container` when
-artifacts should live outside the local filesystem. Credential lookup is handled
-by the Go CDK provider drivers; see the repository README for provider-specific
-environment variables, VM role behavior, and references.
+external artifact service. `blobfs://` works without optional provider imports.
+Executable/server code that wants Go CDK URLs such as `file://`, `gs://bucket`,
+`s3://bucket?region=us-east-1`, or `azblob://container` must import
+`github.com/colony-2/jobdb/pkg/jobdb/blobstore/gocdk` to register those
+providers. Credential lookup is handled by the Go CDK provider drivers; see the
+repository README for provider-specific environment variables, VM role behavior,
+and references.
 
 ### `runtime/remote`
 
@@ -85,6 +87,13 @@ The toy runtime is not durable.
 Postgres direct runtime. It stores job records and chapter records in Postgres
 and stores large artifact bytes through a configured blobstore URI.
 
+When using provider-backed URIs, import the provider registration package from
+the executable:
+
+```go
+import _ "github.com/colony-2/jobdb/pkg/jobdb/blobstore/gocdk"
+```
+
 ```go
 runtime, err := directruntime.NewFromConfig(directruntime.Config{
     PostgresDSN:  postgresDSN,
@@ -95,7 +104,10 @@ if err != nil {
 }
 ```
 
-`jobdb direct` wraps this runtime and serves it over the remote runtime API.
+`jobdb direct` wraps this runtime, imports the Go CDK provider registration
+package, and serves it over the remote runtime API. Library embedders that pass
+provider-backed `BlobStoreURI` values must import the provider registration
+package from their executable/server code.
 
 ## Runtime Usage
 

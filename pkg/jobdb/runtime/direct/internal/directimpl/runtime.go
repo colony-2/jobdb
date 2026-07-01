@@ -38,7 +38,8 @@ import (
 // Config describes a direct Postgres-backed JobDB runtime.
 type Config struct {
 	PostgresDSN string
-	// BlobStoreURI is a Go CDK blob bucket URL for large chapter artifacts.
+	// BlobStoreURI is a blob bucket URL for large chapter artifacts.
+	// blobfs:// is supported by default. Other schemes require an explicit provider import.
 	BlobStoreURI           string
 	MaxInlineArtifactBytes int64
 	Logger                 *slog.Logger

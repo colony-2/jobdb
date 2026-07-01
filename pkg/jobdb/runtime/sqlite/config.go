@@ -36,7 +36,8 @@ type Config struct {
 	DBPath string
 	// BlobDir stores large chapter artifacts on local blobfs. If empty, it is derived from DBPath.
 	BlobDir string
-	// BlobStoreURI is a Go CDK blob bucket URL for large chapter artifacts. If set, it overrides BlobDir.
+	// BlobStoreURI is a blob bucket URL for large chapter artifacts. If set, it overrides BlobDir.
+	// blobfs:// is supported by default. Other schemes require an explicit provider import.
 	BlobStoreURI string
 	// MaxInlineArtifactBytes controls when artifacts move from rows to blobstore.
 	MaxInlineArtifactBytes int64

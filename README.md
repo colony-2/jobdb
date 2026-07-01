@@ -31,7 +31,7 @@ jobdb --listen 127.0.0.1:9047 --db jobdb.db
 
 This starts the runtime API at `http://127.0.0.1:9047`. SQLite is the default
 backend and persists runtime state in `jobdb.db`; large artifacts are stored in a
-blob bucket URL that defaults to a local directory at `<db>.blobs`.
+blob bucket URL that defaults to a local `blobfs://` directory at `<db>.blobs`.
 
 The explicit SQLite subcommand is equivalent:
 
@@ -58,9 +58,9 @@ jobdb sqlite \
 Flags:
 
 - `--db`: SQLite database path. Defaults to `jobdb.db`.
-- `--blob-store-uri`: Go CDK blob bucket URL for large artifacts. Supports
-  `file://`, `gs://`, `s3://`, and `azblob://`; defaults to local blobfs at
-  `<db>.blobs`.
+- `--blob-store-uri`: blob bucket URL for large artifacts. The `jobdb`
+  executable includes Go CDK providers, so it supports `file://`, `gs://`,
+  `s3://`, and `azblob://`; defaults to local `blobfs://` at `<db>.blobs`.
 - `--blob-dir`: legacy directory shortcut for local large artifacts. Ignored
   when `--blob-store-uri` is set.
 - `--sqlite-dsn`: SQLite DSN. Overrides `--db` and `JOBDB_SQLITE_DSN`.
@@ -93,8 +93,9 @@ JOBDB_POSTGRES_DSN='postgres://user:pass@localhost:5432/jobdb?sslmode=disable' \
 Flags:
 
 - `--postgres-dsn`: Postgres DSN for `pgwf` state.
-- `--blob-store-uri`: Go CDK blob bucket URL for large artifacts. Defaults to
-  local blobfs.
+- `--blob-store-uri`: blob bucket URL for large artifacts. The `jobdb`
+  executable includes Go CDK providers, so it supports `file://`, `gs://`,
+  `s3://`, and `azblob://`; defaults to local `blobfs://`.
 - `--listen`: HTTP listen address. Defaults to `127.0.0.1:9047`.
 
 Environment:
@@ -123,6 +124,11 @@ does not need separate credential flags:
   `AZURE_STORAGE_ACCOUNT` with `AZURE_STORAGE_KEY`, a connection string, a SAS
   token, or Azure default credentials such as environment credentials, Azure
   CLI credentials, or managed identity.
+
+Library embedders of `runtime/sqlite` or `runtime/direct` only get `blobfs://`
+support by default. Import
+`github.com/colony-2/jobdb/pkg/jobdb/blobstore/gocdk` from executable/server
+code to enable Go CDK provider URI registration.
 
 References:
 

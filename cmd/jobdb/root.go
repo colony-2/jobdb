@@ -18,6 +18,7 @@ import (
 	"github.com/colony-2/pgwf-go/installer"
 	"github.com/spf13/cobra"
 
+	_ "github.com/colony-2/jobdb/pkg/jobdb/blobstore/gocdk"
 	_ "github.com/lib/pq"
 )
 

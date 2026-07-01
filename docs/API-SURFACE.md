@@ -53,6 +53,10 @@ renewed lease.
 SQLite-backed runtime. This package is public and is used by c2j for embedded
 local execution.
 
+By default this package supports local `blobfs://` artifact storage only.
+Provider-backed `BlobStoreURI` values require executable/server code to import
+the optional Go CDK registration package.
+
 ### `github.com/colony-2/jobdb/pkg/jobdb/runtime/toy`
 
 In-memory runtime for tests and local execution. This package is public and is
@@ -71,6 +75,13 @@ The direct, SQLite, and toy runtime packages expose lease transport helpers such
 as `KeepAliveLeaseByIDWithExpiry` because `remote.NewServer` needs a consistent
 adapter surface to renew leases and mint replacement lease tokens. These helper
 methods are runtime-adapter API, not application workflow API.
+
+### `github.com/colony-2/jobdb/pkg/jobdb/blobstore/gocdk`
+
+Optional Go CDK blobstore provider registration package for executable/server
+code. Importing this package enables `file://`, `mem://`, `gs://`, `s3://`, and
+`azblob://` `BlobStoreURI` values without making those providers transitive
+dependencies of embedded SQLite consumers.
 
 ## Internal-Only Packages
 

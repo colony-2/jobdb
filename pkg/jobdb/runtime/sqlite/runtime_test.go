@@ -3,6 +3,8 @@ package sqlite
 import (
 	"context"
 	"net/http/httptest"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
@@ -65,5 +67,19 @@ func TestRuntimeThroughRemoteServerSubmitJob(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("remote submit job: %v", err)
+	}
+}
+
+func TestNewFromConfigProviderBlobStoreURIRequiresExplicitImport(t *testing.T) {
+	_, err := NewFromConfig(context.Background(), Config{
+		DBPath:       filepath.Join(t.TempDir(), "jobdb.db"),
+		BlobStoreURI: "s3://jobdb-artifacts?region=us-east-1",
+	})
+	if err == nil {
+		t.Fatal("NewFromConfig returned nil error, want unsupported blob store scheme")
+	}
+	want := `unsupported blob store scheme "s3"`
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("NewFromConfig error = %q, want to contain %q", err.Error(), want)
 	}
 }
