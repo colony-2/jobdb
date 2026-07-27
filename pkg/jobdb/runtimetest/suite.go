@@ -92,6 +92,12 @@ func RunWorkflowRuntimeConformance(t *testing.T, harnesses ...Harness) {
 	t.Run("workflow_runtime_lifecycle", func(t *testing.T) {
 		runWorkflowRuntimeLifecycle(t, harnesses)
 	})
+	t.Run("schema_registry", func(t *testing.T) {
+		runSchemaRegistry(t, harnesses)
+	})
+	t.Run("schedule_apis", func(t *testing.T) {
+		runScheduleAPIs(t, harnesses)
+	})
 	t.Run("execution_lease_submit_job_tracks_parent", func(t *testing.T) {
 		runExecutionLeaseSubmitJobTracksParent(t, harnesses)
 	})
@@ -225,6 +231,269 @@ func runWorkflowRuntimeLifecycle(t *testing.T, harnesses []Harness) {
 			}
 		})
 	}
+}
+
+func runSchemaRegistry(t *testing.T, harnesses []Harness) {
+	for _, harness := range harnesses {
+		harness := harness
+		t.Run(harness.Name, func(t *testing.T) {
+			if !harness.Capabilities.SchemaRegistry {
+				t.Skip("runtime does not support schema registry")
+			}
+			built := buildFixture(t, harness)
+			defer built.Shutdown(t)
+			if built.SchemaRegistry == nil {
+				t.Fatalf("%s fixture schema registry is required", harness.Name)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+
+			tenantID := "tenant-schema-" + safeHarnessName(harness.Name)
+			schema := json.RawMessage(`{"description":"conformance","chapterShape":true}`)
+			registered, err := built.SchemaRegistry.RegisterJobSchema(ctx, jobdb.RegisterJobSchemaRequest{
+				TenantId: tenantID,
+				Schema:   schema,
+			})
+			if err != nil {
+				t.Fatalf("register schema: %v", err)
+			}
+			if registered.SchemaHash == "" || registered.State != jobdb.JobSchemaStateActive {
+				t.Fatalf("unexpected registered schema %+v", registered)
+			}
+			got, err := built.SchemaRegistry.GetJobSchema(ctx, jobdb.JobSchemaKey{
+				TenantId:   tenantID,
+				SchemaHash: registered.SchemaHash,
+			})
+			if err != nil {
+				t.Fatalf("get schema: %v", err)
+			}
+			if got.SchemaHash != registered.SchemaHash || got.State != jobdb.JobSchemaStateActive {
+				t.Fatalf("unexpected stored schema %+v", got)
+			}
+			active, err := built.SchemaRegistry.ListJobSchemas(ctx, jobdb.ListJobSchemasRequest{TenantId: tenantID})
+			if err != nil {
+				t.Fatalf("list active schemas: %v", err)
+			}
+			if len(active.Schemas) != 1 || active.Schemas[0].SchemaHash != registered.SchemaHash {
+				t.Fatalf("active schemas = %+v, want %s", active.Schemas, registered.SchemaHash)
+			}
+
+			handle, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+				Job: jobdb.SubmitJob{
+					TenantId: tenantID,
+					JobID:    "schema-runtime-submit",
+					JobType:  "schema-runtime-job",
+					Data:     NumberTaskData(1),
+					Schema:   &jobdb.JobSchemaSelector{Hash: registered.SchemaHash},
+				},
+				RequestTime: time.Now().UTC(),
+			})
+			if err != nil {
+				t.Fatalf("submit schema-selected job: %v", err)
+			}
+			info, err := built.Runtime.GetJob(ctx, handle.JobKey)
+			if err != nil {
+				t.Fatalf("get schema-selected job: %v", err)
+			}
+			if info.SchemaHash != registered.SchemaHash {
+				t.Fatalf("job schema hash = %q, want %q", info.SchemaHash, registered.SchemaHash)
+			}
+
+			archived, err := built.SchemaRegistry.ArchiveJobSchema(ctx, jobdb.JobSchemaKey{
+				TenantId:   tenantID,
+				SchemaHash: registered.SchemaHash,
+			})
+			if err != nil {
+				t.Fatalf("archive schema: %v", err)
+			}
+			if archived.State != jobdb.JobSchemaStateArchived || archived.ArchivedAt == nil {
+				t.Fatalf("schema was not archived: %+v", archived)
+			}
+			all, err := built.SchemaRegistry.ListJobSchemas(ctx, jobdb.ListJobSchemasRequest{
+				TenantId: tenantID,
+				State:    jobdb.JobSchemaListStateAll,
+			})
+			if err != nil {
+				t.Fatalf("list all schemas: %v", err)
+			}
+			if len(all.Schemas) != 1 || all.Schemas[0].State != jobdb.JobSchemaStateArchived {
+				t.Fatalf("all schemas = %+v, want archived schema", all.Schemas)
+			}
+			_, err = built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+				Job: jobdb.SubmitJob{
+					TenantId: tenantID,
+					JobID:    "schema-archived-submit",
+					JobType:  "schema-runtime-job",
+					Data:     NumberTaskData(1),
+					Schema:   &jobdb.JobSchemaSelector{Hash: registered.SchemaHash},
+				},
+				RequestTime: time.Now().UTC(),
+			})
+			if !errors.Is(err, jobdb.ErrJobSchemaArchived) {
+				t.Fatalf("submit archived schema error = %v, want ErrJobSchemaArchived", err)
+			}
+			_, err = built.SchemaRegistry.RegisterJobSchema(ctx, jobdb.RegisterJobSchemaRequest{
+				TenantId: tenantID,
+				Schema:   json.RawMessage(`{"chapterShape":{"type":"not-a-real-type"}}`),
+			})
+			if !errors.Is(err, jobdb.ErrJobSchemaValidation) {
+				t.Fatalf("register invalid schema error = %v, want ErrJobSchemaValidation", err)
+			}
+		})
+	}
+}
+
+func runScheduleAPIs(t *testing.T, harnesses []Harness) {
+	for _, harness := range harnesses {
+		harness := harness
+		t.Run(harness.Name, func(t *testing.T) {
+			if !harness.Capabilities.Schedules {
+				t.Skip("runtime does not support schedules")
+			}
+			built := buildFixture(t, harness)
+			defer built.Shutdown(t)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+
+			tenantID := "tenant-schedule-" + safeHarnessName(harness.Name)
+			scheduleID := "schedule-conformance-" + safeHarnessName(harness.Name)
+			now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+			info, err := built.Runtime.UpsertSchedule(ctx, jobdb.UpsertScheduleRequest{
+				TenantId:      tenantID,
+				ScheduleId:    scheduleID,
+				RequestTime:   now,
+				OverlapPolicy: jobdb.ScheduleOverlapSerial,
+				Trigger: jobdb.ScheduleTrigger{
+					Kind:     jobdb.ScheduleTriggerInterval,
+					Interval: time.Hour,
+				},
+				Target: jobdb.ScheduleTarget{
+					JobType:  "scheduled-conformance-job",
+					Data:     NumberTaskData(5),
+					Metadata: json.RawMessage(`{"queue":"blue"}`),
+				},
+			})
+			if err != nil {
+				t.Fatalf("upsert schedule: %v", err)
+			}
+			if info.ScheduleKey != (jobdb.ScheduleKey{TenantId: tenantID, ScheduleId: scheduleID}) {
+				t.Fatalf("schedule key = %+v, want tenant/schedule", info.ScheduleKey)
+			}
+			if info.State != jobdb.ScheduleStateActive || info.Generation != 1 || info.NextJobKey == nil {
+				t.Fatalf("unexpected schedule info %+v", info)
+			}
+
+			got, err := built.Runtime.GetSchedule(ctx, info.ScheduleKey)
+			if err != nil {
+				t.Fatalf("get schedule: %v", err)
+			}
+			if got.Generation != info.Generation || got.SpecHash != info.SpecHash {
+				t.Fatalf("got schedule %+v, want generation/hash from %+v", got, info)
+			}
+			listed, err := built.Runtime.ListSchedules(ctx, jobdb.ListSchedulesRequest{
+				TenantId:       tenantID,
+				ScheduleIds:    []string{scheduleID},
+				TargetJobTypes: []string{"scheduled-conformance-job"},
+			})
+			if err != nil {
+				t.Fatalf("list schedules: %v", err)
+			}
+			if len(listed.Schedules) != 1 || listed.Schedules[0].ScheduleKey != info.ScheduleKey {
+				t.Fatalf("listed schedules = %+v, want %s", listed.Schedules, scheduleID)
+			}
+
+			manual, err := built.Runtime.TriggerSchedule(ctx, jobdb.TriggerScheduleRequest{
+				ScheduleKey: info.ScheduleKey,
+				RequestID:   "manual1",
+				RequestTime: now.Add(5 * time.Minute),
+				WorkerID:    "schedule-conformance-worker",
+			})
+			if err != nil {
+				t.Fatalf("trigger schedule: %v", err)
+			}
+			wantManual := jobdb.JobKey{
+				TenantId: tenantID,
+				JobId:    jobdb.ScheduleManualJobID(scheduleID, "manual1"),
+			}
+			if manual.JobKey != wantManual {
+				t.Fatalf("manual schedule job = %+v, want %+v", manual.JobKey, wantManual)
+			}
+
+			runs, err := built.Runtime.ListScheduleRuns(ctx, jobdb.ListScheduleRunsRequest{
+				ScheduleKey: info.ScheduleKey,
+				PageSize:    10,
+			})
+			if err != nil {
+				t.Fatalf("list schedule runs: %v", err)
+			}
+			assertScheduleRunListed(t, runs.Runs, *info.NextJobKey)
+			assertScheduleRunListed(t, runs.Runs, manual.JobKey)
+
+			expectedGeneration := info.Generation
+			paused, err := built.Runtime.PauseSchedule(ctx, jobdb.ScheduleMutationRequest{
+				ScheduleKey:        info.ScheduleKey,
+				ExpectedGeneration: &expectedGeneration,
+				RequestTime:        now.Add(10 * time.Minute),
+			})
+			if err != nil {
+				t.Fatalf("pause schedule: %v", err)
+			}
+			if paused.State != jobdb.ScheduleStatePaused || paused.Generation <= info.Generation {
+				t.Fatalf("paused schedule = %+v", paused)
+			}
+			expectedGeneration = paused.Generation
+			resumed, err := built.Runtime.ResumeSchedule(ctx, jobdb.ScheduleMutationRequest{
+				ScheduleKey:        info.ScheduleKey,
+				ExpectedGeneration: &expectedGeneration,
+				RequestTime:        now.Add(20 * time.Minute),
+			})
+			if err != nil {
+				t.Fatalf("resume schedule: %v", err)
+			}
+			if resumed.State != jobdb.ScheduleStateActive || resumed.Generation <= paused.Generation {
+				t.Fatalf("resumed schedule = %+v", resumed)
+			}
+			expectedGeneration = resumed.Generation
+			archived, err := built.Runtime.ArchiveSchedule(ctx, jobdb.ScheduleMutationRequest{
+				ScheduleKey:        info.ScheduleKey,
+				ExpectedGeneration: &expectedGeneration,
+				RequestTime:        now.Add(30 * time.Minute),
+			})
+			if err != nil {
+				t.Fatalf("archive schedule: %v", err)
+			}
+			if archived.State != jobdb.ScheduleStateArchived || archived.Generation <= resumed.Generation {
+				t.Fatalf("archived schedule = %+v", archived)
+			}
+			_, err = built.Runtime.TriggerSchedule(ctx, jobdb.TriggerScheduleRequest{
+				ScheduleKey: info.ScheduleKey,
+				RequestID:   "manual-after-archive",
+				RequestTime: now.Add(40 * time.Minute),
+			})
+			if !errors.Is(err, jobdb.ErrConflict) {
+				t.Fatalf("trigger archived schedule error = %v, want ErrConflict", err)
+			}
+		})
+	}
+}
+
+func assertScheduleRunListed(t *testing.T, runs []jobdb.ScheduleRunSummary, want jobdb.JobKey) {
+	t.Helper()
+	for _, run := range runs {
+		if run.JobSummary.JobKey != want {
+			continue
+		}
+		if run.ScheduleId == "" {
+			t.Fatalf("schedule run for %+v missing schedule id: %+v", want, run)
+		}
+		if strings.Contains(string(run.JobSummary.Metadata), jobdb.ScheduleMetadataKind) {
+			t.Fatalf("schedule runtime metadata leaked for %+v: %s", want, run.JobSummary.Metadata)
+		}
+		return
+	}
+	t.Fatalf("schedule run %+v not listed in %+v", want, runs)
 }
 
 func runExecutionLeaseSubmitJobTracksParent(t *testing.T, harnesses []Harness) {
