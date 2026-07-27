@@ -1,14 +1,12 @@
 package sqlite
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
-	"fmt"
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobschema"
+	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 )
 
 var _ jobdb.JobSchemaRegistry = (*Runtime)(nil)
@@ -40,88 +38,107 @@ func scanSchemaRow(scanner interface{ Scan(dest ...any) error }) (schemaRow, err
 }
 
 func (r *Runtime) RegisterJobSchema(ctx context.Context, req jobdb.RegisterJobSchemaRequest) (jobdb.JobSchemaInfo, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := r.validate(); err != nil {
-		return jobdb.JobSchemaInfo{}, err
-	}
-	if req.TenantId == "" {
-		return jobdb.JobSchemaInfo{}, fmt.Errorf("tenantId is required")
-	}
-	hash, canonical, err := jobdb.JobSchemaHash(req.Schema)
+	registry, err := r.coreSchemaRegistry()
 	if err != nil {
 		return jobdb.JobSchemaInfo{}, err
 	}
-	if err := jobschema.ValidateSchemaDocument(hash, canonical); err != nil {
+	return registry.RegisterJobSchema(ctx, req)
+}
+
+func (r *Runtime) GetJobSchema(ctx context.Context, key jobdb.JobSchemaKey) (jobdb.JobSchemaInfo, error) {
+	registry, err := r.coreSchemaRegistry()
+	if err != nil {
 		return jobdb.JobSchemaInfo{}, err
 	}
-	key := jobdb.JobSchemaKey{TenantId: req.TenantId, SchemaHash: hash}
-	now := timeToNS(timeNowUTC())
-	err = r.withTx(ctx, func(tx *sql.Tx) error {
+	return registry.GetJobSchema(ctx, key)
+}
+
+func (r *Runtime) ListJobSchemas(ctx context.Context, req jobdb.ListJobSchemasRequest) (jobdb.ListJobSchemasResponse, error) {
+	registry, err := r.coreSchemaRegistry()
+	if err != nil {
+		return jobdb.ListJobSchemasResponse{}, err
+	}
+	return registry.ListJobSchemas(ctx, req)
+}
+
+func (r *Runtime) ArchiveJobSchema(ctx context.Context, key jobdb.JobSchemaKey) (jobdb.JobSchemaInfo, error) {
+	registry, err := r.coreSchemaRegistry()
+	if err != nil {
+		return jobdb.JobSchemaInfo{}, err
+	}
+	return registry.ArchiveJobSchema(ctx, key)
+}
+
+func (r *Runtime) coreSchemaRegistry() (*runtimecore.SchemaRegistry, error) {
+	if err := r.validate(); err != nil {
+		return nil, err
+	}
+	return runtimecore.NewSchemaRegistry(runtimecore.SchemaRegistryConfig{
+		Store: sqliteSchemaStore{runtime: r},
+		Now:   timeNowUTC,
+	})
+}
+
+type sqliteSchemaStore struct {
+	runtime *Runtime
+}
+
+func (s sqliteSchemaStore) StoreJobSchema(ctx context.Context, schema runtimecore.StoredJobSchema) (runtimecore.StoredJobSchema, error) {
+	r := s.runtime
+	if err := r.validate(); err != nil {
+		return runtimecore.StoredJobSchema{}, err
+	}
+	state := schema.State
+	if state == "" {
+		state = jobdb.JobSchemaStateActive
+	}
+	createdAt := schema.CreatedAt.UTC()
+	if createdAt.IsZero() {
+		createdAt = timeNowUTC()
+	}
+	err := r.withTx(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `
 INSERT OR IGNORE INTO jobdb_schemas (
 	tenant_id, schema_hash, schema_json, state, created_at_ns
 ) VALUES (?, ?, ?, ?, ?)`,
-			req.TenantId, hash, canonical, string(jobdb.JobSchemaStateActive), now)
+			schema.TenantId, schema.SchemaHash, cloneJSON(schema.Schema), string(state), timeToNS(createdAt))
 		return err
 	})
 	if err != nil {
-		return jobdb.JobSchemaInfo{}, err
+		return runtimecore.StoredJobSchema{}, err
 	}
-	info, err := r.GetJobSchema(ctx, key)
-	if err != nil {
-		return jobdb.JobSchemaInfo{}, err
-	}
-	if !bytes.Equal(info.Schema, canonical) {
-		return jobdb.JobSchemaInfo{}, jobdb.ErrConflict
-	}
-	return info, nil
+	return s.GetJobSchema(ctx, jobdb.JobSchemaKey{TenantId: schema.TenantId, SchemaHash: schema.SchemaHash})
 }
 
-func (r *Runtime) GetJobSchema(ctx context.Context, key jobdb.JobSchemaKey) (jobdb.JobSchemaInfo, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+func (s sqliteSchemaStore) GetJobSchema(ctx context.Context, key jobdb.JobSchemaKey) (runtimecore.StoredJobSchema, error) {
+	r := s.runtime
 	if err := r.validate(); err != nil {
-		return jobdb.JobSchemaInfo{}, err
-	}
-	if err := key.Validate(); err != nil {
-		return jobdb.JobSchemaInfo{}, err
+		return runtimecore.StoredJobSchema{}, err
 	}
 	row, err := scanSchemaRow(r.db.QueryRowContext(ctx, `
 SELECT tenant_id, schema_hash, schema_json, state, created_at_ns, archived_at_ns
 FROM jobdb_schemas
 WHERE tenant_id = ? AND schema_hash = ?`, key.TenantId, key.SchemaHash))
 	if err == sql.ErrNoRows {
-		return jobdb.JobSchemaInfo{}, jobdb.ErrJobSchemaNotFound
+		return runtimecore.StoredJobSchema{}, jobdb.ErrJobSchemaNotFound
 	}
 	if err != nil {
-		return jobdb.JobSchemaInfo{}, err
+		return runtimecore.StoredJobSchema{}, err
 	}
-	return schemaInfoFromRow(row), nil
+	return storedJobSchemaFromRow(row), nil
 }
 
-func (r *Runtime) ListJobSchemas(ctx context.Context, req jobdb.ListJobSchemasRequest) (jobdb.ListJobSchemasResponse, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+func (s sqliteSchemaStore) ListJobSchemas(ctx context.Context, req runtimecore.ListJobSchemasRequest) (runtimecore.ListJobSchemasResponse, error) {
+	r := s.runtime
 	if err := r.validate(); err != nil {
-		return jobdb.ListJobSchemasResponse{}, err
-	}
-	if req.TenantId == "" {
-		return jobdb.ListJobSchemasResponse{}, fmt.Errorf("tenantId is required")
-	}
-	state := req.State
-	if state == "" {
-		state = jobdb.JobSchemaListStateActive
+		return runtimecore.ListJobSchemasResponse{}, err
 	}
 	query := `
 SELECT tenant_id, schema_hash, schema_json, state, created_at_ns, archived_at_ns
 FROM jobdb_schemas
 WHERE tenant_id = ?`
 	args := []any{req.TenantId}
-	switch state {
+	switch req.State {
 	case jobdb.JobSchemaListStateActive:
 		query += ` AND state = ?`
 		args = append(args, string(jobdb.JobSchemaStateActive))
@@ -129,57 +146,49 @@ WHERE tenant_id = ?`
 		query += ` AND state = ?`
 		args = append(args, string(jobdb.JobSchemaStateArchived))
 	case jobdb.JobSchemaListStateAll:
-	default:
-		return jobdb.ListJobSchemasResponse{}, fmt.Errorf("unknown schema state %q", req.State)
 	}
 	query += ` ORDER BY created_at_ns DESC, schema_hash ASC`
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return jobdb.ListJobSchemasResponse{}, err
+		return runtimecore.ListJobSchemasResponse{}, err
 	}
 	defer rows.Close()
-	out := make([]jobdb.JobSchemaInfo, 0)
+	out := make([]runtimecore.StoredJobSchema, 0)
 	for rows.Next() {
 		row, err := scanSchemaRow(rows)
 		if err != nil {
-			return jobdb.ListJobSchemasResponse{}, err
+			return runtimecore.ListJobSchemasResponse{}, err
 		}
-		out = append(out, schemaInfoFromRow(row))
+		out = append(out, storedJobSchemaFromRow(row))
 	}
 	if err := rows.Err(); err != nil {
-		return jobdb.ListJobSchemasResponse{}, err
+		return runtimecore.ListJobSchemasResponse{}, err
 	}
-	return jobdb.ListJobSchemasResponse{Schemas: out}, nil
+	return runtimecore.ListJobSchemasResponse{Schemas: out}, nil
 }
 
-func (r *Runtime) ArchiveJobSchema(ctx context.Context, key jobdb.JobSchemaKey) (jobdb.JobSchemaInfo, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+func (s sqliteSchemaStore) ArchiveJobSchema(ctx context.Context, key jobdb.JobSchemaKey, archivedAt time.Time) (runtimecore.StoredJobSchema, error) {
+	r := s.runtime
 	if err := r.validate(); err != nil {
-		return jobdb.JobSchemaInfo{}, err
+		return runtimecore.StoredJobSchema{}, err
 	}
-	if err := key.Validate(); err != nil {
-		return jobdb.JobSchemaInfo{}, err
-	}
-	archivedAt := timeToNS(timeNowUTC())
 	result, err := r.db.ExecContext(ctx, `
 UPDATE jobdb_schemas
 SET state = ?, archived_at_ns = COALESCE(archived_at_ns, ?)
 WHERE tenant_id = ? AND schema_hash = ?`,
-		string(jobdb.JobSchemaStateArchived), archivedAt, key.TenantId, key.SchemaHash)
+		string(jobdb.JobSchemaStateArchived), timeToNS(archivedAt.UTC()), key.TenantId, key.SchemaHash)
 	if err != nil {
-		return jobdb.JobSchemaInfo{}, err
+		return runtimecore.StoredJobSchema{}, err
 	}
 	n, _ := result.RowsAffected()
 	if n == 0 {
-		return jobdb.JobSchemaInfo{}, jobdb.ErrJobSchemaNotFound
+		return runtimecore.StoredJobSchema{}, jobdb.ErrJobSchemaNotFound
 	}
-	return r.GetJobSchema(ctx, key)
+	return s.GetJobSchema(ctx, key)
 }
 
-func schemaInfoFromRow(row schemaRow) jobdb.JobSchemaInfo {
-	return jobdb.JobSchemaInfo{
+func storedJobSchemaFromRow(row schemaRow) runtimecore.StoredJobSchema {
+	return runtimecore.StoredJobSchema{
 		TenantId:   row.tenantID,
 		SchemaHash: row.schemaHash,
 		Schema:     cloneJSON(row.schemaJSON),
