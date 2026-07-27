@@ -705,6 +705,254 @@ func WaitForEngineStatus func(t testing.TB, ctx context.Context, engine github.c
 func WaitForRuntimeStatus func(t testing.TB, ctx context.Context, runtime github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime, jobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey, want github.com/colony-2/jobdb/pkg/jobdb.JobStatus)
 func WaitForTaskHandle func(t testing.TB, ctx context.Context, engine github.com/colony-2/jobdb/pkg/workflow.Engine, jobType string, taskType string, tenantIDs []string) github.com/colony-2/jobdb/pkg/workflow.TaskHandle
 
+package github.com/colony-2/jobdb/pkg/jobdb/runtime/core
+type ArtifactLookup struct
+  field JobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey
+  field Ordinal int64
+  field Name string
+  field Digest string
+type CancelJobMutation struct
+  field JobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey
+  field Reason string
+  field WorkerID string
+  field Now time.Time
+type ChapterLog interface
+  method Append func(ctx context.Context, key ChapterLogKey, chapter EncodedChapter) error
+  method ClonePrefix func(ctx context.Context, req ClonePrefixRequest) error
+  method Count func(ctx context.Context, key ChapterLogKey) (int64, error)
+  method Create func(ctx context.Context, key ChapterLogKey, initial EncodedChapter) error
+  method Get func(ctx context.Context, key ChapterLogKey, ordinal int64) (EncodedChapter, error)
+  method List func(ctx context.Context, key ChapterLogKey, rng ChapterRange) ([]EncodedChapter, error)
+  method OpenArtifact func(ctx context.Context, lookup ArtifactLookup) (github.com/colony-2/jobdb/pkg/jobdb.ArtifactReader, error)
+type ChapterLogKey struct
+  field JobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey
+type ChapterRange struct
+  field StartOrdinal int64
+  field EndOrdinal *int64
+type ClonePrefixRequest struct
+  field SourceKey ChapterLogKey
+  field DestinationKey ChapterLogKey
+  field LastOrdinal int64
+  field Append *EncodedChapter
+type CompleteTaskWorkMutation struct
+  field JobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey
+  field Task WaitingTaskSnapshot
+  field Payload encoding/json.RawMessage
+  field Now time.Time
+type CompletionMutation struct
+  field Identity LeaseIdentity
+  field Status string
+  field Detail string
+  field Now time.Time
+type CompletionSnapshot struct
+  field Status string
+  field Detail string
+type Config struct
+  field Scheduler Scheduler
+  field Chapters ChapterLog
+  field Schemas SchemaStore
+  field Now func() time.Time
+type CreateJobRequest struct
+  field JobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey
+  field JobType string
+  field ParentJobID string
+  field NextNeed string
+  field Payload encoding/json.RawMessage
+  field Metadata encoding/json.RawMessage
+  field SchemaHash string
+  field Prerequisites []github.com/colony-2/jobdb/pkg/jobdb.JobPrerequisite
+  field WaitForJobIDs []string
+  field AvailableAt *time.Time
+  field CreatedAt time.Time
+  field WorkerID string
+type EncodedChapter struct
+  field Ordinal int64
+  field Payload []byte
+  field ArtifactUploads []github.com/colony-2/jobdb/pkg/jobdb.ArtifactUpload
+  field Artifacts []github.com/colony-2/jobdb/pkg/jobdb.StoredArtifact
+type JobLeaseRequest struct
+  field JobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey
+  field WorkerID string
+  field Capabilities []string
+  field LeaseDuration time.Duration
+  field Now time.Time
+type LeaseIdentity struct
+  field JobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey
+  field LeaseID string
+  field WorkerID string
+  field ExpiresAt time.Time
+type LeaseMutation struct
+  field Identity LeaseIdentity
+  field Duration time.Duration
+  field Now time.Time
+type LeaseSnapshot struct
+  field Identity LeaseIdentity
+  field Capability string
+  field Payload encoding/json.RawMessage
+  field SchemaHash string
+  field Duration time.Duration
+type ListJobSchemasRequest struct
+  field TenantId string
+  field State github.com/colony-2/jobdb/pkg/jobdb.JobSchemaListState
+type ListJobSchemasResponse struct
+  field Schemas []StoredJobSchema
+type ListJobsRequest struct
+  field TenantIds []string
+  field Statuses []github.com/colony-2/jobdb/pkg/jobdb.JobStatus
+  field Stores []github.com/colony-2/jobdb/pkg/jobdb.JobStore
+  field JobTypes []string
+  field JobTasks []github.com/colony-2/jobdb/pkg/jobdb.JobTaskFilter
+  field JobKeys []github.com/colony-2/jobdb/pkg/jobdb.JobKey
+  field ParentJobIDs []string
+  field RootOnly bool
+  field MetadataEquals []github.com/colony-2/jobdb/pkg/jobdb.MetadataPredicate
+  field CreatedAfter *time.Time
+  field CreatedBefore *time.Time
+  field PageSize int
+  field PageToken string
+type ListJobsResponse struct
+  field Jobs []StoredJob
+  field NextPageToken string
+type ListScheduleRunsRequest struct
+  field ScheduleKey github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey
+  field ScheduledAfter *time.Time
+  field ScheduledBefore *time.Time
+  field Statuses []github.com/colony-2/jobdb/pkg/jobdb.JobStatus
+  field PageSize int
+  field PageToken string
+type ListScheduleRunsResponse struct
+  field Runs []StoredJob
+  field NextPageToken string
+type ListSchedulesRequest struct
+  field TenantId string
+  field ScheduleIDs []string
+  field States []github.com/colony-2/jobdb/pkg/jobdb.ScheduleState
+  field TargetJobTypes []string
+  field PageSize int
+  field PageToken string
+type ListSchedulesResponse struct
+  field Schedules []StoredSchedule
+  field NextPageToken string
+func NewSchemaRegistry func(cfg SchemaRegistryConfig) (*SchemaRegistry, error)
+type RescheduleMutation struct
+  field Identity LeaseIdentity
+  field NextNeed string
+  field WaitUntil *time.Time
+  field WaitForJobIDs []string
+  field Payload encoding/json.RawMessage
+  field AlternateNeed string
+  field AlternateAfter *time.Duration
+  field Now time.Time
+func ResolveActiveSchemaForNewJob func(ctx context.Context, registry github.com/colony-2/jobdb/pkg/jobdb.JobSchemaRegistry, tenantID string, selector *github.com/colony-2/jobdb/pkg/jobdb.JobSchemaSelector) (string, error)
+type ScheduleStateMutation struct
+  field ScheduleKey github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey
+  field State github.com/colony-2/jobdb/pkg/jobdb.ScheduleState
+  field ExpectedGeneration *int64
+  field RequestTime time.Time
+  field WorkerID string
+type Scheduler interface
+  method AcquireJobLease func(ctx context.Context, req JobLeaseRequest) (*LeaseSnapshot, error)
+  method AcquireWork func(ctx context.Context, req WorkRequest) ([]LeaseSnapshot, error)
+  method CancelJob func(ctx context.Context, req CancelJobMutation) (StoredJob, error)
+  method CompleteLease func(ctx context.Context, mutation CompletionMutation) (StoredJob, error)
+  method CompleteTaskWork func(ctx context.Context, mutation CompleteTaskWorkMutation) (StoredJob, error)
+  method CreateJob func(ctx context.Context, req CreateJobRequest) (StoredJob, error)
+  method GetJob func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey) (StoredJob, error)
+  method GetSchedule func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey) (StoredSchedule, error)
+  method GetWaitingTask func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey) (WaitingTaskSnapshot, error)
+  method KeepAliveLease func(ctx context.Context, mutation LeaseMutation) (LeaseSnapshot, error)
+  method ListJobs func(ctx context.Context, req ListJobsRequest) (ListJobsResponse, error)
+  method ListScheduleRuns func(ctx context.Context, req ListScheduleRunsRequest) (ListScheduleRunsResponse, error)
+  method ListSchedules func(ctx context.Context, req ListSchedulesRequest) (ListSchedulesResponse, error)
+  method MutateSchedule func(ctx context.Context, mutation ScheduleStateMutation) (StoredSchedule, error)
+  method RescheduleLease func(ctx context.Context, mutation RescheduleMutation) (StoredJob, error)
+  method UpsertSchedule func(ctx context.Context, mutation StoredScheduleMutation) (StoredSchedule, error)
+  method ValidateLease func(ctx context.Context, identity LeaseIdentity) (LeaseSnapshot, error)
+type SchemaRegistry struct
+method SchemaRegistry.ArchiveJobSchema func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey) (github.com/colony-2/jobdb/pkg/jobdb.JobSchemaInfo, error)
+method SchemaRegistry.GetJobSchema func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey) (github.com/colony-2/jobdb/pkg/jobdb.JobSchemaInfo, error)
+method SchemaRegistry.ListJobSchemas func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListJobSchemasRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListJobSchemasResponse, error)
+method SchemaRegistry.RegisterJobSchema func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.RegisterJobSchemaRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobSchemaInfo, error)
+type SchemaRegistryConfig struct
+  field Store SchemaStore
+  field Now func() time.Time
+type SchemaStore interface
+  method ArchiveJobSchema func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey, archivedAt time.Time) (StoredJobSchema, error)
+  method GetJobSchema func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey) (StoredJobSchema, error)
+  method ListJobSchemas func(ctx context.Context, req ListJobSchemasRequest) (ListJobSchemasResponse, error)
+  method StoreJobSchema func(ctx context.Context, schema StoredJobSchema) (StoredJobSchema, error)
+type StoredJob struct
+  field JobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey
+  field JobType string
+  field Status github.com/colony-2/jobdb/pkg/jobdb.JobStatus
+  field NextNeed string
+  field Payload encoding/json.RawMessage
+  field Metadata encoding/json.RawMessage
+  field SchemaHash string
+  field ParentJobID string
+  field Prerequisites []github.com/colony-2/jobdb/pkg/jobdb.JobPrerequisite
+  field WaitForJobIDs []string
+  field AvailableAt time.Time
+  field CreatedAt time.Time
+  field UpdatedAt time.Time
+  field ArchivedAt *time.Time
+  field CancelRequested bool
+  field Completion *CompletionSnapshot
+  field Lease *LeaseIdentity
+  field TaskWait *WaitingTaskSnapshot
+type StoredJobSchema struct
+  field TenantId string
+  field SchemaHash string
+  field Schema encoding/json.RawMessage
+  field State github.com/colony-2/jobdb/pkg/jobdb.JobSchemaState
+  field CreatedAt time.Time
+  field ArchivedAt *time.Time
+type StoredSchedule struct
+  field ScheduleKey github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey
+  field State github.com/colony-2/jobdb/pkg/jobdb.ScheduleState
+  field Generation int64
+  field SpecHash string
+  field Trigger github.com/colony-2/jobdb/pkg/jobdb.ScheduleTrigger
+  field Target github.com/colony-2/jobdb/pkg/jobdb.ScheduleTarget
+  field OverlapPolicy github.com/colony-2/jobdb/pkg/jobdb.ScheduleOverlapPolicy
+  field FailurePolicy github.com/colony-2/jobdb/pkg/jobdb.ScheduleFailurePolicy
+  field NextFireAt *time.Time
+  field NextJobKey *github.com/colony-2/jobdb/pkg/jobdb.JobKey
+  field CreatedAt time.Time
+  field UpdatedAt time.Time
+type StoredScheduleMutation struct
+  field ScheduleKey github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey
+  field State github.com/colony-2/jobdb/pkg/jobdb.ScheduleState
+  field SpecHash string
+  field Trigger github.com/colony-2/jobdb/pkg/jobdb.ScheduleTrigger
+  field Target github.com/colony-2/jobdb/pkg/jobdb.ScheduleTarget
+  field OverlapPolicy github.com/colony-2/jobdb/pkg/jobdb.ScheduleOverlapPolicy
+  field FailurePolicy github.com/colony-2/jobdb/pkg/jobdb.ScheduleFailurePolicy
+  field NextFireAt *time.Time
+  field NextJobKey *github.com/colony-2/jobdb/pkg/jobdb.JobKey
+  field ExpectedGeneration *int64
+  field RequestTime time.Time
+  field WorkerID string
+func ValidateConfig func(cfg Config) error
+func ValidateFirstChapter func(ctx context.Context, registry github.com/colony-2/jobdb/pkg/jobdb.JobSchemaRegistry, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey, chapter github.com/colony-2/jobdb/pkg/jobdb.Chapter) error
+func ValidateLastChapter func(ctx context.Context, registry github.com/colony-2/jobdb/pkg/jobdb.JobSchemaRegistry, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey, chapter github.com/colony-2/jobdb/pkg/jobdb.Chapter) error
+func ValidateOrdinaryChapter func(ctx context.Context, registry github.com/colony-2/jobdb/pkg/jobdb.JobSchemaRegistry, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey, chapter github.com/colony-2/jobdb/pkg/jobdb.Chapter) error
+func ValidateSchemaDocument func(schemaHash string, schema encoding/json.RawMessage) error
+type WaitingTaskSnapshot struct
+  field Capability string
+  field ResumeNeed string
+  field InputOrdinal int64
+  field OutputOrdinal int64
+  field InputHash string
+type WorkRequest struct
+  field TenantId string
+  field WorkerID string
+  field Capabilities []string
+  field Limit int
+  field LeaseDuration time.Duration
+  field MetadataEquals []github.com/colony-2/jobdb/pkg/jobdb.MetadataPredicate
+  field Now time.Time
+
 package github.com/colony-2/jobdb/pkg/workflow
 type AppError = github.com/colony-2/jobdb/pkg/jobdb.AppError
 type AppErrorOutcome = github.com/colony-2/jobdb/pkg/jobdb.AppErrorOutcome

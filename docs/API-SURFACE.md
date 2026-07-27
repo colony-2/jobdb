@@ -36,6 +36,16 @@ fixture and capability flags, then run the same lifecycle, lease, chapter,
 artifact, idempotency, metadata, and conflict behavior checks used by JobDB's
 built-in runtimes.
 
+### `github.com/colony-2/jobdb/pkg/jobdb/runtime/core`
+
+Public backend boundary for external runtime implementers.
+
+This package defines the scheduler, chapter-log, and schema-store ports used
+to keep runtime semantics in JobDB core while letting a backend own durable
+state, artifact persistence, and atomic lease mutations. The schema registry
+adapter in this package owns schema canonicalization and validation before it
+delegates persistence to a `SchemaStore`.
+
 ### `github.com/colony-2/jobdb/pkg/workflow`
 
 Higher-level workflow SDK built on top of `pkg/jobdb`. This package owns the
@@ -125,6 +135,7 @@ The API snapshot should include:
 ```text
 github.com/colony-2/jobdb/pkg/jobdb
 github.com/colony-2/jobdb/pkg/jobdb/runtimetest
+github.com/colony-2/jobdb/pkg/jobdb/runtime/core
 github.com/colony-2/jobdb/pkg/workflow
 github.com/colony-2/jobdb/pkg/jobdb/runtime/direct
 github.com/colony-2/jobdb/pkg/jobdb/runtime/remote
