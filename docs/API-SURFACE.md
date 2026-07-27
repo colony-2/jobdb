@@ -26,6 +26,16 @@ The schedule surface includes `UpsertSchedule`, `GetSchedule`,
 `ScheduleTarget` is intentionally job-start-like: it carries target job type,
 input `TaskData` including artifacts, run policy, and app metadata.
 
+### `github.com/colony-2/jobdb/pkg/jobdb/runtimetest`
+
+Public runtime conformance harness for external `jobdb.WorkflowRuntime`
+implementations.
+
+This package is test infrastructure. It lets a runtime implementation provide a
+fixture and capability flags, then run the same lifecycle, lease, chapter,
+artifact, idempotency, metadata, and conflict behavior checks used by JobDB's
+built-in runtimes.
+
 ### `github.com/colony-2/jobdb/pkg/workflow`
 
 Higher-level workflow SDK built on top of `pkg/jobdb`. This package owns the
@@ -114,6 +124,7 @@ The API snapshot should include:
 
 ```text
 github.com/colony-2/jobdb/pkg/jobdb
+github.com/colony-2/jobdb/pkg/jobdb/runtimetest
 github.com/colony-2/jobdb/pkg/workflow
 github.com/colony-2/jobdb/pkg/jobdb/runtime/direct
 github.com/colony-2/jobdb/pkg/jobdb/runtime/remote

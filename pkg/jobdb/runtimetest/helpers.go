@@ -1,4 +1,4 @@
-package runtimeconformance_test
+package runtimetest
 
 import (
 	"context"

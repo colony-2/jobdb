@@ -676,6 +676,35 @@ type WorkflowRuntime interface
   method TriggerSchedule func(ctx context.Context, req TriggerScheduleRequest) (JobHandle, error)
   method UpsertSchedule func(ctx context.Context, req UpsertScheduleRequest) (ScheduleInfo, error)
 
+package github.com/colony-2/jobdb/pkg/jobdb/runtimetest
+const AddOneTaskName untyped string = "add"
+type Capabilities struct
+  field Leases bool
+  field Schedules bool
+  field SchemaRegistry bool
+  field RuntimeStorage bool
+  field LongPoll bool
+const DoubleTaskName untyped string = "double"
+const FailingJobName untyped string = "failing"
+type Fixture struct
+  field Runtime github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime
+  field SchemaRegistry github.com/colony-2/jobdb/pkg/jobdb.JobSchemaRegistry
+  field WorkerTenantID string
+  field Cleanup func(context.Context) error
+type Harness struct
+  field Name string
+  field Capabilities Capabilities
+  field New func(testing.TB) Fixture
+const MissingTaskName untyped string = "missing"
+func MustDecodeNumberTaskData func(t testing.TB, data github.com/colony-2/jobdb/pkg/jobdb.TaskData) int
+func MustWorkSet func(t testing.TB, job github.com/colony-2/jobdb/pkg/workflow.JobWorker, tasks ...github.com/colony-2/jobdb/pkg/workflow.TaskWorker) github.com/colony-2/jobdb/pkg/workflow.WorkSet
+func NumberTaskData func(n int) github.com/colony-2/jobdb/pkg/jobdb.TaskData
+func RunWorkflowRuntimeConformance func(t *testing.T, harnesses ...Harness)
+const SequenceJobName untyped string = "seq"
+func WaitForEngineStatus func(t testing.TB, ctx context.Context, engine github.com/colony-2/jobdb/pkg/workflow.Engine, jobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey, want github.com/colony-2/jobdb/pkg/jobdb.JobStatus)
+func WaitForRuntimeStatus func(t testing.TB, ctx context.Context, runtime github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime, jobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey, want github.com/colony-2/jobdb/pkg/jobdb.JobStatus)
+func WaitForTaskHandle func(t testing.TB, ctx context.Context, engine github.com/colony-2/jobdb/pkg/workflow.Engine, jobType string, taskType string, tenantIDs []string) github.com/colony-2/jobdb/pkg/workflow.TaskHandle
+
 package github.com/colony-2/jobdb/pkg/workflow
 type AppError = github.com/colony-2/jobdb/pkg/jobdb.AppError
 type AppErrorOutcome = github.com/colony-2/jobdb/pkg/jobdb.AppErrorOutcome
