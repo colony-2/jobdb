@@ -20,6 +20,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	chapterartifact "github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/artifact"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
+	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 	"github.com/google/uuid"
 )
 
@@ -161,64 +162,14 @@ func payloadToChapter(payload json.RawMessage, artifacts []jobdb.Artifact, ordin
 }
 
 func encodeChapter(chapter jobdb.Chapter) ([]byte, error) {
-	meta := chapterMeta{
-		Version:   envelopeVersion,
-		Ordinal:   chapter.Ordinal,
-		TaskType:  chapter.TaskType,
-		CreatedAt: chapter.CreatedAt,
-		InputHash: chapter.InputHash,
-	}
-	rawMetadata, err := runtimecodec.ChapterMetadataToJSON(chapter.Metadata)
-	if err != nil {
-		return nil, fmt.Errorf("encode chapter metadata: %w", err)
-	}
-	if len(rawMetadata) > 0 {
-		if err := json.Unmarshal(rawMetadata, &meta); err != nil {
-			return nil, fmt.Errorf("decode chapter metadata: %w", err)
-		}
-		if meta.Ordinal == 0 {
-			meta.Ordinal = chapter.Ordinal
-		}
-		if meta.TaskType == "" {
-			meta.TaskType = chapter.TaskType
-		}
-		if meta.CreatedAt.IsZero() {
-			meta.CreatedAt = chapter.CreatedAt
-		}
-		if meta.InputHash == "" {
-			meta.InputHash = chapter.InputHash
-		}
-		if meta.Version == 0 {
-			meta.Version = envelopeVersion
-		}
-	}
-	if meta.CreatedAt.IsZero() {
-		meta.CreatedAt = chapter.CreatedAt
-	}
-	chapterType, payloadKind, payload, err := runtimecodec.ChapterBodyToWire(chapter.Body)
+	encoded, err := runtimecore.EncodeChapter(runtimecore.EncodeChapterRequest{Chapter: chapter})
 	if err != nil {
 		return nil, err
 	}
-	return buildChapterEnvelope(meta, chapterType, payloadKind, payload)
+	return cloneBytes(encoded.Payload), nil
 }
 
 func chapterFromStoryChapter(chapter story.Chapter) (jobdb.Chapter, error) {
-	env, err := decodeChapterEnvelope(chapter.Body())
-	if err != nil {
-		return jobdb.Chapter{}, err
-	}
-	rawMetadata, err := json.Marshal(env.Meta)
-	if err != nil {
-		return jobdb.Chapter{}, fmt.Errorf("encode chapter metadata: %w", err)
-	}
-	metadata, err := runtimecodec.ChapterMetadataFromJSON(rawMetadata)
-	if err != nil {
-		return jobdb.Chapter{}, fmt.Errorf("decode chapter metadata: %w", err)
-	}
-	body, err := runtimecodec.ChapterBodyFromWire(env.ChapterType, env.PayloadKind, env.Payload)
-	if err != nil {
-		return jobdb.Chapter{}, err
-	}
 	artifacts := make([]jobdb.StoredArtifact, 0, len(chapter.Artifacts()))
 	for _, art := range chapter.Artifacts() {
 		if art == nil {
@@ -231,15 +182,11 @@ func chapterFromStoryChapter(chapter story.Chapter) (jobdb.Chapter, error) {
 			Size:   art.SizeBytes(),
 		})
 	}
-	return jobdb.Chapter{
+	return runtimecore.DecodeChapter(runtimecore.EncodedChapter{
 		Ordinal:   chapter.Ordinal(),
-		TaskType:  env.Meta.TaskType,
-		Body:      body,
-		InputHash: env.Meta.InputHash,
-		CreatedAt: env.Meta.CreatedAt,
-		Metadata:  metadata,
+		Payload:   cloneBytes(chapter.Body()),
 		Artifacts: artifacts,
-	}, nil
+	})
 }
 
 func chapterToTaskData(chapter story.Chapter, jobKey jobdb.JobKey) (jobdb.TaskData, error) {
