@@ -765,6 +765,11 @@ type CreateJobRequest struct
   field AvailableAt *time.Time
   field CreatedAt time.Time
   field WorkerID string
+func DecodeChapter func(encoded EncodedChapter) (github.com/colony-2/jobdb/pkg/jobdb.Chapter, error)
+func EncodeChapter func(req EncodeChapterRequest) (EncodedChapter, error)
+type EncodeChapterRequest struct
+  field Chapter github.com/colony-2/jobdb/pkg/jobdb.Chapter
+  field ArtifactUploads []github.com/colony-2/jobdb/pkg/jobdb.ArtifactUpload
 type EncodedChapter struct
   field Ordinal int64
   field Payload []byte
