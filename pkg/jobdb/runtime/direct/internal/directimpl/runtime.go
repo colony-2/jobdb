@@ -27,8 +27,8 @@ import (
 	postgresrowstore "github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/postgres"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
-	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobschema"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/leaseauth"
+	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
 	"github.com/segmentio/ksuid"
 	pgdriver "gorm.io/driver/postgres"
@@ -197,7 +197,7 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	if err := jobdb.ValidateApplicationMetadata(req.Job.Metadata); err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	schemaHash, err := jobschema.ResolveActiveForNewJob(ctx, r, req.Job.TenantId, req.Job.Schema)
+	schemaHash, err := runtimecore.ResolveActiveSchemaForNewJob(ctx, r, req.Job.TenantId, req.Job.Schema)
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -228,7 +228,7 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	if err := jobschema.ValidateFirstChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, initialStoredChapter); err != nil {
+	if err := runtimecore.ValidateFirstChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, initialStoredChapter); err != nil {
 		return jobdb.JobHandle{}, err
 	}
 	if _, err := r.chapterStore.CreateStory(ctx, storyKeyForJob(jobKey), co); err != nil {
@@ -279,7 +279,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if err := jobKey.Validate(); err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	schemaHash, err := jobschema.ResolveActiveForNewJob(ctx, r, job.PriorJobKey.TenantId, job.Schema)
+	schemaHash, err := runtimecore.ResolveActiveSchemaForNewJob(ctx, r, job.PriorJobKey.TenantId, job.Schema)
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -362,9 +362,9 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 			}
 			var validationErr error
 			if ordinal == 0 {
-				validationErr = jobschema.ValidateFirstChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, storedChapter)
+				validationErr = runtimecore.ValidateFirstChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, storedChapter)
 			} else {
-				validationErr = jobschema.ValidateOrdinaryChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, storedChapter)
+				validationErr = runtimecore.ValidateOrdinaryChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, storedChapter)
 			}
 			if validationErr != nil {
 				return jobdb.JobHandle{}, validationErr
@@ -375,7 +375,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 			if err != nil {
 				return jobdb.JobHandle{}, err
 			}
-			if err := jobschema.ValidateOrdinaryChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, storedChapter); err != nil {
+			if err := runtimecore.ValidateOrdinaryChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, storedChapter); err != nil {
 				return jobdb.JobHandle{}, err
 			}
 		}
@@ -796,7 +796,7 @@ func (r *Runtime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) e
 	if err != nil {
 		return err
 	}
-	if err := jobschema.ValidateOrdinaryChapter(ctx, r, jobdb.JobSchemaKey{TenantId: req.Ref.JobKey.TenantId, SchemaHash: schemaHash}, chapter); err != nil {
+	if err := runtimecore.ValidateOrdinaryChapter(ctx, r, jobdb.JobSchemaKey{TenantId: req.Ref.JobKey.TenantId, SchemaHash: schemaHash}, chapter); err != nil {
 		return err
 	}
 	body, err := EncodeChapter(chapter)
@@ -879,7 +879,7 @@ func (r *Runtime) ensureCompletionChapter(ctx context.Context, jobKey jobdb.JobK
 		return err
 	}
 	schemaHash := jobmetadata.SchemaHashFromStoredMetadata(detail.Metadata)
-	if err := jobschema.ValidateLastChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, chapter); err != nil {
+	if err := runtimecore.ValidateLastChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, chapter); err != nil {
 		return err
 	}
 	body, err := EncodeChapter(chapter)

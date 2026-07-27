@@ -11,7 +11,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/core"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
-	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobschema"
+	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 	"github.com/colony-2/pgwf-go/pkg/pgwf"
 )
 
@@ -194,7 +194,7 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	if err != nil {
 		return err
 	}
-	if err := jobschema.ValidateOrdinaryChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: jobmetadata.SchemaHashFromStoredMetadata(job.Metadata)}, storedChapter); err != nil {
+	if err := runtimecore.ValidateOrdinaryChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: jobmetadata.SchemaHashFromStoredMetadata(job.Metadata)}, storedChapter); err != nil {
 		return err
 	}
 	if err := r.ensureNextVisibleChapterOrdinal(ctx, jobKey, tw.OutputStep); err != nil {

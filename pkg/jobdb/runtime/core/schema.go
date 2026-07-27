@@ -178,6 +178,11 @@ func ValidateSchemaDocument(schemaHash string, schema json.RawMessage) error {
 	return jobschema.ValidateSchemaDocument(schemaHash, schema)
 }
 
+// PrimeSchema loads and compiles a schema for later chapter validation.
+func PrimeSchema(ctx context.Context, registry jobdb.JobSchemaRegistry, key jobdb.JobSchemaKey) error {
+	return jobschema.Prime(ctx, registry, key)
+}
+
 // ValidateFirstChapter validates a first chapter against a job schema.
 func ValidateFirstChapter(ctx context.Context, registry jobdb.JobSchemaRegistry, key jobdb.JobSchemaKey, chapter jobdb.Chapter) error {
 	return jobschema.ValidateFirstChapter(ctx, registry, key, chapter)
