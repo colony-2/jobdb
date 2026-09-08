@@ -1330,6 +1330,7 @@ func StartEmbeddedRuntime func(ctx context.Context) (*EmbeddedRuntime, error)
 package github.com/colony-2/jobdb/pkg/jobdb/runtime/remote
 func New func(baseURL string, httpClient *net/http.Client) (*Runtime, error)
 func NewServer func(runtime github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime) net/http.Handler
+func NewServerWithOptions func(runtime github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime, opts ServerOptions) (net/http.Handler, error)
 type Runtime struct
 method Runtime.ArchiveJobSchema func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey) (github.com/colony-2/jobdb/pkg/jobdb.JobSchemaInfo, error)
 method Runtime.ArchiveSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ScheduleMutationRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
@@ -1355,6 +1356,8 @@ method Runtime.SubmitJob func(ctx context.Context, req github.com/colony-2/jobdb
 method Runtime.SubmitRestartJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.TriggerSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.TriggerScheduleRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.UpsertSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.UpsertScheduleRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
+type ServerOptions struct
+  field LeaseTokenSigningKey []byte
 
 package github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite
 type Config struct

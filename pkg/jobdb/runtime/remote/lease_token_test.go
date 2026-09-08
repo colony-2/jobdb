@@ -48,6 +48,57 @@ func TestLeaseTokenMintForLeaseUsesExpiryAndSchemaHash(t *testing.T) {
 	}
 }
 
+func TestLeaseTokenSigningKeyCanBeSharedAcrossServers(t *testing.T) {
+	key := bytes.Repeat([]byte{3}, minimumLeaseTokenKeySize)
+	issuer, err := newLeaseTokenSignerWithKey(key)
+	if err != nil {
+		t.Fatalf("new issuer: %v", err)
+	}
+	verifier, err := newLeaseTokenSignerWithKey(key)
+	if err != nil {
+		t.Fatalf("new verifier: %v", err)
+	}
+
+	jobKey := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
+	token, err := issuer.mint(jobKey, "lease", "worker", time.Minute)
+	if err != nil {
+		t.Fatalf("mint token: %v", err)
+	}
+	if err := verifier.validate(token, jobKey, "lease", time.Now().UTC()); err != nil {
+		t.Fatalf("validate token with shared key: %v", err)
+	}
+}
+
+func TestLeaseTokenSigningKeyIsCopiedAndValidated(t *testing.T) {
+	key := bytes.Repeat([]byte{5}, minimumLeaseTokenKeySize)
+	signer, err := newLeaseTokenSignerWithKey(key)
+	if err != nil {
+		t.Fatalf("new signer: %v", err)
+	}
+	key[0] = 9
+	if signer.key[0] != 5 {
+		t.Fatal("signer retained caller-owned key storage")
+	}
+
+	if _, err := newLeaseTokenSignerWithKey(bytes.Repeat([]byte{1}, minimumLeaseTokenKeySize-1)); err == nil {
+		t.Fatal("short signing key returned nil error")
+	}
+}
+
+func TestNewServerWithOptionsValidatesSigningKey(t *testing.T) {
+	runtime := &claimsCapturingRuntime{}
+	if _, err := NewServerWithOptions(runtime, ServerOptions{
+		LeaseTokenSigningKey: bytes.Repeat([]byte{1}, minimumLeaseTokenKeySize-1),
+	}); err == nil {
+		t.Fatal("NewServerWithOptions returned nil error for short signing key")
+	}
+	if _, err := NewServerWithOptions(runtime, ServerOptions{
+		LeaseTokenSigningKey: bytes.Repeat([]byte{1}, minimumLeaseTokenKeySize),
+	}); err != nil {
+		t.Fatalf("NewServerWithOptions returned error: %v", err)
+	}
+}
+
 func TestAddChapterWithLeasePassesValidatedClaimsToRuntime(t *testing.T) {
 	signer := &leaseTokenSigner{key: bytes.Repeat([]byte{9}, 32)}
 	jobKey := jobdb.JobKey{TenantId: "tenant-server", JobId: "job-server"}

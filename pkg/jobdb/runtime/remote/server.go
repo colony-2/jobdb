@@ -36,12 +36,44 @@ type proxyServer struct {
 	tokens         *leaseTokenSigner
 }
 
+// ServerOptions configures the JobDB runtime HTTP handler.
+type ServerOptions struct {
+	// LeaseTokenSigningKey signs short-lived execution lease tokens. It must
+	// contain at least 32 bytes and must be shared by server replicas which
+	// should accept one another's tokens.
+	LeaseTokenSigningKey []byte
+}
+
 func NewServer(runtime jobdb.WorkflowRuntime) http.Handler {
+	handler, err := newServer(runtime, newLeaseTokenSigner())
+	if err != nil {
+		panic(err)
+	}
+	return handler
+}
+
+// NewServerWithOptions builds a JobDB runtime HTTP handler with explicit
+// server configuration.
+func NewServerWithOptions(runtime jobdb.WorkflowRuntime, opts ServerOptions) (http.Handler, error) {
+	tokens, err := newLeaseTokenSignerWithKey(opts.LeaseTokenSigningKey)
+	if err != nil {
+		return nil, err
+	}
+	return newServer(runtime, tokens)
+}
+
+func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Handler, error) {
+	if runtime == nil {
+		return nil, errors.New("runtime is required")
+	}
+	if tokens == nil {
+		return nil, errors.New("lease token signer is required")
+	}
 	server := &proxyServer{
 		runtime:        runtime,
 		leaseOps:       runtimeLeaseOps(runtime),
 		schemaRegistry: runtimeSchemaRegistry(runtime),
-		tokens:         newLeaseTokenSigner(),
+		tokens:         tokens,
 	}
 	strict := runtimeapi.NewStrictHandlerWithOptions(server, nil, runtimeapi.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
@@ -86,7 +118,7 @@ func NewServer(runtime jobdb.WorkflowRuntime) http.Handler {
 			}
 		}
 		handler.ServeHTTP(w, r)
-	})
+	}), nil
 }
 
 func rejectLegacyPollWorkFields(r *http.Request) error {

@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	defaultLeaseTokenTTL = 30 * time.Second
-	leaseTokenExpirySkew = 100 * time.Millisecond
+	defaultLeaseTokenTTL     = 30 * time.Second
+	leaseTokenExpirySkew     = 100 * time.Millisecond
+	minimumLeaseTokenKeySize = 32
 )
 
 type leaseTokenClaims struct {
@@ -42,6 +43,13 @@ func newLeaseTokenSigner() *leaseTokenSigner {
 		panic(fmt.Errorf("generate lease token signing key: %w", err))
 	}
 	return &leaseTokenSigner{key: key}
+}
+
+func newLeaseTokenSignerWithKey(key []byte) (*leaseTokenSigner, error) {
+	if len(key) < minimumLeaseTokenKeySize {
+		return nil, fmt.Errorf("lease token signing key must contain at least %d bytes", minimumLeaseTokenKeySize)
+	}
+	return &leaseTokenSigner{key: append([]byte(nil), key...)}, nil
 }
 
 func (s *leaseTokenSigner) mintForLease(lease jobdb.ExecutionLease, ttl time.Duration) (string, error) {

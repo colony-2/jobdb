@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"testing"
 )
@@ -90,5 +91,36 @@ func TestSQLiteConfigFromFlagsUsesBlobStoreURI(t *testing.T) {
 	}
 	if cfg.BlobDir != "local.blobs" {
 		t.Fatalf("BlobDir = %q, want legacy flag preserved", cfg.BlobDir)
+	}
+}
+
+func TestWithHealthCheck(t *testing.T) {
+	called := false
+	handler := withHealthCheck(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET /healthz status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if got, want := recorder.Body.String(), "ok\n"; got != want {
+		t.Fatalf("GET /healthz body = %q, want %q", got, want)
+	}
+	if called {
+		t.Fatal("GET /healthz reached runtime handler")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/example", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("runtime request status = %d, want %d", recorder.Code, http.StatusNoContent)
+	}
+	if !called {
+		t.Fatal("runtime request did not reach runtime handler")
 	}
 }

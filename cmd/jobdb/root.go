@@ -53,6 +53,7 @@ func newRootCmd() *cobra.Command {
 		newSQLiteCmd(&listenAddr, &dbPath, &sqliteDSN, &blobDir, &blobStoreURI),
 		newToyCmd(&listenAddr),
 		newDirectCmd(&listenAddr, &blobStoreURI),
+		newHealthcheckCmd(),
 	)
 	cmd.PersistentFlags().StringVar(&listenAddr, "listen", defaultListenAddr, "listen address for the HTTP API")
 	cmd.PersistentFlags().StringVar(&dbPath, "db", "jobdb.db", "SQLite database path for the default embedded runtime")
@@ -168,7 +169,7 @@ func serveHTTP(ctx context.Context, listenAddr string, handler http.Handler, cle
 	}
 	defer listener.Close()
 
-	server := &http.Server{Handler: handler}
+	server := &http.Server{Handler: withHealthCheck(handler)}
 	stopShutdown := make(chan struct{})
 	defer close(stopShutdown)
 
@@ -195,6 +196,20 @@ func serveHTTP(ctx context.Context, listenAddr string, handler http.Handler, cle
 	}
 
 	return err
+}
+
+func withHealthCheck(handler http.Handler) http.Handler {
+	if handler == nil {
+		handler = http.NotFoundHandler()
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok\n"))
+	})
+	mux.Handle("/", handler)
+	return mux
 }
 
 func resolveRequiredString(flagValue, envVar, fieldName string) (string, error) {
