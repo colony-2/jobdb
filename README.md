@@ -21,6 +21,64 @@ Verify the command is available:
 jobdb --help
 ```
 
+## Container Image
+
+Tagged releases publish a multi-platform image for Linux AMD64 and ARM64:
+
+```text
+ghcr.io/colony-2/jobdb:<release-tag>
+```
+
+The image has a fixed `jobdb serve` entrypoint for stateless production use. It
+always stores runtime records in Postgres and artifact bytes larger than the
+inline threshold in S3, Google Cloud Storage, or Azure Blob Storage. The
+supported container interface cannot select SQLite, the toy runtime, local
+filesystem storage, or memory storage. Those modes remain available when using
+the installed `jobdb` binary outside the container.
+
+Required configuration:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `JOBDB_POSTGRES_DSN` | none | Postgres connection string. |
+| `JOBDB_BLOB_STORE_URI` | none | Remote `s3://`, `gs://`, or `azblob://` bucket/container URI. |
+| `JOBDB_LEASE_TOKEN_SIGNING_KEY` | none | Base64-encoded signing key containing at least 32 random bytes. |
+| `JOBDB_LEASE_TOKEN_SIGNING_KEY_FILE` | none | Mounted file containing the signing key; use instead of the direct variable. |
+| `JOBDB_LISTEN` | `0.0.0.0:8080` | HTTP listen address. |
+| `JOBDB_MAX_INLINE_ARTIFACT_BYTES` | `4096` | Largest artifact size retained inline in Postgres. |
+
+All replicas in one deployment must use the same signing key. Generate one and
+store it in the deployment's secret manager rather than in an image or manifest:
+
+```bash
+openssl rand -base64 32
+```
+
+For example, with Postgres and the S3 bucket already available:
+
+```bash
+docker run --rm \
+  --read-only \
+  --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+  --publish 8080:8080 \
+  --env JOBDB_POSTGRES_DSN \
+  --env JOBDB_BLOB_STORE_URI='s3://jobdb-artifacts?region=us-east-1' \
+  --env JOBDB_LEASE_TOKEN_SIGNING_KEY \
+  ghcr.io/colony-2/jobdb:<release-tag>
+```
+
+The image runs as UID/GID `65532:65532`, declares no volume, and supports a
+read-only root filesystem. It exposes `GET /healthz` and includes an automatic
+container health check. Operators can also check any JobDB server directly:
+
+```bash
+jobdb healthcheck http://jobdb.example:8080
+```
+
+Use an exact release tag or image digest in production. Provider credentials
+are resolved by the cloud SDKs; prefer workload identity, instance/task roles,
+or mounted secrets over credentials embedded in the blob URI.
+
 ## Quick Start
 
 Run the default SQLite-backed server:

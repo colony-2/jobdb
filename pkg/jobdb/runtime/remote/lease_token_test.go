@@ -67,6 +67,14 @@ func TestLeaseTokenSigningKeyCanBeSharedAcrossServers(t *testing.T) {
 	if err := verifier.validate(token, jobKey, "lease", time.Now().UTC()); err != nil {
 		t.Fatalf("validate token with shared key: %v", err)
 	}
+
+	otherVerifier, err := newLeaseTokenSignerWithKey(bytes.Repeat([]byte{4}, minimumLeaseTokenKeySize))
+	if err != nil {
+		t.Fatalf("new verifier with different key: %v", err)
+	}
+	if err := otherVerifier.validate(token, jobKey, "lease", time.Now().UTC()); err == nil {
+		t.Fatal("token validated with a different signing key")
+	}
 }
 
 func TestLeaseTokenSigningKeyIsCopiedAndValidated(t *testing.T) {

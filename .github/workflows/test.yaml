@@ -32,9 +32,196 @@ jobs:
       - name: Run tests (Unix)
         run: go test -v -tags=integration ./...
 
+  container:
+    name: container-smoke
+    runs-on: ubuntu-latest
+    env:
+      JOBDB_TEST_IMAGE: jobdb:container-smoke
+      JOBDB_TEST_POSTGRES_IMAGE: postgres@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+      JOBDB_TEST_MINIO_IMAGE: quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+      JOBDB_TEST_MC_IMAGE: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+      JOBDB_TEST_SIGNING_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      JOBDB_TEST_BLOB_STORE_URI: s3://jobdb-artifacts?region=us-east-1&endpoint=http%3A%2F%2Fjobdb-minio%3A9000&use_path_style=true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.1'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.3.0
+
+      - name: Build release-shaped image
+        run: |
+          mkdir -p .container-build/linux/amd64
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o .container-build/linux/amd64/jobdb ./cmd/jobdb
+          docker buildx build --load --platform linux/amd64 --file Dockerfile --tag "$JOBDB_TEST_IMAGE" .container-build
+
+      - name: Verify the entrypoint rejects incomplete and local configuration
+        run: |
+          set -euo pipefail
+          expect_failure() {
+            description="$1"
+            shift
+            if "$@" >container-rejection.log 2>&1; then
+              echo "expected failure: $description"
+              cat container-rejection.log
+              exit 1
+            fi
+          }
+
+          expect_failure "missing Postgres" docker run --rm "$JOBDB_TEST_IMAGE"
+          expect_failure "missing blob store" docker run --rm \
+            -e JOBDB_POSTGRES_DSN=postgres://unused \
+            "$JOBDB_TEST_IMAGE"
+          expect_failure "missing signing key" docker run --rm \
+            -e JOBDB_POSTGRES_DSN=postgres://unused \
+            -e JOBDB_BLOB_STORE_URI=s3://remote-bucket \
+            "$JOBDB_TEST_IMAGE"
+
+          for uri in blobfs:///tmp/blobs file:///tmp/blobs mem://blobs; do
+            expect_failure "local blob URI $uri" docker run --rm \
+              -e JOBDB_POSTGRES_DSN=postgres://unused \
+              -e JOBDB_BLOB_STORE_URI="$uri" \
+              -e JOBDB_LEASE_TOKEN_SIGNING_KEY="$JOBDB_TEST_SIGNING_KEY" \
+              "$JOBDB_TEST_IMAGE"
+          done
+
+          for argument in sqlite toy --db=/tmp/jobdb.db --blob-dir=/tmp/blobs; do
+            expect_failure "container argument $argument" docker run --rm "$JOBDB_TEST_IMAGE" "$argument"
+          done
+
+      - name: Start Postgres and MinIO
+        run: |
+          set -euo pipefail
+          docker network create jobdb-smoke
+          docker run --detach --name jobdb-postgres --network jobdb-smoke \
+            -e POSTGRES_USER=jobdb \
+            -e POSTGRES_PASSWORD=jobdb \
+            -e POSTGRES_DB=jobdb \
+            "$JOBDB_TEST_POSTGRES_IMAGE"
+          docker run --detach --name jobdb-minio --network jobdb-smoke \
+            -e MINIO_ROOT_USER=jobdb-minio \
+            -e MINIO_ROOT_PASSWORD=jobdb-minio-secret \
+            "$JOBDB_TEST_MINIO_IMAGE" server /data
+
+          for attempt in $(seq 1 60); do
+            if docker exec jobdb-postgres pg_isready --username jobdb --dbname jobdb >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$attempt" -eq 60 ]; then
+              docker logs jobdb-postgres
+              exit 1
+            fi
+            sleep 1
+          done
+
+          for attempt in $(seq 1 60); do
+            if docker run --rm --network jobdb-smoke \
+              -e MC_HOST_smoke=http://jobdb-minio:jobdb-minio-secret@jobdb-minio:9000 \
+              "$JOBDB_TEST_MC_IMAGE" ready smoke >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$attempt" -eq 60 ]; then
+              docker logs jobdb-minio
+              exit 1
+            fi
+            sleep 1
+          done
+          docker run --rm --network jobdb-smoke \
+            -e MC_HOST_smoke=http://jobdb-minio:jobdb-minio-secret@jobdb-minio:9000 \
+            "$JOBDB_TEST_MC_IMAGE" mb --ignore-existing smoke/jobdb-artifacts
+
+      - name: Start JobDB and wait for health
+        run: |
+          set -euo pipefail
+          docker run --detach --name jobdb --network jobdb-smoke \
+            --publish 127.0.0.1:8080:8080 \
+            --read-only \
+            --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+            -e JOBDB_POSTGRES_DSN='postgres://jobdb:jobdb@jobdb-postgres:5432/jobdb?sslmode=disable' \
+            -e JOBDB_BLOB_STORE_URI="$JOBDB_TEST_BLOB_STORE_URI" \
+            -e JOBDB_LEASE_TOKEN_SIGNING_KEY="$JOBDB_TEST_SIGNING_KEY" \
+            -e AWS_ACCESS_KEY_ID=jobdb-minio \
+            -e AWS_SECRET_ACCESS_KEY=jobdb-minio-secret \
+            "$JOBDB_TEST_IMAGE"
+
+          for attempt in $(seq 1 90); do
+            status=$(docker inspect --format '{{ if .State.Health }}{{ .State.Health.Status }}{{ else }}{{ .State.Status }}{{ end }}' jobdb)
+            if [ "$status" = healthy ]; then
+              break
+            fi
+            if [ "$status" = exited ] || [ "$attempt" -eq 90 ]; then
+              docker logs jobdb
+              exit 1
+            fi
+            sleep 1
+          done
+          docker exec jobdb /jobdb healthcheck
+          curl --fail --silent --show-error http://127.0.0.1:8080/healthz
+
+      - name: Verify artifact threshold and restart persistence
+        env:
+          JOBDB_CONTAINER_SMOKE_URL: http://127.0.0.1:8080
+        run: |
+          set -euo pipefail
+          JOBDB_CONTAINER_SMOKE_PHASE=seed go test -count=1 -tags=container_smoke ./cmd/jobdb -run '^TestContainerRuntimePersistenceAndArtifactBoundary$'
+
+          objects=$(docker run --rm --network jobdb-smoke \
+            -e MC_HOST_smoke=http://jobdb-minio:jobdb-minio-secret@jobdb-minio:9000 \
+            "$JOBDB_TEST_MC_IMAGE" find smoke/jobdb-artifacts --type f --print)
+          object_count=$(printf '%s\n' "$objects" | sed '/^[[:space:]]*$/d' | wc -l)
+          if [ "$object_count" -ne 1 ]; then
+            echo "expected exactly one remote object for the 4097-byte artifact, got $object_count"
+            printf '%s\n' "$objects"
+            exit 1
+          fi
+
+          docker stop --time 15 jobdb
+          docker rm jobdb
+          docker run --detach --name jobdb --network jobdb-smoke \
+            --publish 127.0.0.1:8080:8080 \
+            --read-only \
+            --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+            -e JOBDB_POSTGRES_DSN='postgres://jobdb:jobdb@jobdb-postgres:5432/jobdb?sslmode=disable' \
+            -e JOBDB_BLOB_STORE_URI="$JOBDB_TEST_BLOB_STORE_URI" \
+            -e JOBDB_LEASE_TOKEN_SIGNING_KEY="$JOBDB_TEST_SIGNING_KEY" \
+            -e AWS_ACCESS_KEY_ID=jobdb-minio \
+            -e AWS_SECRET_ACCESS_KEY=jobdb-minio-secret \
+            "$JOBDB_TEST_IMAGE"
+
+          for attempt in $(seq 1 90); do
+            status=$(docker inspect --format '{{ if .State.Health }}{{ .State.Health.Status }}{{ else }}{{ .State.Status }}{{ end }}' jobdb)
+            if [ "$status" = healthy ]; then
+              break
+            fi
+            if [ "$status" = exited ] || [ "$attempt" -eq 90 ]; then
+              docker logs jobdb
+              exit 1
+            fi
+            sleep 1
+          done
+          JOBDB_CONTAINER_SMOKE_PHASE=verify go test -count=1 -tags=container_smoke ./cmd/jobdb -run '^TestContainerRuntimePersistenceAndArtifactBoundary$'
+
+      - name: Show container logs
+        if: always()
+        run: |
+          docker logs jobdb 2>/dev/null || true
+          docker logs jobdb-postgres 2>/dev/null || true
+          docker logs jobdb-minio 2>/dev/null || true
+
+      - name: Clean up containers
+        if: always()
+        run: |
+          docker rm --force jobdb jobdb-postgres jobdb-minio 2>/dev/null || true
+          docker network rm jobdb-smoke 2>/dev/null || true
+
   # Summary job that depends on all matrix jobs completing
   test-summary:
-    needs: test
+    needs: [test, container]
     runs-on: ubuntu-latest
     steps:
       - name: All tests passed
