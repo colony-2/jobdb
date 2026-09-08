@@ -23,6 +23,40 @@ builds:
       - -X main.commit={{.Commit}}
       - -X main.date={{.Date}}
 
+dockers_v2:
+  - id: jobdb-image
+    dockerfile: Dockerfile
+    ids:
+      - jobdb
+    images:
+      - ghcr.io/colony-2/jobdb
+    tags:
+      - "{{ .Tag }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    sbom: true
+    annotations:
+      "index,manifest:org.opencontainers.image.title": "jobdb"
+      "index,manifest:org.opencontainers.image.description": "Durable job runtime server"
+      "index,manifest:org.opencontainers.image.source": "https://github.com/colony-2/jobdb"
+      "index,manifest:org.opencontainers.image.url": "https://github.com/colony-2/jobdb"
+      "index,manifest:org.opencontainers.image.licenses": "Apache-2.0"
+      "index,manifest:org.opencontainers.image.version": "{{ .Version }}"
+      "index,manifest:org.opencontainers.image.revision": "{{ .FullCommit }}"
+      "index,manifest:org.opencontainers.image.created": "{{ .Date }}"
+
+docker_signs:
+  - id: jobdb-image-keyless
+    cmd: cosign
+    artifacts: ""
+    args:
+      - sign
+      - "${artifact}@${digest}"
+      - --yes
+    output: true
+
 archives:
   - id: default
     formats: [tar.gz]
