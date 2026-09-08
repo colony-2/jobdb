@@ -32,6 +32,16 @@ const (
 
 var serveHTTPFunc = serveHTTP
 
+type directServerConfig struct {
+	ListenAddr             string
+	PostgresDSN            string
+	BlobStoreURI           string
+	MaxInlineArtifactBytes int64
+	LeaseTokenSigningKey   []byte
+}
+
+var runDirectServerFunc = runDirectServer
+
 func newRootCmd() *cobra.Command {
 	var listenAddr string
 	var dbPath string
@@ -53,6 +63,7 @@ func newRootCmd() *cobra.Command {
 		newSQLiteCmd(&listenAddr, &dbPath, &sqliteDSN, &blobDir, &blobStoreURI),
 		newToyCmd(&listenAddr),
 		newDirectCmd(&listenAddr, &blobStoreURI),
+		newServeCmd(),
 		newHealthcheckCmd(),
 	)
 	cmd.PersistentFlags().StringVar(&listenAddr, "listen", defaultListenAddr, "listen address for the HTTP API")
@@ -101,29 +112,51 @@ func newDirectCmd(listenAddr *string, blobStoreURI *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-
-			setupCtx, cancel := context.WithTimeout(cmd.Context(), defaultSetupTimeout)
-			defer cancel()
-
-			if err := installPGWF(setupCtx, dsn); err != nil {
-				return fmt.Errorf("install pgwf schema: %w", err)
-			}
-
-			runtime, err := directruntime.NewFromConfig(directruntime.Config{
+			return runDirectServerFunc(cmd.Context(), directServerConfig{
+				ListenAddr:   *listenAddr,
 				PostgresDSN:  dsn,
 				BlobStoreURI: *blobStoreURI,
 			})
-			if err != nil {
-				return fmt.Errorf("build direct runtime: %w", err)
-			}
-
-			log.Printf("using direct Postgres runtime")
-			return serveHTTPFunc(cmd.Context(), *listenAddr, remoteruntime.NewServer(runtime), runtime.Close)
 		},
 	}
 
 	cmd.Flags().StringVar(&postgresDSN, "postgres-dsn", "", "postgres DSN for pgwf state (overrides "+postgresDSNEnvVar+")")
 	return cmd
+}
+
+func runDirectServer(ctx context.Context, cfg directServerConfig) error {
+	setupCtx, cancel := context.WithTimeout(ctx, defaultSetupTimeout)
+	defer cancel()
+
+	if err := installPGWF(setupCtx, cfg.PostgresDSN); err != nil {
+		return fmt.Errorf("install pgwf schema: %w", err)
+	}
+
+	runtime, err := directruntime.NewFromConfig(directruntime.Config{
+		PostgresDSN:            cfg.PostgresDSN,
+		BlobStoreURI:           cfg.BlobStoreURI,
+		MaxInlineArtifactBytes: cfg.MaxInlineArtifactBytes,
+	})
+	if err != nil {
+		return fmt.Errorf("build direct runtime: %w", err)
+	}
+
+	var handler http.Handler
+	if len(cfg.LeaseTokenSigningKey) == 0 {
+		handler = remoteruntime.NewServer(runtime)
+	} else {
+		handler, err = remoteruntime.NewServerWithOptions(runtime, remoteruntime.ServerOptions{
+			LeaseTokenSigningKey: cfg.LeaseTokenSigningKey,
+		})
+		if err != nil {
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
+			defer cleanupCancel()
+			return errors.Join(fmt.Errorf("build remote server: %w", err), runtime.Close(cleanupCtx))
+		}
+	}
+
+	log.Printf("using direct Postgres runtime")
+	return serveHTTPFunc(ctx, cfg.ListenAddr, handler, runtime.Close)
 }
 
 func runToy(ctx context.Context, listenAddr string) error {
