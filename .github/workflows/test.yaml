@@ -172,10 +172,11 @@ jobs:
 
           objects=$(docker run --rm --network jobdb-smoke \
             -e MC_HOST_smoke=http://jobdb-minio:jobdb-minio-secret@jobdb-minio:9000 \
-            "$JOBDB_TEST_MC_IMAGE" find smoke/jobdb-artifacts --type f --print)
-          object_count=$(printf '%s\n' "$objects" | sed '/^[[:space:]]*$/d' | wc -l)
-          if [ "$object_count" -ne 1 ]; then
-            echo "expected exactly one remote object for the 4097-byte artifact, got $object_count"
+            "$JOBDB_TEST_MC_IMAGE" ls --recursive --json smoke/jobdb-artifacts)
+          object_count=$(printf '%s\n' "$objects" | jq --slurp '[.[] | select(.status == "success")] | length')
+          remote_bytes=$(printf '%s\n' "$objects" | jq --slurp '[.[] | select(.status == "success") | .size] | add // 0')
+          if [ "$object_count" -ne 1 ] || [ "$remote_bytes" -ne 4097 ]; then
+            echo "expected one 4097-byte remote object, got $object_count object(s) totaling $remote_bytes byte(s)"
             printf '%s\n' "$objects"
             exit 1
           fi
