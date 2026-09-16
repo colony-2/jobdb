@@ -233,15 +233,16 @@ type CancelJobMutation struct {
 // StoredScheduleMutation is the scheduler-side schedule upsert payload after
 // runtime core has validated and snapshotted the target.
 type StoredScheduleMutation struct {
-	ScheduleKey   jobdb.ScheduleKey
-	State         jobdb.ScheduleState
-	SpecHash      string
-	Trigger       jobdb.ScheduleTrigger
-	Target        jobdb.ScheduleTarget
-	OverlapPolicy jobdb.ScheduleOverlapPolicy
-	FailurePolicy jobdb.ScheduleFailurePolicy
-	NextFireAt    *time.Time
-	NextJobKey    *jobdb.JobKey
+	ScheduleKey           jobdb.ScheduleKey
+	State                 jobdb.ScheduleState
+	SpecHash              string
+	TriggerSnapshot       json.RawMessage
+	TargetJobType         string
+	TargetSnapshot        json.RawMessage
+	OverlapPolicy         jobdb.ScheduleOverlapPolicy
+	FailurePolicySnapshot json.RawMessage
+	NextFireAt            *time.Time
+	NextJobKey            *jobdb.JobKey
 
 	ExpectedGeneration *int64
 	RequestTime        time.Time
@@ -259,18 +260,19 @@ type ScheduleStateMutation struct {
 
 // StoredSchedule is the scheduler's logical view of a schedule.
 type StoredSchedule struct {
-	ScheduleKey   jobdb.ScheduleKey
-	State         jobdb.ScheduleState
-	Generation    int64
-	SpecHash      string
-	Trigger       jobdb.ScheduleTrigger
-	Target        jobdb.ScheduleTarget
-	OverlapPolicy jobdb.ScheduleOverlapPolicy
-	FailurePolicy jobdb.ScheduleFailurePolicy
-	NextFireAt    *time.Time
-	NextJobKey    *jobdb.JobKey
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ScheduleKey           jobdb.ScheduleKey
+	State                 jobdb.ScheduleState
+	Generation            int64
+	SpecHash              string
+	TriggerSnapshot       json.RawMessage
+	TargetJobType         string
+	TargetSnapshot        json.RawMessage
+	OverlapPolicy         jobdb.ScheduleOverlapPolicy
+	FailurePolicySnapshot json.RawMessage
+	NextFireAt            *time.Time
+	NextJobKey            *jobdb.JobKey
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 // ListSchedulesRequest is the scheduler-side form of schedule listing.

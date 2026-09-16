@@ -973,10 +973,11 @@ type StoredSchedule struct
   field State github.com/colony-2/jobdb/pkg/jobdb.ScheduleState
   field Generation int64
   field SpecHash string
-  field Trigger github.com/colony-2/jobdb/pkg/jobdb.ScheduleTrigger
-  field Target github.com/colony-2/jobdb/pkg/jobdb.ScheduleTarget
+  field TriggerSnapshot encoding/json.RawMessage
+  field TargetJobType string
+  field TargetSnapshot encoding/json.RawMessage
   field OverlapPolicy github.com/colony-2/jobdb/pkg/jobdb.ScheduleOverlapPolicy
-  field FailurePolicy github.com/colony-2/jobdb/pkg/jobdb.ScheduleFailurePolicy
+  field FailurePolicySnapshot encoding/json.RawMessage
   field NextFireAt *time.Time
   field NextJobKey *github.com/colony-2/jobdb/pkg/jobdb.JobKey
   field CreatedAt time.Time
@@ -985,10 +986,11 @@ type StoredScheduleMutation struct
   field ScheduleKey github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey
   field State github.com/colony-2/jobdb/pkg/jobdb.ScheduleState
   field SpecHash string
-  field Trigger github.com/colony-2/jobdb/pkg/jobdb.ScheduleTrigger
-  field Target github.com/colony-2/jobdb/pkg/jobdb.ScheduleTarget
+  field TriggerSnapshot encoding/json.RawMessage
+  field TargetJobType string
+  field TargetSnapshot encoding/json.RawMessage
   field OverlapPolicy github.com/colony-2/jobdb/pkg/jobdb.ScheduleOverlapPolicy
-  field FailurePolicy github.com/colony-2/jobdb/pkg/jobdb.ScheduleFailurePolicy
+  field FailurePolicySnapshot encoding/json.RawMessage
   field NextFireAt *time.Time
   field NextJobKey *github.com/colony-2/jobdb/pkg/jobdb.JobKey
   field ExpectedGeneration *int64

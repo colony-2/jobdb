@@ -53,6 +53,8 @@ adapter in this package owns schema canonicalization and validation before it
 delegates persistence to a `SchemaStore`.
 The scheduler port carries typed job routes, task coordinates, run policy,
 application metadata, schedule occurrence, and lease payload visibility.
+Schedule target, trigger, and failure policy snapshots cross the port as
+opaque JSON after JobDB core has serialized them.
 `ProjectLeasePayload` reconstructs the existing execution lease JSON view from
 typed scheduler fields, including explicit empty application payloads.
 `NewRuntime` composes the backend ports. Its chapter read and artifact methods
