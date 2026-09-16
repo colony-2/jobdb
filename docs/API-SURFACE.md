@@ -55,6 +55,8 @@ The scheduler port carries typed job routes, task coordinates, run policy,
 application metadata, schedule occurrence, and lease payload visibility.
 `ProjectLeasePayload` reconstructs the existing execution lease JSON view from
 typed scheduler fields, including explicit empty application payloads.
+`NewRuntime` composes the backend ports; its chapter read and artifact methods
+use the public chapter log and codec.
 
 ### `github.com/colony-2/jobdb/pkg/jobdb/schemastore/postgres`
 

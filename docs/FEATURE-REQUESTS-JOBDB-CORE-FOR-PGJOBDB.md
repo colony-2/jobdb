@@ -64,7 +64,9 @@ Current issue:
   ports plus chapter codec and schema helpers. It does not yet expose a
   complete `jobdb.WorkflowRuntime` implementation built from those ports.
 - The scheduler port now carries typed JobDB facts, routes, task coordinates,
-  and payload visibility. The `WorkflowRuntime` facade remains to be built.
+  and payload visibility. `NewRuntime` now wires the ports and owns chapter
+  reads and artifact access. The remaining `WorkflowRuntime` operations still
+  need to move into this facade.
 
 Requested core change:
 
