@@ -29,8 +29,8 @@ func TestTaskErrorsAreEnvelopedAndReturned(t *testing.T) {
 
 			postgresDSN, stopPG := startEmbeddedPostgres(t)
 			defer stopPG()
-			if err := installPGWF(ctx, postgresDSN); err != nil {
-				t.Fatalf("failed to install pgwf: %v", err)
+			if err := installPgjobdb(ctx, postgresDSN); err != nil {
+				t.Fatalf("failed to install pgjobdb: %v", err)
 			}
 
 			blobStoreURI, blobs := startChapterBlobStore(t)
@@ -86,8 +86,8 @@ func TestJobErrorsAreEnvelopedAndReturned(t *testing.T) {
 
 			postgresDSN, stopPG := startEmbeddedPostgres(t)
 			defer stopPG()
-			if err := installPGWF(ctx, postgresDSN); err != nil {
-				t.Fatalf("failed to install pgwf: %v", err)
+			if err := installPgjobdb(ctx, postgresDSN); err != nil {
+				t.Fatalf("failed to install pgjobdb: %v", err)
 			}
 
 			blobStoreURI, blobs := startChapterBlobStore(t)
@@ -232,8 +232,8 @@ func logJobState(t *testing.T, dsn string, jobKey jobdb.JobKey) {
 	defer db.Close()
 
 	var active int
-	_ = db.QueryRow(`SELECT COUNT(*) FROM pgwf.jobs WHERE job_id = $1`, jobKey.JobId).Scan(&active)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM pgjobdb.jobs WHERE job_id = $1`, jobKey.JobId).Scan(&active)
 	var archived int
-	_ = db.QueryRow(`SELECT COUNT(*) FROM pgwf.jobs_archive WHERE job_id = $1`, jobKey.JobId).Scan(&archived)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM pgjobdb.jobs_archive WHERE job_id = $1`, jobKey.JobId).Scan(&archived)
 	t.Logf("job state job_id=%s active=%d archived=%d", jobKey.JobId, active, archived)
 }

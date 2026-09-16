@@ -7,14 +7,15 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/pgjobdb"
 )
 
 func TestListJobsRoutesByStatusAndOrdersWithUnion(t *testing.T) {
 	ctx := context.Background()
 	postgresDSN, stopPG := startEmbeddedPostgres(t)
 	defer stopPG()
-	if err := installPGWF(ctx, postgresDSN); err != nil {
-		t.Fatalf("failed to install pgwf: %v", err)
+	if err := installPgjobdb(ctx, postgresDSN); err != nil {
+		t.Fatalf("failed to install pgjobdb: %v", err)
 	}
 
 	blobStoreURI, blobs := startChapterBlobStore(t)
@@ -33,29 +34,50 @@ func TestListJobsRoutesByStatusAndOrdersWithUnion(t *testing.T) {
 	createdActiveB := now.Add(-2 * time.Minute)
 	createdArchive := now.Add(-3 * time.Minute)
 
-	insertJob := func(id, nextNeed string, created time.Time, cancel bool) {
-		_, err := db.ExecContext(ctx, `
-INSERT INTO pgwf.jobs (tenant_id, job_id, next_need, wait_for, payload, available_at, expires_at, lease_expires_at, created_at, cancel_requested)
-VALUES ('test-tenant', $1, $2, '{}'::text[], '{}'::jsonb, $3, 'infinity', '-infinity', $3, $4)
-`, id, nextNeed, created, cancel)
+	insertJob := func(id, jobType string, created time.Time, taskType string, cancel bool) {
+		_, err := pgjobdb.SubmitJob(ctx, db, pgjobdb.SubmitJobRequest{
+			TenantID: "test-tenant", JobID: pgjobdb.JobID(id),
+			WorkerID: "submitter", JobType: pgjobdb.JobType(jobType),
+		})
 		if err != nil {
-			t.Fatalf("insert job %s: %v", id, err)
+			t.Fatalf("submit job %s: %v", id, err)
+		}
+		if taskType != "" {
+			err = pgjobdb.RescheduleUnheldJob(ctx, db, "test-tenant", pgjobdb.JobID(id),
+				"submitter", pgjobdb.RescheduleRequest{
+					RouteJobType: pgjobdb.JobType(jobType), WorkKind: pgjobdb.WorkKindTask,
+					Task: &pgjobdb.TaskWork{TaskType: pgjobdb.TaskType(taskType),
+						ResumeJobType: pgjobdb.JobType(jobType), InputOrdinal: 0,
+						OutputOrdinal: 1, InputHash: "sha256:input"},
+				})
+			if err != nil {
+				t.Fatalf("route task %s: %v", id, err)
+			}
+		}
+		_, err = db.ExecContext(ctx, `UPDATE pgjobdb.job_facts SET created_at = $1
+			WHERE tenant_id = 'test-tenant' AND job_id = $2`, created, id)
+		if err != nil {
+			t.Fatalf("set creation time %s: %v", id, err)
+		}
+		if cancel {
+			if _, err := db.ExecContext(ctx, `UPDATE pgjobdb.jobs SET cancel_requested = true
+				WHERE tenant_id = 'test-tenant' AND job_id = $1`, id); err != nil {
+				t.Fatalf("mark cancelled %s: %v", id, err)
+			}
 		}
 	}
-	insertArchive := func(id, nextNeed string, created time.Time) {
-		_, err := db.ExecContext(ctx, `
-INSERT INTO pgwf.jobs_archive (tenant_id, job_id, next_need, wait_for, payload, metadata, created_at, expires_at, cancel_requested, archived_at)
-VALUES ('test-tenant', $1, $2, '{}'::text[], '{}'::jsonb, '{}'::jsonb, $3, 'infinity', false, $4)
-`, id, nextNeed, created, created)
-		if err != nil {
-			t.Fatalf("insert archived job %s: %v", id, err)
+	insertArchive := func(id, jobType string, created time.Time, taskType string) {
+		insertJob(id, jobType, created, taskType, false)
+		if err := pgjobdb.CompleteUnheldJob(ctx, db, "test-tenant", pgjobdb.JobID(id),
+			"submitter", pgjobdb.Completion{Status: pgjobdb.CompletionSuccess}); err != nil {
+			t.Fatalf("archive job %s: %v", id, err)
 		}
 	}
 
-	insertJob("job-active-A", "alpha", createdActiveA, false)
-	insertJob("job-active-B", "beta:task", createdActiveB, true)
-	insertArchive("job-archived-C", "alpha:other", createdArchive)
-	insertArchive("job-archived-D", "delta:other", createdArchive.Add(-time.Minute))
+	insertJob("job-active-A", "alpha", createdActiveA, "", false)
+	insertJob("job-active-B", "beta", createdActiveB, "task", true)
+	insertArchive("job-archived-C", "alpha", createdArchive, "other")
+	insertArchive("job-archived-D", "delta", createdArchive.Add(-time.Minute), "other")
 
 	t.Run("completed status uses archive only", func(t *testing.T) {
 		resp, err := engine.ListJobs(ctx, jobdb.ListJobsRequest{

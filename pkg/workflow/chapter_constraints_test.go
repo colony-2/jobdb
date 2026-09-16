@@ -38,9 +38,9 @@ func TestChapterConstraintsAcrossEngines(t *testing.T) {
 			setupEngine: func(t *testing.T) (workflow.Engine, func()) {
 				ctx := context.Background()
 				postgresDSN, stopPG := startEmbeddedPostgres(t)
-				if err := installPGWF(ctx, postgresDSN); err != nil {
+				if err := installPgjobdb(ctx, postgresDSN); err != nil {
 					stopPG()
-					t.Fatalf("failed to install pgwf schema: %v", err)
+					t.Fatalf("failed to install pgjobdb schema: %v", err)
 				}
 
 				blobStoreURI, blobs := startChapterBlobStore(t)

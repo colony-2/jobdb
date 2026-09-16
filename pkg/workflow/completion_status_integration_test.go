@@ -9,7 +9,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/workflow"
-	"github.com/colony-2/pgwf-go/pkg/pgwf"
+	"github.com/colony-2/pgjobdb"
 )
 
 const (
@@ -54,8 +54,8 @@ func TestCompletionStatusAndDetail(t *testing.T) {
 
 	postgresDSN, stopPG := startEmbeddedPostgres(t)
 	defer stopPG()
-	if err := installPGWF(ctx, postgresDSN); err != nil {
-		t.Fatalf("failed to install pgwf: %v", err)
+	if err := installPgjobdb(ctx, postgresDSN); err != nil {
+		t.Fatalf("failed to install pgjobdb: %v", err)
 	}
 
 	blobStoreURI, blobs := startChapterBlobStore(t)
@@ -119,16 +119,16 @@ func TestCompletionStatusAndDetail(t *testing.T) {
 	}
 	defer db.Close()
 
-	assertCompletion(t, db, successKey, pgwf.CompletionStatus("success"), "")
-	assertCompletion(t, db, appKey, pgwf.CompletionStatus("failed_app"), "app failed")
-	assertCompletion(t, db, systemKey, pgwf.CompletionStatus("failed_system"), "system failed")
-	assertCompletion(t, db, timeoutKey, pgwf.CompletionStatus("failed_timeout"), "timed out")
+	assertCompletion(t, db, successKey, pgjobdb.CompletionStatus("success"), "")
+	assertCompletion(t, db, appKey, pgjobdb.CompletionStatus("failed_app"), "app failed")
+	assertCompletion(t, db, systemKey, pgjobdb.CompletionStatus("failed_system"), "system failed")
+	assertCompletion(t, db, timeoutKey, pgjobdb.CompletionStatus("failed_timeout"), "timed out")
 }
 
-func assertCompletion(t *testing.T, db *sql.DB, key jobdb.JobKey, status pgwf.CompletionStatus, detailSubstring string) {
+func assertCompletion(t *testing.T, db *sql.DB, key jobdb.JobKey, status pgjobdb.CompletionStatus, detailSubstring string) {
 	t.Helper()
 
-	job, err := pgwf.GetJob(context.Background(), db, pgwf.TenantID(key.TenantId), pgwf.JobID(key.JobId), pgwf.GetJobOptions{})
+	job, err := pgjobdb.GetJob(context.Background(), db, pgjobdb.TenantID(key.TenantId), pgjobdb.JobID(key.JobId))
 	if err != nil {
 		t.Fatalf("get job %s: %v", key.String(), err)
 	}

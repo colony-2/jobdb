@@ -25,8 +25,8 @@ func TestArtifactStorageOnTaskError(t *testing.T) {
 		// Start embedded Postgres
 		postgresDSN, stopPG := startEmbeddedPostgres(t)
 		defer stopPG()
-		if err := installPGWF(ctx, postgresDSN); err != nil {
-			t.Fatalf("failed to install pgwf schema: %v", err)
+		if err := installPgjobdb(ctx, postgresDSN); err != nil {
+			t.Fatalf("failed to install pgjobdb schema: %v", err)
 		}
 
 		blobStoreURI, blobs := startChapterBlobStore(t)
@@ -105,8 +105,8 @@ func TestArtifactStorageOnTaskError(t *testing.T) {
 		// Start embedded Postgres
 		postgresDSN, stopPG := startEmbeddedPostgres(t)
 		defer stopPG()
-		if err := installPGWF(ctx, postgresDSN); err != nil {
-			t.Fatalf("failed to install pgwf schema: %v", err)
+		if err := installPgjobdb(ctx, postgresDSN); err != nil {
+			t.Fatalf("failed to install pgjobdb schema: %v", err)
 		}
 
 		blobStoreURI, blobs := startChapterBlobStore(t)
@@ -187,8 +187,8 @@ func TestArtifactStorageOnJobError(t *testing.T) {
 		// Start embedded Postgres
 		postgresDSN, stopPG := startEmbeddedPostgres(t)
 		defer stopPG()
-		if err := installPGWF(ctx, postgresDSN); err != nil {
-			t.Fatalf("failed to install pgwf schema: %v", err)
+		if err := installPgjobdb(ctx, postgresDSN); err != nil {
+			t.Fatalf("failed to install pgjobdb schema: %v", err)
 		}
 
 		blobStoreURI, blobs := startChapterBlobStore(t)

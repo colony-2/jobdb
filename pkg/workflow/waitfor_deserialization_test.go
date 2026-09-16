@@ -4,18 +4,17 @@ import (
 	"context"
 	"database/sql"
 	"testing"
-	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	"github.com/lib/pq"
+	"github.com/colony-2/pgjobdb"
 )
 
 func TestWaitForDeserialization(t *testing.T) {
 	ctx := context.Background()
 	postgresDSN, stopPG := startEmbeddedPostgres(t)
 	defer stopPG()
-	if err := installPGWF(ctx, postgresDSN); err != nil {
-		t.Fatalf("failed to install pgwf: %v", err)
+	if err := installPgjobdb(ctx, postgresDSN); err != nil {
+		t.Fatalf("failed to install pgjobdb: %v", err)
 	}
 
 	blobStoreURI, blobs := startChapterBlobStore(t)
@@ -29,35 +28,34 @@ func TestWaitForDeserialization(t *testing.T) {
 	}
 	defer db.Close()
 
-	now := time.Now().UTC().Truncate(time.Second)
-
 	// Insert a job with WaitFor dependencies
 	childJobID1 := "child-job-1"
 	childJobID2 := "child-job-2"
 	parentJobID := "parent-job-1"
 
 	// Insert child jobs
-	_, err = db.ExecContext(ctx, `
-INSERT INTO pgwf.jobs (tenant_id, job_id, next_need, wait_for, payload, available_at, expires_at, lease_expires_at, created_at, cancel_requested)
-VALUES ('tenant-1', $1, $2, '{}'::text[], '{}'::jsonb, $3, 'infinity', '-infinity', $3, false)
-`, childJobID1, "child-task", now.Add(-2*time.Minute))
+	_, err = pgjobdb.SubmitJob(ctx, db, pgjobdb.SubmitJobRequest{
+		TenantID: "tenant-1", JobID: pgjobdb.JobID(childJobID1),
+		WorkerID: "submitter", JobType: "child-task",
+	})
 	if err != nil {
 		t.Fatalf("insert child job 1: %v", err)
 	}
 
-	_, err = db.ExecContext(ctx, `
-INSERT INTO pgwf.jobs (tenant_id, job_id, next_need, wait_for, payload, available_at, expires_at, lease_expires_at, created_at, cancel_requested)
-VALUES ('tenant-1', $1, $2, '{}'::text[], '{}'::jsonb, $3, 'infinity', '-infinity', $3, false)
-`, childJobID2, "child-task", now.Add(-2*time.Minute))
+	_, err = pgjobdb.SubmitJob(ctx, db, pgjobdb.SubmitJobRequest{
+		TenantID: "tenant-1", JobID: pgjobdb.JobID(childJobID2),
+		WorkerID: "submitter", JobType: "child-task",
+	})
 	if err != nil {
 		t.Fatalf("insert child job 2: %v", err)
 	}
 
 	// Insert parent job waiting for child jobs
-	_, err = db.ExecContext(ctx, `
-INSERT INTO pgwf.jobs (tenant_id, job_id, next_need, wait_for, payload, available_at, expires_at, lease_expires_at, created_at, cancel_requested)
-VALUES ('tenant-1', $1, $2, $3, '{}'::jsonb, $4, 'infinity', '-infinity', $4, false)
-`, parentJobID, "parent-task", pq.Array([]string{childJobID1, childJobID2}), now.Add(-1*time.Minute))
+	_, err = pgjobdb.SubmitJob(ctx, db, pgjobdb.SubmitJobRequest{
+		TenantID: "tenant-1", JobID: pgjobdb.JobID(parentJobID),
+		WorkerID: "submitter", JobType: "parent-task",
+		WaitFor: []pgjobdb.JobID{pgjobdb.JobID(childJobID1), pgjobdb.JobID(childJobID2)},
+	})
 	if err != nil {
 		t.Fatalf("insert parent job: %v", err)
 	}

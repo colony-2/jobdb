@@ -59,8 +59,8 @@ func TestPrerequisitesSuccessAndComplete(t *testing.T) {
 
 	postgresDSN, stopPG := startEmbeddedPostgres(t)
 	defer stopPG()
-	if err := installPGWF(ctx, postgresDSN); err != nil {
-		t.Fatalf("failed to install pgwf: %v", err)
+	if err := installPgjobdb(ctx, postgresDSN); err != nil {
+		t.Fatalf("failed to install pgjobdb: %v", err)
 	}
 
 	blobStoreURI, blobs := startChapterBlobStore(t)
@@ -165,8 +165,8 @@ func TestRestartPrerequisitesCheckedAtRestartExtra(t *testing.T) {
 
 	postgresDSN, stopPG := startEmbeddedPostgres(t)
 	defer stopPG()
-	if err := installPGWF(ctx, postgresDSN); err != nil {
-		t.Fatalf("failed to install pgwf: %v", err)
+	if err := installPgjobdb(ctx, postgresDSN); err != nil {
+		t.Fatalf("failed to install pgjobdb: %v", err)
 	}
 
 	blobStoreURI, blobs := startChapterBlobStore(t)

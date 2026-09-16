@@ -20,8 +20,8 @@ func TestJobsEventuallyComplete(t *testing.T) {
 
 	postgresDSN, stopPG := startEmbeddedPostgres(t)
 	defer stopPG()
-	if err := installPGWF(ctx, postgresDSN); err != nil {
-		t.Fatalf("failed to install pgwf: %v", err)
+	if err := installPgjobdb(ctx, postgresDSN); err != nil {
+		t.Fatalf("failed to install pgjobdb: %v", err)
 	}
 
 	blobStoreURI, blobs := startChapterBlobStore(t)
@@ -63,7 +63,7 @@ func TestJobsEventuallyComplete(t *testing.T) {
 		jobIDStrings = append(jobIDStrings, key.JobId)
 	}
 	var archived int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pgwf.jobs_archive WHERE job_id = ANY($1)`, pq.Array(jobIDStrings)).Scan(&archived); err != nil {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pgjobdb.jobs_archive WHERE job_id = ANY($1)`, pq.Array(jobIDStrings)).Scan(&archived); err != nil {
 		t.Fatalf("count archived jobs: %v", err)
 	}
 	if archived != len(jobKeys) {

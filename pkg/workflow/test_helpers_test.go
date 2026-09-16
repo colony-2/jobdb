@@ -16,6 +16,7 @@ import (
 	directruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/direct"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/colony-2/jobdb/pkg/workflow"
+	"github.com/colony-2/pgjobdb/installer"
 )
 
 // startEmbeddedPostgres launches a temporary embedded Postgres instance with isolated paths.
@@ -28,14 +29,18 @@ func startEmbeddedPostgres(t *testing.T) (string, func()) {
 	return dsn, stop
 }
 
-// installPGWF runs the pgwf schema installer against the provided DSN.
-func installPGWF(ctx context.Context, dsn string) error {
+// installPgjobdb runs the native scheduler installer against the provided DSN.
+func installPgjobdb(ctx context.Context, dsn string) error {
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	return directtest.InstallPGWF(ctx, db)
+	inst := installer.Installer{DB: db}
+	if err := inst.Apply(ctx); err != nil {
+		return err
+	}
+	return inst.Verify(ctx)
 }
 
 type chapterBlobHandle struct {
