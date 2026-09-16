@@ -10,6 +10,8 @@ import (
 	"io"
 	"log/slog"
 
+	"github.com/lib/pq"
+
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/artifact"
@@ -241,8 +243,11 @@ func fromStoryChapter(ctx context.Context, chapter story.Chapter) (runtimecore.E
 }
 
 func translateError(err error, notFound error) error {
+	var pqError *pq.Error
 	switch {
 	case errors.Is(err, core.ErrConflict):
+		return fmt.Errorf("%w: %v", jobdb.ErrConflict, err)
+	case errors.As(err, &pqError) && pqError.Code == "23505":
 		return fmt.Errorf("%w: %v", jobdb.ErrConflict, err)
 	case errors.Is(err, core.ErrNotFound):
 		return fmt.Errorf("%w: %v", notFound, err)

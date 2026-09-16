@@ -62,6 +62,8 @@ use the public chapter log and codec, and its job listing projects native
 active and archived rows into the existing `JobSummary` fields.
 `GetJob` reads the typed status and the final chapter for archived jobs, with
 the existing deferred task-data error behavior.
+`SubmitJob` owns first chapter encoding, artifact keys, schema checks, run
+policy normalization, prerequisite validation, and explicit job ID recovery.
 
 ### `github.com/colony-2/jobdb/pkg/jobdb/schemastore/postgres`
 

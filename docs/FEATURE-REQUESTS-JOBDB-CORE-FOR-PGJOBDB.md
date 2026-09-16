@@ -66,7 +66,8 @@ Current issue:
 - The scheduler port now carries typed JobDB facts, routes, task coordinates,
   and payload visibility. Schedule snapshots cross it as opaque JSON after
   core serialization. `NewRuntime` now wires the ports and owns chapter
-  reads, artifact access, job reads, and job-list projection. The remaining
+  reads, artifact access, job reads, job-list projection, and initial job
+  submission with explicit ID recovery. The remaining
   `WorkflowRuntime` operations still need to move into this facade.
 
 Requested core change:
