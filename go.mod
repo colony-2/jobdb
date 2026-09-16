@@ -4,6 +4,7 @@ go 1.25.5
 
 require (
 	github.com/colony-2/pgwf-go v0.0.0-20260324185252-7a5ae14f742a
+	github.com/colony-2/pgjobdb v0.0.0-20260916211243-18cf1ce03a94
 	github.com/fergusstrange/embedded-postgres v1.32.0
 	github.com/go-chi/chi/v5 v5.0.10
 	github.com/google/uuid v1.6.0

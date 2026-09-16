@@ -306,8 +306,11 @@ func decodeNumber(t *testing.T, raw json.RawMessage) int {
 func waitForStatus(t *testing.T, ctx context.Context, check func(context.Context) (jobdb.JobStatus, error), want jobdb.JobStatus) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
+	var lastStatus jobdb.JobStatus
+	var lastErr error
 	for time.Now().Before(deadline) {
 		status, err := check(ctx)
+		lastStatus, lastErr = status, err
 		if err == nil && status == want {
 			return
 		}
@@ -320,7 +323,7 @@ func waitForStatus(t *testing.T, ctx context.Context, check func(context.Context
 		case <-time.After(20 * time.Millisecond):
 		}
 	}
-	t.Fatalf("job did not reach status %s", want)
+	t.Fatalf("job did not reach status %s (last status %s, last error %v)", want, lastStatus, lastErr)
 }
 
 func newToyHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRuntimeHarness {

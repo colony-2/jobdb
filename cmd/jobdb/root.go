@@ -15,7 +15,7 @@ import (
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
-	"github.com/colony-2/pgwf-go/installer"
+	"github.com/colony-2/pgjobdb/installer"
 	"github.com/spf13/cobra"
 
 	_ "github.com/colony-2/jobdb/pkg/jobdb/blobstore/gocdk"
@@ -120,7 +120,7 @@ func newDirectCmd(listenAddr *string, blobStoreURI *string) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&postgresDSN, "postgres-dsn", "", "postgres DSN for pgwf state (overrides "+postgresDSNEnvVar+")")
+	cmd.Flags().StringVar(&postgresDSN, "postgres-dsn", "", "postgres DSN for pgjobdb state (overrides "+postgresDSNEnvVar+")")
 	return cmd
 }
 
@@ -128,8 +128,8 @@ func runDirectServer(ctx context.Context, cfg directServerConfig) error {
 	setupCtx, cancel := context.WithTimeout(ctx, defaultSetupTimeout)
 	defer cancel()
 
-	if err := installPGWF(setupCtx, cfg.PostgresDSN); err != nil {
-		return fmt.Errorf("install pgwf schema: %w", err)
+	if err := installPgjobdb(setupCtx, cfg.PostgresDSN); err != nil {
+		return fmt.Errorf("install pgjobdb schema: %w", err)
 	}
 
 	runtime, err := directruntime.NewFromConfig(directruntime.Config{
@@ -255,7 +255,7 @@ func resolveRequiredString(flagValue, envVar, fieldName string) (string, error) 
 	return "", fmt.Errorf("%s is required via --postgres-dsn or %s", fieldName, envVar)
 }
 
-func installPGWF(ctx context.Context, dsn string) error {
+func installPgjobdb(ctx context.Context, dsn string) error {
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return fmt.Errorf("open postgres: %w", err)

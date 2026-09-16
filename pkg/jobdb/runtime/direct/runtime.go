@@ -1,13 +1,17 @@
+// Package direct is the compatibility entry point for JobDB's Postgres
+// runtime. The implementation lives in the optional pgjobdb/runtime module.
 package direct
 
 import (
+	"context"
+	"fmt"
 	"log/slog"
 
-	directimpl "github.com/colony-2/jobdb/pkg/jobdb/runtime/direct/internal/directimpl"
+	pgjobdbruntime "github.com/colony-2/pgjobdb/runtime"
 	"gorm.io/gorm"
 )
 
-type Runtime = directimpl.Runtime
+type Runtime = pgjobdbruntime.Runtime
 
 // Config describes a direct Postgres-backed JobDB runtime.
 type Config struct {
@@ -19,17 +23,25 @@ type Config struct {
 	Logger                 *slog.Logger
 }
 
+// New wraps a caller-owned Gorm database with the pgjobdb runtime.
 func New(db *gorm.DB, cfg Config) (*Runtime, error) {
-	return directimpl.New(db, cfg.toImpl())
+	if db == nil {
+		return nil, fmt.Errorf("db is required")
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, err
+	}
+	return pgjobdbruntime.New(context.Background(), sqlDB, cfg.toPgjobdb())
 }
 
+// NewFromConfig opens a Postgres connection owned by the returned runtime.
 func NewFromConfig(cfg Config) (*Runtime, error) {
-	return directimpl.NewFromConfig(cfg.toImpl())
+	return pgjobdbruntime.OpenDSN(context.Background(), cfg.PostgresDSN, cfg.toPgjobdb())
 }
 
-func (c Config) toImpl() directimpl.Config {
-	return directimpl.Config{
-		PostgresDSN:            c.PostgresDSN,
+func (c Config) toPgjobdb() pgjobdbruntime.Config {
+	return pgjobdbruntime.Config{
 		BlobStoreURI:           c.BlobStoreURI,
 		MaxInlineArtifactBytes: c.MaxInlineArtifactBytes,
 		Logger:                 c.Logger,

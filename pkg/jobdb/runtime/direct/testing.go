@@ -2,11 +2,9 @@ package direct
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/colony-2/jobdb/pkg/internal/directtestsupport"
 )
@@ -31,27 +29,15 @@ func (e *EmbeddedRuntime) Shutdown() {
 }
 
 func StartEmbeddedRuntime(ctx context.Context) (*EmbeddedRuntime, error) {
+	if ctx != nil && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	dsn, stopPG, err := directtestsupport.StartEmbeddedPostgres()
 	if err != nil {
 		return nil, err
 	}
-
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		stopPG()
-		return nil, err
-	}
 	cleanup := func() {
-		_ = db.Close()
 		stopPG()
-	}
-
-	setupCtx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
-
-	if err := directtestsupport.InstallPGWF(setupCtx, db); err != nil {
-		cleanup()
-		return nil, err
 	}
 	blobDir, err := os.MkdirTemp("", "jobdb-direct-blobs-*")
 	if err != nil {

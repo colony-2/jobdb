@@ -1421,7 +1421,7 @@ type EmbeddedRuntime struct
 method EmbeddedRuntime.Shutdown func()
 func New func(db *gorm.io/gorm.DB, cfg Config) (*Runtime, error)
 func NewFromConfig func(cfg Config) (*Runtime, error)
-type Runtime = github.com/colony-2/jobdb/pkg/jobdb/runtime/direct/internal/directimpl.Runtime
+type Runtime = github.com/colony-2/pgjobdb/runtime.Runtime
 func StartEmbeddedRuntime func(ctx context.Context) (*EmbeddedRuntime, error)
 
 package github.com/colony-2/jobdb/pkg/jobdb/runtime/remote
