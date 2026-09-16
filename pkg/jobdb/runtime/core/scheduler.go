@@ -184,10 +184,12 @@ type LeaseMutation struct {
 
 // CompletionMutation completes a live lease.
 type CompletionMutation struct {
-	Identity LeaseIdentity
-	Status   string
-	Detail   string
-	Now      time.Time
+	Identity  LeaseIdentity
+	Status    string
+	Detail    string
+	ErrorKind string
+	Retryable *bool
+	Now       time.Time
 }
 
 // RescheduleMutation returns a live lease to the scheduler queue.

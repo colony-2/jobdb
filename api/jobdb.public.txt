@@ -766,6 +766,8 @@ type CompletionMutation struct
   field Identity LeaseIdentity
   field Status string
   field Detail string
+  field ErrorKind string
+  field Retryable *bool
   field Now time.Time
 type CompletionSnapshot struct
   field Status string
