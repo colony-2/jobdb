@@ -3,7 +3,6 @@ module github.com/colony-2/jobdb
 go 1.25.5
 
 require (
-	github.com/colony-2/pgwf-go v0.0.0-20260324185252-7a5ae14f742a
 	github.com/colony-2/pgjobdb v0.0.0-20260916211243-18cf1ce03a94
 	github.com/fergusstrange/embedded-postgres v1.32.0
 	github.com/go-chi/chi/v5 v5.0.10
@@ -65,7 +64,6 @@ require (
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20260202195803-dba9d589def2 // indirect
-	github.com/colony-2/pgwf v0.0.0-20260324185146-00a58a45f7d8 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/envoyproxy/go-control-plane/envoy v1.37.0 // indirect

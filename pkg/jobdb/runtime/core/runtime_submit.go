@@ -181,10 +181,12 @@ func (r *Runtime) validateExistingInitialChapter(ctx context.Context, key jobdb.
 	if err != nil {
 		return err
 	}
-	if got.TaskType != want.TaskType || got.InputHash != want.InputHash ||
-		!reflect.DeepEqual(got.Body, want.Body) ||
+	if got.TaskType != want.TaskType {
+		return jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different job type", key))
+	}
+	if got.InputHash != want.InputHash || !reflect.DeepEqual(got.Body, want.Body) ||
 		!slices.Equal(got.Artifacts, want.Artifacts) {
-		return jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s has a different first chapter", key))
+		return jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different input", key))
 	}
 	gotMeta, err := initialChapterMetadata(got.Metadata)
 	if err != nil {
@@ -194,10 +196,14 @@ func (r *Runtime) validateExistingInitialChapter(ctx context.Context, key jobdb.
 	if err != nil {
 		return err
 	}
-	if !reflect.DeepEqual(gotMeta.RunPolicy, wantMeta.RunPolicy) ||
-		!reflect.DeepEqual(gotMeta.Prerequisites, wantMeta.Prerequisites) ||
-		!sameJSONObject(gotMeta.Metadata, wantMeta.Metadata) {
-		return jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s has different first chapter metadata", key))
+	if !sameJSONObject(gotMeta.Metadata, wantMeta.Metadata) {
+		return jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different metadata", key))
+	}
+	if !reflect.DeepEqual(gotMeta.RunPolicy, wantMeta.RunPolicy) {
+		return jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different run policy", key))
+	}
+	if !slices.Equal(gotMeta.Prerequisites, wantMeta.Prerequisites) {
+		return jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different prerequisites", key))
 	}
 	return nil
 }

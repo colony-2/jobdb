@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// JobSummary is a lightweight view of a job sourced purely from pgwf tables.
+// JobSummary is a lightweight view of a job from the selected runtime.
 type JobSummary struct {
 	JobKey            JobKey
 	Status            JobStatus

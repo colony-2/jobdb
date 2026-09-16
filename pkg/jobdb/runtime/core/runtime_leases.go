@@ -322,6 +322,7 @@ func (l *executionLease) SubmitJob(ctx context.Context, req jobdb.SubmitJobReque
 	if err := l.requireCurrent(ctx); err != nil {
 		return jobdb.JobHandle{}, err
 	}
+	req.Job.TenantId = l.snapshot.Identity.JobKey.TenantId
 	return l.runtime.submitJobWithParent(ctx, req, l.snapshot.Identity.JobKey.JobId)
 }
 
@@ -329,6 +330,10 @@ func (l *executionLease) SubmitRestartJob(ctx context.Context, req jobdb.SubmitR
 	if err := l.requireCurrent(ctx); err != nil {
 		return jobdb.JobHandle{}, err
 	}
+	if req.Job.PriorJobKey.TenantId != "" && req.Job.PriorJobKey.TenantId != l.snapshot.Identity.JobKey.TenantId {
+		return jobdb.JobHandle{}, fmt.Errorf("prior job tenantId must match parent tenantId")
+	}
+	req.Job.PriorJobKey.TenantId = l.snapshot.Identity.JobKey.TenantId
 	return l.runtime.submitRestartJobWithParent(ctx, req, l.snapshot.Identity.JobKey.JobId)
 }
 

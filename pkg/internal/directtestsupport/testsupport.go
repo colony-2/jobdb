@@ -1,31 +1,20 @@
 package directtestsupport
 
 import (
-	"context"
-	"database/sql"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 
-	"github.com/colony-2/pgwf-go/installer"
 	"github.com/fergusstrange/embedded-postgres"
 )
-
-func InstallPGWF(ctx context.Context, db *sql.DB) error {
-	inst := installer.Installer{DB: db}
-	if err := inst.Apply(ctx); err != nil {
-		return err
-	}
-	return inst.Verify(ctx)
-}
 
 func StartEmbeddedPostgres() (string, func(), error) {
 	pgPort, err := freeTCPPort()
 	if err != nil {
 		return "", nil, err
 	}
-	tmpDir, err := os.MkdirTemp("", "pgwf-embedded-*")
+	tmpDir, err := os.MkdirTemp("", "jobdb-embedded-*")
 	if err != nil {
 		return "", nil, fmt.Errorf("temp dir: %w", err)
 	}
