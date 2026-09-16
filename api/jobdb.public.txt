@@ -723,6 +723,10 @@ func WaitForRuntimeStatus func(t testing.TB, ctx context.Context, runtime github
 func WaitForTaskHandle func(t testing.TB, ctx context.Context, engine github.com/colony-2/jobdb/pkg/workflow.Engine, jobType string, taskType string, tenantIDs []string) github.com/colony-2/jobdb/pkg/workflow.TaskHandle
 
 package github.com/colony-2/jobdb/pkg/jobdb/runtime/core
+type AlternateRoute struct
+  field JobType string
+  field TaskType string
+  field After time.Duration
 type ArtifactLookup struct
   field JobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey
   field Ordinal int64
@@ -753,8 +757,10 @@ type ClonePrefixRequest struct
   field Append *EncodedChapter
 type CompleteTaskWorkMutation struct
   field JobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey
+  field WorkerID string
   field Task WaitingTaskSnapshot
-  field Payload encoding/json.RawMessage
+  field LeasePayload encoding/json.RawMessage
+  field ClearLeasePayload bool
   field Now time.Time
 type CompletionMutation struct
   field Identity LeaseIdentity
@@ -764,6 +770,8 @@ type CompletionMutation struct
 type CompletionSnapshot struct
   field Status string
   field Detail string
+  field ErrorKind string
+  field Retryable *bool
 type Config struct
   field Scheduler Scheduler
   field Chapters ChapterLog
@@ -773,13 +781,13 @@ type CreateJobRequest struct
   field JobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey
   field JobType string
   field ParentJobID string
-  field NextNeed string
-  field Payload encoding/json.RawMessage
-  field Metadata encoding/json.RawMessage
+  field RunPolicy github.com/colony-2/jobdb/pkg/jobdb.RunPolicy
+  field AppMetadata encoding/json.RawMessage
+  field Schedule *github.com/colony-2/jobdb/pkg/jobdb.ScheduleOccurrenceMetadata
   field SchemaHash string
-  field Prerequisites []github.com/colony-2/jobdb/pkg/jobdb.JobPrerequisite
   field WaitForJobIDs []string
   field AvailableAt *time.Time
+  field ExpiresAt *time.Time
   field CreatedAt time.Time
   field WorkerID string
 func DecodeChapter func(encoded EncodedChapter) (github.com/colony-2/jobdb/pkg/jobdb.Chapter, error)
@@ -795,7 +803,7 @@ type EncodedChapter struct
 type JobLeaseRequest struct
   field JobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey
   field WorkerID string
-  field Capabilities []string
+  field Selector WorkSelector
   field LeaseDuration time.Duration
   field Now time.Time
 type LeaseIdentity struct
@@ -814,8 +822,13 @@ type LeasePayloadProjection struct
   field OpaquePresent bool
 type LeaseSnapshot struct
   field Identity LeaseIdentity
-  field Capability string
-  field Payload encoding/json.RawMessage
+  field JobType string
+  field RouteJobType string
+  field WorkKind WorkKind
+  field TaskWork *TaskWork
+  field RunPolicy github.com/colony-2/jobdb/pkg/jobdb.RunPolicy
+  field LeasePayload encoding/json.RawMessage
+  field LeasePayloadVisible bool
   field SchemaHash string
   field Duration time.Duration
 type ListJobSchemasRequest struct
@@ -865,12 +878,14 @@ func PrimeSchema func(ctx context.Context, registry github.com/colony-2/jobdb/pk
 func ProjectLeasePayload func(req LeasePayloadProjection) (encoding/json.RawMessage, error)
 type RescheduleMutation struct
   field Identity LeaseIdentity
-  field NextNeed string
+  field RouteJobType string
+  field WorkKind WorkKind
+  field TaskWork *TaskWork
   field WaitUntil *time.Time
   field WaitForJobIDs []string
-  field Payload encoding/json.RawMessage
-  field AlternateNeed string
-  field AlternateAfter *time.Duration
+  field LeasePayload encoding/json.RawMessage
+  field ClearLeasePayload bool
+  field AlternateRoute *AlternateRoute
   field Now time.Time
 func ResolveActiveSchemaForNewJob func(ctx context.Context, registry github.com/colony-2/jobdb/pkg/jobdb.JobSchemaRegistry, tenantID string, selector *github.com/colony-2/jobdb/pkg/jobdb.JobSchemaSelector) (string, error)
 type ScheduleStateMutation struct
@@ -912,23 +927,31 @@ type SchemaStore interface
   method StoreJobSchema func(ctx context.Context, schema StoredJobSchema) (StoredJobSchema, error)
 type StoredJob struct
   field JobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey
+  field Store github.com/colony-2/jobdb/pkg/jobdb.JobStore
   field JobType string
   field Status github.com/colony-2/jobdb/pkg/jobdb.JobStatus
-  field NextNeed string
-  field Payload encoding/json.RawMessage
-  field Metadata encoding/json.RawMessage
+  field RouteJobType string
+  field WorkKind WorkKind
+  field TaskWork *TaskWork
+  field AlternateRoute *AlternateRoute
+  field RunPolicy github.com/colony-2/jobdb/pkg/jobdb.RunPolicy
+  field LeasePayload encoding/json.RawMessage
+  field LeasePayloadVisible bool
+  field AppMetadata encoding/json.RawMessage
   field SchemaHash string
   field ParentJobID string
-  field Prerequisites []github.com/colony-2/jobdb/pkg/jobdb.JobPrerequisite
+  field Schedule *github.com/colony-2/jobdb/pkg/jobdb.ScheduleOccurrenceMetadata
   field WaitForJobIDs []string
   field AvailableAt time.Time
+  field ExpiresAt *time.Time
+  field LeaseExpiresAt *time.Time
+  field LeaseWorkerID string
   field CreatedAt time.Time
   field UpdatedAt time.Time
   field ArchivedAt *time.Time
   field CancelRequested bool
   field Completion *CompletionSnapshot
   field Lease *LeaseIdentity
-  field TaskWait *WaitingTaskSnapshot
 type StoredJobSchema struct
   field TenantId string
   field SchemaHash string
@@ -974,19 +997,22 @@ func ValidateLastChapter func(ctx context.Context, registry github.com/colony-2/
 func ValidateOrdinaryChapter func(ctx context.Context, registry github.com/colony-2/jobdb/pkg/jobdb.JobSchemaRegistry, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey, chapter github.com/colony-2/jobdb/pkg/jobdb.Chapter) error
 func ValidateSchemaDocument func(schemaHash string, schema encoding/json.RawMessage) error
 type WaitingTaskSnapshot struct
-  field Capability string
-  field ResumeNeed string
-  field InputOrdinal int64
-  field OutputOrdinal int64
-  field InputHash string
+  field JobType string
+  field Task TaskWork
+type WorkKind string
+const WorkKindJob WorkKind = "JOB"
+const WorkKindTask WorkKind = "TASK"
 type WorkRequest struct
   field TenantId string
   field WorkerID string
-  field Capabilities []string
+  field Selector WorkSelector
   field Limit int
   field LeaseDuration time.Duration
   field MetadataEquals []github.com/colony-2/jobdb/pkg/jobdb.MetadataPredicate
   field Now time.Time
+type WorkSelector struct
+  field JobTypes []string
+  field Tasks []github.com/colony-2/jobdb/pkg/jobdb.JobTaskFilter
 
 package github.com/colony-2/jobdb/pkg/jobdb/schemastore/postgres
 func NewSQLDB func(ctx context.Context, db *database/sql.DB) (*Store, error)

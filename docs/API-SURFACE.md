@@ -51,6 +51,8 @@ to keep runtime semantics in JobDB core while letting a backend own durable
 state, artifact persistence, and atomic lease mutations. The schema registry
 adapter in this package owns schema canonicalization and validation before it
 delegates persistence to a `SchemaStore`.
+The scheduler port carries typed job routes, task coordinates, run policy,
+application metadata, schedule occurrence, and lease payload visibility.
 `ProjectLeasePayload` reconstructs the existing execution lease JSON view from
 typed scheduler fields, including explicit empty application payloads.
 

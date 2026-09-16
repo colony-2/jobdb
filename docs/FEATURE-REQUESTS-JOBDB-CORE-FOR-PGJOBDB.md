@@ -63,6 +63,8 @@ Current issue:
 - `pkg/jobdb/runtime/core` already has public scheduler, chapter-log, and schema
   ports plus chapter codec and schema helpers. It does not yet expose a
   complete `jobdb.WorkflowRuntime` implementation built from those ports.
+- The scheduler port now carries typed JobDB facts, routes, task coordinates,
+  and payload visibility. The `WorkflowRuntime` facade remains to be built.
 
 Requested core change:
 
