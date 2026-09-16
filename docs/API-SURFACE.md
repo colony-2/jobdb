@@ -66,6 +66,8 @@ the existing deferred task-data error behavior.
 policy normalization, prerequisite validation, and explicit job ID recovery.
 `PutChapter` checks the current scheduler lease before validating and appending
 chapter data and uploaded artifacts.
+`SubmitRestartJob` clones a validated chapter prefix, checks retry boundaries,
+and optionally appends a cached restart output.
 
 ### `github.com/colony-2/jobdb/pkg/jobdb/schemastore/postgres`
 

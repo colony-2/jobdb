@@ -900,6 +900,7 @@ method Runtime.ListJobs func(ctx context.Context, req github.com/colony-2/jobdb/
 method Runtime.OpenArtifact func(ctx context.Context, ref github.com/colony-2/jobdb/pkg/jobdb.ArtifactRef) (github.com/colony-2/jobdb/pkg/jobdb.ArtifactReader, error)
 method Runtime.PutChapter func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.PutChapterRequest) error
 method Runtime.SubmitJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SubmitJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
+method Runtime.SubmitRestartJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 type ScheduleStateMutation struct
   field ScheduleKey github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey
   field State github.com/colony-2/jobdb/pkg/jobdb.ScheduleState
