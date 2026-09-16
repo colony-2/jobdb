@@ -19,6 +19,10 @@ const restartExtraTaskType = "__restart_extra__"
 // SubmitRestartJob clones a visible chapter prefix and creates a fresh
 // scheduler job. It rejects a prefix cut through a retry chain.
 func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
+	return r.submitRestartJobWithParent(ctx, req, "")
+}
+
+func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.SubmitRestartJobRequest, parentJobID string) (jobdb.JobHandle, error) {
 	if err := r.validate(); err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -189,7 +193,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 	if existing {
 		stored, err := r.scheduler.GetJob(ctx, key)
 		if err == nil {
-			if err := validateStoredJobFacts(stored, key, jobType, schemaHash, metadata, policy); err != nil {
+			if err := validateStoredJobFacts(stored, key, jobType, schemaHash, parentJobID, metadata, policy); err != nil {
 				return jobdb.JobHandle{}, err
 			}
 			return jobdb.JobHandle{JobKey: key}, nil
@@ -199,14 +203,14 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 		}
 	}
 	stored, err := r.scheduler.CreateJob(ctx, CreateJobRequest{
-		JobKey: key, JobType: jobType, RunPolicy: policy,
+		JobKey: key, JobType: jobType, ParentJobID: parentJobID, RunPolicy: policy,
 		AppMetadata: metadata, SchemaHash: schemaHash,
 		WaitForJobIDs: waits, CreatedAt: createdAt.UTC(), WorkerID: workerID,
 	})
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	if err := validateStoredJobFacts(stored, key, jobType, schemaHash, metadata, policy); err != nil {
+	if err := validateStoredJobFacts(stored, key, jobType, schemaHash, parentJobID, metadata, policy); err != nil {
 		return jobdb.JobHandle{}, err
 	}
 	return jobdb.JobHandle{JobKey: key}, nil

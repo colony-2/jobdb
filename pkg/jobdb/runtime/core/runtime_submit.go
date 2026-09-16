@@ -20,6 +20,10 @@ import (
 // SubmitJob validates and writes the first chapter before creating scheduler
 // state. Retrying an explicit job ID reconciles an identical first chapter.
 func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {
+	return r.submitJobWithParent(ctx, req, "")
+}
+
+func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRequest, parentJobID string) (jobdb.JobHandle, error) {
 	if err := r.validate(); err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -115,7 +119,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 		stored, err := r.scheduler.GetJob(ctx, key)
 		if err == nil {
 			if err := validateStoredJobFacts(stored, key, req.Job.JobType,
-				schemaHash, metadata, policy); err != nil {
+				schemaHash, parentJobID, metadata, policy); err != nil {
 				return jobdb.JobHandle{}, err
 			}
 			return jobdb.JobHandle{JobKey: key}, nil
@@ -125,7 +129,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 		}
 	}
 	created, err := r.scheduler.CreateJob(ctx, CreateJobRequest{
-		JobKey: key, JobType: req.Job.JobType, RunPolicy: policy,
+		JobKey: key, JobType: req.Job.JobType, ParentJobID: parentJobID, RunPolicy: policy,
 		AppMetadata: metadata, SchemaHash: schemaHash,
 		WaitForJobIDs: waits, AvailableAt: req.Job.AvailableAt,
 		CreatedAt: createdAt.UTC(), WorkerID: workerID,
@@ -134,16 +138,16 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 		return jobdb.JobHandle{}, err
 	}
 	if err := validateStoredJobFacts(created, key, req.Job.JobType,
-		schemaHash, metadata, policy); err != nil {
+		schemaHash, parentJobID, metadata, policy); err != nil {
 		return jobdb.JobHandle{}, err
 	}
 	return jobdb.JobHandle{JobKey: key}, nil
 }
 
-func validateStoredJobFacts(stored StoredJob, key jobdb.JobKey, jobType, schemaHash string,
+func validateStoredJobFacts(stored StoredJob, key jobdb.JobKey, jobType, schemaHash, parentJobID string,
 	metadata json.RawMessage, policy jobdb.RunPolicy) error {
 	if stored.JobKey != key || stored.JobType != jobType ||
-		stored.SchemaHash != schemaHash ||
+		stored.SchemaHash != schemaHash || stored.ParentJobID != parentJobID ||
 		!sameJSONObject(stored.AppMetadata, metadata) ||
 		!reflect.DeepEqual(stored.RunPolicy, policy) {
 		return jobdb.NewExistingJobMismatchError(
