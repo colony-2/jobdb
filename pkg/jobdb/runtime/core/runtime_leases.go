@@ -39,21 +39,37 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 	if limit <= 0 {
 		limit = 1
 	}
-	snapshots, err := r.scheduler.AcquireWork(ctx, WorkRequest{
-		TenantId: req.TenantId, WorkerID: workerID, Selector: selector,
-		Limit: limit, LeaseDuration: req.LeaseDuration,
-		MetadataEquals: req.MetadataEquals, Now: r.now(),
-	})
-	if err != nil {
-		return nil, err
+	out := make([]jobdb.ExecutionLease, 0, limit)
+	attemptBudget := limit * 4
+	if attemptBudget < 8 {
+		attemptBudget = 8
 	}
-	out := make([]jobdb.ExecutionLease, 0, len(snapshots))
-	for _, snapshot := range snapshots {
-		lease, err := r.wrapLease(snapshot)
+	for len(out) < limit && attemptBudget > 0 {
+		attemptBudget--
+		snapshots, err := r.scheduler.AcquireWork(ctx, WorkRequest{
+			TenantId: req.TenantId, WorkerID: workerID, Selector: selector,
+			Limit: limit - len(out), LeaseDuration: req.LeaseDuration,
+			MetadataEquals: req.MetadataEquals, Now: r.now(),
+		})
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, lease)
+		if len(snapshots) == 0 {
+			break
+		}
+		for _, snapshot := range snapshots {
+			lease, err := r.wrapLease(snapshot)
+			if err != nil {
+				return nil, err
+			}
+			ok, err := r.preflightScheduleLease(ctx, lease)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				out = append(out, lease)
+			}
+		}
 	}
 	return out, nil
 }
@@ -84,7 +100,15 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 	if err != nil || snapshot == nil {
 		return nil, err
 	}
-	return r.wrapLease(*snapshot)
+	lease, err := r.wrapLease(*snapshot)
+	if err != nil {
+		return nil, err
+	}
+	ok, err := r.preflightScheduleLease(ctx, lease)
+	if err != nil || !ok {
+		return nil, err
+	}
+	return lease, nil
 }
 
 func selectorFromCapabilities(capabilities []string) (WorkSelector, error) {

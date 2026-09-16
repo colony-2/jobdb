@@ -17,6 +17,8 @@ type Runtime struct {
 	now       func() time.Time
 }
 
+var _ jobdb.WorkflowRuntime = (*Runtime)(nil)
+
 // NewRuntime wires a JobDB runtime core to backend storage.
 func NewRuntime(cfg Config) (*Runtime, error) {
 	if err := ValidateConfig(cfg); err != nil {

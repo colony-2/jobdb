@@ -87,8 +87,9 @@ func (r *Runtime) UpsertSchedule(ctx context.Context, req jobdb.UpsertScheduleRe
 	if err != nil {
 		return jobdb.ScheduleInfo{}, err
 	}
-	if state == jobdb.ScheduleStateActive && stored.NextFireAt != nil {
-		if _, err := r.submitScheduledOccurrence(ctx, info, *stored.NextFireAt, "", "", false, req.WorkerID); err != nil {
+	if state == jobdb.ScheduleStateActive && stored.NextFireAt != nil && stored.NextJobKey != nil {
+		if _, err := r.submitScheduledOccurrenceWithID(ctx, info, stored.NextJobKey.JobId,
+			*stored.NextFireAt, "", "", false, req.WorkerID); err != nil {
 			return jobdb.ScheduleInfo{}, err
 		}
 	}
@@ -189,8 +190,9 @@ func (r *Runtime) mutateSchedule(ctx context.Context, req jobdb.ScheduleMutation
 	if err != nil {
 		return jobdb.ScheduleInfo{}, err
 	}
-	if state == jobdb.ScheduleStateActive && stored.NextFireAt != nil {
-		if _, err := r.submitScheduledOccurrence(ctx, info, *stored.NextFireAt, "", "", false, req.WorkerID); err != nil {
+	if state == jobdb.ScheduleStateActive && stored.NextFireAt != nil && stored.NextJobKey != nil {
+		if _, err := r.submitScheduledOccurrenceWithID(ctx, info, stored.NextJobKey.JobId,
+			*stored.NextFireAt, "", "", false, req.WorkerID); err != nil {
 			return jobdb.ScheduleInfo{}, err
 		}
 	}
@@ -256,12 +258,14 @@ func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRu
 }
 
 func (r *Runtime) submitScheduledOccurrence(ctx context.Context, info jobdb.ScheduleInfo, at time.Time, previousID, bits string, manual bool, workerID string) (jobdb.JobKey, error) {
+	at = at.UTC().Truncate(time.Microsecond)
 	return r.submitScheduledOccurrenceWithID(ctx, info,
 		jobdb.ScheduleRunJobID(info.ScheduleId, info.Generation, at), at,
 		previousID, bits, manual, workerID)
 }
 
 func (r *Runtime) submitScheduledOccurrenceWithID(ctx context.Context, info jobdb.ScheduleInfo, jobID string, at time.Time, previousID, bits string, manual bool, workerID string) (jobdb.JobKey, error) {
+	at = at.UTC().Truncate(time.Microsecond)
 	runID := jobdb.ScheduleRunID(at)
 	if manual {
 		runID = jobID
@@ -294,7 +298,7 @@ func (r *Runtime) submitScheduledOccurrenceWithID(ctx context.Context, info jobd
 
 func scheduleRequestTime(request time.Time, now func() time.Time) time.Time {
 	if request.IsZero() {
-		return now().UTC()
+		return now().UTC().Truncate(time.Microsecond)
 	}
-	return request.UTC()
+	return request.UTC().Truncate(time.Microsecond)
 }
