@@ -5,7 +5,27 @@ import (
 	"fmt"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/segmentio/ksuid"
 )
+
+// CancelJob marks a job cancelled in the scheduler.
+func (r *Runtime) CancelJob(ctx context.Context, req jobdb.CancelJobRequest) error {
+	if err := r.validate(); err != nil {
+		return err
+	}
+	if err := req.JobKey.Validate(); err != nil {
+		return err
+	}
+	workerID := req.WorkerID
+	if workerID == "" {
+		workerID = "jobdb-core-" + ksuid.New().String()
+	}
+	_, err := r.scheduler.CancelJob(ctx, CancelJobMutation{
+		JobKey: req.JobKey, Reason: req.Reason, WorkerID: workerID,
+		Now: r.now(),
+	})
+	return err
+}
 
 // ListJobs reads native scheduler rows and projects the stable JobDB summary.
 func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {

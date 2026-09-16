@@ -892,6 +892,7 @@ type RescheduleMutation struct
   field Now time.Time
 func ResolveActiveSchemaForNewJob func(ctx context.Context, registry github.com/colony-2/jobdb/pkg/jobdb.JobSchemaRegistry, tenantID string, selector *github.com/colony-2/jobdb/pkg/jobdb.JobSchemaSelector) (string, error)
 type Runtime struct
+method Runtime.CancelJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CancelJobRequest) error
 method Runtime.GetChapter func(ctx context.Context, ref github.com/colony-2/jobdb/pkg/jobdb.ChapterRef) (github.com/colony-2/jobdb/pkg/jobdb.Chapter, error)
 method Runtime.GetJob func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey) (github.com/colony-2/jobdb/pkg/jobdb.JobInfo, error)
 method Runtime.ListChapters func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListChaptersRequest) ([]github.com/colony-2/jobdb/pkg/jobdb.Chapter, error)
