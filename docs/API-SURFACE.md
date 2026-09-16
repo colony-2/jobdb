@@ -2,7 +2,7 @@
 
 ## Status
 
-**Current reference** | Author: Codex | Updated: 2026-06-23
+**Current reference** | Author: Codex | Updated: 2026-09-16
 
 This document defines which importable packages are intentionally public after
 the `jobdb` / `workflow` split. The API snapshot should track only packages
@@ -36,6 +36,12 @@ fixture and capability flags, then run the same lifecycle, lease, chapter,
 artifact, idempotency, metadata, and conflict behavior checks used by JobDB's
 built-in runtimes.
 
+### `github.com/colony-2/jobdb/pkg/jobdb/chapterstore/postgres`
+
+Public Postgres chapter and artifact store implementing the runtime core's
+`ChapterLog` port. External Postgres runtime implementations can reuse JobDB's
+chapter storage behavior without importing internal packages.
+
 ### `github.com/colony-2/jobdb/pkg/jobdb/runtime/core`
 
 Public backend boundary for external runtime implementers.
@@ -45,6 +51,12 @@ to keep runtime semantics in JobDB core while letting a backend own durable
 state, artifact persistence, and atomic lease mutations. The schema registry
 adapter in this package owns schema canonicalization and validation before it
 delegates persistence to a `SchemaStore`.
+
+### `github.com/colony-2/jobdb/pkg/jobdb/schemastore/postgres`
+
+Public Postgres schema store implementing the runtime core's `SchemaStore`
+port. External Postgres runtimes can share JobDB's schema registry persistence
+without importing direct runtime internals.
 
 ### `github.com/colony-2/jobdb/pkg/workflow`
 
@@ -134,8 +146,10 @@ The API snapshot should include:
 
 ```text
 github.com/colony-2/jobdb/pkg/jobdb
+github.com/colony-2/jobdb/pkg/jobdb/chapterstore/postgres
 github.com/colony-2/jobdb/pkg/jobdb/runtimetest
 github.com/colony-2/jobdb/pkg/jobdb/runtime/core
+github.com/colony-2/jobdb/pkg/jobdb/schemastore/postgres
 github.com/colony-2/jobdb/pkg/workflow
 github.com/colony-2/jobdb/pkg/jobdb/runtime/direct
 github.com/colony-2/jobdb/pkg/jobdb/runtime/remote

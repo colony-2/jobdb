@@ -676,6 +676,23 @@ type WorkflowRuntime interface
   method TriggerSchedule func(ctx context.Context, req TriggerScheduleRequest) (JobHandle, error)
   method UpsertSchedule func(ctx context.Context, req UpsertScheduleRequest) (ScheduleInfo, error)
 
+package github.com/colony-2/jobdb/pkg/jobdb/chapterstore/postgres
+type Config struct
+  field BlobStoreURI string
+  field MaxInlineArtifactBytes int64
+  field Logger *log/slog.Logger
+func NewSQLDB func(ctx context.Context, db *database/sql.DB, cfg Config) (*Store, error)
+func OpenDSN func(ctx context.Context, dsn string, cfg Config) (*Store, error)
+type Store struct
+method Store.Append func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb/runtime/core.ChapterLogKey, chapter github.com/colony-2/jobdb/pkg/jobdb/runtime/core.EncodedChapter) error
+method Store.ClonePrefix func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb/runtime/core.ClonePrefixRequest) error
+method Store.Close func(ctx context.Context) error
+method Store.Count func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb/runtime/core.ChapterLogKey) (int64, error)
+method Store.Create func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb/runtime/core.ChapterLogKey, initial github.com/colony-2/jobdb/pkg/jobdb/runtime/core.EncodedChapter) error
+method Store.Get func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb/runtime/core.ChapterLogKey, ordinal int64) (github.com/colony-2/jobdb/pkg/jobdb/runtime/core.EncodedChapter, error)
+method Store.List func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb/runtime/core.ChapterLogKey, rng github.com/colony-2/jobdb/pkg/jobdb/runtime/core.ChapterRange) ([]github.com/colony-2/jobdb/pkg/jobdb/runtime/core.EncodedChapter, error)
+method Store.OpenArtifact func(ctx context.Context, lookup github.com/colony-2/jobdb/pkg/jobdb/runtime/core.ArtifactLookup) (github.com/colony-2/jobdb/pkg/jobdb.ArtifactReader, error)
+
 package github.com/colony-2/jobdb/pkg/jobdb/runtimetest
 const AddOneTaskName untyped string = "add"
 type Capabilities struct
@@ -958,6 +975,14 @@ type WorkRequest struct
   field LeaseDuration time.Duration
   field MetadataEquals []github.com/colony-2/jobdb/pkg/jobdb.MetadataPredicate
   field Now time.Time
+
+package github.com/colony-2/jobdb/pkg/jobdb/schemastore/postgres
+func NewSQLDB func(ctx context.Context, db *database/sql.DB) (*Store, error)
+type Store struct
+method Store.ArchiveJobSchema func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey, archivedAt time.Time) (github.com/colony-2/jobdb/pkg/jobdb/runtime/core.StoredJobSchema, error)
+method Store.GetJobSchema func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey) (github.com/colony-2/jobdb/pkg/jobdb/runtime/core.StoredJobSchema, error)
+method Store.ListJobSchemas func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb/runtime/core.ListJobSchemasRequest) (github.com/colony-2/jobdb/pkg/jobdb/runtime/core.ListJobSchemasResponse, error)
+method Store.StoreJobSchema func(ctx context.Context, schema github.com/colony-2/jobdb/pkg/jobdb/runtime/core.StoredJobSchema) (github.com/colony-2/jobdb/pkg/jobdb/runtime/core.StoredJobSchema, error)
 
 package github.com/colony-2/jobdb/pkg/workflow
 type AppError = github.com/colony-2/jobdb/pkg/jobdb.AppError
