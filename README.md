@@ -139,9 +139,12 @@ jobdb toy --listen 127.0.0.1:9047
 
 ### Direct
 
-The direct backend uses Postgres for job and chapter records, and a blobstore
-URI for large artifact bytes. It installs or verifies the `pgwf` schema on
-startup.
+The direct backend uses the optional `github.com/colony-2/pgjobdb/runtime`
+module for Postgres job and chapter records, and a blobstore URI for large
+artifact bytes. It installs or verifies the `pgjobdb` schema on startup.
+The first start requires a brand-new empty Postgres database. Existing `pgwf`
+or JobDB chapter data cannot be adopted; provision a new database for this
+release.
 
 ```bash
 JOBDB_POSTGRES_DSN='postgres://user:pass@localhost:5432/jobdb?sslmode=disable' \
@@ -150,7 +153,7 @@ JOBDB_POSTGRES_DSN='postgres://user:pass@localhost:5432/jobdb?sslmode=disable' \
 
 Flags:
 
-- `--postgres-dsn`: Postgres DSN for `pgwf` state.
+- `--postgres-dsn`: Postgres DSN for `pgjobdb` state.
 - `--blob-store-uri`: blob bucket URL for large artifacts. The `jobdb`
   executable includes Go CDK providers, so it supports `file://`, `gs://`,
   `s3://`, and `azblob://`; defaults to local `blobfs://`.
@@ -187,6 +190,12 @@ Library embedders of `runtime/sqlite` or `runtime/direct` only get `blobfs://`
 support by default. Import
 `github.com/colony-2/jobdb/pkg/jobdb/blobstore/gocdk` from executable/server
 code to enable Go CDK provider URI registration.
+
+Library users can import `github.com/colony-2/pgjobdb/runtime` directly for
+Postgres or import another runtime implementation. The public
+`github.com/colony-2/jobdb/pkg/jobdb` and `runtime/core` packages do not
+import pgjobdb. `runtime/direct` remains a thin compatibility entry point for
+existing imports.
 
 References:
 

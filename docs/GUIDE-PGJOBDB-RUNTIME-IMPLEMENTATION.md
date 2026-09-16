@@ -2,7 +2,11 @@
 
 ## Status
 
-Implementation guide for the pgjobdb runtime.
+This is the original implementation guide. The runtime is now implemented in
+the separate `/pgjobdb` module. Its public `runtime.Runtime` embeds
+`runtimecore.Runtime` and `runtimecore.SchemaRegistry`, and composes the public
+Postgres chapter and schema stores. The sections below record the design
+constraints and incremental plan; prospective wording reflects that plan.
 
 This guide is pgjobdb-specific, but it is based on the generic runtime
 extension design in
@@ -16,14 +20,9 @@ The public shape available now is:
 - `github.com/colony-2/jobdb/pkg/jobdb/runtime/core`
 - `github.com/colony-2/jobdb/pkg/jobdb`
 
-There is not currently a single `runtimecore.New(...)` compositor that returns
-a complete `jobdb.WorkflowRuntime`. pgjobdb should implement its runtime facade
-against the public JobDB interfaces and use `runtimecore` for the parts that
-are already public: schema registry behavior, schema/chapter validation,
-chapter encoding/decoding, and the backend port vocabulary.
-
-When a complete runtime-core compositor is added later, pgjobdb should be able
-to move the facade onto it without changing normal pgjobdb consumers.
+`runtimecore.NewRuntime` now returns the complete workflow facade from
+`Scheduler`, `ChapterLog`, and `SchemaStore` ports. The pgjobdb adapter supplies
+those ports and does not import JobDB private packages.
 
 ## Goal
 
@@ -159,8 +158,8 @@ definition of done for a production pgjobdb runtime.
 
 The original request asked for backend ports so pgjobdb could avoid copying
 runtime semantics. The solution is the public `runtimecore` package. It does
-not yet provide a complete runtime constructor, but it does define the intended
-backend vocabulary and exposes reusable semantic helpers.
+provide a complete runtime constructor, backend vocabulary, and reusable
+workflow semantics.
 
 pgjobdb should implement its Postgres scheduler around the
 `runtimecore.Scheduler` concepts:
@@ -183,10 +182,9 @@ The scheduler side should own only database facts and atomic mutations:
 - storing schedule definitions, generations, next-fire state, and run rows;
 - listing jobs, schedules, and schedule runs with stable pagination.
 
-The runtime facade should own public API conversion and should call
-`runtimecore` helpers for public reusable semantics. Until the complete
-runtime-core compositor exists, pgjobdb will still contain orchestration code,
-but that code should stay small and should be shaped around these public ports.
+The runtime facade should own public API conversion and call `runtimecore`
+for reusable workflow semantics. The pgjobdb adapter only implements the
+Postgres ports and constructs the public runtime core.
 
 Do not create a second set of pgjobdb-specific workflow semantics for retry
 policy, prerequisite interpretation, schedule occurrence metadata, lease

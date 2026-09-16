@@ -116,12 +116,12 @@ used by c2j tests and standalone execution paths.
 
 ### `github.com/colony-2/jobdb/pkg/jobdb/runtime/direct`
 
-Postgres direct runtime. This package is public for compatibility with existing
-users and current JobDB commands, even though c2j no longer imports it directly.
+Postgres direct runtime compatibility entry point. It delegates to the optional
+`github.com/colony-2/pgjobdb/runtime` package. Applications using another
+backend can import the public JobDB runtime core without importing pgjobdb.
 
-Do not expand this package's public API during the protobuf migration unless
-there is a separate design decision to keep direct/Postgres as a long-term
-runtime surface.
+The JobDB CLI imports this package to select Postgres. New embedders can import
+`github.com/colony-2/pgjobdb/runtime` directly.
 
 The direct, SQLite, and toy runtime packages expose lease transport helpers such
 as `KeepAliveLeaseByIDWithExpiry` because `remote.NewServer` needs a consistent
