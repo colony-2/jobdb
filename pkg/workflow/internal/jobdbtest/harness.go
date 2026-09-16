@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	directruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/direct"
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -78,13 +77,6 @@ func BuiltInRuntimeHarnesses() []RuntimeHarness {
 			StartsWorkerLoop:       true,
 			New:                    newSQLiteHarness,
 		},
-		{
-			Name:                   "direct",
-			SupportsLeases:         true,
-			SupportsRuntimeStorage: true,
-			StartsWorkerLoop:       true,
-			New:                    newDirectHarness,
-		},
 	}
 	if external, ok := externalRemoteRuntimeHarness(); ok {
 		if externalOnlyHarnessesEnabled() {
@@ -110,13 +102,6 @@ func RemoteRuntimeHarnesses() []RuntimeHarness {
 			SupportsRuntimeStorage: true,
 			StartsWorkerLoop:       true,
 			New:                    newRemoteSQLiteHarness,
-		},
-		{
-			Name:                   "remote-direct",
-			SupportsLeases:         true,
-			SupportsRuntimeStorage: true,
-			StartsWorkerLoop:       true,
-			New:                    newRemoteDirectHarness,
 		},
 	}
 	if external, ok := externalRemoteRuntimeHarness(); ok {
@@ -332,15 +317,6 @@ func newToyHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRuntimeHarne
 	return buildHarness(t, "toy", runtime, true, func() {}, workers...)
 }
 
-func newDirectHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRuntimeHarness {
-	t.Helper()
-	embedded, err := directruntime.StartEmbeddedRuntime(context.Background())
-	if err != nil {
-		t.Fatalf("start embedded direct runtime: %v", err)
-	}
-	return buildHarness(t, "direct", embedded.Runtime, true, embedded.Shutdown, workers...)
-}
-
 func newSQLiteHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRuntimeHarness {
 	t.Helper()
 	embedded, err := sqliteruntime.StartEmbeddedRuntime(context.Background())
@@ -360,26 +336,6 @@ func newRemoteToyHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRuntim
 		t.Fatalf("build remote toy runtime: %v", err)
 	}
 	return buildHarness(t, "remote-toy", runtime, true, server.Close, workers...)
-}
-
-func newRemoteDirectHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRuntimeHarness {
-	t.Helper()
-	embedded, err := directruntime.StartEmbeddedRuntime(context.Background())
-	if err != nil {
-		t.Fatalf("start embedded direct runtime: %v", err)
-	}
-	server := httptest.NewServer(remoteruntime.NewServer(embedded.Runtime))
-	runtime, err := remoteruntime.New(server.URL, server.Client())
-	if err != nil {
-		server.Close()
-		embedded.Shutdown()
-		t.Fatalf("build remote direct runtime: %v", err)
-	}
-	shutdown := func() {
-		server.Close()
-		embedded.Shutdown()
-	}
-	return buildHarness(t, "remote-direct", runtime, true, shutdown, workers...)
 }
 
 func newRemoteSQLiteHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRuntimeHarness {

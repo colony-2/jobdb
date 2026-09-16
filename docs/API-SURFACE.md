@@ -114,17 +114,12 @@ the optional Go CDK registration package.
 In-memory runtime for tests and local execution. This package is public and is
 used by c2j tests and standalone execution paths.
 
-### `github.com/colony-2/jobdb/pkg/jobdb/runtime/direct`
+The Postgres runtime is provided by
+`github.com/colony-2/pgjobdb/pkg/pgjobdb/runtime` in the pgjobdb module.
+The JobDB CLI contains SQLite, toy, and healthcheck commands; pgjobdb's CLI
+adds `direct` and `serve`.
 
-Postgres direct runtime. It composes the pgjobdb scheduler with the JobDB
-runtime core, chapter store, and schema store. `NewSQLDB` accepts a caller-owned
-`*sql.DB`; `OpenDSN` opens a connection owned by the runtime. Existing callers
-can use `New` with Gorm or `NewFromConfig` with a DSN.
-
-Applications using another backend can import the public JobDB runtime core
-without importing pgjobdb. The JobDB CLI imports this package to select Postgres.
-
-The direct, SQLite, and toy runtime packages expose lease transport helpers such
+The SQLite and toy runtime packages expose lease transport helpers such
 as `KeepAliveLeaseByIDWithExpiry` because `remote.NewServer` needs a consistent
 adapter surface to renew leases and mint replacement lease tokens. These helper
 methods are runtime-adapter API, not application workflow API.
@@ -172,7 +167,6 @@ github.com/colony-2/jobdb/pkg/jobdb/runtimetest
 github.com/colony-2/jobdb/pkg/jobdb/runtime/core
 github.com/colony-2/jobdb/pkg/jobdb/schemastore/postgres
 github.com/colony-2/jobdb/pkg/workflow
-github.com/colony-2/jobdb/pkg/jobdb/runtime/direct
 github.com/colony-2/jobdb/pkg/jobdb/runtime/remote
 github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite
 github.com/colony-2/jobdb/pkg/jobdb/runtime/toy

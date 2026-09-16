@@ -3,11 +3,11 @@
 ## Final dependency direction
 
 The scheduler lives at `github.com/colony-2/pgjobdb/pkg/pgjobdb` in the
-separate pgjobdb module. The JobDB-facing adapter and runtime composition live in
-`pkg/jobdb/runtime/direct`; this is the Postgres implementation, not a wrapper
-around a pgjobdb runtime package. Production dependencies flow from JobDB to
-pgjobdb only. Adapter integration tests live in JobDB so the pgjobdb module
-does not require JobDB, even for tests. The JobDB CLI remains in this repo.
+separate pgjobdb module. The JobDB-facing adapter and runtime composition live
+at `github.com/colony-2/pgjobdb/pkg/pgjobdb/runtime`. pgjobdb depends on
+JobDB's public core; JobDB does not depend on pgjobdb. The base JobDB CLI
+contains SQLite, toy, and healthcheck commands. The pgjobdb CLI adds `direct`
+and `serve` and publishes the Postgres container image.
 The rest of this proposal records the original design and cutover work; this
 section governs where the adapter belongs.
 

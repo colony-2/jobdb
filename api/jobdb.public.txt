@@ -1410,26 +1410,6 @@ type WorkSet struct
 type Worker interface
 type WorkflowRuntime = github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime
 
-package github.com/colony-2/jobdb/pkg/jobdb/runtime/direct
-type Config struct
-  field PostgresDSN string
-  field BlobStoreURI string
-  field MaxInlineArtifactBytes int64
-  field Logger *log/slog.Logger
-type EmbeddedRuntime struct
-  field Runtime *Runtime
-method EmbeddedRuntime.Shutdown func()
-func New func(db *gorm.io/gorm.DB, cfg Config) (*Runtime, error)
-func NewFromConfig func(cfg Config) (*Runtime, error)
-func NewSQLDB func(ctx context.Context, db *database/sql.DB, cfg Config) (*Runtime, error)
-func OpenDSN func(ctx context.Context, dsn string, cfg Config) (*Runtime, error)
-type Runtime struct
-  embedded Runtime *github.com/colony-2/jobdb/pkg/jobdb/runtime/core.Runtime
-  embedded SchemaRegistry *github.com/colony-2/jobdb/pkg/jobdb/runtime/core.SchemaRegistry
-method Runtime.Close func(ctx context.Context) error
-method Runtime.GetJobRun func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.GetJobRunRequest) (github.com/colony-2/jobdb/pkg/jobdb.GetJobRunResponse, error)
-func StartEmbeddedRuntime func(ctx context.Context) (*EmbeddedRuntime, error)
-
 package github.com/colony-2/jobdb/pkg/jobdb/runtime/remote
 func New func(baseURL string, httpClient *net/http.Client) (*Runtime, error)
 func NewServer func(runtime github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime) net/http.Handler

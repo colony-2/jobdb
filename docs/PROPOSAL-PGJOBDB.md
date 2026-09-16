@@ -5,10 +5,11 @@
 This document is the original implementation plan. The final split keeps the
 typed Postgres scheduler and installer in
 `github.com/colony-2/pgjobdb/pkg/pgjobdb` and its `installer` subpackage, and
-places the JobDB-facing adapter in JobDB's `pkg/jobdb/runtime/direct` package.
-The pgjobdb module imports no JobDB packages, including in tests. JobDB's CLI
-continues to use its direct runtime. The historical steps below that put a
-runtime adapter in pgjobdb are superseded by this decision.
+places the JobDB-facing adapter in pgjobdb's `pkg/pgjobdb/runtime` package.
+pgjobdb imports JobDB's public core; JobDB does not import pgjobdb. The base
+JobDB CLI has SQLite, toy, and healthcheck commands. pgjobdb adds `direct` and
+`serve` and publishes the Postgres container image. The historical steps below
+are superseded by this decision where they differ.
 
 ## Summary
 

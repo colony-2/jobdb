@@ -1,5 +1,11 @@
 # Plan: Release a Stateless Production JobDB Container Image
 
+This is the original JobDB container plan. The Postgres container release now
+lives in the `github.com/colony-2/pgjobdb` repository. JobDB's base CLI no
+longer contains `serve` or `direct`, and JobDB's release workflow no longer
+publishes a container image. The historical steps below describe the original
+implementation and are superseded by this ownership change.
+
 ## Goal
 
 Extend the existing tagged release so every JobDB release also publishes a

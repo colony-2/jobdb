@@ -3,7 +3,7 @@
 ## Status
 
 This is the original implementation guide. The runtime is now implemented in
-JobDB's `pkg/jobdb/runtime/direct` package. Its `Runtime` embeds
+pgjobdb's `pkg/pgjobdb/runtime` package. Its `Runtime` embeds
 `runtimecore.Runtime` and `runtimecore.SchemaRegistry`, and composes the public
 Postgres chapter and schema stores with the separate `/pgjobdb` scheduler.
 The sections below record the design constraints and incremental plan;
@@ -22,8 +22,8 @@ The public shape available now is:
 - `github.com/colony-2/jobdb/pkg/jobdb`
 
 `runtimecore.NewRuntime` now returns the complete workflow facade from
-`Scheduler`, `ChapterLog`, and `SchemaStore` ports. JobDB's direct adapter
-supplies those ports using pgjobdb's typed SQL API.
+`Scheduler`, `ChapterLog`, and `SchemaStore` ports. pgjobdb's adapter supplies
+those ports using its typed SQL API.
 
 ## Goal
 

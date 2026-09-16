@@ -82,32 +82,14 @@ runtime := toyruntime.New()
 
 The toy runtime is not durable.
 
-### `runtime/direct`
+### Postgres runtime
 
-Postgres direct runtime. It stores job records and chapter records in Postgres
-and stores large artifact bytes through a configured blobstore URI.
-
-When using provider-backed URIs, import the provider registration package from
-the executable:
-
-```go
-import _ "github.com/colony-2/jobdb/pkg/jobdb/blobstore/gocdk"
-```
-
-```go
-runtime, err := directruntime.NewFromConfig(directruntime.Config{
-    PostgresDSN:  postgresDSN,
-    BlobStoreURI: "s3://jobdb-artifacts?region=us-east-1",
-})
-if err != nil {
-    return err
-}
-```
-
-`jobdb direct` wraps this runtime, imports the Go CDK provider registration
-package, and serves it over the remote runtime API. Library embedders that pass
-provider-backed `BlobStoreURI` values must import the provider registration
-package from their executable/server code.
+The Postgres runtime lives in
+`github.com/colony-2/pgjobdb/pkg/pgjobdb/runtime`. The pgjobdb CLI adds
+`direct` and `serve` commands to JobDB's base CLI and includes Go CDK provider
+registration. Library embedders that pass provider-backed `BlobStoreURI`
+values must import `github.com/colony-2/jobdb/pkg/jobdb/blobstore/gocdk`
+from their executable/server code.
 
 ## Runtime Usage
 

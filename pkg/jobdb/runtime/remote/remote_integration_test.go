@@ -14,7 +14,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	directruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/direct"
+	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 )
 
@@ -55,12 +55,12 @@ func TestRemoteRuntimeLeaseAndMetadataRoundTrip(t *testing.T) {
 			},
 		},
 		{
-			name: "direct",
+			name: "sqlite",
 			new: func(t *testing.T) (jobdb.WorkflowRuntime, func()) {
 				t.Helper()
-				embedded, err := directruntime.StartEmbeddedRuntime(context.Background())
+				embedded, err := sqliteruntime.StartEmbeddedRuntime(context.Background())
 				if err != nil {
-					t.Fatalf("start embedded direct runtime: %v", err)
+					t.Fatalf("start embedded SQLite runtime: %v", err)
 				}
 				return embedded.Runtime, embedded.Shutdown
 			},
@@ -232,12 +232,12 @@ func TestRemoteRuntimeChapterAndArtifactRoundTrip(t *testing.T) {
 			},
 		},
 		{
-			name: "direct",
+			name: "sqlite",
 			new: func(t *testing.T) (jobdb.WorkflowRuntime, func()) {
 				t.Helper()
-				embedded, err := directruntime.StartEmbeddedRuntime(context.Background())
+				embedded, err := sqliteruntime.StartEmbeddedRuntime(context.Background())
 				if err != nil {
-					t.Fatalf("start embedded direct runtime: %v", err)
+					t.Fatalf("start embedded SQLite runtime: %v", err)
 				}
 				return embedded.Runtime, embedded.Shutdown
 			},
