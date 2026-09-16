@@ -1,5 +1,16 @@
 # Proposal: Move JobDB Direct Runtime to pgjobdb
 
+## Final dependency direction
+
+The scheduler lives in the separate `github.com/colony-2/pgjobdb` module. The
+JobDB-facing adapter and runtime composition live in
+`pkg/jobdb/runtime/direct`; this is the Postgres implementation, not a wrapper
+around a pgjobdb runtime package. Production dependencies flow from JobDB to
+pgjobdb only. Adapter integration tests live in JobDB so the pgjobdb module
+does not require JobDB, even for tests. The JobDB CLI remains in this repo.
+The rest of this proposal records the original design and cutover work; this
+section governs where the adapter belongs.
+
 ## Summary
 
 JobDB's direct Postgres runtime currently adapts its JobDB model to pgwf's
@@ -22,11 +33,10 @@ Postgres scheduler package that includes the SQL layer and Go APIs together.
 JobDB core should move the direct runtime to that package instead of changing
 pgwf and pgwf-go in place.
 
-`pgjobdb` is an optional concrete runtime. Applications import it when they
-choose Postgres; other runtime implementations can compose the same public
-JobDB runtime core without importing `pgjobdb`. `pkg/jobdb` and the public
-runtime core must not import concrete backends. The JobDB CLI and an optional
-`pkg/jobdb/runtime/direct` compatibility wrapper may import `pgjobdb`.
+`pkg/jobdb/runtime/direct` is the optional concrete Postgres runtime. Other
+runtime implementations can compose the same public JobDB runtime core without
+importing `pgjobdb`. `pkg/jobdb` and the public runtime core must not import
+concrete backends. The JobDB CLI and direct runtime may import `pgjobdb`.
 
 This is a hard break. There is no data migration, dual-read period, rollback
 mirror, or compatibility layer for existing pgwf databases. Implement the new
@@ -88,9 +98,9 @@ The main code paths to change are in
 
 ## Target Shape
 
-Add a narrow scheduler adapter inside `pgjobdb.Runtime`, using the public
-JobDB runtime core. Keep `pkg/jobdb/runtime/direct` as a thin compatibility
-wrapper for existing imports; it must not own workflow semantics:
+Add a narrow scheduler adapter inside `pkg/jobdb/runtime/direct`, using the
+public JobDB runtime core. The direct package owns Postgres wiring but no
+workflow semantics:
 
 ```go
 func pgjobdbSubmitRequestFromJobDB(req jobdb.SubmitJobRequest, schemaHash string, parentJobID string) (pgjobdb.SubmitJobRequest, error)
@@ -106,10 +116,9 @@ func jobdbScheduleFromPgjobdb(schedule pgjobdb.Schedule) (jobdb.ScheduleInfo, er
 The public runtime core continues to operate on JobDB concepts. Applications
 that use another backend import only that backend and JobDB core.
 
-`pgjobdb` imports `github.com/colony-2/jobdb/pkg/jobdb` and its public runtime
-core for the adapter and tests. That does not create a package import cycle as long as
-`pkg/jobdb` does not import `pgjobdb`; concrete runtime packages already sit
-outside the core package boundary.
+`pgjobdb` imports no JobDB packages. The JobDB direct adapter imports pgjobdb
+and the public runtime core; concrete runtime packages sit outside the core
+package boundary.
 
 If that public boundary is not enough, treat the missing capability as a JobDB
 core feature request, not as code to copy into `pgjobdb`. The preferred shape
@@ -348,9 +357,9 @@ Phase 0: settle the public JobDB core boundary.
 - Use
   [FEATURE-REQUESTS-JOBDB-CORE-FOR-PGJOBDB.md](FEATURE-REQUESTS-JOBDB-CORE-FOR-PGJOBDB.md)
   as the initial request list.
-- Land required JobDB core changes before wiring `pgjobdb.Runtime` to JobDB
+- Land required JobDB core changes before wiring the direct runtime to JobDB
   workflow semantics.
-- Keep the `pgjobdb` dependency limited to public JobDB packages.
+- Keep `pgjobdb` independent of JobDB types and runtime packages.
 
 Phase 1: create the new package from existing code.
 
@@ -378,15 +387,15 @@ Phase 4: cut JobDB direct runtime over.
 
 - Start this phase only after any required JobDB core feature requests have
   landed.
-- Release a JobDB core version first, then a `pgjobdb` version built against
-  it, then a JobDB version whose direct wrapper imports that `pgjobdb`
-  version. Keep the core package import graph free of concrete backends.
+- Release a `pgjobdb` version first, then a JobDB version whose direct runtime
+  imports that `pgjobdb` version. Keep the core package import graph free of
+  concrete backends.
 - Replace pgwf imports with `pgjobdb`.
 - Replace `schedule_schema.go` / `jobdb_schedules` direct SQL usage with
   `pgjobdb` schedule APIs.
 - Replace direct-runtime submit, lease, reschedule, complete, task completion,
-  list, get, and status paths with `pgjobdb.Runtime` composed from the JobDB
-  runtime core. Keep the direct package as a thin compatibility wrapper.
+  list, get, and status paths with a JobDB-owned adapter that maps to pgjobdb's
+  typed scheduler API and composes the JobDB runtime core.
 
 Phase 5: remove obsolete direct-runtime code.
 

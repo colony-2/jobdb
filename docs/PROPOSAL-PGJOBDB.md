@@ -1,5 +1,14 @@
 # Proposal: pgjobdb Package
 
+## Final dependency direction
+
+This document is the original implementation plan. The final split keeps the
+typed Postgres scheduler and installer in `github.com/colony-2/pgjobdb` and
+places the JobDB-facing adapter in JobDB's `pkg/jobdb/runtime/direct` package.
+The pgjobdb module imports no JobDB packages, including in tests. JobDB's CLI
+continues to use its direct runtime. The historical steps below that put a
+runtime adapter in pgjobdb are superseded by this decision.
+
 ## Summary
 
 Create `github.com/colony-2/pgjobdb` as a new JobDB-native Postgres repo. It
@@ -18,8 +27,7 @@ directory. Every implementation step ends with a commit in that repo.
 
 ## Goals
 
-- Provide one repo that owns Postgres DDL, stored procedures, Go bindings, and
-  a JobDB-facing runtime adapter.
+- Provide one repo that owns Postgres DDL, stored procedures, and Go bindings.
 - Copy existing working scheduler mechanics instead of rewriting the scheduler
   from scratch.
 - Make JobDB job type, task routing, job/time blockers, run policy, parent job,
@@ -45,24 +53,12 @@ directory. Every implementation step ends with a commit in that repo.
 
 ## JobDB Dependency Boundary
 
-Yes, `pgjobdb` should import `github.com/colony-2/jobdb/pkg/jobdb`.
+The dependency flows from JobDB's direct runtime to pgjobdb. The pgjobdb
+module has no JobDB dependency. The JobDB core has no pgjobdb import, so other
+concrete runtimes can compose the same core without importing pgjobdb.
 
-Use that dependency for two things:
-
-- tests and conformance checks against core JobDB public types;
-- a public `pgjobdb.Runtime` that implements `jobdb.WorkflowRuntime` by
-  composing JobDB-owned runtime core APIs with `pgjobdb` scheduler database
-  APIs.
-
-This is safe as long as `github.com/colony-2/jobdb/pkg/jobdb` and its public
-runtime core do not import `pgjobdb`. Other concrete runtimes can compose that
-same core without importing `pgjobdb`. The JobDB CLI and an optional
-`pkg/jobdb/runtime/direct` compatibility wrapper may import `pgjobdb`.
-
-`pgjobdb` must not import `pkg/jobdb/internal/...` and should not copy those
-private implementations. If exposing `jobdb.WorkflowRuntime` needs JobDB core
-behavior that is currently internal, that behavior should move behind a clean
-public core API first.
+The JobDB adapter composes public runtime core APIs and Postgres chapter and
+schema stores. It does not copy workflow semantics into pgjobdb.
 
 The initial JobDB core feature requests are written separately for submission
 to the JobDB project:
@@ -485,9 +481,9 @@ func New(db *gorm.DB, cfg Config) (*Runtime, error)
 func NewFromConfig(cfg Config) (*Runtime, error)
 ```
 
-The runtime adapter imports `github.com/colony-2/jobdb/pkg/jobdb`, wires
-`pgjobdb` scheduler database operations into JobDB-owned runtime core APIs, and
-does not reimplement JobDB workflow semantics.
+The runtime adapter lives in JobDB's direct package. It wires `pgjobdb`
+scheduler database operations into JobDB-owned runtime core APIs and does not
+reimplement JobDB workflow semantics.
 
 ## Implementation Plan
 
@@ -666,11 +662,9 @@ remove generic queue compatibility surface
 
 After the `pgjobdb` repo is ready, update the JobDB repo separately:
 
-- use a released JobDB core version as the `pgjobdb` dependency, then depend
-  on a released `pgjobdb` version for the JobDB direct wrapper;
+- depend on a released `pgjobdb` version for the JobDB direct runtime;
 - replace pgwf imports with `github.com/colony-2/pgjobdb`;
-- make `pkg/jobdb/runtime/direct` a thin compatibility wrapper around
-  `pgjobdb.Runtime`;
+- implement the pgjobdb scheduler adapter in `pkg/jobdb/runtime/direct`;
 - remove Postgres/direct `jobdb_schedules` DDL and SQL;
 - remove Postgres/direct generic payload/metadata encoding and `next_need`
   parsing;

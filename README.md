@@ -139,8 +139,8 @@ jobdb toy --listen 127.0.0.1:9047
 
 ### Direct
 
-The direct backend uses the optional `github.com/colony-2/pgjobdb/runtime`
-module for Postgres job and chapter records, and a blobstore URI for large
+The direct backend uses JobDB's `pkg/jobdb/runtime/direct` adapter with the
+`github.com/colony-2/pgjobdb` scheduler for Postgres job records, and a blobstore URI for large
 artifact bytes. It installs or verifies the `pgjobdb` schema on startup.
 The first start requires a brand-new empty Postgres database. Existing `pgwf`
 or JobDB chapter data cannot be adopted; provision a new database for this
@@ -191,11 +191,10 @@ support by default. Import
 `github.com/colony-2/jobdb/pkg/jobdb/blobstore/gocdk` from executable/server
 code to enable Go CDK provider URI registration.
 
-Library users can import `github.com/colony-2/pgjobdb/runtime` directly for
-Postgres or import another runtime implementation. The public
+Library users can import `github.com/colony-2/jobdb/pkg/jobdb/runtime/direct`
+for Postgres or import another runtime implementation. The public
 `github.com/colony-2/jobdb/pkg/jobdb` and `runtime/core` packages do not
-import pgjobdb. `runtime/direct` remains a thin compatibility entry point for
-existing imports.
+import pgjobdb. Only the direct package and the JobDB CLI select pgjobdb.
 
 References:
 
