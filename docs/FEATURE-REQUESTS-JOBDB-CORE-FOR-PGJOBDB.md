@@ -65,8 +65,8 @@ Current issue:
   complete `jobdb.WorkflowRuntime` implementation built from those ports.
 - The scheduler port now carries typed JobDB facts, routes, task coordinates,
   and payload visibility. `NewRuntime` now wires the ports and owns chapter
-  reads and artifact access. The remaining `WorkflowRuntime` operations still
-  need to move into this facade.
+  reads, artifact access, and job-list projection. The remaining
+  `WorkflowRuntime` operations still need to move into this facade.
 
 Requested core change:
 

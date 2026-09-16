@@ -892,6 +892,7 @@ func ResolveActiveSchemaForNewJob func(ctx context.Context, registry github.com/
 type Runtime struct
 method Runtime.GetChapter func(ctx context.Context, ref github.com/colony-2/jobdb/pkg/jobdb.ChapterRef) (github.com/colony-2/jobdb/pkg/jobdb.Chapter, error)
 method Runtime.ListChapters func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListChaptersRequest) ([]github.com/colony-2/jobdb/pkg/jobdb.Chapter, error)
+method Runtime.ListJobs func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListJobsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListJobsResponse, error)
 method Runtime.OpenArtifact func(ctx context.Context, ref github.com/colony-2/jobdb/pkg/jobdb.ArtifactRef) (github.com/colony-2/jobdb/pkg/jobdb.ArtifactReader, error)
 type ScheduleStateMutation struct
   field ScheduleKey github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey
