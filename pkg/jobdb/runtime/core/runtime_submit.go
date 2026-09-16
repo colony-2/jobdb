@@ -24,6 +24,10 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 }
 
 func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRequest, parentJobID string) (jobdb.JobHandle, error) {
+	return r.submitJobWithSchedule(ctx, req, parentJobID, nil)
+}
+
+func (r *Runtime) submitJobWithSchedule(ctx context.Context, req jobdb.SubmitJobRequest, parentJobID string, occurrence *jobdb.ScheduleOccurrenceMetadata) (jobdb.JobHandle, error) {
 	if err := r.validate(); err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -119,7 +123,7 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 		stored, err := r.scheduler.GetJob(ctx, key)
 		if err == nil {
 			if err := validateStoredJobFacts(stored, key, req.Job.JobType,
-				schemaHash, parentJobID, metadata, policy); err != nil {
+				schemaHash, parentJobID, metadata, policy, occurrence); err != nil {
 				return jobdb.JobHandle{}, err
 			}
 			return jobdb.JobHandle{JobKey: key}, nil
@@ -130,7 +134,7 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	}
 	created, err := r.scheduler.CreateJob(ctx, CreateJobRequest{
 		JobKey: key, JobType: req.Job.JobType, ParentJobID: parentJobID, RunPolicy: policy,
-		AppMetadata: metadata, SchemaHash: schemaHash,
+		AppMetadata: metadata, SchemaHash: schemaHash, Schedule: occurrence,
 		WaitForJobIDs: waits, AvailableAt: req.Job.AvailableAt,
 		CreatedAt: createdAt.UTC(), WorkerID: workerID,
 	})
@@ -138,14 +142,14 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 		return jobdb.JobHandle{}, err
 	}
 	if err := validateStoredJobFacts(created, key, req.Job.JobType,
-		schemaHash, parentJobID, metadata, policy); err != nil {
+		schemaHash, parentJobID, metadata, policy, occurrence); err != nil {
 		return jobdb.JobHandle{}, err
 	}
 	return jobdb.JobHandle{JobKey: key}, nil
 }
 
 func validateStoredJobFacts(stored StoredJob, key jobdb.JobKey, jobType, schemaHash, parentJobID string,
-	metadata json.RawMessage, policy jobdb.RunPolicy) error {
+	metadata json.RawMessage, policy jobdb.RunPolicy, occurrence *jobdb.ScheduleOccurrenceMetadata) error {
 	if stored.JobKey != key || stored.JobType != jobType ||
 		stored.SchemaHash != schemaHash || stored.ParentJobID != parentJobID ||
 		!sameJSONObject(stored.AppMetadata, metadata) ||
@@ -153,7 +157,19 @@ func validateStoredJobFacts(stored StoredJob, key jobdb.JobKey, jobType, schemaH
 		return jobdb.NewExistingJobMismatchError(
 			fmt.Sprintf("job %s has different scheduler facts", key))
 	}
+	if !sameScheduleOccurrence(stored.Schedule, occurrence) {
+		return jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s has different schedule occurrence", key))
+	}
 	return nil
+}
+
+func sameScheduleOccurrence(left, right *jobdb.ScheduleOccurrenceMetadata) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	a, errA := json.Marshal(left)
+	b, errB := json.Marshal(right)
+	return errA == nil && errB == nil && sameJSONObject(a, b)
 }
 
 func (r *Runtime) validateExistingInitialChapter(ctx context.Context, key jobdb.JobKey, want jobdb.Chapter) error {

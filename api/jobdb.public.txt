@@ -892,18 +892,26 @@ type RescheduleMutation struct
   field Now time.Time
 func ResolveActiveSchemaForNewJob func(ctx context.Context, registry github.com/colony-2/jobdb/pkg/jobdb.JobSchemaRegistry, tenantID string, selector *github.com/colony-2/jobdb/pkg/jobdb.JobSchemaSelector) (string, error)
 type Runtime struct
+method Runtime.ArchiveSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ScheduleMutationRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.CancelJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CancelJobRequest) error
 method Runtime.CompleteTaskIfWaiting func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CompleteTaskIfWaitingRequest) error
 method Runtime.GetChapter func(ctx context.Context, ref github.com/colony-2/jobdb/pkg/jobdb.ChapterRef) (github.com/colony-2/jobdb/pkg/jobdb.Chapter, error)
 method Runtime.GetJob func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey) (github.com/colony-2/jobdb/pkg/jobdb.JobInfo, error)
 method Runtime.GetJobLease func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.GetJobLeaseRequest) (github.com/colony-2/jobdb/pkg/jobdb.ExecutionLease, error)
+method Runtime.GetSchedule func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.ListChapters func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListChaptersRequest) ([]github.com/colony-2/jobdb/pkg/jobdb.Chapter, error)
 method Runtime.ListJobs func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListJobsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListJobsResponse, error)
+method Runtime.ListScheduleRuns func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListScheduleRunsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListScheduleRunsResponse, error)
+method Runtime.ListSchedules func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListSchedulesRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListSchedulesResponse, error)
 method Runtime.OpenArtifact func(ctx context.Context, ref github.com/colony-2/jobdb/pkg/jobdb.ArtifactRef) (github.com/colony-2/jobdb/pkg/jobdb.ArtifactReader, error)
+method Runtime.PauseSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ScheduleMutationRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.PollWork func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.PollWorkRequest) ([]github.com/colony-2/jobdb/pkg/jobdb.ExecutionLease, error)
 method Runtime.PutChapter func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.PutChapterRequest) error
+method Runtime.ResumeSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ScheduleMutationRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.SubmitJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SubmitJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.SubmitRestartJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
+method Runtime.TriggerSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.TriggerScheduleRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
+method Runtime.UpsertSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.UpsertScheduleRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 type ScheduleStateMutation struct
   field ScheduleKey github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey
   field State github.com/colony-2/jobdb/pkg/jobdb.ScheduleState

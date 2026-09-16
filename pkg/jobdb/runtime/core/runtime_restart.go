@@ -193,7 +193,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if existing {
 		stored, err := r.scheduler.GetJob(ctx, key)
 		if err == nil {
-			if err := validateStoredJobFacts(stored, key, jobType, schemaHash, parentJobID, metadata, policy); err != nil {
+			if err := validateStoredJobFacts(stored, key, jobType, schemaHash, parentJobID, metadata, policy, nil); err != nil {
 				return jobdb.JobHandle{}, err
 			}
 			return jobdb.JobHandle{JobKey: key}, nil
@@ -210,7 +210,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	if err := validateStoredJobFacts(stored, key, jobType, schemaHash, parentJobID, metadata, policy); err != nil {
+	if err := validateStoredJobFacts(stored, key, jobType, schemaHash, parentJobID, metadata, policy, nil); err != nil {
 		return jobdb.JobHandle{}, err
 	}
 	return jobdb.JobHandle{JobKey: key}, nil
