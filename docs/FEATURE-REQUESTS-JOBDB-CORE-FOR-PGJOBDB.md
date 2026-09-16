@@ -67,7 +67,8 @@ Current issue:
   and payload visibility. Schedule snapshots cross it as opaque JSON after
   core serialization. `NewRuntime` now wires the ports and owns chapter
   reads, artifact access, job reads, job-list projection, and initial job
-  submission with explicit ID recovery. The remaining
+  submission with explicit ID recovery. Chapter writes now validate live
+  leases through the scheduler port. The remaining
   `WorkflowRuntime` operations still need to move into this facade.
 
 Requested core change:

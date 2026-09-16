@@ -64,6 +64,8 @@ active and archived rows into the existing `JobSummary` fields.
 the existing deferred task-data error behavior.
 `SubmitJob` owns first chapter encoding, artifact keys, schema checks, run
 policy normalization, prerequisite validation, and explicit job ID recovery.
+`PutChapter` checks the current scheduler lease before validating and appending
+chapter data and uploaded artifacts.
 
 ### `github.com/colony-2/jobdb/pkg/jobdb/schemastore/postgres`
 
