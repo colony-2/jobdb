@@ -807,6 +807,11 @@ type LeaseMutation struct
   field Identity LeaseIdentity
   field Duration time.Duration
   field Now time.Time
+type LeasePayloadProjection struct
+  field RunPolicy github.com/colony-2/jobdb/pkg/jobdb.RunPolicy
+  field TaskWork *TaskWork
+  field Opaque encoding/json.RawMessage
+  field OpaquePresent bool
 type LeaseSnapshot struct
   field Identity LeaseIdentity
   field Capability string
@@ -857,6 +862,7 @@ type ListSchedulesResponse struct
   field NextPageToken string
 func NewSchemaRegistry func(cfg SchemaRegistryConfig) (*SchemaRegistry, error)
 func PrimeSchema func(ctx context.Context, registry github.com/colony-2/jobdb/pkg/jobdb.JobSchemaRegistry, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey) error
+func ProjectLeasePayload func(req LeasePayloadProjection) (encoding/json.RawMessage, error)
 type RescheduleMutation struct
   field Identity LeaseIdentity
   field NextNeed string
@@ -956,6 +962,12 @@ type StoredScheduleMutation struct
   field ExpectedGeneration *int64
   field RequestTime time.Time
   field WorkerID string
+type TaskWork struct
+  field TaskType string
+  field ResumeJobType string
+  field InputOrdinal int64
+  field OutputOrdinal int64
+  field InputHash string
 func ValidateConfig func(cfg Config) error
 func ValidateFirstChapter func(ctx context.Context, registry github.com/colony-2/jobdb/pkg/jobdb.JobSchemaRegistry, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey, chapter github.com/colony-2/jobdb/pkg/jobdb.Chapter) error
 func ValidateLastChapter func(ctx context.Context, registry github.com/colony-2/jobdb/pkg/jobdb.JobSchemaRegistry, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey, chapter github.com/colony-2/jobdb/pkg/jobdb.Chapter) error

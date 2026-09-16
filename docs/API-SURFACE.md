@@ -51,6 +51,8 @@ to keep runtime semantics in JobDB core while letting a backend own durable
 state, artifact persistence, and atomic lease mutations. The schema registry
 adapter in this package owns schema canonicalization and validation before it
 delegates persistence to a `SchemaStore`.
+`ProjectLeasePayload` reconstructs the existing execution lease JSON view from
+typed scheduler fields, including explicit empty application payloads.
 
 ### `github.com/colony-2/jobdb/pkg/jobdb/schemastore/postgres`
 
