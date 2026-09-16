@@ -9,7 +9,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/workflow"
-	"github.com/colony-2/pgjobdb"
+	"github.com/colony-2/pgjobdb/pkg/pgjobdb"
 )
 
 const (

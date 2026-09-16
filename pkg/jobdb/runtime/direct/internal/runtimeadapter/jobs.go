@@ -10,7 +10,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
-	"github.com/colony-2/pgjobdb"
+	"github.com/colony-2/pgjobdb/pkg/pgjobdb"
 )
 
 // Scheduler adapts pgjobdb's native SQL API to JobDB's scheduler port.

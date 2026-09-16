@@ -140,8 +140,10 @@ jobdb toy --listen 127.0.0.1:9047
 ### Direct
 
 The direct backend uses JobDB's `pkg/jobdb/runtime/direct` adapter with the
-`github.com/colony-2/pgjobdb` scheduler for Postgres job records, and a blobstore URI for large
-artifact bytes. It installs or verifies the `pgjobdb` schema on startup.
+`github.com/colony-2/pgjobdb/pkg/pgjobdb` scheduler for Postgres job records,
+and a blobstore URI for large artifact bytes. It installs or verifies the
+`pgjobdb` schema on startup.
+
 The first start requires a brand-new empty Postgres database. Existing `pgwf`
 or JobDB chapter data cannot be adopted; provision a new database for this
 release.

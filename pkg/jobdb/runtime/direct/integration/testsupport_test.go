@@ -12,7 +12,7 @@ import (
 	"github.com/fergusstrange/embedded-postgres"
 	_ "github.com/lib/pq"
 
-	pgjobdbinstaller "github.com/colony-2/pgjobdb/installer"
+	pgjobdbinstaller "github.com/colony-2/pgjobdb/pkg/pgjobdb/installer"
 )
 
 func runDatabaseTest(t *testing.T, fn func(context.Context, *sql.DB)) {

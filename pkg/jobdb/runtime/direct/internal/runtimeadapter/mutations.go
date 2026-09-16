@@ -8,7 +8,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
-	"github.com/colony-2/pgjobdb"
+	"github.com/colony-2/pgjobdb/pkg/pgjobdb"
 )
 
 func (s Scheduler) CreateJob(ctx context.Context, req runtimecore.CreateJobRequest) (runtimecore.StoredJob, error) {

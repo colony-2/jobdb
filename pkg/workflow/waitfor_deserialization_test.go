@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	"github.com/colony-2/pgjobdb"
+	"github.com/colony-2/pgjobdb/pkg/pgjobdb"
 )
 
 func TestWaitForDeserialization(t *testing.T) {

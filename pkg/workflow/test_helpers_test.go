@@ -16,7 +16,7 @@ import (
 	directruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/direct"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/colony-2/jobdb/pkg/workflow"
-	"github.com/colony-2/pgjobdb/installer"
+	"github.com/colony-2/pgjobdb/pkg/pgjobdb/installer"
 )
 
 // startEmbeddedPostgres launches a temporary embedded Postgres instance with isolated paths.

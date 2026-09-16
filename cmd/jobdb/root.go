@@ -15,7 +15,7 @@ import (
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
-	"github.com/colony-2/pgjobdb/installer"
+	"github.com/colony-2/pgjobdb/pkg/pgjobdb/installer"
 	"github.com/spf13/cobra"
 
 	_ "github.com/colony-2/jobdb/pkg/jobdb/blobstore/gocdk"

@@ -10,7 +10,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/direct/internal/runtimeadapter"
-	"github.com/colony-2/pgjobdb"
+	"github.com/colony-2/pgjobdb/pkg/pgjobdb"
 )
 
 func TestNativeSchedulerAdapterReadsArchivedTask(t *testing.T) {

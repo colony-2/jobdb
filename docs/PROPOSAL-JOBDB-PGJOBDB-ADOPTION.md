@@ -2,8 +2,8 @@
 
 ## Final dependency direction
 
-The scheduler lives in the separate `github.com/colony-2/pgjobdb` module. The
-JobDB-facing adapter and runtime composition live in
+The scheduler lives at `github.com/colony-2/pgjobdb/pkg/pgjobdb` in the
+separate pgjobdb module. The JobDB-facing adapter and runtime composition live in
 `pkg/jobdb/runtime/direct`; this is the Postgres implementation, not a wrapper
 around a pgjobdb runtime package. Production dependencies flow from JobDB to
 pgjobdb only. Adapter integration tests live in JobDB so the pgjobdb module

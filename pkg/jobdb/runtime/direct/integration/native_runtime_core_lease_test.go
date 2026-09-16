@@ -13,7 +13,7 @@ import (
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/direct/internal/runtimeadapter"
 	schemapostgres "github.com/colony-2/jobdb/pkg/jobdb/schemastore/postgres"
-	"github.com/colony-2/pgjobdb"
+	"github.com/colony-2/pgjobdb/pkg/pgjobdb"
 )
 
 func TestNativeRuntimeCoreLeaseRoutesAndCompletes(t *testing.T) {
