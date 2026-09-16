@@ -32,6 +32,10 @@ func (s readTestChapters) List(_ context.Context, _ runtimecore.ChapterLogKey, r
 	return []runtimecore.EncodedChapter{s.encoded}, nil
 }
 
+func (s readTestChapters) Count(context.Context, runtimecore.ChapterLogKey) (int64, error) {
+	return s.encoded.Ordinal + 1, nil
+}
+
 func TestRuntimeReadsChapterThroughPublicPort(t *testing.T) {
 	key := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 	want := jobdb.Chapter{

@@ -58,6 +58,8 @@ typed scheduler fields, including explicit empty application payloads.
 `NewRuntime` composes the backend ports. Its chapter read and artifact methods
 use the public chapter log and codec, and its job listing projects native
 active and archived rows into the existing `JobSummary` fields.
+`GetJob` reads the typed status and the final chapter for archived jobs, with
+the existing deferred task-data error behavior.
 
 ### `github.com/colony-2/jobdb/pkg/jobdb/schemastore/postgres`
 
