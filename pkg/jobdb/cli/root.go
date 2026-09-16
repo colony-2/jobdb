@@ -1,8 +1,7 @@
-package main
+package cli
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log"
@@ -11,36 +10,23 @@ import (
 	"os"
 	"time"
 
-	directruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/direct"
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
-	"github.com/colony-2/pgjobdb/pkg/pgjobdb/installer"
 	"github.com/spf13/cobra"
 
 	_ "github.com/colony-2/jobdb/pkg/jobdb/blobstore/gocdk"
-	_ "github.com/lib/pq"
 )
 
 const (
 	defaultListenAddr      = "127.0.0.1:9047"
-	postgresDSNEnvVar      = "JOBDB_POSTGRES_DSN"
 	sqliteDSNEnvVar        = "JOBDB_SQLITE_DSN"
-	defaultSetupTimeout    = 45 * time.Second
 	defaultShutdownTimeout = 10 * time.Second
 )
 
-var serveHTTPFunc = serveHTTP
+var serveHTTPFunc = ServeHTTP
 
-type directServerConfig struct {
-	ListenAddr             string
-	PostgresDSN            string
-	BlobStoreURI           string
-	MaxInlineArtifactBytes int64
-	LeaseTokenSigningKey   []byte
-}
-
-var runDirectServerFunc = runDirectServer
+func NewRootCmd() *cobra.Command { return newRootCmd() }
 
 func newRootCmd() *cobra.Command {
 	var listenAddr string
@@ -62,8 +48,6 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(
 		newSQLiteCmd(&listenAddr, &dbPath, &sqliteDSN, &blobDir, &blobStoreURI),
 		newToyCmd(&listenAddr),
-		newDirectCmd(&listenAddr, &blobStoreURI),
-		newServeCmd(),
 		newHealthcheckCmd(),
 	)
 	cmd.PersistentFlags().StringVar(&listenAddr, "listen", defaultListenAddr, "listen address for the HTTP API")
@@ -100,65 +84,6 @@ func newToyCmd(listenAddr *string) *cobra.Command {
 	return cmd
 }
 
-func newDirectCmd(listenAddr *string, blobStoreURI *string) *cobra.Command {
-	var postgresDSN string
-
-	cmd := &cobra.Command{
-		Use:   "direct",
-		Short: "Run a direct runtime with postgres-backed records",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			dsn, err := resolveRequiredString(postgresDSN, postgresDSNEnvVar, "postgres DSN")
-			if err != nil {
-				return err
-			}
-			return runDirectServerFunc(cmd.Context(), directServerConfig{
-				ListenAddr:   *listenAddr,
-				PostgresDSN:  dsn,
-				BlobStoreURI: *blobStoreURI,
-			})
-		},
-	}
-
-	cmd.Flags().StringVar(&postgresDSN, "postgres-dsn", "", "postgres DSN for pgjobdb state (overrides "+postgresDSNEnvVar+")")
-	return cmd
-}
-
-func runDirectServer(ctx context.Context, cfg directServerConfig) error {
-	setupCtx, cancel := context.WithTimeout(ctx, defaultSetupTimeout)
-	defer cancel()
-
-	if err := installPgjobdb(setupCtx, cfg.PostgresDSN); err != nil {
-		return fmt.Errorf("install pgjobdb schema: %w", err)
-	}
-
-	runtime, err := directruntime.NewFromConfig(directruntime.Config{
-		PostgresDSN:            cfg.PostgresDSN,
-		BlobStoreURI:           cfg.BlobStoreURI,
-		MaxInlineArtifactBytes: cfg.MaxInlineArtifactBytes,
-	})
-	if err != nil {
-		return fmt.Errorf("build direct runtime: %w", err)
-	}
-
-	var handler http.Handler
-	if len(cfg.LeaseTokenSigningKey) == 0 {
-		handler = remoteruntime.NewServer(runtime)
-	} else {
-		handler, err = remoteruntime.NewServerWithOptions(runtime, remoteruntime.ServerOptions{
-			LeaseTokenSigningKey: cfg.LeaseTokenSigningKey,
-		})
-		if err != nil {
-			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
-			defer cleanupCancel()
-			return errors.Join(fmt.Errorf("build remote server: %w", err), runtime.Close(cleanupCtx))
-		}
-	}
-
-	log.Printf("using direct Postgres runtime")
-	return serveHTTPFunc(ctx, cfg.ListenAddr, handler, runtime.Close)
-}
-
 func runToy(ctx context.Context, listenAddr string) error {
 	runtime := toyruntime.New()
 	return serveHTTPFunc(ctx, listenAddr, remoteruntime.NewServer(runtime), nil)
@@ -191,7 +116,8 @@ func sqliteConfigFromFlags(dbPath string, sqliteDSN string, blobDir string, blob
 	return cfg
 }
 
-func serveHTTP(ctx context.Context, listenAddr string, handler http.Handler, cleanup func(context.Context) error) error {
+// ServeHTTP runs the runtime HTTP server with a health endpoint and graceful shutdown.
+func ServeHTTP(ctx context.Context, listenAddr string, handler http.Handler, cleanup func(context.Context) error) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -243,32 +169,4 @@ func withHealthCheck(handler http.Handler) http.Handler {
 	})
 	mux.Handle("/", handler)
 	return mux
-}
-
-func resolveRequiredString(flagValue, envVar, fieldName string) (string, error) {
-	if flagValue != "" {
-		return flagValue, nil
-	}
-	if envValue := os.Getenv(envVar); envValue != "" {
-		return envValue, nil
-	}
-	return "", fmt.Errorf("%s is required via --postgres-dsn or %s", fieldName, envVar)
-}
-
-func installPgjobdb(ctx context.Context, dsn string) error {
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		return fmt.Errorf("open postgres: %w", err)
-	}
-	defer db.Close()
-
-	if err := db.PingContext(ctx); err != nil {
-		return fmt.Errorf("ping postgres: %w", err)
-	}
-
-	inst := installer.Installer{DB: db}
-	if err := inst.Apply(ctx); err != nil {
-		return err
-	}
-	return inst.Verify(ctx)
 }

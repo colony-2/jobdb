@@ -23,61 +23,9 @@ jobdb --help
 
 ## Container Image
 
-Tagged releases publish a multi-platform image for Linux AMD64 and ARM64:
-
-```text
-ghcr.io/colony-2/jobdb:<release-tag>
-```
-
-The image has a fixed `jobdb serve` entrypoint for stateless production use. It
-always stores runtime records in Postgres and artifact bytes larger than the
-inline threshold in S3, Google Cloud Storage, or Azure Blob Storage. The
-supported container interface cannot select SQLite, the toy runtime, local
-filesystem storage, or memory storage. Those modes remain available when using
-the installed `jobdb` binary outside the container.
-
-Required configuration:
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `JOBDB_POSTGRES_DSN` | none | Postgres connection string. |
-| `JOBDB_BLOB_STORE_URI` | none | Remote `s3://`, `gs://`, or `azblob://` bucket/container URI. |
-| `JOBDB_LEASE_TOKEN_SIGNING_KEY` | none | Base64-encoded signing key containing at least 32 random bytes. |
-| `JOBDB_LEASE_TOKEN_SIGNING_KEY_FILE` | none | Mounted file containing the signing key; use instead of the direct variable. |
-| `JOBDB_LISTEN` | `0.0.0.0:8080` | HTTP listen address. |
-| `JOBDB_MAX_INLINE_ARTIFACT_BYTES` | `4096` | Largest artifact size retained inline in Postgres. |
-
-All replicas in one deployment must use the same signing key. Generate one and
-store it in the deployment's secret manager rather than in an image or manifest:
-
-```bash
-openssl rand -base64 32
-```
-
-For example, with Postgres and the S3 bucket already available:
-
-```bash
-docker run --rm \
-  --read-only \
-  --tmpfs /tmp:rw,noexec,nosuid,size=64m \
-  --publish 8080:8080 \
-  --env JOBDB_POSTGRES_DSN \
-  --env JOBDB_BLOB_STORE_URI='s3://jobdb-artifacts?region=us-east-1' \
-  --env JOBDB_LEASE_TOKEN_SIGNING_KEY \
-  ghcr.io/colony-2/jobdb:<release-tag>
-```
-
-The image runs as UID/GID `65532:65532`, declares no volume, and supports a
-read-only root filesystem. It exposes `GET /healthz` and includes an automatic
-container health check. Operators can also check any JobDB server directly:
-
-```bash
-jobdb healthcheck http://jobdb.example:8080
-```
-
-Use an exact release tag or image digest in production. Provider credentials
-are resolved by the cloud SDKs; prefer workload identity, instance/task roles,
-or mounted secrets over credentials embedded in the blob URI.
+The Postgres container is released from the
+[`pgjobdb` repository](https://github.com/colony-2/pgjobdb) as
+`ghcr.io/colony-2/pgjobdb:<release-tag>`.
 
 ## Quick Start
 
@@ -137,66 +85,22 @@ for durable execution.
 jobdb toy --listen 127.0.0.1:9047
 ```
 
-### Direct
+### Postgres
 
-The direct backend uses JobDB's `pkg/jobdb/runtime/direct` adapter with the
-`github.com/colony-2/pgjobdb/pkg/pgjobdb` scheduler for Postgres job records,
-and a blobstore URI for large artifact bytes. It installs or verifies the
-`pgjobdb` schema on startup.
+The base `jobdb` CLI provides SQLite and toy backends. The Postgres runtime,
+`direct` and `serve` commands, and container image are provided by
+[`pgjobdb`](https://github.com/colony-2/pgjobdb). It composes JobDB's public
+runtime core with the typed Postgres scheduler.
 
-The first start requires a brand-new empty Postgres database. Existing `pgwf`
-or JobDB chapter data cannot be adopted; provision a new database for this
-release.
-
-```bash
-JOBDB_POSTGRES_DSN='postgres://user:pass@localhost:5432/jobdb?sslmode=disable' \
-  jobdb direct --blob-store-uri 's3://jobdb-artifacts?region=us-east-1' --listen 127.0.0.1:9047
-```
-
-Flags:
-
-- `--postgres-dsn`: Postgres DSN for `pgjobdb` state.
-- `--blob-store-uri`: blob bucket URL for large artifacts. The `jobdb`
-  executable includes Go CDK providers, so it supports `file://`, `gs://`,
-  `s3://`, and `azblob://`; defaults to local `blobfs://`.
-- `--listen`: HTTP listen address. Defaults to `127.0.0.1:9047`.
-
-Environment:
-
-- `JOBDB_POSTGRES_DSN`: Postgres DSN used when `--postgres-dsn` is not set.
-
-Blob URL examples:
-
-- Local filesystem: `file:///var/lib/jobdb/blobs` or legacy
-  `blobfs:///var/lib/jobdb/blobs`.
-- Google Cloud Storage: `gs://jobdb-artifacts?prefix=prod/`.
-- Amazon S3: `s3://jobdb-artifacts?region=us-east-1&prefix=prod/`.
-- Azure Blob Storage: `azblob://jobdb-artifacts?prefix=prod/`.
-
-Credential resolution is handled by the Go CDK provider drivers, so `jobdb`
-does not need separate credential flags:
-
-- GCS uses Application Default Credentials. Use
-  `GOOGLE_APPLICATION_CREDENTIALS`, `gcloud auth application-default login`, or
-  attached Google Cloud service account credentials in VM/container
-  environments.
-- S3 uses the AWS SDK for Go v2 configuration chain. Provide `AWS_REGION` and
-  credentials through environment variables, shared `~/.aws/config` and
-  `~/.aws/credentials` profiles, or attached instance/task roles.
-- Azure Blob Storage uses Go CDK's Azure driver. Provide
-  `AZURE_STORAGE_ACCOUNT` with `AZURE_STORAGE_KEY`, a connection string, a SAS
-  token, or Azure default credentials such as environment credentials, Azure
-  CLI credentials, or managed identity.
-
-Library embedders of `runtime/sqlite` or `runtime/direct` only get `blobfs://`
+Library embedders of `runtime/sqlite` only gets `blobfs://`
 support by default. Import
 `github.com/colony-2/jobdb/pkg/jobdb/blobstore/gocdk` from executable/server
 code to enable Go CDK provider URI registration.
 
-Library users can import `github.com/colony-2/jobdb/pkg/jobdb/runtime/direct`
+Library users can import `github.com/colony-2/pgjobdb/pkg/pgjobdb/runtime`
 for Postgres or import another runtime implementation. The public
 `github.com/colony-2/jobdb/pkg/jobdb` and `runtime/core` packages do not
-import pgjobdb. Only the direct package and the JobDB CLI select pgjobdb.
+import pgjobdb.
 
 References:
 

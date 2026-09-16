@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -47,39 +47,19 @@ func TestRootCommandDefaultsToSQLite(t *testing.T) {
 	}
 }
 
-func TestResolveRequiredStringPrefersFlag(t *testing.T) {
-	t.Setenv(postgresDSNEnvVar, "postgres://env")
-
-	got, err := resolveRequiredString("postgres://flag", postgresDSNEnvVar, "postgres DSN")
-	if err != nil {
-		t.Fatalf("resolveRequiredString returned error: %v", err)
+func TestRootCommandOnlyIncludesBaseBackends(t *testing.T) {
+	cmd := NewRootCmd()
+	for _, name := range []string{"sqlite", "toy", "healthcheck"} {
+		if found, _, err := cmd.Find([]string{name}); err != nil || found == cmd || found.Name() != name {
+			t.Fatalf("missing base command %q: %v", name, err)
+		}
 	}
-	if got != "postgres://flag" {
-		t.Fatalf("resolveRequiredString = %q, want flag value", got)
-	}
-}
-
-func TestResolveRequiredStringFallsBackToEnv(t *testing.T) {
-	t.Setenv(postgresDSNEnvVar, "postgres://env")
-
-	got, err := resolveRequiredString("", postgresDSNEnvVar, "postgres DSN")
-	if err != nil {
-		t.Fatalf("resolveRequiredString returned error: %v", err)
-	}
-	if got != "postgres://env" {
-		t.Fatalf("resolveRequiredString = %q, want env value", got)
-	}
-}
-
-func TestResolveRequiredStringRequiresValue(t *testing.T) {
-	t.Setenv(postgresDSNEnvVar, "")
-
-	_, err := resolveRequiredString("", postgresDSNEnvVar, "postgres DSN")
-	if err == nil {
-		t.Fatal("resolveRequiredString returned nil error, want failure")
-	}
-	if got, want := err.Error(), "postgres DSN is required via --postgres-dsn or "+postgresDSNEnvVar; got != want {
-		t.Fatalf("resolveRequiredString error = %q, want %q", got, want)
+	for _, name := range []string{"direct", "serve"} {
+		for _, child := range cmd.Commands() {
+			if child.Name() == name {
+				t.Fatalf("base CLI includes %q", name)
+			}
+		}
 	}
 }
 
