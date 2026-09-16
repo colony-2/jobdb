@@ -900,6 +900,8 @@ method Runtime.OpenArtifact func(ctx context.Context, ref github.com/colony-2/jo
 type ScheduleStateMutation struct
   field ScheduleKey github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey
   field State github.com/colony-2/jobdb/pkg/jobdb.ScheduleState
+  field NextFireAt *time.Time
+  field NextJobKey *github.com/colony-2/jobdb/pkg/jobdb.JobKey
   field ExpectedGeneration *int64
   field RequestTime time.Time
   field WorkerID string

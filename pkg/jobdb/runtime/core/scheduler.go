@@ -253,6 +253,8 @@ type StoredScheduleMutation struct {
 type ScheduleStateMutation struct {
 	ScheduleKey        jobdb.ScheduleKey
 	State              jobdb.ScheduleState
+	NextFireAt         *time.Time
+	NextJobKey         *jobdb.JobKey
 	ExpectedGeneration *int64
 	RequestTime        time.Time
 	WorkerID           string
