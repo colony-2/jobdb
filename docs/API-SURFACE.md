@@ -68,6 +68,9 @@ policy normalization, prerequisite validation, and explicit job ID recovery.
 chapter data and uploaded artifacts.
 `SubmitRestartJob` clones a validated chapter prefix, checks retry boundaries,
 and optionally appends a cached restart output.
+`PollWork` and `GetJobLease` return leases backed by typed scheduler routes;
+lease methods project the historical payload view and validate ownership before
+child submission, reschedule, completion, and chapter writes.
 
 ### `github.com/colony-2/jobdb/pkg/jobdb/schemastore/postgres`
 

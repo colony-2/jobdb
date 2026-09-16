@@ -69,7 +69,8 @@ Current issue:
   reads, artifact access, job reads, job-list projection, and initial job
   submission with explicit ID recovery. Chapter writes now validate live
   leases through the scheduler port. Restart submission now clones a chapter
-  prefix and checks retry boundaries. The remaining
+  prefix and checks retry boundaries. The core now acquires typed leases and
+  owns lease completion, reschedule, child submission, and keepalive. The remaining
   `WorkflowRuntime` operations still need to move into this facade.
 
 Requested core change:
