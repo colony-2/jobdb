@@ -69,6 +69,9 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 }
 
 func submitJobRequestToAPI(ctx context.Context, req jobdb.SubmitJobRequest) (runtimeapi.SubmitJobRequest, error) {
+	if err := jobdb.ValidateIdentifier(req.Job.JobType); err != nil {
+		return runtimeapi.SubmitJobRequest{}, err
+	}
 	data, err := taskDataToAPIWrite(ctx, jobdb.TaskData(req.Job.Data))
 	if err != nil {
 		return runtimeapi.SubmitJobRequest{}, err
@@ -176,6 +179,11 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 }
 
 func (r *Runtime) pollWorkOnce(ctx context.Context, req jobdb.PollWorkRequest) ([]jobdb.ExecutionLease, error) {
+	for _, route := range req.Routes {
+		if err := route.Validate(); err != nil {
+			return nil, err
+		}
+	}
 	metadataEquals, err := metadataPredicatesToAPI(predicatesFilter(req.MetadataEquals))
 	if err != nil {
 		return nil, err
@@ -183,7 +191,7 @@ func (r *Runtime) pollWorkOnce(ctx context.Context, req jobdb.PollWorkRequest) (
 	body := runtimeapi.PollWorkRequest{
 		TenantId:       req.TenantId,
 		WorkerId:       req.WorkerID,
-		Capabilities:   append([]string(nil), req.Capabilities...),
+		Routes:         routesToAPI(req.Routes),
 		Limit:          req.Limit,
 		LongPollUntil:  req.LongPollUntil,
 		LeaseDuration:  toAPIDurationPointer(req.LeaseDuration),
@@ -208,8 +216,13 @@ func (r *Runtime) pollWorkOnce(ctx context.Context, req jobdb.PollWorkRequest) (
 }
 
 func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
+	for _, route := range req.Routes {
+		if err := route.Validate(); err != nil {
+			return nil, err
+		}
+	}
 	resp, err := r.client.GetJobLeaseWithResponse(ctx, req.JobKey.TenantId, req.JobKey.JobId, runtimeapi.GetJobLeaseRequest{
-		Capabilities:  append([]string(nil), req.Capabilities...),
+		Routes:        routesToAPI(req.Routes),
 		LeaseDuration: toAPIDurationPointer(req.LeaseDuration),
 		WorkerId:      stringPtrOrNil(req.WorkerID),
 	})
@@ -226,18 +239,24 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 }
 
 func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteTaskIfWaitingRequest) error {
+	if err := req.Route.Validate(); err != nil {
+		return err
+	}
+	if req.Route.TaskType == "" {
+		return fmt.Errorf("task route required")
+	}
 	data, err := taskDataToAPIWrite(ctx, req.Data)
 	if err != nil {
 		return err
 	}
 	body := runtimeapi.CommitChapterIfWaitingRequest{
 		ClientPayloadUpdate: req.ClientPayloadUpdate,
-		Capability:          stringPtrOrNil(req.Capability),
+		Route:               runtimeapi.Route(req.Route),
 		Data:                data,
 		InputHash:           stringPtrOrNil(req.InputHash),
 		InputOrdinal:        int64Ptr(req.InputOrdinal),
 		OutputOrdinal:       int64Ptr(req.OutputOrdinal),
-		ResumeNeed:          stringPtrOrNil(req.ResumeNeed),
+		ResumeJobType:       stringPtrOrNil(req.ResumeJobType),
 	}
 	resp, err := r.client.CommitChapterIfWaitingWithResponse(ctx, req.JobKey.TenantId, req.JobKey.JobId, req.OutputOrdinal, body)
 	if err != nil {
@@ -261,6 +280,9 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 }
 
 func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
+	if err := req.ValidateRoutes(); err != nil {
+		return jobdb.ListJobsResponse{}, err
+	}
 	if len(req.TenantIds) != 1 || req.TenantIds[0] == "" {
 		return jobdb.ListJobsResponse{}, fmt.Errorf("exactly one tenantId is required")
 	}
@@ -681,7 +703,7 @@ type remoteExecutionLease struct {
 	runtime        *Runtime
 	leaseID        string
 	jobKey         jobdb.JobKey
-	capability     string
+	route          jobdb.Route
 	schemaHash     string
 	clientPayload  json.RawMessage
 	clientRevision int64
@@ -692,7 +714,7 @@ type remoteExecutionLease struct {
 
 func (l *remoteExecutionLease) LeaseID() string      { return l.leaseID }
 func (l *remoteExecutionLease) Job() jobdb.JobHandle { return jobdb.JobHandle{JobKey: l.jobKey} }
-func (l *remoteExecutionLease) Capability() string   { return l.capability }
+func (l *remoteExecutionLease) Route() jobdb.Route   { return l.route }
 func (l *remoteExecutionLease) LeaseSchemaHash() string {
 	return l.schemaHash
 }
@@ -770,10 +792,17 @@ func optionalArtifactWrites(items []runtimeapi.ArtifactWrite) *[]runtimeapi.Arti
 }
 
 func (l *remoteExecutionLease) Reschedule(ctx context.Context, req jobdb.RescheduleExecutionRequest) error {
+	task, err := jobdb.RescheduleTaskWait(req.NextRoute, req.TaskWait)
+	if err != nil {
+		return err
+	}
+	if err := jobdb.ValidateAlternateRoute(req.AlternateRoute, req.AlternateAfter, task); err != nil {
+		return err
+	}
 	body := runtimeapi.RescheduleExecutionRequest{
 		AlternateAfter:      toAPIStdDurationValue(req.AlternateAfter),
-		AlternateNeed:       stringPtrOrNil(req.AlternateNeed),
-		NextNeed:            stringPtrOrNil(req.NextNeed),
+		AlternateRoute:      routePtrToAPI(req.AlternateRoute),
+		NextRoute:           runtimeapi.Route(req.NextRoute),
 		TaskWait:            taskWaitToAPI(req.TaskWait),
 		ClientPayloadUpdate: req.ClientPayloadUpdate,
 		WaitUntil:           req.WaitUntil,
@@ -892,7 +921,7 @@ func (r *Runtime) executionLeaseFromAPI(lease runtimeapi.ExecutionLease) (jobdb.
 		runtime:       r,
 		leaseID:       lease.LeaseId,
 		jobKey:        fromAPIJobKey(lease.Job.JobKey),
-		capability:    lease.Capability,
+		route:         jobdb.Route(lease.Route),
 		schemaHash:    stringValue(lease.SchemaHash),
 		clientPayload: cloneRawMessage(lease.ClientPayload), clientRevision: revision, state: state,
 		leaseToken: lease.LeaseToken,

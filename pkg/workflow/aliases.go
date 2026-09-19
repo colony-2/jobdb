@@ -238,8 +238,6 @@ func MetadataPredicates(filter MetadataFilter) ([]MetadataPredicate, error) {
 	return jobdb.MetadataPredicates(filter)
 }
 
-func JobTypeFromNextNeed(nextNeed string) string { return jobdb.JobTypeFromNextNeed(nextNeed) }
-
 func GetJobRun(ctx context.Context, runtime WorkflowRuntime, req GetJobRunRequest) (GetJobRunResponse, error) {
 	return jobdb.GetJobRun(ctx, runtime, req)
 }
@@ -247,3 +245,8 @@ func GetJobRun(ctx context.Context, runtime WorkflowRuntime, req GetJobRunReques
 type TaskWait = jobdb.TaskWait
 type ExecutionState = jobdb.ExecutionState
 type ClientPayloadUpdate = jobdb.ClientPayloadUpdate
+
+type Route = jobdb.Route
+
+func cloneRoute(route *Route) *Route        { return jobdb.CloneRoute(route) }
+func validateIdentifier(value string) error { return jobdb.ValidateIdentifier(value) }

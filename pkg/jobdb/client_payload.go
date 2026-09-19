@@ -3,7 +3,6 @@ package jobdb
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 )
@@ -15,7 +14,7 @@ type TaskWait struct {
 	InputOrdinal  int64  `json:"inputOrdinal"`
 	OutputOrdinal int64  `json:"outputOrdinal"`
 	InputHash     string `json:"inputHash"`
-	ResumeNeed    string `json:"resumeNeed"`
+	ResumeJobType string `json:"resumeJobType"`
 }
 
 // ExecutionState contains immutable policy and explicit current task coordinates.
@@ -33,18 +32,17 @@ func CloneExecutionState(s ExecutionState) ExecutionState {
 
 // RescheduleTaskWait validates the complete target route. Task routes require
 // coordinates on each operation; a job route clears them.
-func RescheduleTaskWait(next string, task *TaskWait) (*TaskWait, error) {
-	job, kind, isTask := strings.Cut(next, ":")
-	if job == "" || (isTask && (kind == "" || strings.Contains(kind, ":"))) {
-		return nil, fmt.Errorf("invalid next need %q", next)
+func RescheduleTaskWait(next Route, task *TaskWait) (*TaskWait, error) {
+	if err := next.Validate(); err != nil {
+		return nil, err
 	}
-	if !isTask {
+	if next.TaskType == "" {
 		if task != nil {
 			return nil, fmt.Errorf("job route cannot have task coordinates")
 		}
 		return nil, nil
 	}
-	if task == nil || task.InputOrdinal < 0 || task.OutputOrdinal < 0 || task.InputHash == "" || task.ResumeNeed == "" || strings.Contains(task.ResumeNeed, ":") {
+	if task == nil || task.InputOrdinal < 0 || task.OutputOrdinal < 0 || task.InputHash == "" || ValidateIdentifier(task.ResumeJobType) != nil {
 		return nil, fmt.Errorf("task route requires complete task coordinates")
 	}
 	copy := *task

@@ -79,7 +79,7 @@ type TaskAttempt struct {
 type TaskRuntime struct {
 	LeaseOwner     *string
 	LeaseExpiresAt *time.Time
-	NextNeed       *string
+	NextRoute      *Route
 	AvailableAt    *time.Time
 	WaitFor        []string
 }

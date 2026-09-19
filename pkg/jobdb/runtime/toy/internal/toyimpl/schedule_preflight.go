@@ -84,7 +84,7 @@ func (r *Runtime) cancelScheduledLease(ctx context.Context, lease *runtimeLease,
 	if err != nil {
 		return false, err
 	}
-	chapter := schedulePreflightCancelChapter(lease.Capability(), detail)
+	chapter := schedulePreflightCancelChapter(lease.Route().JobType, detail)
 	if err := lease.Complete(ctx, jobdb.CompleteExecutionRequest{Status: "cancelled", Detail: string(raw), Chapter: &chapter}); err != nil {
 		return false, err
 	}

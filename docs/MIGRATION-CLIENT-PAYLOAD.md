@@ -1,5 +1,7 @@
 # Client payload migration guide
 
+Routing changes: [typed route migration](MIGRATION-TYPED-ROUTES.md).
+
 API contract: [client payload design](DESIGN-JOBDB-CLIENT-PAYLOAD.md).
 
 This release requires fresh databases and updated servers, workers, clients,
@@ -53,7 +55,7 @@ Example on a reschedule:
 
 ```json
 {
-  "nextNeed": "collect",
+  "nextRoute": {"jobType": "collect"},
   "clientPayloadUpdate": {
     "mode": "patch",
     "expectedRevision": "7",
@@ -89,7 +91,7 @@ provide the initial value for each occurrence.
 - Set `SubmitJob.ClientPayloadUpdate` (also supported by restart jobs and schedule
   targets). Existing-job request types expose the same field.
 - Use `JobContext.Yield(ctx, RescheduleExecutionRequest{...})` or
-  `TaskContext.Yield` to publish a change during execution. Supply `NextNeed` and,
+  `TaskContext.Yield` to publish a change during execution. Supply `NextRoute` and,
   for a task route, `TaskWait`. A successful yield stops the invocation without
   writing a chapter; gate it on persisted state so resumption does not repeat it.
 - External task handles offer `FinishWithClientPayload(ctx, data, update)`;
@@ -104,7 +106,7 @@ provide the initial value for each occurrence.
 Payloads have a 64 KiB input/result limit and a maximum of 128 container levels.
 Duplicate object names, malformed Unicode, and U+0000 are rejected. Use raw JSON
 when handling numbers that cannot be represented exactly by your language's
-ordinary numeric type. Storage format is now 2 for SQLite and PostgreSQL.
+ordinary numeric type. Storage format is now 3 for SQLite and PostgreSQL.
 
 Release pgjobdb against the matching JobDB revision. To test adjacent checkouts
 before release, create a Go workspace including both modules (`go work init` /

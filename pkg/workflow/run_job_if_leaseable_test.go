@@ -160,13 +160,13 @@ func TestGetJobForRunBuildsLeaseRequest(t *testing.T) {
 	if runtime.leaseReq.LeaseDuration != 3 {
 		t.Fatalf("unexpected lease duration %s", runtime.leaseReq.LeaseDuration)
 	}
-	wantCaps := []string{"lease-job", "lease-job:task-a", "lease-job:task-b"}
-	if len(runtime.leaseReq.Capabilities) != len(wantCaps) {
-		t.Fatalf("unexpected capabilities %+v", runtime.leaseReq.Capabilities)
+	wantCaps := []Route{{JobType: "lease-job"}, {JobType: "lease-job", TaskType: "task-a"}, {JobType: "lease-job", TaskType: "task-b"}}
+	if len(runtime.leaseReq.Routes) != len(wantCaps) {
+		t.Fatalf("unexpected routes %+v", runtime.leaseReq.Routes)
 	}
-	for i, capability := range wantCaps {
-		if runtime.leaseReq.Capabilities[i] != capability {
-			t.Fatalf("unexpected capabilities %+v", runtime.leaseReq.Capabilities)
+	for i, route := range wantCaps {
+		if runtime.leaseReq.Routes[i] != route {
+			t.Fatalf("unexpected routes %+v", runtime.leaseReq.Routes)
 		}
 	}
 }
@@ -203,16 +203,16 @@ func TestGetJobForRunReturnsCompletedWithoutLeaseForTerminalJob(t *testing.T) {
 	}
 }
 
-func TestGetJobForRunReportsSuspendedMissingCapabilityWithoutLease(t *testing.T) {
+func TestGetJobForRunReportsSuspendedMissingRouteWithoutLease(t *testing.T) {
 	jobKey := JobKey{TenantId: "tenant-suspended", JobId: "job-suspended"}
 	runtime := &runJobIfLeaseableStubRuntime{
 		jobResp: JobInfo{Status: JobStatusReady},
 		listResp: ListJobsResponse{
 			Jobs: []JobSummary{{
-				JobKey:   jobKey,
-				Status:   JobStatusReady,
-				JobType:  "lease-job",
-				NextNeed: strPtr("lease-job:missing"),
+				JobKey:    jobKey,
+				Status:    JobStatusReady,
+				JobType:   "lease-job",
+				NextRoute: &Route{JobType: "lease-job", TaskType: "missing"},
 			}},
 		},
 	}
@@ -234,11 +234,11 @@ func TestGetJobForRunReportsSuspendedMissingCapabilityWithoutLease(t *testing.T)
 	if outcome.Status != JobRunSuspended {
 		t.Fatalf("unexpected outcome status %q", outcome.Status)
 	}
-	if outcome.MissingCapability == nil || *outcome.MissingCapability != "lease-job:missing" {
-		t.Fatalf("unexpected missing capability %+v", outcome.MissingCapability)
+	if outcome.MissingRoute == nil || *outcome.MissingRoute != (Route{JobType: "lease-job", TaskType: "missing"}) {
+		t.Fatalf("unexpected missing route %+v", outcome.MissingRoute)
 	}
-	if outcome.NextNeed == nil || *outcome.NextNeed != "lease-job:missing" {
-		t.Fatalf("unexpected next need %+v", outcome.NextNeed)
+	if outcome.NextRoute == nil || *outcome.NextRoute != (Route{JobType: "lease-job", TaskType: "missing"}) {
+		t.Fatalf("unexpected next need %+v", outcome.NextRoute)
 	}
 }
 
@@ -248,9 +248,9 @@ func TestJobRunnableRunDoesNotBlockOnListener(t *testing.T) {
 		runnerTestRuntime: newRunnerTestRuntime(),
 	}
 	runtime.leaseResp = &fakeExecutionLease{
-		runtime:    runtime.runnerTestRuntime,
-		job:        JobHandle{JobKey: jobKey},
-		capability: "lease-job",
+		runtime: runtime.runnerTestRuntime,
+		job:     JobHandle{JobKey: jobKey},
+		route:   Route{JobType: "lease-job"},
 	}
 	runtime.checkJobStatusHook = func(key JobKey) (JobStatus, error) {
 		runtime.mu.Lock()

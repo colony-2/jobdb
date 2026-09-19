@@ -29,6 +29,9 @@ func (r *Runtime) CancelJob(ctx context.Context, req jobdb.CancelJobRequest) err
 
 // ListJobs reads native scheduler rows and projects the stable JobDB summary.
 func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
+	if err := req.ValidateRoutes(); err != nil {
+		return jobdb.ListJobsResponse{}, err
+	}
 	if err := r.validate(); err != nil {
 		return jobdb.ListJobsResponse{}, err
 	}
@@ -78,14 +81,14 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 }
 
 func jobSummaryFromStored(row StoredJob) (jobdb.JobSummary, error) {
-	nextNeed := row.RouteJobType
+	nextRoute := jobdb.Route{JobType: row.RouteJobType}
 	if row.WorkKind == WorkKindTask && row.TaskWork != nil {
-		nextNeed += ":" + row.TaskWork.TaskType
+		nextRoute.TaskType = row.TaskWork.TaskType
 	}
 	summary := jobdb.JobSummary{
 		JobKey: row.JobKey, Status: row.Status, JobType: row.JobType,
 		ClientPayload: append([]byte(nil), row.ClientPayload...), ClientPayloadRevision: row.ClientPayloadRevision, ExecutionState: executionState(row.RunPolicy, row.TaskWork),
-		NextNeed: &nextNeed, WaitFor: append([]string(nil), row.WaitForJobIDs...),
+		NextRoute: &nextRoute, WaitFor: append([]string(nil), row.WaitForJobIDs...),
 		AvailableAt: row.AvailableAt, ExpiresAt: row.ExpiresAt,
 		LeaseExpiresAt: row.LeaseExpiresAt, CancelRequested: row.CancelRequested,
 		CreatedAt: row.CreatedAt, ArchivedAt: row.ArchivedAt,
@@ -96,10 +99,6 @@ func jobSummaryFromStored(row StoredJob) (jobdb.JobSummary, error) {
 		if row.TaskWork == nil {
 			return jobdb.JobSummary{}, fmt.Errorf("task route for %s is missing coordinates", row.JobKey)
 		}
-		input, output, hash, next := row.TaskWork.InputOrdinal, row.TaskWork.OutputOrdinal,
-			row.TaskWork.InputHash, row.TaskWork.ResumeJobType
-		summary.TaskWaitInput, summary.TaskWaitOutput = &input, &output
-		summary.TaskWaitInputHash, summary.TaskWaitNext = &hash, &next
 	}
 	return summary, nil
 }

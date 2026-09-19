@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -13,8 +12,8 @@ type runtimeListedTaskHandle struct {
 	jobKey        JobKey
 	metadata      json.RawMessage
 	createdAt     time.Time
-	capability    string
-	resumeNeed    string
+	route         Route
+	resumeJobType string
 	taskType      string
 	inputOrdinal  int64
 	outputOrdinal int64
@@ -22,13 +21,19 @@ type runtimeListedTaskHandle struct {
 }
 
 func findWaitingTasksFromRuntime(ctx context.Context, runtime WorkflowRuntime, req FindTasksWaitingRequest) ([]TaskHandle, error) {
+	if err := (Route{JobType: req.JobType, TaskType: req.TaskType}).Validate(); err != nil {
+		return nil, err
+	}
+	if req.TaskType == "" {
+		return nil, fmt.Errorf("task type required")
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if len(req.TenantIds) == 0 {
 		return nil, fmt.Errorf("tenant_ids is required for task discovery")
 	}
-	capability := workerCapability(req.JobType, req.TaskType)
+	route := workerRoute(req.JobType, req.TaskType)
 	pageToken := ""
 	handles := make([]TaskHandle, 0)
 	remaining := req.Limit
@@ -49,7 +54,7 @@ func findWaitingTasksFromRuntime(ctx context.Context, runtime WorkflowRuntime, r
 			return nil, err
 		}
 		for _, job := range resp.Jobs {
-			if currentNeedFromSummary(job) != capability {
+			if currentNeedFromSummary(job) != route {
 				continue
 			}
 			handle, ok := taskHandleFromJobSummary(runtime, job)
@@ -100,35 +105,27 @@ func getWaitingTaskFromRuntime(ctx context.Context, runtime WorkflowRuntime, key
 }
 
 func taskHandleFromJobSummary(runtime WorkflowRuntime, summary JobSummary) (TaskHandle, bool) {
-	if summary.TaskWaitInput == nil || summary.TaskWaitOutput == nil || summary.TaskWaitNext == nil || summary.NextNeed == nil {
+	wait := summary.ExecutionState.TaskWait
+	if wait == nil || summary.NextRoute == nil || summary.NextRoute.TaskType == "" {
 		return nil, false
 	}
-	capability := *summary.NextNeed
-	if capability == "" || !strings.Contains(capability, ":") {
+	route := *summary.NextRoute
+	resumeJobType := wait.ResumeJobType
+	if resumeJobType == "" {
 		return nil, false
 	}
-	resumeNeed := *summary.TaskWaitNext
-	if resumeNeed == "" {
-		return nil, false
-	}
-	taskType := taskTypeFromCapability(capability)
-	if taskType == "" || taskType == capability {
-		return nil, false
-	}
-	inputHash := ""
-	if summary.TaskWaitInputHash != nil {
-		inputHash = *summary.TaskWaitInputHash
-	}
+	taskType := route.TaskType
+	inputHash := wait.InputHash
 	return &runtimeListedTaskHandle{
 		runtime:       runtime,
 		jobKey:        summary.JobKey,
 		metadata:      append(json.RawMessage(nil), summary.Metadata...),
 		createdAt:     summary.CreatedAt,
-		capability:    capability,
-		resumeNeed:    resumeNeed,
+		route:         route,
+		resumeJobType: resumeJobType,
 		taskType:      taskType,
-		inputOrdinal:  *summary.TaskWaitInput,
-		outputOrdinal: *summary.TaskWaitOutput,
+		inputOrdinal:  wait.InputOrdinal,
+		outputOrdinal: wait.OutputOrdinal,
 		inputHash:     inputHash,
 	}, true
 }
@@ -159,8 +156,8 @@ func (h *runtimeListedTaskHandle) FinishWithClientPayload(ctx context.Context, t
 	return h.runtime.CompleteTaskIfWaiting(ctx, CompleteTaskIfWaitingRequest{
 		ClientPayloadUpdate: update,
 		JobKey:              h.jobKey,
-		Capability:          h.capability,
-		ResumeNeed:          h.resumeNeed,
+		Route:               h.route,
+		ResumeJobType:       h.resumeJobType,
 		InputOrdinal:        h.inputOrdinal,
 		OutputOrdinal:       h.outputOrdinal,
 		InputHash:           h.inputHash,
@@ -168,9 +165,9 @@ func (h *runtimeListedTaskHandle) FinishWithClientPayload(ctx context.Context, t
 	})
 }
 
-func currentNeedFromSummary(job JobSummary) string {
-	if job.NextNeed == nil {
-		return ""
+func currentNeedFromSummary(job JobSummary) Route {
+	if job.NextRoute == nil {
+		return Route{}
 	}
-	return *job.NextNeed
+	return *job.NextRoute
 }

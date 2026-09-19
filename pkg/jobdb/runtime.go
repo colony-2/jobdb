@@ -53,7 +53,7 @@ type JobHandle struct {
 type ExecutionLease interface {
 	LeaseID() string
 	Job() JobHandle
-	Capability() string
+	Route() Route
 	ClientPayload() json.RawMessage
 	ClientPayloadRevision() int64
 	ExecutionState() ExecutionState
@@ -86,7 +86,7 @@ type CancelJobRequest struct {
 type PollWorkRequest struct {
 	TenantId       string
 	WorkerID       string
-	Capabilities   []string
+	Routes         []Route
 	Limit          int
 	LongPollUntil  *time.Time
 	LeaseDuration  time.Duration
@@ -96,15 +96,15 @@ type PollWorkRequest struct {
 type GetJobLeaseRequest struct {
 	JobKey        JobKey
 	WorkerID      string
-	Capabilities  []string
+	Routes        []Route
 	LeaseDuration time.Duration
 }
 
 type CompleteTaskIfWaitingRequest struct {
 	ClientPayloadUpdate *ClientPayloadUpdate
 	JobKey              JobKey
-	Capability          string
-	ResumeNeed          string
+	Route               Route
+	ResumeJobType       string
 	InputOrdinal        int64
 	OutputOrdinal       int64
 	InputHash           string
@@ -158,11 +158,11 @@ type CompleteExecutionRequest struct {
 }
 
 type RescheduleExecutionRequest struct {
-	NextNeed            string
+	NextRoute           Route
 	WaitUntil           *time.Time
 	WaitForJobIDs       []string
 	TaskWait            *TaskWait
 	ClientPayloadUpdate *ClientPayloadUpdate
-	AlternateNeed       string
+	AlternateRoute      *Route
 	AlternateAfter      *time.Duration
 }

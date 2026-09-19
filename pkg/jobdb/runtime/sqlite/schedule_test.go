@@ -133,10 +133,10 @@ func TestScheduleLeasePreflightSubmitsSerialSuccessorBeforeReturningLease(t *tes
 	}
 
 	leases, err := embedded.Runtime.PollWork(ctx, jobdb.PollWorkRequest{
-		TenantId:     "tenant",
-		WorkerID:     "worker-a",
-		Capabilities: []string{"scheduled-job"},
-		Limit:        1,
+		TenantId: "tenant",
+		WorkerID: "worker-a",
+		Routes:   []jobdb.Route{{JobType: "scheduled-job"}},
+		Limit:    1,
 	})
 	if err != nil {
 		t.Fatalf("poll work: %v", err)
@@ -224,10 +224,10 @@ func TestScheduledTargetArtifactsAreSnapshottedAndReplayed(t *testing.T) {
 	assertScheduleStartArtifact(t, ctx, embedded.Runtime, *info.NextJobKey, "input.txt", want)
 
 	leases, err := embedded.Runtime.PollWork(ctx, jobdb.PollWorkRequest{
-		TenantId:     "tenant",
-		WorkerID:     "worker-a",
-		Capabilities: []string{"scheduled-job"},
-		Limit:        1,
+		TenantId: "tenant",
+		WorkerID: "worker-a",
+		Routes:   []jobdb.Route{{JobType: "scheduled-job"}},
+		Limit:    1,
 	})
 	if err != nil {
 		t.Fatalf("poll first run: %v", err)
@@ -269,10 +269,10 @@ func TestPausedScheduleCancelsUnstartedOccurrenceWithReason(t *testing.T) {
 	}
 
 	leases, err := embedded.Runtime.PollWork(ctx, jobdb.PollWorkRequest{
-		TenantId:     "tenant",
-		WorkerID:     "worker-a",
-		Capabilities: []string{"scheduled-job"},
-		Limit:        1,
+		TenantId: "tenant",
+		WorkerID: "worker-a",
+		Routes:   []jobdb.Route{{JobType: "scheduled-job"}},
+		Limit:    1,
 	})
 	if err != nil {
 		t.Fatalf("poll work: %v", err)
@@ -373,10 +373,10 @@ func TestScheduleFailurePolicyCancelsSuccessorBeforeAppLease(t *testing.T) {
 	}
 
 	leases, err := embedded.Runtime.PollWork(ctx, jobdb.PollWorkRequest{
-		TenantId:     "tenant",
-		WorkerID:     "worker-a",
-		Capabilities: []string{"scheduled-job"},
-		Limit:        1,
+		TenantId: "tenant",
+		WorkerID: "worker-a",
+		Routes:   []jobdb.Route{{JobType: "scheduled-job"}},
+		Limit:    1,
 	})
 	if err != nil {
 		t.Fatalf("poll first run: %v", err)
@@ -386,7 +386,7 @@ func TestScheduleFailurePolicyCancelsSuccessorBeforeAppLease(t *testing.T) {
 	}
 	failedChapter := jobdb.Chapter{
 		Ordinal:   1,
-		TaskType:  leases[0].Capability(),
+		TaskType:  leases[0].Route().JobType,
 		CreatedAt: time.Now().UTC(),
 		Body: jobdb.JobAttemptOutcomeChapter{Outcome: jobdb.AppErrorOutcome{
 			Error: jobdb.AppErrorPayload{Message: "boom", Level: "error"},
@@ -398,10 +398,10 @@ func TestScheduleFailurePolicyCancelsSuccessorBeforeAppLease(t *testing.T) {
 	time.Sleep(3 * time.Millisecond)
 
 	leases, err = embedded.Runtime.PollWork(ctx, jobdb.PollWorkRequest{
-		TenantId:     "tenant",
-		WorkerID:     "worker-a",
-		Capabilities: []string{"scheduled-job"},
-		Limit:        1,
+		TenantId: "tenant",
+		WorkerID: "worker-a",
+		Routes:   []jobdb.Route{{JobType: "scheduled-job"}},
+		Limit:    1,
 	})
 	if err != nil {
 		t.Fatalf("poll successor: %v", err)
@@ -437,7 +437,7 @@ func TestStartedScheduleRunIsReleasableAfterPauseAndLeaseExpiry(t *testing.T) {
 	leases, err := embedded.Runtime.PollWork(ctx, jobdb.PollWorkRequest{
 		TenantId:      "tenant",
 		WorkerID:      "worker-a",
-		Capabilities:  []string{"scheduled-job"},
+		Routes:        []jobdb.Route{{JobType: "scheduled-job"}},
 		Limit:         1,
 		LeaseDuration: 25 * time.Millisecond,
 	})
@@ -469,10 +469,10 @@ func TestStartedScheduleRunIsReleasableAfterPauseAndLeaseExpiry(t *testing.T) {
 	time.Sleep(40 * time.Millisecond)
 
 	leases, err = embedded.Runtime.PollWork(ctx, jobdb.PollWorkRequest{
-		TenantId:     "tenant",
-		WorkerID:     "worker-b",
-		Capabilities: []string{"scheduled-job"},
-		Limit:        1,
+		TenantId: "tenant",
+		WorkerID: "worker-b",
+		Routes:   []jobdb.Route{{JobType: "scheduled-job"}},
+		Limit:    1,
 	})
 	if err != nil {
 		t.Fatalf("poll recovery lease: %v", err)

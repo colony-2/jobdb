@@ -228,12 +228,11 @@ func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRu
 				continue
 			}
 		}
-		payloadCopy := cloneJSON(rec.payload)
 		job := jobdb.JobSummary{
 			JobKey:          key,
 			Status:          rec.status,
 			JobType:         rec.jobType,
-			NextNeed:        cloneString(rec.capability),
+			NextRoute:       jobdb.CloneRoute(&rec.route),
 			WaitFor:         append([]string(nil), rec.waitFor...),
 			AvailableAt:     rec.availableAt,
 			CancelRequested: rec.cancelled,
@@ -241,12 +240,6 @@ func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRu
 			ArchivedAt:      cloneTime(rec.archived),
 			ClientPayload:   cloneJSON(rec.clientPayload), ClientPayloadRevision: rec.clientPayloadRevision, ExecutionState: toyExecutionState(rec.payload),
 			Metadata: jobdb.StripRuntimeMetadata(rec.metadata),
-		}
-		if wait, waitErr := extractWorkerTaskWait(payloadCopy); waitErr == nil && wait != nil {
-			job.TaskWaitInput = &wait.InputStep
-			job.TaskWaitOutput = &wait.OutputStep
-			job.TaskWaitInputHash = cloneStringPtr(&wait.InputHash)
-			job.TaskWaitNext = cloneStringPtr(&wait.Next)
 		}
 		rec.mu.Unlock()
 		out = append(out, jobdb.ScheduleRunSummary{
@@ -396,7 +389,7 @@ func (r *Runtime) submitScheduledOccurrenceWithJobID(ctx context.Context, info j
 		createdAt:   now,
 		metadata:    schedulerMetadata,
 		payload:     payloadJSON,
-		capability:  target.JobType,
+		route:       jobdb.Route{JobType: target.JobType},
 		chapters:    make(map[int64]*toyChapter),
 		availableAt: scheduledAt.UTC(),
 		waitFor:     waitFor,

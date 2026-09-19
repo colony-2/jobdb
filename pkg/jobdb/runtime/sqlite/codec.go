@@ -374,24 +374,13 @@ func jobExecutionState(raw []byte) jobdb.ExecutionState {
 	}
 	state := jobdb.ExecutionState{RunPolicy: p.RunPolicy}
 	if t := p.TaskWait; t != nil {
-		state.TaskWait = &jobdb.TaskWait{InputOrdinal: t.InputStep, OutputOrdinal: t.OutputStep, InputHash: t.InputHash, ResumeNeed: t.Next}
+		state.TaskWait = &jobdb.TaskWait{InputOrdinal: t.InputStep, OutputOrdinal: t.OutputStep, InputHash: t.InputHash, ResumeJobType: t.Next}
 	}
 	return state
 }
 
-func taskTypeFromCapability(capability string) string {
-	parts := strings.SplitN(capability, ":", 2)
-	if len(parts) == 2 {
-		return parts[1]
-	}
-	return capability
-}
-
-func workerCapability(jobType, taskType string) string {
-	if taskType == "" {
-		return jobType
-	}
-	return jobType + ":" + taskType
+func workerRoute(jobType, taskType string) jobdb.Route {
+	return jobdb.Route{JobType: jobType, TaskType: taskType}
 }
 
 func metadataForStartChapter(raw json.RawMessage) json.RawMessage {

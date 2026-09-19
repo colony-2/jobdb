@@ -49,11 +49,11 @@ func TestRuntimeListJobsKeepsArchivedTaskSummary(t *testing.T) {
 	}
 	got := result.Jobs[0]
 	if got.Status != jobdb.JobStatusCompleted || got.JobType != "collect" ||
-		got.NextNeed == nil || *got.NextNeed != "collect:download" ||
-		got.TaskWaitInput == nil || *got.TaskWaitInput != 2 ||
-		got.TaskWaitOutput == nil || *got.TaskWaitOutput != 3 ||
-		got.TaskWaitNext == nil || *got.TaskWaitNext != "collect" ||
-		got.TaskWaitInputHash == nil || *got.TaskWaitInputHash != "sha256:input" ||
+		got.NextRoute == nil || *got.NextRoute != (jobdb.Route{JobType: "collect", TaskType: "download"}) ||
+		got.ExecutionState.TaskWait == nil || got.ExecutionState.TaskWait.InputOrdinal != 2 ||
+		got.ExecutionState.TaskWait.OutputOrdinal != 3 ||
+		got.ExecutionState.TaskWait.ResumeJobType != "collect" ||
+		got.ExecutionState.TaskWait.InputHash != "sha256:input" ||
 		string(got.ClientPayload) != `{}` || string(got.Metadata) != `{"source":"api"}` ||
 		got.SchemaHash != "schema-hash" || got.ParentJobID != "parent" ||
 		got.ArchivedAt == nil || !got.ArchivedAt.Equal(archived) ||

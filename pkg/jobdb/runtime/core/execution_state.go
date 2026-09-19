@@ -13,7 +13,7 @@ type TaskWork struct {
 func executionState(policy jobdb.RunPolicy, task *TaskWork) jobdb.ExecutionState {
 	state := jobdb.ExecutionState{RunPolicy: policy}
 	if task != nil {
-		state.TaskWait = &jobdb.TaskWait{InputOrdinal: task.InputOrdinal, OutputOrdinal: task.OutputOrdinal, InputHash: task.InputHash, ResumeNeed: task.ResumeJobType}
+		state.TaskWait = &jobdb.TaskWait{InputOrdinal: task.InputOrdinal, OutputOrdinal: task.OutputOrdinal, InputHash: task.InputHash, ResumeJobType: task.ResumeJobType}
 	}
 	return jobdb.CloneExecutionState(state)
 }

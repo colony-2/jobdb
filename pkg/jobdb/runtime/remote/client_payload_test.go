@@ -12,13 +12,19 @@ import (
 )
 
 func TestClientPayloadConformance(t *testing.T) {
+	runPayloadAndRouteConformance(t, runtimetest.RunClientPayloadConformance)
+}
+func TestRouteConformance(t *testing.T) {
+	runPayloadAndRouteConformance(t, runtimetest.RunRouteConformance)
+}
+func runPayloadAndRouteConformance(t *testing.T, run func(*testing.T, ...runtimetest.Harness)) {
 	for _, kind := range []string{"toy", "sqlite"} {
 		for _, remote := range []bool{false, true} {
 			name := kind
 			if remote {
 				name = "remote-" + name
 			}
-			runtimetest.RunClientPayloadConformance(t, runtimetest.Harness{Name: name, New: func(tb testing.TB) runtimetest.Fixture {
+			run(t, runtimetest.Harness{Name: name, New: func(tb testing.TB) runtimetest.Fixture {
 				var runtime jobdb.WorkflowRuntime = toyruntime.New()
 				cleanup := func() {}
 				if kind == "sqlite" {

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,14 +18,14 @@ type workerEngine struct {
 	awaitThreshold time.Duration
 	pollTenantId   string
 
-	mu           sync.RWMutex
-	workers      map[string]*WorkSet
-	capabilities []string
-	pollGroups   []pollGroup
+	mu         sync.RWMutex
+	workers    map[string]*WorkSet
+	routes     []Route
+	pollGroups []pollGroup
 }
 
 type pollGroup struct {
-	capabilities   []string
+	routes         []Route
 	metadataEquals []MetadataPredicate
 }
 
@@ -67,6 +66,17 @@ func (e *workerEngine) RegisterWorkers(workset *WorkSet) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	jobType := workset.JobWorker.Name()
+	if err := validateIdentifier(jobType); err != nil {
+		return err
+	}
+	for taskType, worker := range workset.TaskWorkers {
+		if err := validateIdentifier(taskType); err != nil {
+			return err
+		}
+		if worker == nil || worker.Name() != taskType {
+			return fmt.Errorf("task worker must match its registered task type")
+		}
+	}
 	if _, ok := e.workers[jobType]; ok {
 		return fmt.Errorf("worker %s already registered", jobType)
 	}
@@ -83,16 +93,16 @@ func (e *workerEngine) RegisterWorkers(workset *WorkSet) error {
 	}
 	clone.metadataEquals = predicates
 	e.workers[jobType] = &clone
-	e.refreshCapabilitiesLocked()
+	e.refreshRoutesLocked()
 	return nil
 }
 
-func (e *workerEngine) refreshCapabilitiesLocked() {
-	caps := make([]string, 0, len(e.workers)*2)
+func (e *workerEngine) refreshRoutesLocked() {
+	caps := make([]Route, 0, len(e.workers)*2)
 	groupMap := make(map[string]*pollGroup)
 	groupOrder := make([]string, 0, len(e.workers))
 	for jobType, ws := range e.workers {
-		caps = append(caps, jobType)
+		caps = append(caps, Route{JobType: jobType})
 		signature, err := metadataPredicateSignature(ws.metadataEquals)
 		if err != nil {
 			signature = ""
@@ -105,41 +115,43 @@ func (e *workerEngine) refreshCapabilitiesLocked() {
 			groupMap[signature] = group
 			groupOrder = append(groupOrder, signature)
 		}
-		group.capabilities = append(group.capabilities, jobType)
+		group.routes = append(group.routes, Route{JobType: jobType})
 		for taskType := range ws.TaskWorkers {
-			capability := workerCapability(jobType, taskType)
-			caps = append(caps, capability)
-			group.capabilities = append(group.capabilities, capability)
+			route := workerRoute(jobType, taskType)
+			caps = append(caps, route)
+			group.routes = append(group.routes, route)
 		}
 	}
-	e.capabilities = caps
-	sort.Strings(e.capabilities)
+	e.routes = caps
+	sortRoutes(e.routes)
 	groups := make([]pollGroup, 0, len(groupOrder))
 	for _, signature := range groupOrder {
 		group := groupMap[signature]
 		if group == nil {
 			continue
 		}
-		sort.Strings(group.capabilities)
+		sortRoutes(group.routes)
 		groups = append(groups, pollGroup{
-			capabilities:   append([]string(nil), group.capabilities...),
+			routes:         append([]Route(nil), group.routes...),
 			metadataEquals: cloneMetadataPredicates(group.metadataEquals),
 		})
 	}
 	sort.Slice(groups, func(i, j int) bool {
 		if len(groups[i].metadataEquals) == len(groups[j].metadataEquals) {
-			return strings.Join(groups[i].capabilities, ",") < strings.Join(groups[j].capabilities, ",")
+			left, _ := metadataPredicateSignature(groups[i].metadataEquals)
+			right, _ := metadataPredicateSignature(groups[j].metadataEquals)
+			return left < right
 		}
 		return len(groups[i].metadataEquals) < len(groups[j].metadataEquals)
 	})
 	e.pollGroups = groups
 }
 
-func (e *workerEngine) capabilitiesSnapshot() []string {
+func (e *workerEngine) routesSnapshot() []Route {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	caps := make([]string, len(e.capabilities))
-	copy(caps, e.capabilities)
+	caps := make([]Route, len(e.routes))
+	copy(caps, e.routes)
 	return caps
 }
 
@@ -149,17 +161,17 @@ func (e *workerEngine) pollGroupsSnapshot() []pollGroup {
 	out := make([]pollGroup, 0, len(e.pollGroups))
 	for _, group := range e.pollGroups {
 		out = append(out, pollGroup{
-			capabilities:   append([]string(nil), group.capabilities...),
+			routes:         append([]Route(nil), group.routes...),
 			metadataEquals: cloneMetadataPredicates(group.metadataEquals),
 		})
 	}
 	return out
 }
 
-func (e *workerEngine) workSetForCapability(capability string) (*WorkSet, bool) {
+func (e *workerEngine) workSetForRoute(route Route) (*WorkSet, bool) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	jobType := JobTypeFromNextNeed(capability)
+	jobType := route.JobType
 	ws, ok := e.workers[jobType]
 	return ws, ok
 }
@@ -235,7 +247,7 @@ func (e *workerEngine) Run(ctx context.Context) {
 			leases, err := e.runtime.PollWork(ctx, PollWorkRequest{
 				TenantId:       e.pollTenantId,
 				WorkerID:       workerID,
-				Capabilities:   group.capabilities,
+				Routes:         group.routes,
 				Limit:          1,
 				MetadataEquals: cloneMetadataPredicates(group.metadataEquals),
 			})
@@ -337,9 +349,9 @@ func cloneMetadataPredicates(predicates []MetadataPredicate) []MetadataPredicate
 }
 
 func (e *workerEngine) runLease(ctx context.Context, lease ExecutionLease, workerID string) {
-	workset, ok := e.workSetForCapability(lease.Capability())
+	workset, ok := e.workSetForRoute(lease.Route())
 	if !ok {
-		e.logger.Error("no workset found for capability", "capability", lease.Capability(), "job", lease.Job().JobKey)
+		e.logger.Error("no workset found for route", "route", lease.Route(), "job", lease.Job().JobKey)
 		return
 	}
 	_, _ = runClaimedJobLease(ctx, e.runtime, workset, lease, claimedJobRunOptions{
@@ -377,7 +389,7 @@ func replayRuntimeJob(ctx context.Context, runtime WorkflowRuntime, spec *replay
 	if jobType == "" {
 		jobType = chapter.TaskType
 	}
-	ws, ok := spec.engine.workSetForCapability(jobType)
+	ws, ok := spec.engine.workSetForRoute(Route{JobType: jobType})
 	if !ok {
 		return nil, fmt.Errorf("job worker %s not registered", jobType)
 	}
@@ -390,11 +402,20 @@ func replayRuntimeJob(ctx context.Context, runtime WorkflowRuntime, spec *replay
 
 	runner := newWorkerRunner(replayRuntime, ws, nil, workerRunnerOptions{
 		JobKey:         jobKey,
-		Logger:         spec.engine.logger.With("job", jobKey.String(), "capability", jobType),
+		Logger:         spec.engine.logger.With("job", jobKey.String(), "route", jobType),
 		WorkerID:       spec.engine.workerID,
 		Observer:       spec.observer,
 		Replay:         true,
 		AwaitThreshold: spec.engine.awaitThreshold,
 	})
 	return runner.DoJob(ctx)
+}
+
+func sortRoutes(routes []Route) {
+	sort.Slice(routes, func(i, j int) bool {
+		if routes[i].JobType != routes[j].JobType {
+			return routes[i].JobType < routes[j].JobType
+		}
+		return routes[i].TaskType < routes[j].TaskType
+	})
 }

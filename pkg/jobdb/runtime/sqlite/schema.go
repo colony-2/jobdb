@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS jobdb_jobs (
 	tenant_id TEXT NOT NULL,
 	job_id TEXT NOT NULL,
 	job_type TEXT NOT NULL,
-	next_need TEXT NOT NULL,
+	route_job_type TEXT NOT NULL,
+ route_task_type TEXT NOT NULL DEFAULT '',
 	payload BLOB NOT NULL DEFAULT x'',
  client_payload BLOB,
  client_payload_revision INTEGER NOT NULL DEFAULT 0,
@@ -29,13 +30,14 @@ CREATE TABLE IF NOT EXISTS jobdb_jobs (
 	lease_id TEXT,
 	lease_worker_id TEXT,
 	lease_expires_at_ns INTEGER,
-	alternate_need TEXT,
+	alternate_job_type TEXT,
+ alternate_task_type TEXT,
 	alternate_at_ns INTEGER,
 	PRIMARY KEY (tenant_id, job_id)
 );
 
 CREATE INDEX IF NOT EXISTS jobdb_jobs_poll_idx
-	ON jobdb_jobs (archived_at_ns, tenant_id, next_need, available_at_ns, created_at_ns);
+	ON jobdb_jobs (archived_at_ns, tenant_id, route_job_type, route_task_type, available_at_ns, created_at_ns);
 
 CREATE INDEX IF NOT EXISTS jobdb_jobs_list_idx
 	ON jobdb_jobs (tenant_id, created_at_ns DESC, job_id DESC);
@@ -83,7 +85,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version != 2 {
+	if version != 3 {
 		var tables int
 		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tables); err != nil {
 			return err
@@ -97,7 +99,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, schemaSQL+"; PRAGMA user_version=2;"); err != nil {
+	if _, err := tx.ExecContext(ctx, schemaSQL+"; PRAGMA user_version=3;"); err != nil {
 		return fmt.Errorf("sqlite runtime: initialize: %w", err)
 	}
 	return tx.Commit()

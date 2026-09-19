@@ -15,6 +15,12 @@ import (
 // CompleteTaskIfWaiting writes an external task result only while the native
 // scheduler still waits for the exact task coordinates.
 func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteTaskIfWaitingRequest) error {
+	if err := req.Route.Validate(); err != nil {
+		return err
+	}
+	if req.Route.TaskType == "" {
+		return fmt.Errorf("task route required")
+	}
 	if err := r.validate(); err != nil {
 		return err
 	}
@@ -32,11 +38,11 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 		return err
 	}
 	task := waiting.Task
-	capability := waiting.JobType + ":" + task.TaskType
-	if req.Capability != "" && req.Capability != capability {
-		return fmt.Errorf("%w: waiting capability differs from request", jobdb.ErrConflict)
+	route := jobdb.Route{JobType: waiting.JobType, TaskType: task.TaskType}
+	if req.Route != route {
+		return fmt.Errorf("%w: waiting route differs from request", jobdb.ErrConflict)
 	}
-	if req.ResumeNeed != "" && req.ResumeNeed != task.ResumeJobType {
+	if req.ResumeJobType != "" && req.ResumeJobType != task.ResumeJobType {
 		return fmt.Errorf("%w: waiting resume route differs from request", jobdb.ErrConflict)
 	}
 	if req.InputOrdinal != 0 && req.InputOrdinal != task.InputOrdinal {

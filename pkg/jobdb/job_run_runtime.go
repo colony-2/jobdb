@@ -313,12 +313,12 @@ func buildRuntimeTaskRunFromSummary(
 	includeArtifacts bool,
 	includeAttemptInputs bool,
 ) (TaskRun, bool, error) {
-	currentNeed := currentNeedFromJobSummary(job)
-	if currentNeed == "" {
+	currentRoute := currentRouteFromJobSummary(job)
+	if currentRoute.JobType == "" {
 		return TaskRun{}, false, nil
 	}
 
-	state, runtime := runtimeStateFromJobSummary(job, currentNeed)
+	state, runtime := runtimeStateFromJobSummary(job, currentRoute)
 	if state == "" {
 		return TaskRun{}, false, nil
 	}
@@ -342,8 +342,8 @@ func buildRuntimeTaskRunFromSummary(
 	}
 
 	return TaskRun{
-		TaskRunID: fmt.Sprintf("%s:%d", currentNeed, runtimeOrdinal),
-		TaskType:  currentNeed,
+		TaskRunID: fmt.Sprintf("%s:%d", routeWorkType(currentRoute), runtimeOrdinal),
+		TaskType:  routeWorkType(currentRoute),
 		Attempts: []TaskAttempt{{
 			Ordinal:  runtimeOrdinal,
 			Attempt:  1,
@@ -355,13 +355,13 @@ func buildRuntimeTaskRunFromSummary(
 	}, true, nil
 }
 
-func runtimeStateFromJobSummary(job JobSummary, currentNeed string) (string, *TaskRuntime) {
-	if currentNeed == "" {
+func runtimeStateFromJobSummary(job JobSummary, currentRoute Route) (string, *TaskRuntime) {
+	if currentRoute.JobType == "" {
 		return "", nil
 	}
 
 	runtime := &TaskRuntime{
-		NextNeed:       strPtr(currentNeed),
+		NextRoute:      &currentRoute,
 		AvailableAt:    timePtr(job.AvailableAt),
 		WaitFor:        append([]string(nil), job.WaitFor...),
 		LeaseExpiresAt: cloneTimePtr(job.LeaseExpiresAt),
@@ -383,11 +383,11 @@ func runtimeStateFromJobSummary(job JobSummary, currentNeed string) (string, *Ta
 	}
 }
 
-func currentNeedFromJobSummary(job JobSummary) string {
-	if job.NextNeed != nil && *job.NextNeed != "" {
-		return *job.NextNeed
+func currentRouteFromJobSummary(job JobSummary) Route {
+	if job.NextRoute != nil && job.NextRoute.JobType != "" {
+		return *job.NextRoute
 	}
-	return job.JobType
+	return Route{JobType: job.JobType}
 }
 
 func runPolicyFromJobSummary(job JobSummary) (RunPolicy, bool) {
@@ -571,11 +571,7 @@ func cloneJobSummary(job JobSummary) JobSummary {
 	cloned.Metadata = append(json.RawMessage(nil), job.Metadata...)
 	cloned.ExpiresAt = cloneTimePtr(job.ExpiresAt)
 	cloned.LeaseExpiresAt = cloneTimePtr(job.LeaseExpiresAt)
-	cloned.TaskWaitInput = cloneInt64Ptr(job.TaskWaitInput)
-	cloned.TaskWaitOutput = cloneInt64Ptr(job.TaskWaitOutput)
-	cloned.TaskWaitInputHash = cloneStringPtr(job.TaskWaitInputHash)
-	cloned.TaskWaitNext = cloneStringPtr(job.TaskWaitNext)
-	cloned.NextNeed = cloneStringPtr(job.NextNeed)
+	cloned.NextRoute = CloneRoute(job.NextRoute)
 	return cloned
 }
 
@@ -638,4 +634,11 @@ func strPtr(s string) *string {
 	}
 	value := s
 	return &value
+}
+
+func routeWorkType(route Route) string {
+	if route.TaskType != "" {
+		return route.TaskType
+	}
+	return route.JobType
 }

@@ -10,12 +10,12 @@ import (
 
 func TestRescheduleRejectsRemovedAndImmutableFields(t *testing.T) {
 	typ := reflect.TypeOf(runtimeapi.RescheduleExecutionRequest{})
-	for _, raw := range []string{`{"payload":{}}`, `{"runPolicy":{}}`, `{"clientPayloadUpdate":null}`, `{"taskWait":{"run_policy":{}}}`} {
+	for _, raw := range []string{`{"nextNeed":"job"}`, `{"alternateNeed":"job"}`, `{"payload":{}}`, `{"runPolicy":{}}`, `{"clientPayloadUpdate":null}`, `{"taskWait":{"run_policy":{}}}`} {
 		if err := validateRequestFields([]byte(raw), typ, ""); err == nil {
 			t.Fatalf("accepted removed field: %s", raw)
 		}
 	}
-	raw := []byte(`{"nextNeed":"job","clientPayloadUpdate":{"mode":"reset","expectedRevision":"1","value":{"run_policy":1,"task_wait":2}}}`)
+	raw := []byte(`{"nextRoute":{"jobType":"job"},"clientPayloadUpdate":{"mode":"reset","expectedRevision":"1","value":{"run_policy":1,"task_wait":2}}}`)
 	if err := validateRequestFields(raw, typ, ""); err != nil {
 		t.Fatal(err)
 	}

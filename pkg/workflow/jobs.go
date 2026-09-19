@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"time"
 )
 
@@ -104,10 +103,8 @@ func AsWorkSet(jobWorker JobWorker, taskWorkers ...TaskWorker) (*WorkSet, error)
 }
 
 func AsWorkSetWithOptions(jobWorker JobWorker, opts WorkRegistrationOptions, taskWorkers ...TaskWorker) (*WorkSet, error) {
-	namePattern := regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-	if !namePattern.MatchString(jobWorker.Name()) {
-		fmt.Println(jobWorker.Name())
-		return nil, fmt.Errorf("invalid job worker name %s", jobWorker.Name())
+	if err := validateIdentifier(jobWorker.Name()); err != nil {
+		return nil, fmt.Errorf("job type: %w", err)
 	}
 	predicates, err := MetadataPredicates(opts.MetadataFilter)
 	if err != nil {
@@ -119,10 +116,10 @@ func AsWorkSetWithOptions(jobWorker JobWorker, opts WorkRegistrationOptions, tas
 
 	tasks := make(map[string]TaskWorker)
 	for _, tw := range taskWorkers {
+		if err := validateIdentifier(tw.Name()); err != nil {
+			return nil, fmt.Errorf("task type: %w", err)
+		}
 		if _, ok := tasks[tw.Name()]; ok {
-			if !namePattern.MatchString(tw.Name()) {
-				return nil, fmt.Errorf("invalid task worker name %s", tw.Name())
-			}
 			return nil, fmt.Errorf("task worker with name %s already registered", tw.Name())
 		}
 		tasks[tw.Name()] = tw

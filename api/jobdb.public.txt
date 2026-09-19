@@ -106,6 +106,7 @@ type ChapterRef struct
   field TaskType string
 type ClientPayloadUpdate = github.com/colony-2/jobdb/pkg/jobdb/clientpayload.Update
 func CloneExecutionState func(s ExecutionState) ExecutionState
+func CloneRoute func(route *Route) *Route
 type CompleteExecutionRequest struct
   field ClientPayloadUpdate *ClientPayloadUpdate
   field Status string
@@ -115,8 +116,8 @@ type CompleteExecutionRequest struct
 type CompleteTaskIfWaitingRequest struct
   field ClientPayloadUpdate *ClientPayloadUpdate
   field JobKey JobKey
-  field Capability string
-  field ResumeNeed string
+  field Route Route
+  field ResumeJobType string
   field InputOrdinal int64
   field OutputOrdinal int64
   field InputHash string
@@ -150,7 +151,6 @@ var ErrJobSchemaValidation error
 var ErrMissingInputHash error
 var ErrWorkflowNotDeterministic error
 type ExecutionLease interface
-  method Capability func() string
   method ClientPayload func() encoding/json.RawMessage
   method ClientPayloadRevision func() int64
   method Complete func(ctx context.Context, req CompleteExecutionRequest) error
@@ -159,6 +159,7 @@ type ExecutionLease interface
   method KeepAlive func(ctx context.Context) error
   method LeaseID func() string
   method Reschedule func(ctx context.Context, req RescheduleExecutionRequest) error
+  method Route func() Route
   method StopKeepAlive func()
   method SubmitJob func(ctx context.Context, req SubmitJobRequest) (JobHandle, error)
   method SubmitRestartJob func(ctx context.Context, req SubmitRestartJobRequest) (JobHandle, error)
@@ -172,7 +173,7 @@ type FieldName string
 type GetJobLeaseRequest struct
   field JobKey JobKey
   field WorkerID string
-  field Capabilities []string
+  field Routes []Route
   field LeaseDuration time.Duration
 func GetJobRun func(ctx context.Context, runtime WorkflowRuntime, req GetJobRunRequest) (GetJobRunResponse, error)
 type GetJobRunRequest struct
@@ -296,7 +297,7 @@ type JobSummary struct
   field JobKey JobKey
   field Status JobStatus
   field JobType string
-  field NextNeed *string
+  field NextRoute *Route
   field WaitFor []string
   field AvailableAt time.Time
   field ExpiresAt *time.Time
@@ -310,14 +311,9 @@ type JobSummary struct
   field Metadata encoding/json.RawMessage
   field SchemaHash string
   field ParentJobID string
-  field TaskWaitInput *int64
-  field TaskWaitOutput *int64
-  field TaskWaitInputHash *string
-  field TaskWaitNext *string
 type JobTaskFilter struct
   field JobType string
   field TaskType string
-func JobTypeFromNextNeed func(nextNeed string) string
 type ListChaptersRequest struct
   field JobKey JobKey
   field StartOrdinal int64
@@ -341,6 +337,7 @@ type ListJobsRequest struct
   field CreatedBefore *time.Time
   field PageSize int
   field PageToken string
+method ListJobsRequest.ValidateRoutes func() error
 type ListJobsResponse struct
   field Jobs []JobSummary
   field NextPageToken string
@@ -394,7 +391,7 @@ func ParseJobKey func(s string) (JobKey, error)
 type PollWorkRequest struct
   field TenantId string
   field WorkerID string
-  field Capabilities []string
+  field Routes []Route
   field Limit int
   field LongPollUntil *time.Time
   field LeaseDuration time.Duration
@@ -409,14 +406,14 @@ type RegisterJobSchemaRequest struct
   field TenantId string
   field Schema encoding/json.RawMessage
 type RescheduleExecutionRequest struct
-  field NextNeed string
+  field NextRoute Route
   field WaitUntil *time.Time
   field WaitForJobIDs []string
   field TaskWait *TaskWait
   field ClientPayloadUpdate *ClientPayloadUpdate
-  field AlternateNeed string
+  field AlternateRoute *Route
   field AlternateAfter *time.Duration
-func RescheduleTaskWait func(next string, task *TaskWait) (*TaskWait, error)
+func RescheduleTaskWait func(next Route, task *TaskWait) (*TaskWait, error)
 func ResolveJobSchemaSelector func(selector *JobSchemaSelector) (hash string, schema encoding/json.RawMessage, hasInline bool, err error)
 type RestartExtraChapter struct
   field Output ApplicationOutputBytes
@@ -426,6 +423,10 @@ type RetryPolicy struct
   field MaximumInterval Duration `yaml:"maximum_interval,omitempty"`
   field MaximumAttempts int32 `yaml:"maximum_attempts,omitempty"`
   field NonRetryableErrorTypes []string `yaml:"non_retryable_error_types,omitempty"`
+type Route struct
+  field JobType string `json:"jobType"`
+  field TaskType string `json:"taskType,omitempty"`
+method Route.Validate func() error
 type RunPolicy struct
   field Retry RetryPolicy `yaml:"retry,omitempty"`
   field InvocationTimeout *Duration `yaml:"invocation_timeout,omitempty"`
@@ -632,14 +633,14 @@ type TaskRun struct
 type TaskRuntime struct
   field LeaseOwner *string
   field LeaseExpiresAt *time.Time
-  field NextNeed *string
+  field NextRoute *Route
   field AvailableAt *time.Time
   field WaitFor []string
 type TaskWait struct
   field InputOrdinal int64 `json:"inputOrdinal"`
   field OutputOrdinal int64 `json:"outputOrdinal"`
   field InputHash string `json:"inputHash"`
-  field ResumeNeed string `json:"resumeNeed"`
+  field ResumeJobType string `json:"resumeJobType"`
 type TimeoutError struct
   field Payload TimeoutPayload
 method TimeoutError.As func(target any) bool
@@ -674,7 +675,9 @@ type UpsertScheduleRequest struct
   field ExpectedGeneration *int64
   field RequestTime time.Time
   field WorkerID string
+func ValidateAlternateRoute func(route *Route, after *time.Duration, task *TaskWait) error
 func ValidateApplicationMetadata func(raw encoding/json.RawMessage) error
+func ValidateIdentifier func(value string) error
 func ValidateJobSchemaHash func(hash string) error
 func ValidateScheduleRequest func(req UpsertScheduleRequest) error
 func WithTx func(ctx context.Context, tx *gorm.io/gorm.DB) context.Context
@@ -741,6 +744,7 @@ func MustDecodeNumberTaskData func(t testing.TB, data github.com/colony-2/jobdb/
 func MustWorkSet func(t testing.TB, job github.com/colony-2/jobdb/pkg/workflow.JobWorker, tasks ...github.com/colony-2/jobdb/pkg/workflow.TaskWorker) github.com/colony-2/jobdb/pkg/workflow.WorkSet
 func NumberTaskData func(n int) github.com/colony-2/jobdb/pkg/jobdb.TaskData
 func RunClientPayloadConformance func(t *testing.T, harnesses ...Harness)
+func RunRouteConformance func(t *testing.T, harnesses ...Harness)
 func RunWorkflowRuntimeConformance func(t *testing.T, harnesses ...Harness)
 const SequenceJobName untyped string = "seq"
 func WaitForEngineStatus func(t testing.TB, ctx context.Context, engine github.com/colony-2/jobdb/pkg/workflow.Engine, jobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey, want github.com/colony-2/jobdb/pkg/jobdb.JobStatus)
@@ -1221,9 +1225,9 @@ type JobRunOutcome struct
   field Output JobData
   field JobError error
   field JobStatus *JobStatus
-  field NextNeed *string
+  field NextRoute *Route
   field WaitForJobIDs []string
-  field MissingCapability *string
+  field MissingRoute *Route
 type JobRunStatus string
 type JobRunSummary = github.com/colony-2/jobdb/pkg/jobdb.JobRunSummary
 const JobRunSuspended JobRunStatus = "SUSPENDED"
@@ -1251,7 +1255,6 @@ const JobStatusReady github.com/colony-2/jobdb/pkg/jobdb.JobStatus = "READY"
 type JobStore = github.com/colony-2/jobdb/pkg/jobdb.JobStore
 type JobSummary = github.com/colony-2/jobdb/pkg/jobdb.JobSummary
 type JobTaskFilter = github.com/colony-2/jobdb/pkg/jobdb.JobTaskFilter
-func JobTypeFromNextNeed func(nextNeed string) string
 type JobWorker interface
   method Name func() string
   method Run func(JobContext, JobData) (JobData, error)
@@ -1305,6 +1308,7 @@ type ReplayRunRequest struct
 type RescheduleExecutionRequest = github.com/colony-2/jobdb/pkg/jobdb.RescheduleExecutionRequest
 type RestartExtraChapter = github.com/colony-2/jobdb/pkg/jobdb.RestartExtraChapter
 type RetryPolicy = github.com/colony-2/jobdb/pkg/jobdb.RetryPolicy
+type Route = github.com/colony-2/jobdb/pkg/jobdb.Route
 type RunPolicy = github.com/colony-2/jobdb/pkg/jobdb.RunPolicy
 type RuntimeBuildOptions struct
   field Logger *log/slog.Logger

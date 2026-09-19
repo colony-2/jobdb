@@ -24,7 +24,7 @@ func TestLeaseTokenMintForLeaseUsesExpiryAndSchemaHash(t *testing.T) {
 		workerID:    "worker-token",
 		expiresAt:   leaseExpiresAt,
 		schemaHash:  "sha256:schema",
-		capability:  "cap",
+		route:       jobdb.Route{JobType: "cap"},
 		payloadJSON: json.RawMessage(`{"ok":true}`),
 	}, 30*time.Second)
 	if err != nil {
@@ -164,13 +164,13 @@ type testExecutionLease struct {
 	workerID    string
 	expiresAt   time.Time
 	schemaHash  string
-	capability  string
+	route       jobdb.Route
 	payloadJSON json.RawMessage
 }
 
 func (l *testExecutionLease) LeaseID() string      { return l.leaseID }
 func (l *testExecutionLease) Job() jobdb.JobHandle { return jobdb.JobHandle{JobKey: l.jobKey} }
-func (l *testExecutionLease) Capability() string   { return l.capability }
+func (l *testExecutionLease) Route() jobdb.Route   { return l.route }
 func (l *testExecutionLease) ClientPayload() json.RawMessage {
 	return append(json.RawMessage(nil), l.payloadJSON...)
 }

@@ -76,7 +76,9 @@ type jobRecord struct {
 	payload               []byte
 	metadata              json.RawMessage
 	completionDetail      string
-	capability            string
+	route                 jobdb.Route
+	alternateRoute        *jobdb.Route
+	alternateAt           time.Time
 	step                  int64
 	waitFor               []string
 	availableAt           time.Time
@@ -265,7 +267,7 @@ func (e *ToyEngine) GetJobRun(ctx context.Context, req jobdb.GetJobRunRequest) (
 	for ord, chap := range record.chapters {
 		chapters[ord] = chap
 	}
-	capability := record.capability
+	route := record.route
 	pendingStep := record.step
 	status := record.status
 	finished := record.finished
@@ -383,8 +385,8 @@ func (e *ToyEngine) GetJobRun(ctx context.Context, req jobdb.GetJobRunRequest) (
 		attempts[idx].Outcome = outcome
 	}
 
-	if status != jobdb.JobStatusCompleted && capability != "" {
-		taskType := extractTaskType(capability)
+	if status != jobdb.JobStatusCompleted && route.JobType != "" {
+		taskType := extractTaskType(route)
 		input := (*jobdb.TaskIO)(nil)
 		if includeInputs {
 			if chap := chapters[pendingStep]; chap != nil {
@@ -412,7 +414,7 @@ func (e *ToyEngine) GetJobRun(ctx context.Context, req jobdb.GetJobRunRequest) (
 					Attempt: 1,
 					Input:   input,
 					State:   state,
-					Runtime: &jobdb.TaskRuntime{NextNeed: &capability},
+					Runtime: &jobdb.TaskRuntime{NextRoute: &route},
 				},
 			},
 		})
@@ -575,13 +577,11 @@ func buildToyArtifactInfos(ctx context.Context, artifacts []jobdb.Artifact, jobI
 	return out, nil
 }
 
-func extractTaskType(capability string) string {
-	for i := len(capability) - 1; i >= 0; i-- {
-		if capability[i] == ':' {
-			return capability[i+1:]
-		}
+func extractTaskType(route jobdb.Route) string {
+	if route.TaskType != "" {
+		return route.TaskType
 	}
-	return capability
+	return route.JobType
 }
 
 func containsStore(stores []jobdb.JobStore, store jobdb.JobStore) bool {
@@ -604,6 +604,9 @@ func containsString(values []string, target string) bool {
 
 // ListJobs returns in-memory job summaries ordered by created_at desc then job_id desc.
 func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
+	if err := req.ValidateRoutes(); err != nil {
+		return jobdb.ListJobsResponse{}, err
+	}
 	// Validate that TenantIds is provided - matches real engine behavior
 	if len(req.TenantIds) == 0 {
 		return jobdb.ListJobsResponse{}, fmt.Errorf("tenant_ids is required for ListJobs")
@@ -733,14 +736,14 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 		if len(req.JobTasks) == 0 {
 			return true
 		}
-		if rec.capability == "" {
+		if rec.route.JobType == "" {
 			return false
 		}
 		for _, pair := range req.JobTasks {
 			if pair.JobType == "" || pair.TaskType == "" {
 				continue
 			}
-			if rec.capability == pair.JobType+":"+pair.TaskType {
+			if rec.route == (jobdb.Route{JobType: pair.JobType, TaskType: pair.TaskType}) {
 				return true
 			}
 		}
@@ -838,17 +841,12 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 			}
 		}
 
-		payloadCopy := json.RawMessage(nil)
-		if len(rec.payload) > 0 {
-			payloadCopy = make([]byte, len(rec.payload))
-			copy(payloadCopy, rec.payload)
-		}
 		metadataCopy := jobdb.StripRuntimeMetadata(rec.metadata)
 		summary := jobdb.JobSummary{
 			JobKey:          key,
 			Status:          status,
 			JobType:         rec.jobType,
-			NextNeed:        cloneString(rec.capability),
+			NextRoute:       jobdb.CloneRoute(&rec.route),
 			WaitFor:         append([]string(nil), rec.waitFor...),
 			AvailableAt:     rec.createdAt,
 			ExpiresAt:       nil,
@@ -857,19 +855,9 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 			CreatedAt:       rec.createdAt,
 			ArchivedAt:      rec.archived,
 			ClientPayload:   cloneJSON(rec.clientPayload), ClientPayloadRevision: rec.clientPayloadRevision, ExecutionState: toyExecutionState(rec.payload),
-			Metadata:          metadataCopy,
-			SchemaHash:        jobmetadata.SchemaHashFromStoredMetadata(rec.metadata),
-			ParentJobID:       parentJobID,
-			TaskWaitInput:     nil,
-			TaskWaitOutput:    nil,
-			TaskWaitInputHash: nil,
-			TaskWaitNext:      nil,
-		}
-		if wait, err := extractWorkerTaskWait(payloadCopy); err == nil && wait != nil {
-			summary.TaskWaitInput = &wait.InputStep
-			summary.TaskWaitOutput = &wait.OutputStep
-			summary.TaskWaitInputHash = cloneStringPtr(&wait.InputHash)
-			summary.TaskWaitNext = cloneStringPtr(&wait.Next)
+			Metadata:    metadataCopy,
+			SchemaHash:  jobmetadata.SchemaHashFromStoredMetadata(rec.metadata),
+			ParentJobID: parentJobID,
 		}
 		rec.mu.Unlock()
 		records = append(records, summary)

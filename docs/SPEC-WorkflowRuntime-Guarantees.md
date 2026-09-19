@@ -13,7 +13,7 @@ Each job is one logical state machine.
 At any point in time, a job has logical state that includes things like:
 
 - Whether it is leaseable, leased, waiting, completed, or cancelled.
-- What capability it is currently waiting to run or resume.
+- The structured route it is currently waiting to run or resume.
 - What externally visible progress has already been committed.
 
 The visible chapter log is part of that logical job state. Chapters are the durable externally visible progress history for the job.
@@ -79,8 +79,8 @@ Additional requirements:
 
 When JobDB suspends a job on an external task, the runtime records a waiting slot with:
 
-- The current task capability.
-- The resume capability.
+- The current task route (`JobType` and `TaskType`).
+- The resume job type.
 - The input chapter ordinal.
 - The output chapter ordinal to be written by the external completion.
 - The deterministic input hash for that task invocation.
@@ -90,10 +90,10 @@ When JobDB suspends a job on an external task, the runtime records a waiting slo
 The operation must obey these rules:
 
 - It may commit the task output chapter only if the job is still waiting on the described slot.
-- `capability`, `resumeNeed`, `inputOrdinal`, `outputOrdinal`, and `inputHash` are guards. If a supplied guard does not match the current wait slot, the runtime must not apply the completion.
+- The structured `route` is required; `resumeJobType`, `inputOrdinal`, `outputOrdinal`, and `inputHash` are additional guards. If a supplied guard does not match the current wait slot, the runtime must not apply the completion.
 - A guard mismatch is a conflict error, not a partial mutation.
 - If the wait slot has already been satisfied by another actor, the runtime must not write a second output chapter for the same ordinal.
-- On success, the output chapter becomes visible at `outputOrdinal` and the job is advanced back to `resumeNeed`.
+- On success, the output chapter becomes visible at `outputOrdinal` and the job is advanced back to `resumeJobType`.
 
 `commit-if-waiting` is not a silent no-op API. A conflicting or stale completion attempt must fail with a conflict response rather than returning success.
 

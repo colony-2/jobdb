@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -394,17 +393,6 @@ func cleanupArtifacts(artifacts []Artifact, logger *slog.Logger) {
 	}
 }
 
-func workerCapability(jobType string, taskType string) string {
-	if taskType == "" {
-		return jobType
-	}
-	return jobType + ":" + taskType
-}
-
-func taskTypeFromCapability(capability string) string {
-	idx := strings.IndexByte(capability, ':')
-	if idx < 0 {
-		return capability
-	}
-	return capability[idx+1:]
+func workerRoute(jobType string, taskType string) Route {
+	return Route{JobType: jobType, TaskType: taskType}
 }

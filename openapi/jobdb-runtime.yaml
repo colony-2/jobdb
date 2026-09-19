@@ -1660,7 +1660,7 @@ components:
     PollWorkRequest:
       type: object
       additionalProperties: false
-      required: [tenantId, workerId, capabilities, limit]
+      required: [tenantId, workerId, routes, limit]
       properties:
         tenantId:
           type: string
@@ -1668,10 +1668,10 @@ components:
           description: Required tenant polling target. Polling is scoped only to this tenant.
         workerId:
           type: string
-        capabilities:
+        routes:
           type: array
           items:
-            type: string
+            $ref: '#/components/schemas/Route'
         limit:
           type: integer
         longPollUntil:
@@ -1691,14 +1691,14 @@ components:
     GetJobLeaseRequest:
       type: object
       additionalProperties: false
-      required: [capabilities]
+      required: [routes]
       properties:
         workerId:
           type: string
-        capabilities:
+        routes:
           type: array
           items:
-            type: string
+            $ref: '#/components/schemas/Route'
         leaseDuration:
           type: string
           description: Duration string controlling how long the acquired lease should be held.
@@ -1720,9 +1720,22 @@ components:
       properties:
         leaseToken:
           type: string
+    Route:
+      type: object
+      additionalProperties: false
+      required: [jobType]
+      properties:
+        jobType:
+          type: string
+          minLength: 1
+          description: Opaque job identifier; punctuation has no routing meaning.
+        taskType:
+          type: string
+          x-go-type-skip-optional-pointer: true
+          description: Opaque task identifier; omitted or empty selects job work.
     TaskWait:
       type: object
-      required: [inputOrdinal, outputOrdinal, resumeNeed, inputHash]
+      required: [inputOrdinal, outputOrdinal, resumeJobType, inputHash]
       additionalProperties: false
       properties:
         inputOrdinal:
@@ -1731,7 +1744,7 @@ components:
         outputOrdinal:
           type: integer
           format: int64
-        resumeNeed:
+        resumeJobType:
           type: string
         inputHash:
           type: string
@@ -1745,7 +1758,7 @@ components:
           $ref: '#/components/schemas/TaskWait'
     ExecutionLease:
       type: object
-      required: [leaseId, leaseToken, job, capability, executionState, clientPayloadRevision]
+      required: [leaseId, leaseToken, job, route, executionState, clientPayloadRevision]
       additionalProperties: false
       properties:
         clientPayload:
@@ -1762,8 +1775,8 @@ components:
           type: string
         job:
           $ref: '#/components/schemas/JobHandle'
-        capability:
-          type: string
+        route:
+          $ref: '#/components/schemas/Route'
         schemaHash:
           $ref: '#/components/schemas/JobSchemaHash'
     CompleteExecutionRequest:
@@ -1790,14 +1803,15 @@ components:
             $ref: '#/components/schemas/ArtifactWrite'
     RescheduleExecutionRequest:
       type: object
+      required: [nextRoute]
       additionalProperties: false
       properties:
         taskWait:
           $ref: '#/components/schemas/TaskWait'
         clientPayloadUpdate:
           $ref: '#/components/schemas/ClientPayloadUpdate'
-        nextNeed:
-          type: string
+        nextRoute:
+          $ref: '#/components/schemas/Route'
         waitUntil:
           type: string
           format: date-time
@@ -1805,24 +1819,24 @@ components:
           type: array
           items:
             type: string
-        alternateNeed:
-          type: string
+        alternateRoute:
+          $ref: '#/components/schemas/Route'
         alternateAfter:
           type: string
           description: Duration string.
     CommitChapterIfWaitingRequest:
       type: object
-      required: [data]
+      required: [data, route]
       additionalProperties: false
       properties:
         clientPayloadUpdate:
           $ref: '#/components/schemas/ClientPayloadUpdate'
-        capability:
+        route:
+          $ref: '#/components/schemas/Route'
+          description: Required exact route of the waiting task.
+        resumeJobType:
           type: string
-          description: Optional guard for the currently waiting capability.
-        resumeNeed:
-          type: string
-          description: Optional guard or override for the resume capability.
+          description: Optional guard for the resume job type.
         inputOrdinal:
           type: integer
           format: int64
@@ -2107,11 +2121,8 @@ components:
           $ref: '#/components/schemas/JobStatus'
         jobType:
           type: string
-        nextNeed:
-          x-go-type: string
-          oneOf:
-            - type: string
-            - type: 'null'
+        nextRoute:
+          $ref: '#/components/schemas/Route'
         waitFor:
           type: array
           items:
@@ -2148,28 +2159,6 @@ components:
           $ref: '#/components/schemas/JobSchemaHash'
         parentJobId:
           type: string
-        taskWaitInput:
-          x-go-type: int64
-          oneOf:
-            - type: integer
-              format: int64
-            - type: 'null'
-        taskWaitOutput:
-          x-go-type: int64
-          oneOf:
-            - type: integer
-              format: int64
-            - type: 'null'
-        taskWaitInputHash:
-          x-go-type: string
-          oneOf:
-            - type: string
-            - type: 'null'
-        taskWaitNext:
-          x-go-type: string
-          oneOf:
-            - type: string
-            - type: 'null'
     ListJobsResponse:
       type: object
       required: [jobs]

@@ -264,7 +264,7 @@ type normalizedTaskAttempt struct {
 	Ordinal   int64                 `json:"ordinal"`
 	Attempt   int                   `json:"attempt"`
 	State     string                `json:"state,omitempty"`
-	NextNeed  *string               `json:"nextNeed,omitempty"`
+	NextRoute *jobdb.Route          `json:"nextRoute,omitempty"`
 	WaitFor   []string              `json:"waitFor,omitempty"`
 	Input     *normalizedTaskIO     `json:"input,omitempty"`
 	Output    *normalizedTaskIO     `json:"output,omitempty"`
@@ -295,18 +295,15 @@ type normalizedJobRun struct {
 }
 
 type normalizedJobSummary struct {
-	JobKey            jobdb.JobKey    `json:"jobKey"`
-	Status            jobdb.JobStatus `json:"status"`
-	JobType           string          `json:"jobType"`
-	NextNeed          *string         `json:"nextNeed,omitempty"`
-	WaitFor           []string        `json:"waitFor,omitempty"`
-	CancelRequested   bool            `json:"cancelRequested,omitempty"`
-	TaskWaitInput     *int64          `json:"taskWaitInput,omitempty"`
-	TaskWaitOutput    *int64          `json:"taskWaitOutput,omitempty"`
-	TaskWaitInputHash *string         `json:"taskWaitInputHash,omitempty"`
-	TaskWaitNext      *string         `json:"taskWaitNext,omitempty"`
-	Payload           string          `json:"payload,omitempty"`
-	Metadata          string          `json:"metadata,omitempty"`
+	JobKey          jobdb.JobKey    `json:"jobKey"`
+	Status          jobdb.JobStatus `json:"status"`
+	JobType         string          `json:"jobType"`
+	NextRoute       *jobdb.Route    `json:"nextRoute,omitempty"`
+	WaitFor         []string        `json:"waitFor,omitempty"`
+	CancelRequested bool            `json:"cancelRequested,omitempty"`
+	TaskWait        *jobdb.TaskWait `json:"taskWait,omitempty"`
+	Payload         string          `json:"payload,omitempty"`
+	Metadata        string          `json:"metadata,omitempty"`
 }
 
 type normalizedStoredChapter struct {
@@ -416,7 +413,7 @@ func normalizeJobRun(t *testing.T, run jobdb.GetJobRunResponse, outputErr error)
 					Retryable: ta.Retryable,
 				}
 				if ta.Runtime != nil {
-					taskAttempt.NextNeed = ta.Runtime.NextNeed
+					taskAttempt.NextRoute = ta.Runtime.NextRoute
 					taskAttempt.WaitFor = append([]string(nil), ta.Runtime.WaitFor...)
 				}
 				taskRun.Attempts = append(taskRun.Attempts, taskAttempt)
@@ -435,18 +432,15 @@ func normalizeJobSummaries(jobs []jobdb.JobSummary) []normalizedJobSummary {
 	out := make([]normalizedJobSummary, 0, len(jobs))
 	for _, job := range jobs {
 		item := normalizedJobSummary{
-			JobKey:            job.JobKey,
-			Status:            job.Status,
-			JobType:           job.JobType,
-			NextNeed:          cloneStringPtr(job.NextNeed),
-			WaitFor:           append([]string(nil), job.WaitFor...),
-			CancelRequested:   job.CancelRequested,
-			TaskWaitInput:     cloneInt64Ptr(job.TaskWaitInput),
-			TaskWaitOutput:    cloneInt64Ptr(job.TaskWaitOutput),
-			TaskWaitInputHash: cloneStringPtr(job.TaskWaitInputHash),
-			TaskWaitNext:      cloneStringPtr(job.TaskWaitNext),
-			Payload:           canonicalJSON(job.ClientPayload),
-			Metadata:          canonicalJSON(job.Metadata),
+			JobKey:          job.JobKey,
+			Status:          job.Status,
+			JobType:         job.JobType,
+			NextRoute:       jobdb.CloneRoute(job.NextRoute),
+			WaitFor:         append([]string(nil), job.WaitFor...),
+			CancelRequested: job.CancelRequested,
+			TaskWait:        jobdb.CloneExecutionState(job.ExecutionState).TaskWait,
+			Payload:         canonicalJSON(job.ClientPayload),
+			Metadata:        canonicalJSON(job.Metadata),
 		}
 		out = append(out, item)
 	}

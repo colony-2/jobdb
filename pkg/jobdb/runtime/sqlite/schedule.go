@@ -366,12 +366,12 @@ func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRu
 		if err != nil {
 			return jobdb.ListScheduleRunsResponse{}, err
 		}
-		nextNeed, _ := effectiveNextNeed(row, now)
+		nextRoute, _ := effectiveNextRoute(row, now)
 		job := jobdb.JobSummary{
 			JobKey:          key,
 			Status:          status,
 			JobType:         row.jobType,
-			NextNeed:        cloneString(nextNeed),
+			NextRoute:       jobdb.CloneRoute(&nextRoute),
 			WaitFor:         waitFor,
 			AvailableAt:     timeFromNS(row.availableAtNS),
 			LeaseExpiresAt:  nullTimeFromNS(row.leaseExpiresAtNS),
@@ -380,12 +380,6 @@ func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRu
 			ArchivedAt:      nullTimeFromNS(row.archivedAtNS),
 			ClientPayload:   cloneJSON(row.clientPayload), ClientPayloadRevision: row.clientPayloadRevision, ExecutionState: jobExecutionState(row.payload),
 			Metadata: jobdb.StripRuntimeMetadata(row.metadata),
-		}
-		if tw, waitErr := extractTaskWaitFromRaw(row.payload); waitErr == nil && tw != nil {
-			job.TaskWaitInput = &tw.InputStep
-			job.TaskWaitOutput = &tw.OutputStep
-			job.TaskWaitInputHash = cloneString(tw.InputHash)
-			job.TaskWaitNext = cloneString(tw.Next)
 		}
 		out = append(out, jobdb.ScheduleRunSummary{
 			JobSummary:  job,

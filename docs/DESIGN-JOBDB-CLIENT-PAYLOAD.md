@@ -9,7 +9,7 @@ Existing databases and APIs are replaced; see the [user migration guide](MIGRATI
 | Data | Ownership and lifetime |
 | --- | --- |
 | Immutable job settings | Existing immutable fields, including job run policy, remain set only on submission. No update or patch API. |
-| Scheduling state | `NextNeed`, waits, alternate routing, and pending-task coordinates are explicit typed fields. Each operation sets its applicable fields using the current operation semantics. |
+| Scheduling state | `NextRoute`, waits, alternate routing, and pending-task coordinates are explicit typed fields. Each operation sets its applicable fields using the current operation semantics. |
 | Client payload | One client-owned JSON value per job, automatically retained across tasks, retries, waits, and archival. Operations may explicitly patch or reset it. |
 
 Remove the combined `Payload`/`LeasePayload` API and its interpretation of
@@ -24,7 +24,7 @@ All four accept the same optional `ClientPayloadUpdate`.
 | Operation | Immutable settings | Scheduling and completion | Client payload |
 | --- | --- | --- | --- |
 | Submit job | Set once. | Set initial route, availability, and prerequisites. | Apply update to an absent value; omission leaves it absent. |
-| Reschedule job | Unchanged. | Set next route, waits, alternate route, and task coordinates; release lease even if `NextNeed` is unchanged. | Preserve, patch, or reset atomically with rescheduling. |
+| Reschedule job | Unchanged. | Set next route, waits, alternate route, and task coordinates; release lease even if `NextRoute` is unchanged. | Preserve, patch, or reset atomically with rescheduling. |
 | Complete task if waiting | Unchanged. | Match the waiting task, record its result, clear pending-task state, and set the resume route. | Preserve, patch, or reset as part of the accepted task completion. |
 | Complete job | Unchanged. | Record the final outcome and archive the job. | Preserve, patch, or reset before the final state becomes visible. |
 
@@ -37,10 +37,10 @@ Submission initializes state and complete-job finalization archives it separatel
 from writing the corresponding chapters.
 
 Expose `TaskWait` as a typed structure containing input/output ordinals, input
-hash, and resume route. Keep fields such as `NextNeed`, `WaitUntil`,
-`WaitForJobIDs`, `AlternateNeed`, and `AlternateAfter` directly on the requests
-where applicable. `CompleteTaskIfWaiting.ResumeNeed` is its explicit resume-route
-field. These fields use ordinary operation-specific assignment/default rules,
+hash, and resume route. Keep fields such as `NextRoute`, `WaitUntil`,
+`WaitForJobIDs`, `AlternateRoute`, and `AlternateAfter` directly on the requests
+where applicable. `CompleteTaskIfWaiting.ResumeJobType` guards the stored resume
+job type. These fields use ordinary operation-specific assignment/default rules,
 not a general patch/reset wrapper. There is no mutable run-policy setter.
 
 ## Client payload updates

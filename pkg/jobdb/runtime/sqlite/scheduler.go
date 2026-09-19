@@ -13,10 +13,10 @@ import (
 )
 
 const jobColumns = `
-tenant_id, job_id, job_type, next_need, payload, client_payload, client_payload_revision, initial_payload_digest, metadata, parent_job_id, wait_for,
+tenant_id, job_id, job_type, route_job_type, route_task_type, payload, client_payload, client_payload_revision, initial_payload_digest, metadata, parent_job_id, wait_for,
 available_at_ns, created_at_ns, updated_at_ns, archived_at_ns,
 cancel_requested, completion_status, completion_detail,
-lease_id, lease_worker_id, lease_expires_at_ns, alternate_need, alternate_at_ns
+lease_id, lease_worker_id, lease_expires_at_ns, alternate_job_type, alternate_task_type, alternate_at_ns
 `
 
 type jobRow struct {
@@ -26,7 +26,7 @@ type jobRow struct {
 	tenantID              string
 	jobID                 string
 	jobType               string
-	nextNeed              string
+	nextRoute             jobdb.Route
 	payload               []byte
 	metadata              json.RawMessage
 	parentJobID           sql.NullString
@@ -41,13 +41,14 @@ type jobRow struct {
 	leaseID               sql.NullString
 	leaseWorkerID         sql.NullString
 	leaseExpiresAtNS      sql.NullInt64
-	alternateNeed         sql.NullString
+	alternateRoute        *jobdb.Route
 	alternateAtNS         sql.NullInt64
 }
 
 func scanJobRow(scanner interface{ Scan(dest ...any) error }) (jobRow, error) {
 	var row jobRow
 	var cancelRequested int
+	var alternateJob, alternateTask sql.NullString
 	var payload, client []byte
 	var metadata []byte
 	var waitFor []byte
@@ -55,7 +56,7 @@ func scanJobRow(scanner interface{ Scan(dest ...any) error }) (jobRow, error) {
 		&row.tenantID,
 		&row.jobID,
 		&row.jobType,
-		&row.nextNeed,
+		&row.nextRoute.JobType, &row.nextRoute.TaskType,
 		&payload, &client, &row.clientPayloadRevision, &row.initialPayloadDigest,
 		&metadata,
 		&row.parentJobID,
@@ -70,10 +71,13 @@ func scanJobRow(scanner interface{ Scan(dest ...any) error }) (jobRow, error) {
 		&row.leaseID,
 		&row.leaseWorkerID,
 		&row.leaseExpiresAtNS,
-		&row.alternateNeed,
+		&alternateJob, &alternateTask,
 		&row.alternateAtNS,
 	); err != nil {
 		return jobRow{}, err
+	}
+	if alternateJob.Valid {
+		row.alternateRoute = &jobdb.Route{JobType: alternateJob.String, TaskType: alternateTask.String}
 	}
 	row.clientPayload = cloneJSON(client)
 	row.payload = cloneBytes(payload)
@@ -123,13 +127,13 @@ func (r *Runtime) insertJobRecord(ctx context.Context, jobKey jobdb.JobKey, jobT
 	}
 	_, err = r.db.ExecContext(ctx, `
 INSERT INTO jobdb_jobs (
-	tenant_id, job_id, job_type, next_need, payload, client_payload, client_payload_revision, initial_payload_digest, metadata, parent_job_id, wait_for,
+	tenant_id, job_id, job_type, route_job_type, route_task_type, payload, client_payload, client_payload_revision, initial_payload_digest, metadata, parent_job_id, wait_for,
 	available_at_ns, created_at_ns, updated_at_ns
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		jobKey.TenantId,
 		jobKey.JobId,
 		jobType,
-		jobType,
+		jobType, "",
 		payloadBytes, nullableJSON(initial), revision, digest,
 		cloneJSON(metadata),
 		parentJobIDFromMetadata(metadata),
@@ -302,13 +306,13 @@ func dependenciesReady(ctx context.Context, q queryer, tenantID string, waitFor 
 	return true, nil
 }
 
-func effectiveNextNeed(row jobRow, now time.Time) (need string, alternateFired bool) {
-	if row.alternateNeed.Valid && row.alternateNeed.String != "" && row.alternateAtNS.Valid {
+func effectiveNextRoute(row jobRow, now time.Time) (route jobdb.Route, alternateFired bool) {
+	if row.alternateRoute != nil && row.alternateAtNS.Valid {
 		if !timeFromNS(row.alternateAtNS.Int64).After(now) {
-			return row.alternateNeed.String, true
+			return *row.alternateRoute, true
 		}
 	}
-	return row.nextNeed, false
+	return row.nextRoute, false
 }
 
 func leaseDurationOrDefault(d time.Duration) time.Duration {

@@ -141,8 +141,7 @@ type WorkRequest struct {
 	Now            time.Time
 }
 
-// WorkSelector names job routes and task routes without encoded capability
-// strings. Runtime core parses public worker capabilities into this form.
+// WorkSelector groups typed public routes into job and task selectors.
 type WorkSelector struct {
 	JobTypes []string
 	Tasks    []jobdb.JobTaskFilter

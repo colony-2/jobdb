@@ -82,7 +82,7 @@ func startManualStorageJob(
 	lease, err := runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{
 		JobKey:        jobKey,
 		WorkerID:      "usage-parity-manual-storage",
-		Capabilities:  []string{"manual-storage"},
+		Routes:        []jobdb.Route{{JobType: "manual-storage"}},
 		LeaseDuration: 2 * time.Second,
 	})
 	if err != nil {

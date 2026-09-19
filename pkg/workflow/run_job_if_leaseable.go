@@ -53,10 +53,10 @@ type JobRunOutcome struct {
 
 	// Best-effort job state details, mainly useful when Status == SUSPENDED
 	// or NOT_LEASEABLE.
-	JobStatus         *JobStatus
-	NextNeed          *string
-	WaitForJobIDs     []string
-	MissingCapability *string
+	JobStatus     *JobStatus
+	NextRoute     *Route
+	WaitForJobIDs []string
+	MissingRoute  *Route
 }
 
 type JobRunListener interface {
@@ -67,15 +67,15 @@ type JobRunListener interface {
 }
 
 type JobRunnable struct {
-	ctx                   context.Context
-	runtime               WorkflowRuntime
-	workset               *WorkSet
-	lease                 ExecutionLease
-	workerID              string
-	logger                *slog.Logger
-	awaitThreshold        time.Duration
-	supportedCapabilities map[string]struct{}
-	jobKey                JobKey
+	ctx             context.Context
+	runtime         WorkflowRuntime
+	workset         *WorkSet
+	lease           ExecutionLease
+	workerID        string
+	logger          *slog.Logger
+	awaitThreshold  time.Duration
+	supportedRoutes map[Route]struct{}
+	jobKey          JobKey
 
 	mu      sync.Mutex
 	running bool
@@ -105,37 +105,37 @@ func GetJobForRun(ctx context.Context, runtime WorkflowRuntime, req GetJobForRun
 		return nil, err
 	}
 
-	capabilities := workSetCapabilities(workset)
-	capabilitySet := make(map[string]struct{}, len(capabilities))
-	for _, capability := range capabilities {
-		capabilitySet[capability] = struct{}{}
+	routes := workSetRoutes(workset)
+	routeSet := make(map[Route]struct{}, len(routes))
+	for _, route := range routes {
+		routeSet[route] = struct{}{}
 	}
 
 	lease, err := runtime.GetJobLease(ctx, GetJobLeaseRequest{
 		JobKey:        req.JobKey,
 		WorkerID:      workerID,
-		Capabilities:  capabilities,
+		Routes:        routes,
 		LeaseDuration: req.LeaseDuration,
 	})
 	if err != nil {
 		return nil, err
 	}
 	if lease == nil {
-		outcome, err := classifyJobRunWithoutLease(ctx, runtime, req.JobKey, capabilitySet)
+		outcome, err := classifyJobRunWithoutLease(ctx, runtime, req.JobKey, routeSet)
 		if err != nil {
 			return nil, err
 		}
 		return &JobRunnable{
-			ctx:                   ctx,
-			runtime:               runtime,
-			workset:               workset,
-			workerID:              workerID,
-			logger:                req.Logger,
-			awaitThreshold:        req.AwaitThreshold,
-			supportedCapabilities: capabilitySet,
-			jobKey:                req.JobKey,
-			runDone:               true,
-			outcome:               cloneJobRunOutcomePtr(&outcome),
+			ctx:             ctx,
+			runtime:         runtime,
+			workset:         workset,
+			workerID:        workerID,
+			logger:          req.Logger,
+			awaitThreshold:  req.AwaitThreshold,
+			supportedRoutes: routeSet,
+			jobKey:          req.JobKey,
+			runDone:         true,
+			outcome:         cloneJobRunOutcomePtr(&outcome),
 		}, nil
 	}
 
@@ -144,15 +144,15 @@ func GetJobForRun(ctx context.Context, runtime WorkflowRuntime, req GetJobForRun
 		jobKey = leaseKey
 	}
 	return &JobRunnable{
-		ctx:                   ctx,
-		runtime:               runtime,
-		workset:               workset,
-		lease:                 lease,
-		workerID:              workerID,
-		logger:                req.Logger,
-		awaitThreshold:        req.AwaitThreshold,
-		supportedCapabilities: capabilitySet,
-		jobKey:                jobKey,
+		ctx:             ctx,
+		runtime:         runtime,
+		workset:         workset,
+		lease:           lease,
+		workerID:        workerID,
+		logger:          req.Logger,
+		awaitThreshold:  req.AwaitThreshold,
+		supportedRoutes: routeSet,
+		jobKey:          jobKey,
 	}, nil
 }
 
@@ -215,7 +215,7 @@ func (r *JobRunnable) Run(listener JobRunListener) (JobRunOutcome, error) {
 	logger := r.logger
 	awaitThreshold := r.awaitThreshold
 	jobKey := r.jobKey
-	supportedCapabilities := cloneStringSet(r.supportedCapabilities)
+	supportedRoutes := cloneRouteSet(r.supportedRoutes)
 	r.mu.Unlock()
 
 	var observer ReplayObserver
@@ -235,7 +235,7 @@ func (r *JobRunnable) Run(listener JobRunListener) (JobRunOutcome, error) {
 		asyncListener.Close()
 	}
 
-	outcome, err := classifyJobRunAfterRun(ctx, runtime, jobKey, supportedCapabilities, output, runErr)
+	outcome, err := classifyJobRunAfterRun(ctx, runtime, jobKey, supportedRoutes, output, runErr)
 
 	r.mu.Lock()
 	r.running = false
@@ -264,22 +264,22 @@ func newRuntimeWorkerID() (string, error) {
 	return fmt.Sprintf("%s:%d-%s", host, os.Getpid(), ksuid.New().String()), nil
 }
 
-func workSetCapabilities(workset *WorkSet) []string {
+func workSetRoutes(workset *WorkSet) []Route {
 	if workset == nil || workset.JobWorker == nil {
 		return nil
 	}
-	capabilities := make([]string, 0, len(workset.TaskWorkers)+1)
+	routes := make([]Route, 0, len(workset.TaskWorkers)+1)
 	jobType := workset.JobWorker.Name()
-	capabilities = append(capabilities, jobType)
+	routes = append(routes, Route{JobType: jobType})
 	taskTypes := make([]string, 0, len(workset.TaskWorkers))
 	for taskType := range workset.TaskWorkers {
 		taskTypes = append(taskTypes, taskType)
 	}
 	sort.Strings(taskTypes)
 	for _, taskType := range taskTypes {
-		capabilities = append(capabilities, workerCapability(jobType, taskType))
+		routes = append(routes, workerRoute(jobType, taskType))
 	}
-	return capabilities
+	return routes
 }
 
 func runClaimedJobLease(ctx context.Context, runtime WorkflowRuntime, workset *WorkSet, lease ExecutionLease, opts claimedJobRunOptions) (JobData, error) {
@@ -292,7 +292,7 @@ func runClaimedJobLease(ctx context.Context, runtime WorkflowRuntime, workset *W
 	payload.RunPolicy = normalizeRunPolicy(payload.RunPolicy)
 
 	runner := newWorkerRunner(runtime, workset, lease, workerRunnerOptions{
-		Logger:         logger.With("job", lease.Job().JobKey.String(), "capability", lease.Capability()),
+		Logger:         logger.With("job", lease.Job().JobKey.String(), "route", lease.Route()),
 		JobPolicy:      payload.RunPolicy,
 		WorkerID:       opts.WorkerID,
 		Observer:       opts.Observer,
@@ -301,7 +301,7 @@ func runClaimedJobLease(ctx context.Context, runtime WorkflowRuntime, workset *W
 	return runner.DoJob(ctx)
 }
 
-func classifyJobRunWithoutLease(ctx context.Context, runtime WorkflowRuntime, jobKey JobKey, supportedCapabilities map[string]struct{}) (JobRunOutcome, error) {
+func classifyJobRunWithoutLease(ctx context.Context, runtime WorkflowRuntime, jobKey JobKey, supportedRoutes map[Route]struct{}) (JobRunOutcome, error) {
 	job, err := runtime.GetJob(ctx, jobKey)
 	if err != nil {
 		return JobRunOutcome{}, err
@@ -314,15 +314,15 @@ func classifyJobRunWithoutLease(ctx context.Context, runtime WorkflowRuntime, jo
 		Status: JobRunNotLeaseable,
 	}
 	applyJobRunStatus(&outcome, job.Status)
-	applyJobRunSummary(ctx, runtime, jobKey, supportedCapabilities, &outcome)
+	applyJobRunSummary(ctx, runtime, jobKey, supportedRoutes, &outcome)
 
-	if job.Status == JobStatusPendingJobs || job.Status == JobStatusAwaitingFuture || outcome.MissingCapability != nil {
+	if job.Status == JobStatusPendingJobs || job.Status == JobStatusAwaitingFuture || outcome.MissingRoute != nil {
 		outcome.Status = JobRunSuspended
 	}
 	return outcome, nil
 }
 
-func classifyJobRunAfterRun(ctx context.Context, runtime WorkflowRuntime, jobKey JobKey, supportedCapabilities map[string]struct{}, directOutput JobData, runErr error) (JobRunOutcome, error) {
+func classifyJobRunAfterRun(ctx context.Context, runtime WorkflowRuntime, jobKey JobKey, supportedRoutes map[Route]struct{}, directOutput JobData, runErr error) (JobRunOutcome, error) {
 	job, err := runtime.GetJob(ctx, jobKey)
 	if err != nil {
 		return JobRunOutcome{}, err
@@ -344,7 +344,7 @@ func classifyJobRunAfterRun(ctx context.Context, runtime WorkflowRuntime, jobKey
 		LeaseAcquired: true,
 	}
 	applyJobRunStatus(&outcome, job.Status)
-	applyJobRunSummary(ctx, runtime, jobKey, supportedCapabilities, &outcome)
+	applyJobRunSummary(ctx, runtime, jobKey, supportedRoutes, &outcome)
 	return outcome, nil
 }
 
@@ -388,7 +388,7 @@ func applyJobRunStatus(outcome *JobRunOutcome, status JobStatus) {
 	outcome.JobStatus = &statusCopy
 }
 
-func applyJobRunSummary(ctx context.Context, runtime WorkflowRuntime, jobKey JobKey, supportedCapabilities map[string]struct{}, outcome *JobRunOutcome) {
+func applyJobRunSummary(ctx context.Context, runtime WorkflowRuntime, jobKey JobKey, supportedRoutes map[Route]struct{}, outcome *JobRunOutcome) {
 	if outcome == nil {
 		return
 	}
@@ -398,15 +398,15 @@ func applyJobRunSummary(ctx context.Context, runtime WorkflowRuntime, jobKey Job
 	}
 
 	applyJobRunStatus(outcome, summary.Status)
-	outcome.NextNeed = cloneStringPtr(summary.NextNeed)
+	outcome.NextRoute = cloneRoute(summary.NextRoute)
 	outcome.WaitForJobIDs = append([]string(nil), summary.WaitFor...)
-	if summary.NextNeed == nil {
+	if summary.NextRoute == nil {
 		return
 	}
-	if _, ok := supportedCapabilities[*summary.NextNeed]; ok {
+	if _, ok := supportedRoutes[*summary.NextRoute]; ok {
 		return
 	}
-	outcome.MissingCapability = cloneStringPtr(summary.NextNeed)
+	outcome.MissingRoute = cloneRoute(summary.NextRoute)
 }
 
 func getJobSummaryForJobRun(ctx context.Context, runtime WorkflowRuntime, jobKey JobKey) (*JobSummary, error) {
@@ -431,9 +431,9 @@ func getJobSummaryForJobRun(ctx context.Context, runtime WorkflowRuntime, jobKey
 func cloneJobRunOutcome(outcome JobRunOutcome) JobRunOutcome {
 	cloned := outcome
 	cloned.JobStatus = cloneJobStatusPtr(outcome.JobStatus)
-	cloned.NextNeed = cloneStringPtr(outcome.NextNeed)
+	cloned.NextRoute = cloneRoute(outcome.NextRoute)
 	cloned.WaitForJobIDs = append([]string(nil), outcome.WaitForJobIDs...)
-	cloned.MissingCapability = cloneStringPtr(outcome.MissingCapability)
+	cloned.MissingRoute = cloneRoute(outcome.MissingRoute)
 	return cloned
 }
 
@@ -453,11 +453,11 @@ func cloneJobStatusPtr(status *JobStatus) *JobStatus {
 	return &cloned
 }
 
-func cloneStringSet(values map[string]struct{}) map[string]struct{} {
+func cloneRouteSet(values map[Route]struct{}) map[Route]struct{} {
 	if len(values) == 0 {
 		return nil
 	}
-	cloned := make(map[string]struct{}, len(values))
+	cloned := make(map[Route]struct{}, len(values))
 	for key := range values {
 		cloned[key] = struct{}{}
 	}

@@ -40,18 +40,15 @@ type awaitObservation struct {
 }
 
 type pendingTaskObservation struct {
-	JobKey            jobdb.JobKey           `json:"jobKey"`
-	PendingStatus     jobdb.JobStatus        `json:"pendingStatus"`
-	WaitingInput      normalizedTaskData     `json:"waitingInput"`
-	NextNeed          *string                `json:"nextNeed,omitempty"`
-	TaskWaitInput     *int64                 `json:"taskWaitInput,omitempty"`
-	TaskWaitOutput    *int64                 `json:"taskWaitOutput,omitempty"`
-	TaskWaitInputHash *string                `json:"taskWaitInputHash,omitempty"`
-	TaskWaitNext      *string                `json:"taskWaitNext,omitempty"`
-	FinalStatus       jobdb.JobStatus        `json:"finalStatus"`
-	FinalResult       normalizedTaskData     `json:"finalResult"`
-	FinalRun          normalizedJobRun       `json:"finalRun"`
-	Listed            []normalizedJobSummary `json:"listed"`
+	JobKey        jobdb.JobKey           `json:"jobKey"`
+	PendingStatus jobdb.JobStatus        `json:"pendingStatus"`
+	WaitingInput  normalizedTaskData     `json:"waitingInput"`
+	NextRoute     *jobdb.Route           `json:"nextRoute,omitempty"`
+	TaskWait      *jobdb.TaskWait        `json:"taskWait,omitempty"`
+	FinalStatus   jobdb.JobStatus        `json:"finalStatus"`
+	FinalResult   normalizedTaskData     `json:"finalResult"`
+	FinalRun      normalizedJobRun       `json:"finalRun"`
+	Listed        []normalizedJobSummary `json:"listed"`
 }
 
 type retryObservation struct {
@@ -630,18 +627,15 @@ func TestPendingTaskHandleParityAcrossBuiltInRuntimes(t *testing.T) {
 				_, outputErr := finalRun.GetOutput(subject.Engine(), jobKey.TenantId)
 
 				return pendingTaskObservation{
-					JobKey:            jobKey,
-					PendingStatus:     pendingStatus,
-					WaitingInput:      normalizeTaskDataResult(t, waitingData),
-					NextNeed:          cloneStringPtr(pendingList.Jobs[0].NextNeed),
-					TaskWaitInput:     cloneInt64Ptr(pendingList.Jobs[0].TaskWaitInput),
-					TaskWaitOutput:    cloneInt64Ptr(pendingList.Jobs[0].TaskWaitOutput),
-					TaskWaitInputHash: cloneStringPtr(pendingList.Jobs[0].TaskWaitInputHash),
-					TaskWaitNext:      cloneStringPtr(pendingList.Jobs[0].TaskWaitNext),
-					FinalStatus:       jobdb.JobStatusCompleted,
-					FinalResult:       normalizeTaskDataResult(t, result),
-					FinalRun:          normalizeJobRun(t, finalRun, outputErr),
-					Listed:            normalizeJobSummaries(pendingList.Jobs),
+					JobKey:        jobKey,
+					PendingStatus: pendingStatus,
+					WaitingInput:  normalizeTaskDataResult(t, waitingData),
+					NextRoute:     jobdb.CloneRoute(pendingList.Jobs[0].NextRoute),
+					TaskWait:      jobdb.CloneExecutionState(pendingList.Jobs[0].ExecutionState).TaskWait,
+					FinalStatus:   jobdb.JobStatusCompleted,
+					FinalResult:   normalizeTaskDataResult(t, result),
+					FinalRun:      normalizeJobRun(t, finalRun, outputErr),
+					Listed:        normalizeJobSummaries(pendingList.Jobs),
 				}
 			})
 		})

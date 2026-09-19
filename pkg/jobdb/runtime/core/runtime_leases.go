@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -25,7 +24,7 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 	if req.TenantId == "" {
 		return nil, fmt.Errorf("tenant_id is required for PollWork")
 	}
-	selector, err := selectorFromCapabilities(req.Capabilities)
+	selector, err := selectorFromRoutes(req.Routes)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +82,7 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 	if err := req.JobKey.Validate(); err != nil {
 		return nil, err
 	}
-	selector, err := selectorFromCapabilities(req.Capabilities)
+	selector, err := selectorFromRoutes(req.Routes)
 	if err != nil {
 		return nil, err
 	}
@@ -112,21 +111,16 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 	return lease, nil
 }
 
-func selectorFromCapabilities(capabilities []string) (WorkSelector, error) {
+func selectorFromRoutes(routes []jobdb.Route) (WorkSelector, error) {
 	var out WorkSelector
-	for _, capability := range capabilities {
-		if capability == "" {
-			continue
+	for _, route := range routes {
+		if err := route.Validate(); err != nil {
+			return WorkSelector{}, err
 		}
-		if jobType, taskType, task := strings.Cut(capability, ":"); task {
-			if jobType == "" || taskType == "" || strings.Contains(taskType, ":") {
-				return WorkSelector{}, fmt.Errorf("invalid task capability %q", capability)
-			}
-			out.Tasks = append(out.Tasks, jobdb.JobTaskFilter{
-				JobType: jobType, TaskType: taskType,
-			})
+		if route.TaskType != "" {
+			out.Tasks = append(out.Tasks, jobdb.JobTaskFilter{JobType: route.JobType, TaskType: route.TaskType})
 		} else {
-			out.JobTypes = append(out.JobTypes, capability)
+			out.JobTypes = append(out.JobTypes, route.JobType)
 		}
 	}
 	return out, nil
@@ -153,11 +147,12 @@ func (l *executionLease) Job() jobdb.JobHandle {
 	return jobdb.JobHandle{JobKey: l.snapshot.Identity.JobKey}
 }
 
-func (l *executionLease) Capability() string {
+func (l *executionLease) Route() jobdb.Route {
+	route := jobdb.Route{JobType: l.snapshot.RouteJobType}
 	if l.snapshot.WorkKind == WorkKindTask && l.snapshot.TaskWork != nil {
-		return l.snapshot.RouteJobType + ":" + l.snapshot.TaskWork.TaskType
+		route.TaskType = l.snapshot.TaskWork.TaskType
 	}
-	return l.snapshot.RouteJobType
+	return route
 }
 
 func (l *executionLease) ClientPayload() json.RawMessage {
@@ -262,11 +257,7 @@ func (l *executionLease) Reschedule(ctx context.Context, req jobdb.RescheduleExe
 	if err := l.requireCurrent(ctx); err != nil {
 		return err
 	}
-	jobType, taskType, isTask := strings.Cut(req.NextNeed, ":")
-	if jobType == "" || (isTask && (taskType == "" || strings.Contains(taskType, ":"))) {
-		return fmt.Errorf("invalid next need %q", req.NextNeed)
-	}
-	task, err := jobdb.RescheduleTaskWait(req.NextNeed, req.TaskWait)
+	task, err := jobdb.RescheduleTaskWait(req.NextRoute, req.TaskWait)
 	if err != nil {
 		return err
 	}
@@ -274,27 +265,20 @@ func (l *executionLease) Reschedule(ctx context.Context, req jobdb.RescheduleExe
 		return err
 	}
 	mutation := RescheduleMutation{
-		Identity: l.snapshot.Identity, RouteJobType: jobType, ClientPayloadUpdate: req.ClientPayloadUpdate,
+		Identity: l.snapshot.Identity, RouteJobType: req.NextRoute.JobType, ClientPayloadUpdate: req.ClientPayloadUpdate,
 		WorkKind: WorkKindJob, WaitUntil: req.WaitUntil,
 		WaitForJobIDs: append([]string(nil), req.WaitForJobIDs...),
 		Now:           l.runtime.now(),
 	}
-	if isTask {
+	if req.NextRoute.TaskType != "" {
 		mutation.WorkKind = WorkKindTask
-		mutation.TaskWork = &TaskWork{TaskType: taskType, ResumeJobType: task.ResumeNeed, InputOrdinal: task.InputOrdinal, OutputOrdinal: task.OutputOrdinal, InputHash: task.InputHash}
+		mutation.TaskWork = &TaskWork{TaskType: req.NextRoute.TaskType, ResumeJobType: task.ResumeJobType, InputOrdinal: task.InputOrdinal, OutputOrdinal: task.OutputOrdinal, InputHash: task.InputHash}
 	}
-	if req.AlternateNeed != "" {
-		alternateJob, alternateTask, alternateIsTask := strings.Cut(req.AlternateNeed, ":")
-		if alternateJob == "" || (alternateIsTask && alternateTask == "") {
-			return fmt.Errorf("invalid alternate need %q", req.AlternateNeed)
-		}
-		mutation.AlternateRoute = &AlternateRoute{JobType: alternateJob}
-		if alternateIsTask {
-			mutation.AlternateRoute.TaskType = alternateTask
-		}
-		if req.AlternateAfter != nil {
-			mutation.AlternateRoute.After = *req.AlternateAfter
-		}
+	if err := jobdb.ValidateAlternateRoute(req.AlternateRoute, req.AlternateAfter, task); err != nil {
+		return err
+	}
+	if req.AlternateRoute != nil {
+		mutation.AlternateRoute = &AlternateRoute{JobType: req.AlternateRoute.JobType, TaskType: req.AlternateRoute.TaskType, After: *req.AlternateAfter}
 	}
 	_, err = l.runtime.scheduler.RescheduleLease(ctx, mutation)
 	if err == nil {

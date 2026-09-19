@@ -102,7 +102,7 @@ func (r *Runtime) cancelScheduledLease(ctx context.Context, lease *executionLeas
 		return false, err
 	}
 	chapter := jobdb.Chapter{
-		Ordinal: 1, TaskType: lease.Capability(), CreatedAt: r.now(),
+		Ordinal: 1, TaskType: lease.Route().JobType, CreatedAt: r.now(),
 		Body: jobdb.JobAttemptOutcomeChapter{Outcome: jobdb.SystemErrorOutcome{
 			Error: jobdb.SystemErrorPayload{
 				Message: message, Component: "jobdb.schedule_preflight", Code: reason,

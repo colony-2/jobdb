@@ -410,19 +410,19 @@ func TestPendingTaskHandlesAcrossBuiltInRuntimes(t *testing.T) {
 			if len(resp.Jobs) != 1 {
 				t.Fatalf("expected 1 job summary, got %d", len(resp.Jobs))
 			}
-			if resp.Jobs[0].TaskWaitOutput == nil || *resp.Jobs[0].TaskWaitOutput != handle.TaskOrdinalToComplete() {
-				t.Fatalf("unexpected task wait output %+v", resp.Jobs[0].TaskWaitOutput)
+			if resp.Jobs[0].ExecutionState.TaskWait == nil || resp.Jobs[0].ExecutionState.TaskWait.OutputOrdinal != handle.TaskOrdinalToComplete() {
+				t.Fatalf("unexpected task wait output %+v", resp.Jobs[0].ExecutionState.TaskWait.OutputOrdinal)
 			}
-			if resp.Jobs[0].TaskWaitInput == nil || *resp.Jobs[0].TaskWaitInput != handle.TaskOrdinalToComplete()-1 {
-				t.Fatalf("unexpected task wait input %+v", resp.Jobs[0].TaskWaitInput)
+			if resp.Jobs[0].ExecutionState.TaskWait == nil || resp.Jobs[0].ExecutionState.TaskWait.InputOrdinal != handle.TaskOrdinalToComplete()-1 {
+				t.Fatalf("unexpected task wait input %+v", resp.Jobs[0].ExecutionState.TaskWait.InputOrdinal)
 			}
-			if resp.Jobs[0].NextNeed == nil || *resp.Jobs[0].NextNeed != ws.JobWorker.Name()+":pending-task" {
-				t.Fatalf("unexpected next need %+v", resp.Jobs[0].NextNeed)
+			if resp.Jobs[0].NextRoute == nil || *resp.Jobs[0].NextRoute != (jobdb.Route{JobType: ws.JobWorker.Name(), TaskType: "pending-task"}) {
+				t.Fatalf("unexpected next need %+v", resp.Jobs[0].NextRoute)
 			}
-			if resp.Jobs[0].TaskWaitNext == nil || *resp.Jobs[0].TaskWaitNext != ws.JobWorker.Name() {
-				t.Fatalf("unexpected task wait resume need %+v", resp.Jobs[0].TaskWaitNext)
+			if resp.Jobs[0].ExecutionState.TaskWait == nil || resp.Jobs[0].ExecutionState.TaskWait.ResumeJobType != ws.JobWorker.Name() {
+				t.Fatalf("unexpected task wait resume need %+v", resp.Jobs[0].ExecutionState.TaskWait.ResumeJobType)
 			}
-			if resp.Jobs[0].TaskWaitInputHash == nil || *resp.Jobs[0].TaskWaitInputHash == "" {
+			if resp.Jobs[0].ExecutionState.TaskWait == nil || resp.Jobs[0].ExecutionState.TaskWait.InputHash == "" {
 				t.Fatalf("expected task wait input hash")
 			}
 
@@ -751,7 +751,7 @@ func TestEngineMetadataFilteredWorkersAndManualJobLeaseAcrossBuiltInRuntimes(t *
 			lease, err := built.Engine.GetJobLease(ctx, jobdb.GetJobLeaseRequest{
 				JobKey:        greenKey,
 				WorkerID:      "manual-worker",
-				Capabilities:  []string{ws.JobWorker.Name()},
+				Routes:        []jobdb.Route{{JobType: ws.JobWorker.Name()}},
 				LeaseDuration: time.Second,
 			})
 			if err != nil {

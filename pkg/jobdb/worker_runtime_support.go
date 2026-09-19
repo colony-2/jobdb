@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -392,19 +391,4 @@ func cleanupArtifacts(artifacts []Artifact, logger *slog.Logger) {
 			logger.Warn("artifact cleanup failed", "name", art.Name(), "error", err)
 		}
 	}
-}
-
-func workerCapability(jobType string, taskType string) string {
-	if taskType == "" {
-		return jobType
-	}
-	return jobType + ":" + taskType
-}
-
-func taskTypeFromCapability(capability string) string {
-	idx := strings.IndexByte(capability, ':')
-	if idx < 0 {
-		return capability
-	}
-	return capability[idx+1:]
 }

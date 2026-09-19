@@ -44,11 +44,11 @@ func RunClientPayloadConformance(t *testing.T, harnesses ...Harness) {
 					t.Fatalf("job state: %s revision=%d policy=%+v want=%s/%d", info.ClientPayload, info.ClientPayloadRevision, info.ExecutionState, want, revision)
 				}
 			}
-			leaseFor := func(capability string) jobdb.ExecutionLease {
+			leaseFor := func(route jobdb.Route) jobdb.ExecutionLease {
 				t.Helper()
-				l, err := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: handle.JobKey, WorkerID: "payload-worker", Capabilities: []string{capability}})
+				l, err := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: handle.JobKey, WorkerID: "payload-worker", Routes: []jobdb.Route{route}})
 				if err != nil || l == nil {
-					t.Fatalf("lease %s: %v", capability, err)
+					t.Fatalf("lease %s: %v", route, err)
 				}
 				return l
 			}
@@ -60,7 +60,7 @@ func RunClientPayloadConformance(t *testing.T, harnesses ...Harness) {
 				return &jobdb.ClientPayloadUpdate{Mode: mode, Value: raw, ExpectedRevision: &rev}
 			}
 			check(string(initial), 1)
-			l := leaseFor("payloadjob")
+			l := leaseFor(jobdb.Route{JobType: "payloadjob"})
 			if string(l.ClientPayload()) != string(initial) || l.ClientPayloadRevision() != 1 {
 				t.Fatalf("lease snapshot %s/%d", l.ClientPayload(), l.ClientPayloadRevision())
 			}
@@ -70,11 +70,11 @@ func RunClientPayloadConformance(t *testing.T, harnesses ...Harness) {
 				t.Fatal(err)
 			}
 			check(string(initial), 1)
-			if err := l.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextNeed: "payloadjob", ClientPayloadUpdate: update("patch", `{"nested":{"remove":null},"cursor":"next"}`, 0)}); !errors.Is(err, jobdb.ErrConflict) {
+			if err := l.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "payloadjob"}, ClientPayloadUpdate: update("patch", `{"nested":{"remove":null},"cursor":"next"}`, 0)}); !errors.Is(err, jobdb.ErrConflict) {
 				t.Fatalf("stale revision: %v", err)
 			}
 			check(string(initial), 1)
-			if err := l.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextNeed: "payloadjob", ClientPayloadUpdate: update("patch", `{"nested":{"remove":null},"cursor":"next"}`, 1)}); err != nil {
+			if err := l.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "payloadjob"}, ClientPayloadUpdate: update("patch", `{"nested":{"remove":null},"cursor":"next"}`, 1)}); err != nil {
 				t.Fatal(err)
 			}
 			patched := `{"n":9007199254740993,"nested":{"keep":1},"cursor":"next","run_policy":"client-owned"}`
@@ -87,25 +87,25 @@ func RunClientPayloadConformance(t *testing.T, harnesses ...Harness) {
 			if _, err := r.SubmitJob(ctx, request); !errors.Is(err, jobdb.ErrExistingJobMismatch) {
 				t.Fatalf("changed initial payload: %v", err)
 			}
-			l = leaseFor("payloadjob")
-			task := &jobdb.TaskWait{InputOrdinal: 1, OutputOrdinal: 2, InputHash: "task-hash", ResumeNeed: "payloadjob"}
-			if err := l.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextNeed: "payloadjob:external", TaskWait: task}); err != nil {
+			l = leaseFor(jobdb.Route{JobType: "payloadjob"})
+			task := &jobdb.TaskWait{InputOrdinal: 1, OutputOrdinal: 2, InputHash: "task-hash", ResumeJobType: "payloadjob"}
+			if err := l.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "payloadjob", TaskType: "external"}, TaskWait: task}); err != nil {
 				t.Fatal(err)
 			}
 			check(patched, 2)
-			taskLease := leaseFor("payloadjob:external")
-			complete := jobdb.CompleteTaskIfWaitingRequest{JobKey: handle.JobKey, Capability: "payloadjob:external", InputOrdinal: 1, OutputOrdinal: 2, InputHash: "task-hash", ResumeNeed: "payloadjob", Data: NumberTaskData(2), ClientPayloadUpdate: update("reset", `null`, 2)}
+			taskLease := leaseFor(jobdb.Route{JobType: "payloadjob", TaskType: "external"})
+			complete := jobdb.CompleteTaskIfWaitingRequest{JobKey: handle.JobKey, Route: jobdb.Route{JobType: "payloadjob", TaskType: "external"}, InputOrdinal: 1, OutputOrdinal: 2, InputHash: "task-hash", ResumeJobType: "payloadjob", Data: NumberTaskData(2), ClientPayloadUpdate: update("reset", `null`, 2)}
 			if err := r.CompleteTaskIfWaiting(ctx, complete); !errors.Is(err, jobdb.ErrConflict) {
 				t.Fatalf("accepted task completion with live owner: %v", err)
 			}
-			if err := taskLease.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextNeed: "payloadjob:external", TaskWait: task}); err != nil {
+			if err := taskLease.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "payloadjob", TaskType: "external"}, TaskWait: task}); err != nil {
 				t.Fatal(err)
 			}
 			if err := r.CompleteTaskIfWaiting(ctx, complete); err != nil {
 				t.Fatal(err)
 			}
 			check(`null`, 3)
-			l = leaseFor("payloadjob")
+			l = leaseFor(jobdb.Route{JobType: "payloadjob"})
 			final := jobdb.Chapter{Ordinal: 3, TaskType: "payloadjob", CreatedAt: time.Now().UTC(), Body: jobdb.JobAttemptOutcomeChapter{Outcome: jobdb.ApplicationOutputOutcome{Output: jobdb.ApplicationOutputBytes{Data: []byte(`{}`)}}}}
 			if err := l.Complete(ctx, jobdb.CompleteExecutionRequest{Status: "success", Chapter: &final, ClientPayloadUpdate: update("reset", "", 3)}); err != nil {
 				t.Fatal(err)

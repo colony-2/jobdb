@@ -37,7 +37,7 @@ func (r *pollTrackingRuntime) PollWork(ctx context.Context, req PollWorkRequest)
 	r.requests = append(r.requests, PollWorkRequest{
 		TenantId:       req.TenantId,
 		WorkerID:       req.WorkerID,
-		Capabilities:   append([]string(nil), req.Capabilities...),
+		Routes:         append([]Route(nil), req.Routes...),
 		Limit:          req.Limit,
 		LongPollUntil:  req.LongPollUntil,
 		LeaseDuration:  req.LeaseDuration,
@@ -78,7 +78,7 @@ func (r *pollTrackingRuntime) seenRequests() []PollWorkRequest {
 		out = append(out, PollWorkRequest{
 			TenantId:       req.TenantId,
 			WorkerID:       req.WorkerID,
-			Capabilities:   append([]string(nil), req.Capabilities...),
+			Routes:         append([]Route(nil), req.Routes...),
 			Limit:          req.Limit,
 			LongPollUntil:  req.LongPollUntil,
 			LeaseDuration:  req.LeaseDuration,
@@ -122,8 +122,8 @@ func TestWorkerEngineSerializesPollsAndUsesDistinctWorkerIDs(t *testing.T) {
 		seedJobStartForTest(t, runtime.runnerTestRuntime, key, jobType, NewTaskDataOrPanic(map[string]int{"value": 1}), RunPolicy{})
 	}
 	runtime.leases = []ExecutionLease{
-		&fakeExecutionLease{job: JobHandle{JobKey: jobKeys[0]}, capability: jobType},
-		&fakeExecutionLease{job: JobHandle{JobKey: jobKeys[1]}, capability: jobType},
+		&fakeExecutionLease{job: JobHandle{JobKey: jobKeys[0]}, route: Route{JobType: jobType}},
+		&fakeExecutionLease{job: JobHandle{JobKey: jobKeys[1]}, route: Route{JobType: jobType}},
 	}
 
 	ws := mustWorkSetForRunnerTest(t, blockingJobWorker{
@@ -206,19 +206,19 @@ func TestWorkerEngineBuildsPollGroupsFromWorksetMetadataFilters(t *testing.T) {
 	sawBlue := false
 	sawGreen := false
 	for _, group := range groups {
-		if len(group.capabilities) != 1 {
-			t.Fatalf("unexpected group capabilities %+v", group.capabilities)
+		if len(group.routes) != 1 {
+			t.Fatalf("unexpected group routes %+v", group.routes)
 		}
 		if len(group.metadataEquals) != 1 || len(group.metadataEquals[0].Path) != 1 || group.metadataEquals[0].Path[0] != "queue" {
 			t.Fatalf("unexpected group metadata %+v", group.metadataEquals)
 		}
-		switch group.capabilities[0] {
+		switch group.routes[0].JobType {
 		case "blue-job":
 			sawBlue = len(group.metadataEquals[0].Values) == 1 && group.metadataEquals[0].Values[0] == "blue"
 		case "green-job":
 			sawGreen = len(group.metadataEquals[0].Values) == 1 && group.metadataEquals[0].Values[0] == "green"
 		default:
-			t.Fatalf("unexpected capability group %+v", group.capabilities)
+			t.Fatalf("unexpected route group %+v", group.routes)
 		}
 	}
 	if !sawBlue || !sawGreen {

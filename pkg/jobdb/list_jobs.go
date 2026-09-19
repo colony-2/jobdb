@@ -14,7 +14,7 @@ type JobSummary struct {
 	JobKey                JobKey
 	Status                JobStatus
 	JobType               string
-	NextNeed              *string
+	NextRoute             *Route
 	WaitFor               []string // JobIds only - all WaitFor jobs must be in same tenant
 	AvailableAt           time.Time
 	ExpiresAt             *time.Time
@@ -28,10 +28,6 @@ type JobSummary struct {
 	Metadata              json.RawMessage
 	SchemaHash            string
 	ParentJobID           string
-	TaskWaitInput         *int64
-	TaskWaitOutput        *int64
-	TaskWaitInputHash     *string
-	TaskWaitNext          *string
 }
 
 type JobStore string
@@ -43,7 +39,7 @@ const (
 	MaxListJobsPageSize              = 200
 )
 
-// JobTaskFilter narrows listings to jobs currently waiting on a specific job/task capability.
+// JobTaskFilter narrows listings to jobs currently waiting on a specific job/task route.
 type JobTaskFilter struct {
 	JobType  string
 	TaskType string
@@ -300,21 +296,6 @@ type ListJobsResponse struct {
 // jobsListApi is embedded into Engine to avoid a new exported interface.
 type jobsListApi interface {
 	ListJobs(ctx context.Context, req ListJobsRequest) (ListJobsResponse, error)
-}
-
-func parseNextNeedJobType(nextNeed string) string {
-	if nextNeed == "" {
-		return ""
-	}
-	if idx := strings.Index(nextNeed, ":"); idx > 0 {
-		return nextNeed[:idx]
-	}
-	return nextNeed
-}
-
-// JobTypeFromNextNeed derives a job type from a capability/next_need string.
-func JobTypeFromNextNeed(nextNeed string) string {
-	return parseNextNeedJobType(nextNeed)
 }
 
 type pageCursor struct {

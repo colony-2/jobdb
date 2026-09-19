@@ -66,7 +66,7 @@ Lower-level runtime users can call the lease directly:
 lease, err := runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{
 	JobKey:       parentKey,
 	WorkerID:     "worker-1",
-	Capabilities: []string{"parent-job"},
+	Routes: []jobdb.Route{{JobType: "parent-job"}},
 })
 if err != nil || lease == nil {
 	// handle unavailable work

@@ -188,7 +188,7 @@ func WaitForTaskHandle(t testing.TB, ctx context.Context, engine workflow.Engine
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		handles, err := engine.FindTasksWaitingForCapability(ctx, jobType, taskType, tenantIDs)
+		handles, err := engine.FindTasksWaitingForRoute(ctx, jobType, taskType, tenantIDs)
 		if err == nil && len(handles) > 0 {
 			return handles[0]
 		}

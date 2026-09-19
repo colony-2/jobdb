@@ -151,7 +151,7 @@ func WaitForTaskHandle(t *testing.T, ctx context.Context, engine workflow.Engine
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		handles, err := engine.FindTasksWaitingForCapability(ctx, jobType, taskType, tenantIDs)
+		handles, err := engine.FindTasksWaitingForRoute(ctx, jobType, taskType, tenantIDs)
 		if err == nil && len(handles) > 0 {
 			return handles[0]
 		}
@@ -198,12 +198,12 @@ func MustStartJobAsync(t *testing.T, engine workflow.Engine, start jobdb.SubmitJ
 	return done
 }
 
-func ExpectJobTypeFromNextNeed(t *testing.T, nextNeed *string, wantJobType string) {
+func ExpectJobTypeFromNextRoute(t *testing.T, nextRoute *jobdb.Route, wantJobType string) {
 	t.Helper()
-	if nextNeed == nil {
+	if nextRoute == nil {
 		t.Fatal("missing runtime next_need")
 	}
-	if got := jobdb.JobTypeFromNextNeed(*nextNeed); got != wantJobType {
+	if got := nextRoute.JobType; got != wantJobType {
 		t.Fatalf("unexpected next_need job type: got %q want %q", got, wantJobType)
 	}
 }
@@ -706,7 +706,7 @@ type tenantNamespacedLease struct {
 }
 
 func (l *tenantNamespacedLease) LeaseID() string                { return l.lease.LeaseID() }
-func (l *tenantNamespacedLease) Capability() string             { return l.lease.Capability() }
+func (l *tenantNamespacedLease) Route() jobdb.Route             { return l.lease.Route() }
 func (l *tenantNamespacedLease) ClientPayload() json.RawMessage { return l.lease.ClientPayload() }
 func (l *tenantNamespacedLease) ClientPayloadRevision() int64   { return l.lease.ClientPayloadRevision() }
 func (l *tenantNamespacedLease) ExecutionState() jobdb.ExecutionState {
@@ -748,4 +748,11 @@ func (l *tenantNamespacedLease) Job() jobdb.JobHandle {
 	handle := l.lease.Job()
 	handle.JobKey = l.runtime.stripJobKey(handle.JobKey)
 	return handle
+}
+
+func ExpectTaskType(t *testing.T, route jobdb.Route, want string) {
+	t.Helper()
+	if route.TaskType != want {
+		t.Fatalf("task type = %q; want %q", route.TaskType, want)
+	}
 }

@@ -809,67 +809,35 @@ but the OpenAPI schema must choose one rule and state it explicitly.
 
 ## Scheduler And Leases
 
-The lease payload is typed scheduler state plus an explicitly named
-caller-owned JSON payload slot.
+Routes are objects containing `jobType` and an optional `taskType`; an empty
+or omitted task type selects job work. Identifiers are opaque. The same route
+schema is used by polling, lease acquisition, rescheduling, inspection, and
+external completion. No combined capability string is accepted.
 
 ```yaml
-TaskWait:
+Route:
   type: object
   additionalProperties: false
-  required: [inputOrdinal, outputOrdinal, resumeNeed, inputHash]
+  required: [jobType]
   properties:
-    inputOrdinal:
-      type: integer
-      format: int64
-    outputOrdinal:
-      type: integer
-      format: int64
-    resumeNeed:
+    jobType:
       type: string
-    inputHash:
+      minLength: 1
+    taskType:
       type: string
-
-SchedulerPayload:
-  type: object
-  additionalProperties: false
-  properties:
-    runPolicy:
-      $ref: '#/components/schemas/RunPolicy'
-    taskWait:
-      $ref: '#/components/schemas/TaskWait'
-    leasePayload:
-      $ref: '#/components/schemas/ApplicationPayload'
-      description: Caller-owned JSON payload preserved across reschedule and lease acquisition.
 ```
 
-`leasePayload` exists only for caller-owned JSON payload values. Scheduler state
-such as `runPolicy` or `taskWait` must not be duplicated into `leasePayload`.
+`ExecutionLease` contains `route`, typed `executionState`, optional
+`clientPayload`, and `clientPayloadRevision`, alongside the lease identity and
+token. `ExecutionState` contains immutable run policy and optional `TaskWait`.
+The latter contains `inputOrdinal`, `outputOrdinal`, `inputHash`, and
+`resumeJobType`.
 
-```yaml
-ExecutionLease:
-  type: object
-  additionalProperties: false
-  required: [leaseId, leaseToken, job, capability, payload]
-  properties:
-    leaseId:
-      type: string
-      minLength: 1
-    leaseToken:
-      type: string
-      minLength: 1
-    job:
-      $ref: '#/components/schemas/JobHandle'
-    capability:
-      type: string
-      minLength: 1
-    payload:
-      $ref: '#/components/schemas/SchedulerPayload'
-```
-
-`RescheduleExecutionRequest.payload` should become `SchedulerPayload`. If the
-current field name is kept, its schema must be typed as `SchedulerPayload`. If
-the field is renamed to `schedulerPayload`, keep a compatibility alias only for a
-versioned transition.
+Rescheduling supplies `nextRoute`, the applicable task coordinates and waits,
+and optional `alternateRoute`/`alternateAfter`. Client payload changes use the
+separate `clientPayloadUpdate`. There is no combined scheduler/client payload or
+compatibility alias. The complete schemas are in `openapi/jobdb-runtime.yaml`;
+see the [consumer migration guide](MIGRATION-TYPED-ROUTES.md) for examples.
 
 ### Lease Tokens
 

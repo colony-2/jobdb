@@ -29,6 +29,9 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 }
 
 func (r *Runtime) submitJobWithSchedule(ctx context.Context, req jobdb.SubmitJobRequest, parentJobID string, occurrence *jobdb.ScheduleOccurrenceMetadata) (jobdb.JobHandle, error) {
+	if err := jobdb.ValidateIdentifier(req.Job.JobType); err != nil {
+		return jobdb.JobHandle{}, err
+	}
 	if err := r.validate(); err != nil {
 		return jobdb.JobHandle{}, err
 	}

@@ -157,7 +157,7 @@ func (s *proxyServer) PollWork(ctx context.Context, request runtimeapi.PollWorkR
 	req := jobdb.PollWorkRequest{
 		TenantId:      request.Body.TenantId,
 		WorkerID:      request.Body.WorkerId,
-		Capabilities:  append([]string(nil), request.Body.Capabilities...),
+		Routes:        routesFromAPI(request.Body.Routes),
 		Limit:         request.Body.Limit,
 		LongPollUntil: request.Body.LongPollUntil,
 	}
@@ -744,8 +744,8 @@ func (s *proxyServer) CommitChapterIfWaiting(ctx context.Context, request runtim
 			TenantId: request.TenantId,
 			JobId:    request.JobId,
 		},
-		Capability:    stringValue(request.Body.Capability),
-		ResumeNeed:    stringValue(request.Body.ResumeNeed),
+		Route:         jobdb.Route(request.Body.Route),
+		ResumeJobType: stringValue(request.Body.ResumeJobType),
 		InputOrdinal:  derefInt64(request.Body.InputOrdinal),
 		OutputOrdinal: request.Ordinal,
 		InputHash:     stringValue(request.Body.InputHash),
@@ -771,7 +771,7 @@ func (s *proxyServer) GetJobLease(ctx context.Context, request runtimeapi.GetJob
 			JobId:    request.JobId,
 		},
 		WorkerID:      stringValue(request.Body.WorkerId),
-		Capabilities:  append([]string(nil), request.Body.Capabilities...),
+		Routes:        routesFromAPI(request.Body.Routes),
 		LeaseDuration: leaseDuration,
 	})
 	if err != nil {
@@ -909,8 +909,8 @@ func (s *proxyServer) RescheduleJobWithLease(ctx context.Context, request runtim
 	}
 	err = ops.RescheduleJobWithLeaseByID(ctx, jobKey, request.LeaseId, claims.WorkerID, jobdb.RescheduleExecutionRequest{
 		AlternateAfter:      alternateAfter,
-		AlternateNeed:       stringValue(request.Body.AlternateNeed),
-		NextNeed:            stringValue(request.Body.NextNeed),
+		AlternateRoute:      routePtrFromAPI(request.Body.AlternateRoute),
+		NextRoute:           jobdb.Route(request.Body.NextRoute),
 		TaskWait:            taskWaitFromAPI(request.Body.TaskWait),
 		ClientPayloadUpdate: request.Body.ClientPayloadUpdate,
 		WaitUntil:           request.Body.WaitUntil,
@@ -1032,7 +1032,7 @@ func (s *proxyServer) toAPIExecutionLease(lease jobdb.ExecutionLease, requestedD
 		return runtimeapi.ExecutionLease{}, err
 	}
 	return runtimeapi.ExecutionLease{
-		Capability:     lease.Capability(),
+		Route:          runtimeapi.Route(lease.Route()),
 		Job:            toAPIJobHandle(lease.Job()),
 		LeaseId:        lease.LeaseID(),
 		LeaseToken:     token,

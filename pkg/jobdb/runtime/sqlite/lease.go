@@ -19,7 +19,7 @@ type executionLease struct {
 	jobKey                jobdb.JobKey
 	leaseID               string
 	workerID              string
-	capability            string
+	route                 jobdb.Route
 	payload               []byte
 	duration              time.Duration
 	expiresAt             time.Time
@@ -38,7 +38,7 @@ func (l *executionLease) Job() jobdb.JobHandle {
 	return jobdb.JobHandle{JobKey: l.jobKey}
 }
 
-func (l *executionLease) Capability() string { return l.capability }
+func (l *executionLease) Route() jobdb.Route { return l.route }
 
 func (l *executionLease) ClientPayload() json.RawMessage       { return cloneJSON(l.clientPayload) }
 func (l *executionLease) ClientPayloadRevision() int64         { return l.clientPayloadRevision }
@@ -155,7 +155,7 @@ UPDATE jobdb_jobs
 SET archived_at_ns = ?, completion_status = ?, completion_detail = ?,
 	cancel_requested = CASE WHEN ? = 1 THEN 1 ELSE cancel_requested END,
 	lease_id = NULL, lease_worker_id = NULL, lease_expires_at_ns = NULL,
-	alternate_need = NULL, alternate_at_ns = NULL, updated_at_ns = ?
+	alternate_job_type = NULL, alternate_task_type = NULL, alternate_at_ns = NULL, updated_at_ns = ?
 WHERE tenant_id = ? AND job_id = ?`,
 			timeToNS(now), status, nullableString(req.Detail), cancelRequested, timeToNS(now), jobKey.TenantId, jobKey.JobId)
 		return err
@@ -172,17 +172,11 @@ func (r *Runtime) RescheduleJobWithLeaseByID(ctx context.Context, jobKey jobdb.J
 	if leaseID == "" || workerID == "" {
 		return jobdb.ErrExecutionLeaseLost
 	}
-	if req.NextNeed == "" {
-		return fmt.Errorf("next capability is required")
-	}
-	if req.AlternateAfter != nil && *req.AlternateAfter < 0 {
-		return fmt.Errorf("alternate after must be non-negative")
-	}
-	if req.AlternateNeed == "" && req.AlternateAfter != nil && *req.AlternateAfter > 0 {
-		return fmt.Errorf("alternate capability is required when after is set")
-	}
-	task, err := jobdb.RescheduleTaskWait(req.NextNeed, req.TaskWait)
+	task, err := jobdb.RescheduleTaskWait(req.NextRoute, req.TaskWait)
 	if err != nil {
+		return err
+	}
+	if err := jobdb.ValidateAlternateRoute(req.AlternateRoute, req.AlternateAfter, task); err != nil {
 		return err
 	}
 	if err := clientpayload.ValidateUpdate(req.ClientPayloadUpdate, false); err != nil {
@@ -197,14 +191,14 @@ func (r *Runtime) RescheduleJobWithLeaseByID(ctx context.Context, jobKey jobdb.J
 	if req.WaitUntil != nil {
 		availableAt = req.WaitUntil.UTC()
 	}
-	var alternateNeed any
+	var alternateJob, alternateTask any
 	var alternateAt any
-	if req.AlternateNeed != "" {
+	if req.AlternateRoute != nil {
 		after := time.Duration(0)
 		if req.AlternateAfter != nil {
 			after = *req.AlternateAfter
 		}
-		alternateNeed = req.AlternateNeed
+		alternateJob, alternateTask = req.AlternateRoute.JobType, req.AlternateRoute.TaskType
 		alternateAt = timeToNS(now.Add(after))
 	}
 	return r.withTx(ctx, func(tx *sql.Tx) error {
@@ -221,7 +215,7 @@ func (r *Runtime) RescheduleJobWithLeaseByID(ctx context.Context, jobKey jobdb.J
 		}
 		storedPayload.TaskWait = nil
 		if task != nil {
-			storedPayload.TaskWait = &taskWait{InputStep: task.InputOrdinal, OutputStep: task.OutputOrdinal, InputHash: task.InputHash, Next: task.ResumeNeed}
+			storedPayload.TaskWait = &taskWait{InputStep: task.InputOrdinal, OutputStep: task.OutputOrdinal, InputHash: task.InputHash, Next: task.ResumeJobType}
 		}
 		payloadBytes, err := encodeJobPayload(storedPayload)
 		if err != nil {
@@ -232,11 +226,11 @@ func (r *Runtime) RescheduleJobWithLeaseByID(ctx context.Context, jobKey jobdb.J
 		}
 		_, err = tx.ExecContext(ctx, `
 UPDATE jobdb_jobs
-SET next_need = ?, payload = ?, wait_for = ?, available_at_ns = ?,
+SET route_job_type = ?, route_task_type = ?, payload = ?, wait_for = ?, available_at_ns = ?,
 	lease_id = NULL, lease_worker_id = NULL, lease_expires_at_ns = NULL,
-	alternate_need = ?, alternate_at_ns = ?, updated_at_ns = ?
+	alternate_job_type = ?, alternate_task_type = ?, alternate_at_ns = ?, updated_at_ns = ?
 WHERE tenant_id = ? AND job_id = ?`,
-			req.NextNeed, payloadBytes, waitFor, timeToNS(availableAt), alternateNeed, alternateAt, timeToNS(now), jobKey.TenantId, jobKey.JobId)
+			req.NextRoute.JobType, req.NextRoute.TaskType, payloadBytes, waitFor, timeToNS(availableAt), alternateJob, alternateTask, alternateAt, timeToNS(now), jobKey.TenantId, jobKey.JobId)
 		return err
 	})
 }

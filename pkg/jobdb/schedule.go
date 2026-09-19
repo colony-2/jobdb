@@ -208,7 +208,7 @@ func ValidateScheduleRequest(req UpsertScheduleRequest) error {
 	if err := (ScheduleKey{TenantId: req.TenantId, ScheduleId: req.ScheduleId}).Validate(); err != nil {
 		return err
 	}
-	if req.Target.JobType == "" {
+	if ValidateIdentifier(req.Target.JobType) != nil {
 		return fmt.Errorf("target jobType is required")
 	}
 	if req.Target.Data == nil {

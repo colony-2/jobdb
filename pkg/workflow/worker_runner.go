@@ -264,7 +264,7 @@ func (r *workerRunner) awaitUntil(wakeAt time.Time, ordinal int64, attempt int, 
 	}
 	if r.lease != nil && wait > threshold {
 		if err := r.lease.Reschedule(context.TODO(), RescheduleExecutionRequest{
-			NextNeed:  r.lease.Capability(),
+			NextRoute: r.lease.Route(),
 			WaitUntil: &wakeAt,
 			TaskWait:  r.lease.ExecutionState().TaskWait,
 		}); err != nil {
@@ -347,7 +347,7 @@ func (r *workerRunner) AwaitJobs(jobIds ...string) error {
 		return fmt.Errorf("awaiting jobs requires an execution lease")
 	}
 	if err := r.lease.Reschedule(context.TODO(), RescheduleExecutionRequest{
-		NextNeed:      r.lease.Capability(),
+		NextRoute:     r.lease.Route(),
 		WaitForJobIDs: append([]string(nil), jobIds...),
 		TaskWait:      r.lease.ExecutionState().TaskWait,
 	}); err != nil {
@@ -765,6 +765,9 @@ func (r *workerRunner) prepareJobResultPayload(output JobData, originalErr error
 }
 
 func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) (TaskData, error) {
+	if err := validateIdentifier(taskType); err != nil {
+		return nil, fmt.Errorf("task type: %w", err)
+	}
 	ctx := r.ctx
 	if ctx == nil {
 		ctx = context.Background()
@@ -895,11 +898,11 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 				inputOrdinal = 0
 			}
 			req := RescheduleExecutionRequest{
-				NextNeed: workerCapability(r.worker.JobWorker.Name(), taskType),
-				TaskWait: &TaskWait{InputOrdinal: inputOrdinal, OutputOrdinal: ordinal, ResumeNeed: r.worker.JobWorker.Name(), InputHash: inputHash},
+				NextRoute: workerRoute(r.worker.JobWorker.Name(), taskType),
+				TaskWait:  &TaskWait{InputOrdinal: inputOrdinal, OutputOrdinal: ordinal, ResumeJobType: r.worker.JobWorker.Name(), InputHash: inputHash},
 			}
 			if invocationTimeout > 0 {
-				req.AlternateNeed = r.worker.JobWorker.Name()
+				req.AlternateRoute = &Route{JobType: r.worker.JobWorker.Name()}
 				req.AlternateAfter = &invocationTimeout
 			}
 			if err := r.lease.Reschedule(context.TODO(), req); err != nil {

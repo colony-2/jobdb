@@ -1439,17 +1439,13 @@ func jobSummaryToAPI(summary jobdb.JobSummary) (runtimeapi.JobSummary, error) {
 		JobType:               summary.JobType,
 		LeaseExpiresAt:        summary.LeaseExpiresAt,
 		Metadata:              metadata,
-		NextNeed:              cloneString(summary.NextNeed),
+		NextRoute:             routePtrToAPI(summary.NextRoute),
 		ParentJobId:           stringPtrOrNil(summary.ParentJobID),
 		ExecutionState:        state,
 		ClientPayload:         cloneRawMessage(summary.ClientPayload),
 		ClientPayloadRevision: strconv.FormatInt(summary.ClientPayloadRevision, 10),
 		SchemaHash:            schemaHashPtr(summary.SchemaHash),
 		Status:                runtimeapi.JobStatus(summary.Status),
-		TaskWaitInput:         cloneInt64(summary.TaskWaitInput),
-		TaskWaitInputHash:     cloneString(summary.TaskWaitInputHash),
-		TaskWaitNext:          cloneString(summary.TaskWaitNext),
-		TaskWaitOutput:        cloneInt64(summary.TaskWaitOutput),
 		WaitFor:               append([]string(nil), summary.WaitFor...),
 	}
 	return out, nil
@@ -1472,7 +1468,7 @@ func jobSummaryFromAPI(summary runtimeapi.JobSummary) (jobdb.JobSummary, error) 
 		JobKey:                fromAPIJobKey(summary.JobKey),
 		Status:                jobdb.JobStatus(summary.Status),
 		JobType:               summary.JobType,
-		NextNeed:              cloneString(summary.NextNeed),
+		NextRoute:             routePtrFromAPI(summary.NextRoute),
 		WaitFor:               append([]string(nil), summary.WaitFor...),
 		AvailableAt:           summary.AvailableAt,
 		ExpiresAt:             summary.ExpiresAt,
@@ -1486,10 +1482,6 @@ func jobSummaryFromAPI(summary runtimeapi.JobSummary) (jobdb.JobSummary, error) 
 		Metadata:              metadata,
 		SchemaHash:            stringValue(summary.SchemaHash),
 		ParentJobID:           stringValue(summary.ParentJobId),
-		TaskWaitInput:         cloneInt64(summary.TaskWaitInput),
-		TaskWaitOutput:        cloneInt64(summary.TaskWaitOutput),
-		TaskWaitInputHash:     cloneString(summary.TaskWaitInputHash),
-		TaskWaitNext:          cloneString(summary.TaskWaitNext),
 	}, nil
 }
 
@@ -1830,13 +1822,13 @@ func taskWaitToAPI(v *jobdb.TaskWait) *runtimeapi.TaskWait {
 	if v == nil {
 		return nil
 	}
-	return &runtimeapi.TaskWait{InputOrdinal: v.InputOrdinal, OutputOrdinal: v.OutputOrdinal, InputHash: v.InputHash, ResumeNeed: v.ResumeNeed}
+	return &runtimeapi.TaskWait{InputOrdinal: v.InputOrdinal, OutputOrdinal: v.OutputOrdinal, InputHash: v.InputHash, ResumeJobType: v.ResumeJobType}
 }
 func taskWaitFromAPI(v *runtimeapi.TaskWait) *jobdb.TaskWait {
 	if v == nil {
 		return nil
 	}
-	return &jobdb.TaskWait{InputOrdinal: v.InputOrdinal, OutputOrdinal: v.OutputOrdinal, InputHash: v.InputHash, ResumeNeed: v.ResumeNeed}
+	return &jobdb.TaskWait{InputOrdinal: v.InputOrdinal, OutputOrdinal: v.OutputOrdinal, InputHash: v.InputHash, ResumeJobType: v.ResumeJobType}
 }
 func executionStateToAPI(v jobdb.ExecutionState) (runtimeapi.ExecutionState, error) {
 	p, err := runPolicyToAPI(v.RunPolicy)
@@ -2158,4 +2150,33 @@ func attrBool(attrs map[string]interface{}, key string) bool {
 	}
 	value, _ := attrs[key].(bool)
 	return value
+}
+
+func routePtrToAPI(route *jobdb.Route) *runtimeapi.Route {
+	if route == nil {
+		return nil
+	}
+	v := runtimeapi.Route(*route)
+	return &v
+}
+func routePtrFromAPI(route *runtimeapi.Route) *jobdb.Route {
+	if route == nil {
+		return nil
+	}
+	v := jobdb.Route(*route)
+	return &v
+}
+func routesToAPI(routes []jobdb.Route) []runtimeapi.Route {
+	out := make([]runtimeapi.Route, len(routes))
+	for i, r := range routes {
+		out[i] = runtimeapi.Route(r)
+	}
+	return out
+}
+func routesFromAPI(routes []runtimeapi.Route) []jobdb.Route {
+	out := make([]jobdb.Route, len(routes))
+	for i, r := range routes {
+		out[i] = jobdb.Route(r)
+	}
+	return out
 }

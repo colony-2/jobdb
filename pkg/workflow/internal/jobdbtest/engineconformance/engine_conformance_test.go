@@ -388,8 +388,8 @@ func TestGetJobRunPendingRuntimeAcrossBuiltInRuntimes(t *testing.T) {
 			if attempt.State == "" {
 				t.Fatal("expected runtime state")
 			}
-			jobdbtest.ExpectJobTypeFromNextNeed(t, attempt.Runtime.NextNeed, jobdbtest.SequenceJobName)
-			jobdbtest.ExpectTaskSuffix(t, *attempt.Runtime.NextNeed, ":"+jobdbtest.MissingTaskName)
+			jobdbtest.ExpectJobTypeFromNextRoute(t, attempt.Runtime.NextRoute, jobdbtest.SequenceJobName)
+			jobdbtest.ExpectTaskType(t, *attempt.Runtime.NextRoute, jobdbtest.MissingTaskName)
 			if attempt.Input == nil {
 				t.Fatal("expected runtime input")
 			}

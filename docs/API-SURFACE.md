@@ -20,6 +20,9 @@ types, job lifecycle APIs, job-run inspection APIs, list-jobs APIs, first-class
 schedule APIs, error types, and the `WorkflowRuntime` interface used by runtime
 adapters and advanced consumers.
 
+Routing uses `Route{JobType, TaskType}` throughout the public API. See the
+[consumer migration guide](MIGRATION-TYPED-ROUTES.md) for the breaking changes.
+
 The schedule surface includes `UpsertSchedule`, `GetSchedule`,
 `ListSchedules`, `PauseSchedule`, `ResumeSchedule`, `ArchiveSchedule`,
 `TriggerSchedule`, `ListScheduleRuns`, and their request/response structs.

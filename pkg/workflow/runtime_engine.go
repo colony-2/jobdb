@@ -120,7 +120,7 @@ func (e *runtimeEngine) ListScheduleRuns(ctx context.Context, req ListScheduleRu
 	return e.runtime.ListScheduleRuns(ctx, req)
 }
 
-func (e *runtimeEngine) FindTasksWaitingForCapability(ctx context.Context, jobType string, taskType string, tenantIds []string) ([]TaskHandle, error) {
+func (e *runtimeEngine) FindTasksWaitingForRoute(ctx context.Context, jobType string, taskType string, tenantIds []string) ([]TaskHandle, error) {
 	return e.FindTasksWaiting(ctx, FindTasksWaitingRequest{
 		JobType:   jobType,
 		TaskType:  taskType,

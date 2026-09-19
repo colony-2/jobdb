@@ -252,8 +252,6 @@ type ClientPayloadUpdate = clientpayload.Update
 
 // CommitChapterIfWaitingRequest defines model for CommitChapterIfWaitingRequest.
 type CommitChapterIfWaitingRequest struct {
-	// Capability Optional guard for the currently waiting capability.
-	Capability          *string              `json:"capability,omitempty"`
 	ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
 	Data                TaskDataWrite        `json:"data"`
 
@@ -266,8 +264,9 @@ type CommitChapterIfWaitingRequest struct {
 	// OutputOrdinal Optional guard for the output chapter ordinal; should match the path ordinal when provided.
 	OutputOrdinal *int64 `json:"outputOrdinal,omitempty"`
 
-	// ResumeNeed Optional guard or override for the resume capability.
-	ResumeNeed *string `json:"resumeNeed,omitempty"`
+	// ResumeJobType Optional guard for the resume job type.
+	ResumeJobType *string `json:"resumeJobType,omitempty"`
+	Route         Route   `json:"route"`
 }
 
 // CompleteExecutionRequest defines model for CompleteExecutionRequest.
@@ -294,13 +293,13 @@ type ErrorResponse struct {
 
 // ExecutionLease defines model for ExecutionLease.
 type ExecutionLease struct {
-	Capability            string          `json:"capability"`
 	ClientPayload         json.RawMessage `json:"clientPayload,omitempty"`
 	ClientPayloadRevision string          `json:"clientPayloadRevision"`
 	ExecutionState        ExecutionState  `json:"executionState"`
 	Job                   JobHandle       `json:"job"`
 	LeaseId               string          `json:"leaseId"`
 	LeaseToken            string          `json:"leaseToken"`
+	Route                 Route           `json:"route"`
 	SchemaHash            *JobSchemaHash  `json:"schemaHash,omitempty"`
 }
 
@@ -312,10 +311,9 @@ type ExecutionState struct {
 
 // GetJobLeaseRequest defines model for GetJobLeaseRequest.
 type GetJobLeaseRequest struct {
-	Capabilities []string `json:"capabilities"`
-
 	// LeaseDuration Duration string controlling how long the acquired lease should be held.
 	LeaseDuration *string `json:"leaseDuration,omitempty"`
+	Routes        []Route `json:"routes"`
 	WorkerId      *string `json:"workerId,omitempty"`
 }
 
@@ -438,14 +436,10 @@ type JobSummary struct {
 	JobType               string          `json:"jobType"`
 	LeaseExpiresAt        *time.Time      `json:"leaseExpiresAt,omitempty"`
 	Metadata              *Metadata       `json:"metadata,omitempty"`
-	NextNeed              *string         `json:"nextNeed,omitempty"`
+	NextRoute             *Route          `json:"nextRoute,omitempty"`
 	ParentJobId           *string         `json:"parentJobId,omitempty"`
 	SchemaHash            *JobSchemaHash  `json:"schemaHash,omitempty"`
 	Status                JobStatus       `json:"status"`
-	TaskWaitInput         *int64          `json:"taskWaitInput,omitempty"`
-	TaskWaitInputHash     *string         `json:"taskWaitInputHash,omitempty"`
-	TaskWaitNext          *string         `json:"taskWaitNext,omitempty"`
-	TaskWaitOutput        *int64          `json:"taskWaitOutput,omitempty"`
 	WaitFor               []string        `json:"waitFor"`
 }
 
@@ -616,8 +610,6 @@ type MetadataValue struct {
 
 // PollWorkRequest defines model for PollWorkRequest.
 type PollWorkRequest struct {
-	Capabilities []string `json:"capabilities"`
-
 	// LeaseDuration Duration string controlling how long acquired leases should be held.
 	LeaseDuration *string    `json:"leaseDuration,omitempty"`
 	Limit         int        `json:"limit"`
@@ -627,6 +619,7 @@ type PollWorkRequest struct {
 	// predicates mean AND across fields; multiple `values` on one
 	// predicate mean OR on the same field.
 	MetadataEquals *[]MetadataPredicate `json:"metadataEquals,omitempty"`
+	Routes         []Route              `json:"routes"`
 
 	// TenantId Required tenant polling target. Polling is scoped only to this tenant.
 	TenantId string `json:"tenantId"`
@@ -643,9 +636,9 @@ type RegisterJobSchemaRequest struct {
 type RescheduleExecutionRequest struct {
 	// AlternateAfter Duration string.
 	AlternateAfter      *string              `json:"alternateAfter,omitempty"`
-	AlternateNeed       *string              `json:"alternateNeed,omitempty"`
+	AlternateRoute      *Route               `json:"alternateRoute,omitempty"`
 	ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
-	NextNeed            *string              `json:"nextNeed,omitempty"`
+	NextRoute           Route                `json:"nextRoute"`
 	TaskWait            *TaskWait            `json:"taskWait,omitempty"`
 	WaitForJobIds       *[]string            `json:"waitForJobIds,omitempty"`
 	WaitUntil           *time.Time           `json:"waitUntil,omitempty"`
@@ -672,6 +665,15 @@ type RetryPolicy struct {
 	MaximumAttempts        *int32    `json:"maximumAttempts,omitempty"`
 	MaximumInterval        *string   `json:"maximumInterval,omitempty"`
 	NonRetryableErrorTypes *[]string `json:"nonRetryableErrorTypes,omitempty"`
+}
+
+// Route defines model for Route.
+type Route struct {
+	// JobType Opaque job identifier; punctuation has no routing meaning.
+	JobType string `json:"jobType"`
+
+	// TaskType Opaque task identifier; omitted or empty selects job work.
+	TaskType string `json:"taskType,omitempty"`
 }
 
 // RunPolicy defines model for RunPolicy.
@@ -889,7 +891,7 @@ type TaskWait struct {
 	InputHash     string `json:"inputHash"`
 	InputOrdinal  int64  `json:"inputOrdinal"`
 	OutputOrdinal int64  `json:"outputOrdinal"`
-	ResumeNeed    string `json:"resumeNeed"`
+	ResumeJobType string `json:"resumeJobType"`
 }
 
 // TimeoutPayload defines model for TimeoutPayload.

@@ -32,6 +32,9 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 }
 
 func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRequest, parentJobID string) (jobdb.JobHandle, error) {
+	if err := jobdb.ValidateIdentifier(req.Job.JobType); err != nil {
+		return jobdb.JobHandle{}, err
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -293,6 +296,11 @@ WHERE tenant_id = ? AND job_id = ?`,
 }
 
 func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jobdb.ExecutionLease, error) {
+	for _, route := range req.Routes {
+		if err := route.Validate(); err != nil {
+			return nil, err
+		}
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -305,7 +313,7 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 	if req.TenantId == "" {
 		return nil, fmt.Errorf("tenant_id is required for PollWork")
 	}
-	if len(req.Capabilities) == 0 {
+	if len(req.Routes) == 0 {
 		return nil, nil
 	}
 	for {
@@ -332,10 +340,10 @@ func (r *Runtime) pollOnce(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 	if limit <= 0 {
 		limit = 1
 	}
-	capSet := make(map[string]struct{}, len(req.Capabilities))
-	for _, capability := range req.Capabilities {
-		if capability != "" {
-			capSet[capability] = struct{}{}
+	capSet := make(map[jobdb.Route]struct{}, len(req.Routes))
+	for _, route := range req.Routes {
+		if route.JobType != "" {
+			capSet[route] = struct{}{}
 		}
 	}
 	if len(capSet) == 0 {
@@ -366,7 +374,7 @@ func (r *Runtime) pollOnce(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 	return out, nil
 }
 
-func (r *Runtime) acquireOneLease(ctx context.Context, req jobdb.PollWorkRequest, capSet map[string]struct{}, metadataPredicates []normalizedMetadataPredicate) (*executionLease, json.RawMessage, error) {
+func (r *Runtime) acquireOneLease(ctx context.Context, req jobdb.PollWorkRequest, capSet map[jobdb.Route]struct{}, metadataPredicates []normalizedMetadataPredicate) (*executionLease, json.RawMessage, error) {
 	var lease *executionLease
 	var leaseMetadata json.RawMessage
 	err := r.withTx(ctx, func(tx *sql.Tx) error {
@@ -399,7 +407,7 @@ func (r *Runtime) acquireOneLease(ctx context.Context, req jobdb.PollWorkRequest
 			if row.cancelRequested {
 				continue
 			}
-			need, altFired := effectiveNextNeed(row, now)
+			need, altFired := effectiveNextRoute(row, now)
 			if _, ok := capSet[need]; !ok {
 				continue
 			}
@@ -431,14 +439,14 @@ func (r *Runtime) acquireOneLease(ctx context.Context, req jobdb.PollWorkRequest
 			}
 			leaseID := ksuid.New().String()
 			expires := now.Add(leaseDurationOrDefault(req.LeaseDuration))
-			nextNeed := row.nextNeed
-			altNeed := any(nil)
+			nextRoute := row.nextRoute
+			altJob, altTask := any(nil), any(nil)
 			altAt := any(nil)
 			if altFired {
-				nextNeed = need
+				nextRoute = need
 			} else {
-				if row.alternateNeed.Valid {
-					altNeed = row.alternateNeed.String
+				if row.alternateRoute != nil {
+					altJob, altTask = row.alternateRoute.JobType, row.alternateRoute.TaskType
 				}
 				if row.alternateAtNS.Valid {
 					altAt = row.alternateAtNS.Int64
@@ -446,10 +454,10 @@ func (r *Runtime) acquireOneLease(ctx context.Context, req jobdb.PollWorkRequest
 			}
 			result, err := tx.ExecContext(ctx, `
 UPDATE jobdb_jobs
-SET next_need = ?, lease_id = ?, lease_worker_id = ?, lease_expires_at_ns = ?,
-	alternate_need = ?, alternate_at_ns = ?, updated_at_ns = ?
+SET route_job_type = ?, route_task_type = ?, lease_id = ?, lease_worker_id = ?, lease_expires_at_ns = ?,
+	alternate_job_type = ?, alternate_task_type = ?, alternate_at_ns = ?, updated_at_ns = ?
 WHERE tenant_id = ? AND job_id = ?`,
-				nextNeed, leaseID, workerID, timeToNS(expires), altNeed, altAt, timeToNS(now), row.tenantID, row.jobID)
+				nextRoute.JobType, nextRoute.TaskType, leaseID, workerID, timeToNS(expires), altJob, altTask, altAt, timeToNS(now), row.tenantID, row.jobID)
 			if err != nil {
 				return err
 			}
@@ -458,12 +466,12 @@ WHERE tenant_id = ? AND job_id = ?`,
 				continue
 			}
 			lease = &executionLease{
-				runtime:    r,
-				jobKey:     jobdb.JobKey{TenantId: row.tenantID, JobId: row.jobID},
-				leaseID:    leaseID,
-				workerID:   workerID,
-				capability: nextNeed,
-				payload:    cloneBytes(row.payload), clientPayload: cloneJSON(row.clientPayload), clientPayloadRevision: row.clientPayloadRevision,
+				runtime:  r,
+				jobKey:   jobdb.JobKey{TenantId: row.tenantID, JobId: row.jobID},
+				leaseID:  leaseID,
+				workerID: workerID,
+				route:    nextRoute,
+				payload:  cloneBytes(row.payload), clientPayload: cloneJSON(row.clientPayload), clientPayloadRevision: row.clientPayloadRevision,
 				duration:   leaseDurationOrDefault(req.LeaseDuration),
 				expiresAt:  expires,
 				schemaHash: jobmetadata.SchemaHashFromStoredMetadata(row.metadata),
@@ -477,6 +485,11 @@ WHERE tenant_id = ? AND job_id = ?`,
 }
 
 func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
+	for _, route := range req.Routes {
+		if err := route.Validate(); err != nil {
+			return nil, err
+		}
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -486,14 +499,14 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 	if req.LeaseDuration < 0 {
 		return nil, fmt.Errorf("lease duration must be >= 0")
 	}
-	capSet := make(map[string]struct{}, len(req.Capabilities))
-	for _, capability := range req.Capabilities {
-		if capability != "" {
-			capSet[capability] = struct{}{}
+	capSet := make(map[jobdb.Route]struct{}, len(req.Routes))
+	for _, route := range req.Routes {
+		if route.JobType != "" {
+			capSet[route] = struct{}{}
 		}
 	}
 	if len(capSet) == 0 {
-		return nil, fmt.Errorf("at least one capability is required")
+		return nil, fmt.Errorf("at least one route is required")
 	}
 	var lease *executionLease
 	var leaseMetadata json.RawMessage
@@ -513,21 +526,21 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 		if status != jobdb.JobStatusReady && status != jobdb.JobStatusCrashConcern {
 			return nil
 		}
-		need, altFired := effectiveNextNeed(row, now)
+		need, altFired := effectiveNextRoute(row, now)
 		if _, ok := capSet[need]; !ok {
 			return nil
 		}
 		leaseID := ksuid.New().String()
 		workerID := r.requestWorkerID(req.WorkerID)
 		expires := now.Add(leaseDurationOrDefault(req.LeaseDuration))
-		nextNeed := row.nextNeed
-		altNeed := any(nil)
+		nextRoute := row.nextRoute
+		altJob, altTask := any(nil), any(nil)
 		altAt := any(nil)
 		if altFired {
-			nextNeed = need
+			nextRoute = need
 		} else {
-			if row.alternateNeed.Valid {
-				altNeed = row.alternateNeed.String
+			if row.alternateRoute != nil {
+				altJob, altTask = row.alternateRoute.JobType, row.alternateRoute.TaskType
 			}
 			if row.alternateAtNS.Valid {
 				altAt = row.alternateAtNS.Int64
@@ -535,20 +548,20 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 		}
 		_, err = tx.ExecContext(ctx, `
 UPDATE jobdb_jobs
-SET next_need = ?, lease_id = ?, lease_worker_id = ?, lease_expires_at_ns = ?,
-	alternate_need = ?, alternate_at_ns = ?, updated_at_ns = ?
+SET route_job_type = ?, route_task_type = ?, lease_id = ?, lease_worker_id = ?, lease_expires_at_ns = ?,
+	alternate_job_type = ?, alternate_task_type = ?, alternate_at_ns = ?, updated_at_ns = ?
 WHERE tenant_id = ? AND job_id = ?`,
-			nextNeed, leaseID, workerID, timeToNS(expires), altNeed, altAt, timeToNS(now), row.tenantID, row.jobID)
+			nextRoute.JobType, nextRoute.TaskType, leaseID, workerID, timeToNS(expires), altJob, altTask, altAt, timeToNS(now), row.tenantID, row.jobID)
 		if err != nil {
 			return err
 		}
 		lease = &executionLease{
-			runtime:    r,
-			jobKey:     req.JobKey,
-			leaseID:    leaseID,
-			workerID:   workerID,
-			capability: nextNeed,
-			payload:    cloneBytes(row.payload), clientPayload: cloneJSON(row.clientPayload), clientPayloadRevision: row.clientPayloadRevision,
+			runtime:  r,
+			jobKey:   req.JobKey,
+			leaseID:  leaseID,
+			workerID: workerID,
+			route:    nextRoute,
+			payload:  cloneBytes(row.payload), clientPayload: cloneJSON(row.clientPayload), clientPayloadRevision: row.clientPayloadRevision,
 			duration:   leaseDurationOrDefault(req.LeaseDuration),
 			expiresAt:  expires,
 			schemaHash: jobmetadata.SchemaHashFromStoredMetadata(row.metadata),
@@ -641,6 +654,9 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 }
 
 func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
+	if err := req.ValidateRoutes(); err != nil {
+		return jobdb.ListJobsResponse{}, err
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -736,7 +752,7 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 		if len(jobTypeAllowed) > 0 && !jobTypeAllowed[row.jobType] {
 			continue
 		}
-		if len(req.JobTasks) > 0 && !jobTaskMatches(row.nextNeed, req.JobTasks) {
+		if len(req.JobTasks) > 0 && !jobTaskMatches(row.nextRoute, req.JobTasks) {
 			continue
 		}
 		parentJobID := ""
@@ -781,12 +797,12 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 		if err != nil {
 			return jobdb.ListJobsResponse{}, err
 		}
-		nextNeed, _ := effectiveNextNeed(row, now)
+		nextRoute, _ := effectiveNextRoute(row, now)
 		summary := jobdb.JobSummary{
 			JobKey:          key,
 			Status:          status,
 			JobType:         row.jobType,
-			NextNeed:        cloneString(nextNeed),
+			NextRoute:       jobdb.CloneRoute(&nextRoute),
 			WaitFor:         waitFor,
 			AvailableAt:     timeFromNS(row.availableAtNS),
 			LeaseExpiresAt:  nullTimeFromNS(row.leaseExpiresAtNS),
@@ -797,12 +813,6 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 			Metadata:    jobdb.StripRuntimeMetadata(row.metadata),
 			SchemaHash:  jobmetadata.SchemaHashFromStoredMetadata(row.metadata),
 			ParentJobID: parentJobID,
-		}
-		if tw, waitErr := extractTaskWaitFromRaw(row.payload); waitErr == nil && tw != nil {
-			summary.TaskWaitInput = &tw.InputStep
-			summary.TaskWaitOutput = &tw.OutputStep
-			summary.TaskWaitInputHash = cloneString(tw.InputHash)
-			summary.TaskWaitNext = cloneString(tw.Next)
 		}
 		out = append(out, summary)
 	}
@@ -1085,6 +1095,18 @@ func (r *Runtime) OpenArtifact(ctx context.Context, ref jobdb.ArtifactRef) (jobd
 }
 
 func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteTaskIfWaitingRequest) error {
+	if err := req.Route.Validate(); err != nil {
+		return err
+	}
+	if req.Route.TaskType == "" {
+		return fmt.Errorf("task route required")
+	}
+	if err := req.Route.Validate(); err != nil {
+		return err
+	}
+	if req.Route.TaskType == "" {
+		return fmt.Errorf("task route required")
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -1112,12 +1134,12 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	if tw == nil {
 		return fmt.Errorf("%w: job is not waiting on an external task", jobdb.ErrConflict)
 	}
-	currentCapability := row.nextNeed
-	if req.Capability != "" && currentCapability != req.Capability {
-		return fmt.Errorf("%w: waiting capability %q does not match requested capability %q", jobdb.ErrConflict, currentCapability, req.Capability)
+	currentRoute := row.nextRoute
+	if currentRoute != req.Route {
+		return fmt.Errorf("%w: waiting route %q does not match requested route %q", jobdb.ErrConflict, currentRoute, req.Route)
 	}
-	if req.ResumeNeed != "" && tw.Next != req.ResumeNeed {
-		return fmt.Errorf("%w: resume need %q does not match requested resume need %q", jobdb.ErrConflict, tw.Next, req.ResumeNeed)
+	if req.ResumeJobType != "" && tw.Next != req.ResumeJobType {
+		return fmt.Errorf("%w: resume need %q does not match requested resume need %q", jobdb.ErrConflict, tw.Next, req.ResumeJobType)
 	}
 	if req.InputOrdinal != 0 && tw.InputStep != req.InputOrdinal {
 		return fmt.Errorf("%w: waiting input ordinal %d does not match requested input ordinal %d", jobdb.ErrConflict, tw.InputStep, req.InputOrdinal)
@@ -1154,12 +1176,9 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	if payload.RunPolicy.Retry.MaximumAttempts > 0 {
 		meta.RunPolicy = &payload.RunPolicy
 	}
-	taskType := taskTypeFromCapability(currentCapability)
-	if req.Capability != "" {
-		taskType = taskTypeFromCapability(req.Capability)
-	}
-	if taskType == "" || taskType == currentCapability || (req.Capability != "" && taskType == req.Capability) {
-		return fmt.Errorf("task type not found in capability")
+	taskType := currentRoute.TaskType
+	if taskType == "" {
+		return fmt.Errorf("task type not found in route")
 	}
 	chapter, err := taskDataToChapter(req.Data, tw.OutputStep, taskType, r.workerID, chapterTypeTaskAttemptOutcome, payloadKindApp, tw.InputHash, time.Now().UTC(), meta)
 	if err != nil {
@@ -1184,9 +1203,9 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	}
 	artifacts, _ := req.Data.GetArtifacts()
 	assignArtifactKeys(artifacts, jobKey.JobId, tw.OutputStep)
-	resumeNeed := tw.Next
-	if req.ResumeNeed != "" {
-		resumeNeed = req.ResumeNeed
+	resumeJobType := tw.Next
+	if req.ResumeJobType != "" {
+		resumeJobType = req.ResumeJobType
 	}
 	resumePayload, err := encodeJobPayload(jobPayload{RunPolicy: payload.RunPolicy})
 	if err != nil {
@@ -1202,13 +1221,13 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 			return err
 		}
 		now := time.Now().UTC()
-		if current.archivedAtNS.Valid || current.cancelRequested || (current.leaseExpiresAtNS.Valid && current.leaseExpiresAtNS.Int64 > timeToNS(now)) || current.nextNeed != currentCapability || !bytes.Equal(current.payload, row.payload) {
+		if current.archivedAtNS.Valid || current.cancelRequested || (current.leaseExpiresAtNS.Valid && current.leaseExpiresAtNS.Int64 > timeToNS(now)) || current.nextRoute != currentRoute || !bytes.Equal(current.payload, row.payload) {
 			return fmt.Errorf("%w: waiting task changed", jobdb.ErrConflict)
 		}
 		if err := r.updateClientPayloadTx(ctx, tx, current, req.ClientPayloadUpdate); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `UPDATE jobdb_jobs SET next_need=?,payload=?,wait_for=?,available_at_ns=?,lease_id=NULL,lease_worker_id=NULL,lease_expires_at_ns=NULL,alternate_need=NULL,alternate_at_ns=NULL,updated_at_ns=? WHERE tenant_id=? AND job_id=?`, resumeNeed, resumePayload, waitFor, timeToNS(now), timeToNS(now), jobKey.TenantId, jobKey.JobId)
+		_, err = tx.ExecContext(ctx, `UPDATE jobdb_jobs SET route_job_type=?,route_task_type='',payload=?,wait_for=?,available_at_ns=?,lease_id=NULL,lease_worker_id=NULL,lease_expires_at_ns=NULL,alternate_job_type=NULL,alternate_task_type=NULL,alternate_at_ns=NULL,updated_at_ns=? WHERE tenant_id=? AND job_id=?`, resumeJobType, resumePayload, waitFor, timeToNS(now), timeToNS(now), jobKey.TenantId, jobKey.JobId)
 		return err
 	})
 }
@@ -1354,7 +1373,7 @@ func listStoreSelection(req jobdb.ListJobsRequest) (includeActive bool, includeA
 	return includeActive, includeArchive, nil
 }
 
-func jobTaskMatches(nextNeed string, tasks []jobdb.JobTaskFilter) bool {
+func jobTaskMatches(nextRoute jobdb.Route, tasks []jobdb.JobTaskFilter) bool {
 	if len(tasks) == 0 {
 		return true
 	}
@@ -1362,7 +1381,7 @@ func jobTaskMatches(nextNeed string, tasks []jobdb.JobTaskFilter) bool {
 		if task.JobType == "" || task.TaskType == "" {
 			continue
 		}
-		if nextNeed == workerCapability(task.JobType, task.TaskType) {
+		if nextRoute == workerRoute(task.JobType, task.TaskType) {
 			return true
 		}
 	}

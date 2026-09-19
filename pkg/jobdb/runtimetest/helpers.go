@@ -29,7 +29,7 @@ func completeLeaseForTest(t *testing.T, ctx context.Context, lease jobdb.Executi
 	t.Helper()
 	chapter := jobdb.Chapter{
 		Ordinal:   ordinal,
-		TaskType:  lease.Capability(),
+		TaskType:  lease.Route().JobType,
 		CreatedAt: time.Now().UTC(),
 		Body: jobdb.JobAttemptOutcomeChapter{Outcome: jobdb.ApplicationOutputOutcome{
 			Output: jobdb.ApplicationOutputBytes{Data: []byte(`{"ok":true}`)},

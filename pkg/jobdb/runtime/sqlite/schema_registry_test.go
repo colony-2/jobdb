@@ -138,10 +138,10 @@ func TestSubmitJobSchemaAssociation(t *testing.T) {
 		t.Fatalf("list schema hash = %+v, want %s", list.Jobs, registered.SchemaHash)
 	}
 	leases, err := rt.PollWork(ctx, jobdb.PollWorkRequest{
-		TenantId:     tenantID,
-		WorkerID:     "schema-worker",
-		Capabilities: []string{"schema-job"},
-		Limit:        1,
+		TenantId: tenantID,
+		WorkerID: "schema-worker",
+		Routes:   []jobdb.Route{{JobType: "schema-job"}},
+		Limit:    1,
 	})
 	if err != nil {
 		t.Fatalf("poll work: %v", err)

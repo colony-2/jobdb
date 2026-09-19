@@ -29,7 +29,7 @@ func completeLeaseForTest(t *testing.T, ctx context.Context, lease jobdb.Executi
 	t.Helper()
 	chapter := jobdb.Chapter{
 		Ordinal:   ordinal,
-		TaskType:  lease.Capability(),
+		TaskType:  lease.Route().JobType,
 		CreatedAt: time.Now().UTC(),
 		Body: jobdb.JobAttemptOutcomeChapter{Outcome: jobdb.ApplicationOutputOutcome{
 			Output: jobdb.ApplicationOutputBytes{Data: []byte(`{"ok":true}`)},
@@ -98,7 +98,7 @@ func TestRemoteRuntimeLeaseAndMetadataRoundTrip(t *testing.T) {
 			leases, err := runtime.PollWork(ctx, jobdb.PollWorkRequest{
 				TenantId:      tenantID,
 				WorkerID:      "worker-a",
-				Capabilities:  []string{"lease-job"},
+				Routes:        []jobdb.Route{{JobType: "lease-job"}},
 				Limit:         1,
 				LeaseDuration: 2 * time.Second,
 				MetadataEquals: []jobdb.MetadataPredicate{{
@@ -120,17 +120,17 @@ func TestRemoteRuntimeLeaseAndMetadataRoundTrip(t *testing.T) {
 				t.Fatalf("keep alive: %v", err)
 			}
 			if err := leases[0].Reschedule(ctx, jobdb.RescheduleExecutionRequest{
-				NextNeed:            "lease-job",
+				NextRoute:           jobdb.Route{JobType: "lease-job"},
 				ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"kind":"rescheduled"}`), ExpectedRevision: new(int64)},
 			}); err != nil {
 				t.Fatalf("reschedule: %v", err)
 			}
 
 			leases, err = runtime.PollWork(ctx, jobdb.PollWorkRequest{
-				TenantId:     tenantID,
-				WorkerID:     "worker-b",
-				Capabilities: []string{"lease-job"},
-				Limit:        1,
+				TenantId: tenantID,
+				WorkerID: "worker-b",
+				Routes:   []jobdb.Route{{JobType: "lease-job"}},
+				Limit:    1,
 			})
 			if err != nil {
 				t.Fatalf("poll work after reschedule: %v", err)
@@ -169,9 +169,9 @@ func TestRemoteRuntimePollWorkRequiresTenantId(t *testing.T) {
 	defer cancel()
 
 	if _, err := runtime.PollWork(ctx, jobdb.PollWorkRequest{
-		WorkerID:     "worker-startup",
-		Capabilities: []string{"startup-job"},
-		Limit:        1,
+		WorkerID: "worker-startup",
+		Routes:   []jobdb.Route{{JobType: "startup-job"}},
+		Limit:    1,
 	}); err == nil {
 		t.Fatal("expected tenant-less poll work to fail")
 	}
@@ -190,19 +190,19 @@ func TestRemoteServerPollWorkRejectsInvalidTenantId(t *testing.T) {
 	}{
 		{
 			name: "missing tenantId",
-			body: `{"workerId":"worker","capabilities":["job"],"limit":1}`,
+			body: `{"workerId":"worker","routes":[{"jobType":"job"}],"limit":1}`,
 		},
 		{
 			name: "empty tenantId",
-			body: `{"tenantId":"","workerId":"worker","capabilities":["job"],"limit":1}`,
+			body: `{"tenantId":"","workerId":"worker","routes":[{"jobType":"job"}],"limit":1}`,
 		},
 		{
 			name: "legacy tenantIds",
-			body: `{"tenantIds":["tenant-a"],"workerId":"worker","capabilities":["job"],"limit":1}`,
+			body: `{"tenantIds":["tenant-a"],"workerId":"worker","routes":[{"jobType":"job"}],"limit":1}`,
 		},
 		{
 			name: "tenantId with legacy tenantIds",
-			body: `{"tenantId":"tenant-a","tenantIds":["tenant-a"],"workerId":"worker","capabilities":["job"],"limit":1}`,
+			body: `{"tenantId":"tenant-a","tenantIds":["tenant-a"],"workerId":"worker","routes":[{"jobType":"job"}],"limit":1}`,
 		},
 	}
 	for _, tc := range tests {
@@ -274,7 +274,7 @@ func TestRemoteRuntimeChapterAndArtifactRoundTrip(t *testing.T) {
 			lease, err := runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{
 				JobKey:        handle.JobKey,
 				WorkerID:      "worker-artifact",
-				Capabilities:  []string{"artifact-job"},
+				Routes:        []jobdb.Route{{JobType: "artifact-job"}},
 				LeaseDuration: 2 * time.Second,
 			})
 			if err != nil {
@@ -586,7 +586,7 @@ func TestRemoteRuntimeSchemaValidationErrors(t *testing.T) {
 	leases, err := runtime.PollWork(ctx, jobdb.PollWorkRequest{
 		TenantId:      tenantID,
 		WorkerID:      "schema-worker",
-		Capabilities:  []string{"schema-job"},
+		Routes:        []jobdb.Route{{JobType: "schema-job"}},
 		Limit:         1,
 		LeaseDuration: 2 * time.Second,
 	})

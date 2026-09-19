@@ -256,16 +256,13 @@ func TestRuntimeEngineDelegatesWaitingTaskMethodsToRuntime(t *testing.T) {
 	}
 	runtime := &fakeWorkflowRuntime{
 		listResp: ListJobsResponse{Jobs: []JobSummary{{
-			JobKey:            waitKey,
-			JobType:           "job",
-			NextNeed:          strPtr("job:task"),
-			Status:            JobStatusReady,
-			CreatedAt:         time.Unix(100, 0).UTC(),
-			Metadata:          json.RawMessage(`{"ok":true}`),
-			TaskWaitInput:     int64Ptr(1),
-			TaskWaitOutput:    int64Ptr(2),
-			TaskWaitInputHash: strPtr("hash-1"),
-			TaskWaitNext:      strPtr("job"),
+			JobKey:         waitKey,
+			JobType:        "job",
+			NextRoute:      &Route{JobType: "job", TaskType: "task"},
+			Status:         JobStatusReady,
+			CreatedAt:      time.Unix(100, 0).UTC(),
+			Metadata:       json.RawMessage(`{"ok":true}`),
+			ExecutionState: ExecutionState{TaskWait: &TaskWait{InputOrdinal: 1, OutputOrdinal: 2, InputHash: "hash-1", ResumeJobType: "job"}},
 		}}},
 		chapterResp: Chapter{
 			Ordinal:   1,
@@ -314,7 +311,7 @@ func TestRuntimeEngineDelegatesWaitingTaskMethodsToRuntime(t *testing.T) {
 	if err := handles[0].Finish(context.Background(), NewTaskDataOrPanic(map[string]int{"value": 2})); err != nil {
 		t.Fatalf("finish waiting task: %v", err)
 	}
-	if runtime.completeReq.JobKey != waitKey || runtime.completeReq.Capability != "job:task" || runtime.completeReq.ResumeNeed != "job" {
+	if runtime.completeReq.JobKey != waitKey || runtime.completeReq.Route != (Route{JobType: "job", TaskType: "task"}) || runtime.completeReq.ResumeJobType != "job" {
 		t.Fatalf("unexpected complete request %+v", runtime.completeReq)
 	}
 
@@ -330,9 +327,9 @@ func TestRuntimeEngineDelegatesWaitingTaskMethodsToRuntime(t *testing.T) {
 func TestRuntimeEngineDelegatesGetJobLeaseToRuntime(t *testing.T) {
 	jobKey := JobKey{TenantId: "tenant-lease", JobId: "job-lease"}
 	lease := &fakeExecutionLease{
-		job:        JobHandle{JobKey: jobKey},
-		capability: "job-lease",
-		payload:    json.RawMessage(`{"ok":true}`),
+		job:     JobHandle{JobKey: jobKey},
+		route:   Route{JobType: "job-lease"},
+		payload: json.RawMessage(`{"ok":true}`),
 	}
 	runtime := &fakeWorkflowRuntime{leaseResp: lease}
 	engine, err := NewEngineBuilder().WithRuntime(runtime).WithWorkerTenantId("tenant-lease").PlusWorkers(fakeJobWorker{}).BuildEngine()
@@ -343,7 +340,7 @@ func TestRuntimeEngineDelegatesGetJobLeaseToRuntime(t *testing.T) {
 	got, err := engine.GetJobLease(context.Background(), GetJobLeaseRequest{
 		JobKey:        jobKey,
 		WorkerID:      "manual-worker",
-		Capabilities:  []string{"job-lease"},
+		Routes:        []Route{{JobType: "job-lease"}},
 		LeaseDuration: 2 * time.Second,
 	})
 	if err != nil {
@@ -355,8 +352,8 @@ func TestRuntimeEngineDelegatesGetJobLeaseToRuntime(t *testing.T) {
 	if runtime.leaseReq.JobKey != jobKey || runtime.leaseReq.WorkerID != "manual-worker" {
 		t.Fatalf("unexpected lease request %+v", runtime.leaseReq)
 	}
-	if len(runtime.leaseReq.Capabilities) != 1 || runtime.leaseReq.Capabilities[0] != "job-lease" {
-		t.Fatalf("unexpected lease capabilities %+v", runtime.leaseReq.Capabilities)
+	if len(runtime.leaseReq.Routes) != 1 || runtime.leaseReq.Routes[0] != (Route{JobType: "job-lease"}) {
+		t.Fatalf("unexpected lease routes %+v", runtime.leaseReq.Routes)
 	}
 	if runtime.leaseReq.LeaseDuration != 2*time.Second {
 		t.Fatalf("unexpected lease duration %s", runtime.leaseReq.LeaseDuration)

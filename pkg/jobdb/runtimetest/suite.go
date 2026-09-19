@@ -107,6 +107,7 @@ func RunWorkflowRuntimeConformance(t *testing.T, harnesses ...Harness) {
 	t.Run("list_chapters_range", func(t *testing.T) {
 		runListChaptersRange(t, harnesses)
 	})
+	t.Run("typed_routes", func(t *testing.T) { RunRouteConformance(t, harnesses...) })
 	t.Run("client_payload", func(t *testing.T) { RunClientPayloadConformance(t, harnesses...) })
 	t.Run("lease_operations", func(t *testing.T) {
 		runLeaseOperations(t, harnesses)
@@ -539,7 +540,7 @@ func assertExecutionLeaseSubmitJobTracksParent(t *testing.T, built *builtFixture
 	lease, err := built.Runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{
 		JobKey:        parent.JobKey,
 		WorkerID:      "parent-tracking-worker",
-		Capabilities:  []string{parentType},
+		Routes:        []jobdb.Route{{JobType: parentType}},
 		LeaseDuration: 5 * time.Second,
 	})
 	if err != nil {
@@ -580,7 +581,7 @@ func assertExecutionLeaseSubmitJobTracksParent(t *testing.T, built *builtFixture
 	restartSourceLease, err := built.Runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{
 		JobKey:        restartSource.JobKey,
 		WorkerID:      "parent-tracking-source-worker",
-		Capabilities:  []string{restartSourceType},
+		Routes:        []jobdb.Route{{JobType: restartSourceType}},
 		LeaseDuration: 5 * time.Second,
 	})
 	if err != nil {
@@ -689,7 +690,7 @@ func runChapterAndArtifactRoundTrip(t *testing.T, harnesses []Harness) {
 			lease, err := built.Runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{
 				JobKey:        handle.JobKey,
 				WorkerID:      "runtime-storage-test",
-				Capabilities:  []string{"manual-storage"},
+				Routes:        []jobdb.Route{{JobType: "manual-storage"}},
 				LeaseDuration: 2 * time.Second,
 			})
 			if err != nil {
@@ -852,10 +853,10 @@ func runLeaseOperations(t *testing.T, harnesses []Harness) {
 			}
 
 			leases, err := built.Runtime.PollWork(ctx, jobdb.PollWorkRequest{
-				TenantId:     handle.JobKey.TenantId,
-				WorkerID:     "lease-worker",
-				Capabilities: []string{"lease-job"},
-				Limit:        1,
+				TenantId: handle.JobKey.TenantId,
+				WorkerID: "lease-worker",
+				Routes:   []jobdb.Route{{JobType: "lease-job"}},
+				Limit:    1,
 			})
 			if err != nil {
 				t.Fatalf("poll work: %v", err)
@@ -866,24 +867,24 @@ func runLeaseOperations(t *testing.T, harnesses []Harness) {
 			if leases[0].Job().JobKey != handle.JobKey {
 				t.Fatalf("unexpected lease job %+v", leases[0].Job().JobKey)
 			}
-			if leases[0].Capability() != "lease-job" {
-				t.Fatalf("unexpected capability %q", leases[0].Capability())
+			if leases[0].Route() != (jobdb.Route{JobType: "lease-job"}) {
+				t.Fatalf("unexpected route %q", leases[0].Route())
 			}
 			if err := leases[0].KeepAlive(ctx); err != nil {
 				t.Fatalf("keepalive: %v", err)
 			}
 			if err := leases[0].Reschedule(ctx, jobdb.RescheduleExecutionRequest{
-				NextNeed:            "lease-job",
+				NextRoute:           jobdb.Route{JobType: "lease-job"},
 				ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"kind":"rescheduled"}`), ExpectedRevision: new(int64)},
 			}); err != nil {
 				t.Fatalf("reschedule: %v", err)
 			}
 
 			leases, err = built.Runtime.PollWork(ctx, jobdb.PollWorkRequest{
-				TenantId:     handle.JobKey.TenantId,
-				WorkerID:     "lease-worker",
-				Capabilities: []string{"lease-job"},
-				Limit:        1,
+				TenantId: handle.JobKey.TenantId,
+				WorkerID: "lease-worker",
+				Routes:   []jobdb.Route{{JobType: "lease-job"}},
+				Limit:    1,
 			})
 			if err != nil {
 				t.Fatalf("poll work second time: %v", err)
@@ -916,9 +917,9 @@ func runPollWorkRequiresTenant(t *testing.T, harnesses []Harness) {
 			defer cancel()
 
 			_, err := built.Runtime.PollWork(ctx, jobdb.PollWorkRequest{
-				WorkerID:     "tenant-required-worker",
-				Capabilities: []string{"tenant-required-job"},
-				Limit:        1,
+				WorkerID: "tenant-required-worker",
+				Routes:   []jobdb.Route{{JobType: "tenant-required-job"}},
+				Limit:    1,
 			})
 			if err == nil {
 				t.Fatal("expected PollWork without tenantId to fail")
@@ -957,7 +958,7 @@ func runConflictBehavior(t *testing.T, harnesses []Harness) {
 				lease, err := built.Runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{
 					JobKey:        handle.JobKey,
 					WorkerID:      "runtime-conflict-writer",
-					Capabilities:  []string{"manual-storage"},
+					Routes:        []jobdb.Route{{JobType: "manual-storage"}},
 					LeaseDuration: 2 * time.Second,
 				})
 				if err != nil {
@@ -1025,17 +1026,17 @@ func runConflictBehavior(t *testing.T, harnesses []Harness) {
 					t.Fatalf("expected 1 waiting job summary, got %d", len(listed.Jobs))
 				}
 				summary := listed.Jobs[0]
-				if summary.NextNeed == nil || summary.TaskWaitNext == nil || summary.TaskWaitInput == nil || summary.TaskWaitOutput == nil || summary.TaskWaitInputHash == nil {
+				if summary.NextRoute == nil || summary.ExecutionState.TaskWait == nil {
 					t.Fatalf("missing waiting-task metadata in summary %+v", summary)
 				}
 
 				req := jobdb.CompleteTaskIfWaitingRequest{
 					JobKey:        jobKey,
-					Capability:    *summary.NextNeed,
-					ResumeNeed:    *summary.TaskWaitNext,
-					InputOrdinal:  *summary.TaskWaitInput,
-					OutputOrdinal: *summary.TaskWaitOutput,
-					InputHash:     *summary.TaskWaitInputHash,
+					Route:         *summary.NextRoute,
+					ResumeJobType: summary.ExecutionState.TaskWait.ResumeJobType,
+					InputOrdinal:  summary.ExecutionState.TaskWait.InputOrdinal,
+					OutputOrdinal: summary.ExecutionState.TaskWait.OutputOrdinal,
+					InputHash:     summary.ExecutionState.TaskWait.InputHash,
 					Data:          NumberTaskData(2),
 				}
 
@@ -1540,7 +1541,7 @@ func runPollWorkMetadataFiltering(t *testing.T, harnesses []Harness) {
 			leases, err := built.Runtime.PollWork(ctx, jobdb.PollWorkRequest{
 				TenantId:      matching.JobKey.TenantId,
 				WorkerID:      "metadata-worker",
-				Capabilities:  []string{"metadata-job"},
+				Routes:        []jobdb.Route{{JobType: "metadata-job"}},
 				Limit:         1,
 				LeaseDuration: 1500 * time.Millisecond,
 				MetadataEquals: []jobdb.MetadataPredicate{{
@@ -1560,10 +1561,10 @@ func runPollWorkMetadataFiltering(t *testing.T, harnesses []Harness) {
 			completeLeaseForTest(t, ctx, leases[0], 1)
 
 			misses, err := built.Runtime.PollWork(ctx, jobdb.PollWorkRequest{
-				TenantId:     matching.JobKey.TenantId,
-				WorkerID:     "metadata-worker",
-				Capabilities: []string{"metadata-job"},
-				Limit:        1,
+				TenantId: matching.JobKey.TenantId,
+				WorkerID: "metadata-worker",
+				Routes:   []jobdb.Route{{JobType: "metadata-job"}},
+				Limit:    1,
 				MetadataEquals: []jobdb.MetadataPredicate{{
 					Path:   []string{"queue"},
 					Values: []any{"red"},
@@ -1605,7 +1606,7 @@ func runGetJobLease(t *testing.T, harnesses []Harness) {
 			lease, err := built.Runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{
 				JobKey:        handle.JobKey,
 				WorkerID:      "targeted-worker-a",
-				Capabilities:  []string{"targeted-job"},
+				Routes:        []jobdb.Route{{JobType: "targeted-job"}},
 				LeaseDuration: 2 * time.Second,
 			})
 			if err != nil {
@@ -1617,14 +1618,14 @@ func runGetJobLease(t *testing.T, harnesses []Harness) {
 			if lease.Job().JobKey != handle.JobKey {
 				t.Fatalf("unexpected targeted lease job %+v", lease.Job().JobKey)
 			}
-			if lease.Capability() != "targeted-job" {
-				t.Fatalf("unexpected targeted lease capability %q", lease.Capability())
+			if lease.Route() != (jobdb.Route{JobType: "targeted-job"}) {
+				t.Fatalf("unexpected targeted lease route %q", lease.Route())
 			}
 
 			miss, err := built.Runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{
-				JobKey:       handle.JobKey,
-				WorkerID:     "targeted-worker-b",
-				Capabilities: []string{"targeted-job"},
+				JobKey:   handle.JobKey,
+				WorkerID: "targeted-worker-b",
+				Routes:   []jobdb.Route{{JobType: "targeted-job"}},
 			})
 			if err != nil {
 				t.Fatalf("get job lease while leased: %v", err)
@@ -1637,9 +1638,9 @@ func runGetJobLease(t *testing.T, harnesses []Harness) {
 			WaitForRuntimeStatus(t, ctx, built.Runtime, handle.JobKey, jobdb.JobStatusCompleted)
 
 			miss, err = built.Runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{
-				JobKey:       handle.JobKey,
-				WorkerID:     "targeted-worker-c",
-				Capabilities: []string{"targeted-job"},
+				JobKey:   handle.JobKey,
+				WorkerID: "targeted-worker-c",
+				Routes:   []jobdb.Route{{JobType: "targeted-job"}},
 			})
 			if err != nil {
 				t.Fatalf("get job lease after completion: %v", err)
@@ -1775,7 +1776,7 @@ func runGetJobForRun(t *testing.T, harnesses []Harness) {
 				}
 			})
 
-			t.Run("suspended_missing_capability", func(t *testing.T) {
+			t.Run("suspended_missing_route", func(t *testing.T) {
 				built := buildFixture(t, harness)
 				defer built.Shutdown(t)
 
@@ -1814,12 +1815,12 @@ func runGetJobForRun(t *testing.T, harnesses []Harness) {
 				if !outcome.LeaseAcquired {
 					t.Fatal("expected helper to acquire the lease")
 				}
-				wantCapability := SequenceJobName + ":" + MissingTaskName
-				if outcome.NextNeed == nil || *outcome.NextNeed != wantCapability {
-					t.Fatalf("unexpected next need %+v", outcome.NextNeed)
+				wantRoute := jobdb.Route{JobType: SequenceJobName, TaskType: MissingTaskName}
+				if outcome.NextRoute == nil || *outcome.NextRoute != wantRoute {
+					t.Fatalf("unexpected next need %+v", outcome.NextRoute)
 				}
-				if outcome.MissingCapability == nil || *outcome.MissingCapability != wantCapability {
-					t.Fatalf("unexpected missing capability %+v", outcome.MissingCapability)
+				if outcome.MissingRoute == nil || *outcome.MissingRoute != wantRoute {
+					t.Fatalf("unexpected missing route %+v", outcome.MissingRoute)
 				}
 			})
 
@@ -1841,9 +1842,9 @@ func runGetJobForRun(t *testing.T, harnesses []Harness) {
 				}
 
 				lease, err := built.Runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{
-					JobKey:       handle.JobKey,
-					WorkerID:     "held-lease-worker",
-					Capabilities: []string{SequenceJobName},
+					JobKey:   handle.JobKey,
+					WorkerID: "held-lease-worker",
+					Routes:   []jobdb.Route{{JobType: SequenceJobName}},
 				})
 				if err != nil {
 					t.Fatalf("hold targeted lease: %v", err)
