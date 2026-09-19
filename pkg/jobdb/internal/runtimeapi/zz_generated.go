@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	clientpayload "github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 	"github.com/go-chi/chi/v5"
 	"github.com/oapi-codegen/runtime"
 	strictnethttp "github.com/oapi-codegen/runtime/strictmiddleware/nethttp"
@@ -219,12 +220,13 @@ type ChapterBody struct {
 
 // ChapterRecord defines model for ChapterRecord.
 type ChapterRecord struct {
-	Artifacts     []StoredArtifact `json:"artifacts"`
-	Attempt       *int32           `json:"attempt,omitempty"`
-	BackoffMillis *int64           `json:"backoffMillis,omitempty"`
-	Body          ChapterBody      `json:"body"`
-	CreatedAt     time.Time        `json:"createdAt"`
-	FinishedAt    *time.Time       `json:"finishedAt,omitempty"`
+	Artifacts            []StoredArtifact `json:"artifacts"`
+	Attempt              *int32           `json:"attempt,omitempty"`
+	BackoffMillis        *int64           `json:"backoffMillis,omitempty"`
+	Body                 ChapterBody      `json:"body"`
+	CreatedAt            time.Time        `json:"createdAt"`
+	FinishedAt           *time.Time       `json:"finishedAt,omitempty"`
+	InitialPayloadDigest *string          `json:"initialPayloadDigest,omitempty"`
 
 	// Input Caller-owned application JSON payload embedded directly in REST
 	// requests and responses. This value is any valid JSON value: object,
@@ -245,11 +247,15 @@ type ChapterRecord struct {
 	WorkerId      *string             `json:"workerId,omitempty"`
 }
 
+// ClientPayloadUpdate defines model for ClientPayloadUpdate.
+type ClientPayloadUpdate = clientpayload.Update
+
 // CommitChapterIfWaitingRequest defines model for CommitChapterIfWaitingRequest.
 type CommitChapterIfWaitingRequest struct {
 	// Capability Optional guard for the currently waiting capability.
-	Capability *string       `json:"capability,omitempty"`
-	Data       TaskDataWrite `json:"data"`
+	Capability          *string              `json:"capability,omitempty"`
+	ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
+	Data                TaskDataWrite        `json:"data"`
 
 	// InputHash Optional guard for deterministic input matching.
 	InputHash *string `json:"inputHash,omitempty"`
@@ -270,10 +276,11 @@ type CompleteExecutionRequest struct {
 	// lease completion. Missing and empty arrays are both treated as no
 	// uploads; artifacts do not exist as durable resources unless the
 	// complete operation succeeds.
-	ArtifactUploads *[]ArtifactWrite `json:"artifactUploads,omitempty"`
-	Chapter         ChapterRecord    `json:"chapter"`
-	Detail          *string          `json:"detail,omitempty"`
-	Status          string           `json:"status"`
+	ArtifactUploads     *[]ArtifactWrite     `json:"artifactUploads,omitempty"`
+	Chapter             ChapterRecord        `json:"chapter"`
+	ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
+	Detail              *string              `json:"detail,omitempty"`
+	Status              string               `json:"status"`
 }
 
 // ErrorCode defines model for ErrorCode.
@@ -287,12 +294,20 @@ type ErrorResponse struct {
 
 // ExecutionLease defines model for ExecutionLease.
 type ExecutionLease struct {
-	Capability string           `json:"capability"`
-	Job        JobHandle        `json:"job"`
-	LeaseId    string           `json:"leaseId"`
-	LeaseToken string           `json:"leaseToken"`
-	Payload    SchedulerPayload `json:"payload"`
-	SchemaHash *JobSchemaHash   `json:"schemaHash,omitempty"`
+	Capability            string          `json:"capability"`
+	ClientPayload         json.RawMessage `json:"clientPayload,omitempty"`
+	ClientPayloadRevision string          `json:"clientPayloadRevision"`
+	ExecutionState        ExecutionState  `json:"executionState"`
+	Job                   JobHandle       `json:"job"`
+	LeaseId               string          `json:"leaseId"`
+	LeaseToken            string          `json:"leaseToken"`
+	SchemaHash            *JobSchemaHash  `json:"schemaHash,omitempty"`
+}
+
+// ExecutionState defines model for ExecutionState.
+type ExecutionState struct {
+	RunPolicy *RunPolicy `json:"runPolicy,omitempty"`
+	TaskWait  *TaskWait  `json:"taskWait,omitempty"`
 }
 
 // GetJobLeaseRequest defines model for GetJobLeaseRequest.
@@ -332,12 +347,16 @@ type JobHandle struct {
 
 // JobInfo defines model for JobInfo.
 type JobInfo struct {
+	ClientPayload         json.RawMessage `json:"clientPayload,omitempty"`
+	ClientPayloadRevision string          `json:"clientPayloadRevision"`
+
 	// Data Terminal task data when materialized. A `null` value should be
 	// treated as a lazily unavailable `TaskData`, for example when the job
 	// has not completed yet.
-	Data       *StoredTaskData `json:"data"`
-	SchemaHash *JobSchemaHash  `json:"schemaHash,omitempty"`
-	Status     JobStatus       `json:"status"`
+	Data           *StoredTaskData `json:"data"`
+	ExecutionState ExecutionState  `json:"executionState"`
+	SchemaHash     *JobSchemaHash  `json:"schemaHash,omitempty"`
+	Status         JobStatus       `json:"status"`
 }
 
 // JobKey defines model for JobKey.
@@ -407,25 +426,27 @@ type JobStore string
 
 // JobSummary defines model for JobSummary.
 type JobSummary struct {
-	ArchivedAt        *time.Time        `json:"archivedAt,omitempty"`
-	AvailableAt       time.Time         `json:"availableAt"`
-	CancelRequested   bool              `json:"cancelRequested"`
-	CreatedAt         time.Time         `json:"createdAt"`
-	ExpiresAt         *time.Time        `json:"expiresAt,omitempty"`
-	JobKey            JobKey            `json:"jobKey"`
-	JobType           string            `json:"jobType"`
-	LeaseExpiresAt    *time.Time        `json:"leaseExpiresAt,omitempty"`
-	Metadata          *Metadata         `json:"metadata,omitempty"`
-	NextNeed          *string           `json:"nextNeed,omitempty"`
-	ParentJobId       *string           `json:"parentJobId,omitempty"`
-	Payload           *SchedulerPayload `json:"payload,omitempty"`
-	SchemaHash        *JobSchemaHash    `json:"schemaHash,omitempty"`
-	Status            JobStatus         `json:"status"`
-	TaskWaitInput     *int64            `json:"taskWaitInput,omitempty"`
-	TaskWaitInputHash *string           `json:"taskWaitInputHash,omitempty"`
-	TaskWaitNext      *string           `json:"taskWaitNext,omitempty"`
-	TaskWaitOutput    *int64            `json:"taskWaitOutput,omitempty"`
-	WaitFor           []string          `json:"waitFor"`
+	ArchivedAt            *time.Time      `json:"archivedAt,omitempty"`
+	AvailableAt           time.Time       `json:"availableAt"`
+	CancelRequested       bool            `json:"cancelRequested"`
+	ClientPayload         json.RawMessage `json:"clientPayload,omitempty"`
+	ClientPayloadRevision string          `json:"clientPayloadRevision"`
+	CreatedAt             time.Time       `json:"createdAt"`
+	ExecutionState        ExecutionState  `json:"executionState"`
+	ExpiresAt             *time.Time      `json:"expiresAt,omitempty"`
+	JobKey                JobKey          `json:"jobKey"`
+	JobType               string          `json:"jobType"`
+	LeaseExpiresAt        *time.Time      `json:"leaseExpiresAt,omitempty"`
+	Metadata              *Metadata       `json:"metadata,omitempty"`
+	NextNeed              *string         `json:"nextNeed,omitempty"`
+	ParentJobId           *string         `json:"parentJobId,omitempty"`
+	SchemaHash            *JobSchemaHash  `json:"schemaHash,omitempty"`
+	Status                JobStatus       `json:"status"`
+	TaskWaitInput         *int64          `json:"taskWaitInput,omitempty"`
+	TaskWaitInputHash     *string         `json:"taskWaitInputHash,omitempty"`
+	TaskWaitNext          *string         `json:"taskWaitNext,omitempty"`
+	TaskWaitOutput        *int64          `json:"taskWaitOutput,omitempty"`
+	WaitFor               []string        `json:"waitFor"`
 }
 
 // JobTaskFilter defines model for JobTaskFilter.
@@ -621,12 +642,13 @@ type RegisterJobSchemaRequest struct {
 // RescheduleExecutionRequest defines model for RescheduleExecutionRequest.
 type RescheduleExecutionRequest struct {
 	// AlternateAfter Duration string.
-	AlternateAfter *string           `json:"alternateAfter,omitempty"`
-	AlternateNeed  *string           `json:"alternateNeed,omitempty"`
-	NextNeed       *string           `json:"nextNeed,omitempty"`
-	Payload        *SchedulerPayload `json:"payload,omitempty"`
-	WaitForJobIds  *[]string         `json:"waitForJobIds,omitempty"`
-	WaitUntil      *time.Time        `json:"waitUntil,omitempty"`
+	AlternateAfter      *string              `json:"alternateAfter,omitempty"`
+	AlternateNeed       *string              `json:"alternateNeed,omitempty"`
+	ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
+	NextNeed            *string              `json:"nextNeed,omitempty"`
+	TaskWait            *TaskWait            `json:"taskWait,omitempty"`
+	WaitForJobIds       *[]string            `json:"waitForJobIds,omitempty"`
+	WaitUntil           *time.Time           `json:"waitUntil,omitempty"`
 }
 
 // RestartExtraChapter defines model for RestartExtraChapter.
@@ -714,10 +736,11 @@ type ScheduleState string
 
 // ScheduleTarget defines model for ScheduleTarget.
 type ScheduleTarget struct {
-	Data      TaskDataWrite `json:"data"`
-	JobType   string        `json:"jobType"`
-	Metadata  *Metadata     `json:"metadata,omitempty"`
-	RunPolicy *RunPolicy    `json:"runPolicy,omitempty"`
+	ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
+	Data                TaskDataWrite        `json:"data"`
+	JobType             string               `json:"jobType"`
+	Metadata            *Metadata            `json:"metadata,omitempty"`
+	RunPolicy           *RunPolicy           `json:"runPolicy,omitempty"`
 }
 
 // ScheduleTrigger defines model for ScheduleTrigger.
@@ -735,17 +758,6 @@ type ScheduleTrigger struct {
 // ScheduleTriggerKind defines model for ScheduleTriggerKind.
 type ScheduleTriggerKind string
 
-// SchedulerPayload defines model for SchedulerPayload.
-type SchedulerPayload struct {
-	// LeasePayload Caller-owned application JSON payload embedded directly in REST
-	// requests and responses. This value is any valid JSON value: object,
-	// array, string, number, boolean, or null. It is never base64-encoded and
-	// never wrapped in a protobuf `Any`-style envelope on the REST boundary.
-	LeasePayload *ApplicationPayload `json:"leasePayload,omitempty"`
-	RunPolicy    *RunPolicy          `json:"runPolicy,omitempty"`
-	TaskWait     *TaskWait           `json:"taskWait,omitempty"`
-}
-
 // StoredArtifact defines model for StoredArtifact.
 type StoredArtifact struct {
 	Digest string `json:"digest"`
@@ -761,13 +773,14 @@ type StoredTaskData struct {
 
 // SubmitJob defines model for SubmitJob.
 type SubmitJob struct {
-	AvailableAt   *time.Time         `json:"availableAt,omitempty"`
-	Data          TaskDataWrite      `json:"data"`
-	JobType       string             `json:"jobType"`
-	Metadata      *Metadata          `json:"metadata,omitempty"`
-	Prerequisites *[]JobPrerequisite `json:"prerequisites,omitempty"`
-	RunPolicy     *RunPolicy         `json:"runPolicy,omitempty"`
-	Schema        *JobSchemaSelector `json:"schema,omitempty"`
+	AvailableAt         *time.Time           `json:"availableAt,omitempty"`
+	ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
+	Data                TaskDataWrite        `json:"data"`
+	JobType             string               `json:"jobType"`
+	Metadata            *Metadata            `json:"metadata,omitempty"`
+	Prerequisites       *[]JobPrerequisite   `json:"prerequisites,omitempty"`
+	RunPolicy           *RunPolicy           `json:"runPolicy,omitempty"`
+	Schema              *JobSchemaSelector   `json:"schema,omitempty"`
 }
 
 // SubmitJobRequest defines model for SubmitJobRequest.
@@ -779,12 +792,13 @@ type SubmitJobRequest struct {
 
 // SubmitRestartJob defines model for SubmitRestartJob.
 type SubmitRestartJob struct {
-	ExtraTaskInput  *TaskDataWrite     `json:"extraTaskInput,omitempty"`
-	ExtraTaskOutput *TaskDataWrite     `json:"extraTaskOutput,omitempty"`
-	LastStepToKeep  int64              `json:"lastStepToKeep"`
-	Prerequisites   *[]JobPrerequisite `json:"prerequisites,omitempty"`
-	PriorJobKey     JobKey             `json:"priorJobKey"`
-	Schema          *JobSchemaSelector `json:"schema,omitempty"`
+	ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
+	ExtraTaskInput      *TaskDataWrite       `json:"extraTaskInput,omitempty"`
+	ExtraTaskOutput     *TaskDataWrite       `json:"extraTaskOutput,omitempty"`
+	LastStepToKeep      int64                `json:"lastStepToKeep"`
+	Prerequisites       *[]JobPrerequisite   `json:"prerequisites,omitempty"`
+	PriorJobKey         JobKey               `json:"priorJobKey"`
+	Schema              *JobSchemaSelector   `json:"schema,omitempty"`
 }
 
 // SubmitRestartJobRequest defines model for SubmitRestartJobRequest.

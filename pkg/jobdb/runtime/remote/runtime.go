@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/runtimeapi"
 )
 
@@ -82,13 +83,14 @@ func submitJobRequestToAPI(ctx context.Context, req jobdb.SubmitJobRequest) (run
 	}
 	return runtimeapi.SubmitJobRequest{
 		Job: runtimeapi.SubmitJob{
-			AvailableAt:   cloneTime(req.Job.AvailableAt),
-			Data:          data,
-			JobType:       req.Job.JobType,
-			Metadata:      metadata,
-			Prerequisites: toAPIPrerequisites(req.Job.Prerequisites),
-			RunPolicy:     runPolicy,
-			Schema:        jobSchemaSelectorToAPI(req.Job.Schema),
+			ClientPayloadUpdate: req.Job.ClientPayloadUpdate,
+			AvailableAt:         cloneTime(req.Job.AvailableAt),
+			Data:                data,
+			JobType:             req.Job.JobType,
+			Metadata:            metadata,
+			Prerequisites:       toAPIPrerequisites(req.Job.Prerequisites),
+			RunPolicy:           runPolicy,
+			Schema:              jobSchemaSelectorToAPI(req.Job.Schema),
 		},
 		RequestTime: timePtr(req.RequestTime),
 		WorkerId:    stringPtrOrNil(req.WorkerID),
@@ -126,10 +128,11 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 func submitRestartJobRequestToAPI(ctx context.Context, req jobdb.SubmitRestartJobRequest) (runtimeapi.SubmitRestartJobRequest, error) {
 	body := runtimeapi.SubmitRestartJobRequest{
 		Job: runtimeapi.SubmitRestartJob{
-			LastStepToKeep: req.Job.LastStepToKeep,
-			PriorJobKey:    toAPIJobKey(req.Job.PriorJobKey),
-			Prerequisites:  toAPIPrerequisites(req.Job.Prerequisites),
-			Schema:         jobSchemaSelectorToAPI(req.Job.Schema),
+			ClientPayloadUpdate: req.Job.ClientPayloadUpdate,
+			LastStepToKeep:      req.Job.LastStepToKeep,
+			PriorJobKey:         toAPIJobKey(req.Job.PriorJobKey),
+			Prerequisites:       toAPIPrerequisites(req.Job.Prerequisites),
+			Schema:              jobSchemaSelectorToAPI(req.Job.Schema),
 		},
 		RequestTime: timePtr(req.RequestTime),
 		WorkerId:    stringPtrOrNil(req.WorkerID),
@@ -228,12 +231,13 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 		return err
 	}
 	body := runtimeapi.CommitChapterIfWaitingRequest{
-		Capability:    stringPtrOrNil(req.Capability),
-		Data:          data,
-		InputHash:     stringPtrOrNil(req.InputHash),
-		InputOrdinal:  int64Ptr(req.InputOrdinal),
-		OutputOrdinal: int64Ptr(req.OutputOrdinal),
-		ResumeNeed:    stringPtrOrNil(req.ResumeNeed),
+		ClientPayloadUpdate: req.ClientPayloadUpdate,
+		Capability:          stringPtrOrNil(req.Capability),
+		Data:                data,
+		InputHash:           stringPtrOrNil(req.InputHash),
+		InputOrdinal:        int64Ptr(req.InputOrdinal),
+		OutputOrdinal:       int64Ptr(req.OutputOrdinal),
+		ResumeNeed:          stringPtrOrNil(req.ResumeNeed),
 	}
 	resp, err := r.client.CommitChapterIfWaitingWithResponse(ctx, req.JobKey.TenantId, req.JobKey.JobId, req.OutputOrdinal, body)
 	if err != nil {
@@ -674,14 +678,16 @@ func (r *Runtime) OpenArtifact(ctx context.Context, ref jobdb.ArtifactRef) (jobd
 }
 
 type remoteExecutionLease struct {
-	runtime     *Runtime
-	leaseID     string
-	jobKey      jobdb.JobKey
-	capability  string
-	schemaHash  string
-	payloadJSON json.RawMessage
-	mu          sync.RWMutex
-	leaseToken  string
+	runtime        *Runtime
+	leaseID        string
+	jobKey         jobdb.JobKey
+	capability     string
+	schemaHash     string
+	clientPayload  json.RawMessage
+	clientRevision int64
+	state          jobdb.ExecutionState
+	mu             sync.RWMutex
+	leaseToken     string
 }
 
 func (l *remoteExecutionLease) LeaseID() string      { return l.leaseID }
@@ -696,8 +702,12 @@ func (l *remoteExecutionLease) LeaseToken() string {
 	defer l.mu.RUnlock()
 	return l.leaseToken
 }
-func (l *remoteExecutionLease) Payload() json.RawMessage {
-	return append(json.RawMessage(nil), l.payloadJSON...)
+func (l *remoteExecutionLease) ClientPayload() json.RawMessage {
+	return cloneRawMessage(l.clientPayload)
+}
+func (l *remoteExecutionLease) ClientPayloadRevision() int64 { return l.clientRevision }
+func (l *remoteExecutionLease) ExecutionState() jobdb.ExecutionState {
+	return jobdb.CloneExecutionState(l.state)
 }
 func (l *remoteExecutionLease) KeepAlive(ctx context.Context) error {
 	resp, err := l.runtime.client.KeepAliveLeaseWithResponse(
@@ -728,10 +738,11 @@ func (l *remoteExecutionLease) Complete(ctx context.Context, req jobdb.CompleteE
 		return err
 	}
 	body := runtimeapi.CompleteExecutionRequest{
-		Status:          req.Status,
-		Detail:          stringPtrOrNil(req.Detail),
-		Chapter:         chapterWrite.Chapter,
-		ArtifactUploads: chapterWrite.ArtifactUploads,
+		ClientPayloadUpdate: req.ClientPayloadUpdate,
+		Status:              req.Status,
+		Detail:              stringPtrOrNil(req.Detail),
+		Chapter:             chapterWrite.Chapter,
+		ArtifactUploads:     chapterWrite.ArtifactUploads,
 	}
 	resp, err := l.runtime.client.CompleteJobWithLeaseWithResponse(
 		ctx,
@@ -759,20 +770,13 @@ func optionalArtifactWrites(items []runtimeapi.ArtifactWrite) *[]runtimeapi.Arti
 }
 
 func (l *remoteExecutionLease) Reschedule(ctx context.Context, req jobdb.RescheduleExecutionRequest) error {
-	var payload *runtimeapi.SchedulerPayload
-	var err error
-	if len(req.Payload) > 0 {
-		payload, err = schedulerPayloadOptionalToAPI(req.Payload)
-		if err != nil {
-			return err
-		}
-	}
 	body := runtimeapi.RescheduleExecutionRequest{
-		AlternateAfter: toAPIStdDurationValue(req.AlternateAfter),
-		AlternateNeed:  stringPtrOrNil(req.AlternateNeed),
-		NextNeed:       stringPtrOrNil(req.NextNeed),
-		Payload:        payload,
-		WaitUntil:      req.WaitUntil,
+		AlternateAfter:      toAPIStdDurationValue(req.AlternateAfter),
+		AlternateNeed:       stringPtrOrNil(req.AlternateNeed),
+		NextNeed:            stringPtrOrNil(req.NextNeed),
+		TaskWait:            taskWaitToAPI(req.TaskWait),
+		ClientPayloadUpdate: req.ClientPayloadUpdate,
+		WaitUntil:           req.WaitUntil,
 	}
 	if len(req.WaitForJobIDs) > 0 {
 		waitFor := append([]string(nil), req.WaitForJobIDs...)
@@ -876,18 +880,22 @@ func (l *remoteExecutionLease) SubmitRestartJob(ctx context.Context, req jobdb.S
 }
 
 func (r *Runtime) executionLeaseFromAPI(lease runtimeapi.ExecutionLease) (jobdb.ExecutionLease, error) {
-	payload, err := schedulerPayloadFromAPI(lease.Payload)
+	state, err := executionStateFromAPI(lease.ExecutionState)
+	if err != nil {
+		return nil, err
+	}
+	revision, err := payloadRevision(lease.ClientPayloadRevision)
 	if err != nil {
 		return nil, err
 	}
 	return &remoteExecutionLease{
-		runtime:     r,
-		leaseID:     lease.LeaseId,
-		jobKey:      fromAPIJobKey(lease.Job.JobKey),
-		capability:  lease.Capability,
-		schemaHash:  stringValue(lease.SchemaHash),
-		payloadJSON: payload,
-		leaseToken:  lease.LeaseToken,
+		runtime:       r,
+		leaseID:       lease.LeaseId,
+		jobKey:        fromAPIJobKey(lease.Job.JobKey),
+		capability:    lease.Capability,
+		schemaHash:    stringValue(lease.SchemaHash),
+		clientPayload: cloneRawMessage(lease.ClientPayload), clientRevision: revision, state: state,
+		leaseToken: lease.LeaseToken,
 	}, nil
 }
 
@@ -930,13 +938,21 @@ func responseError(operation string, status int, body []byte, sentinel error) er
 			return fmt.Errorf("%w: %s", sentinel, message)
 		}
 	case http.StatusConflict:
+		if strings.Contains(message, jobdb.ErrConflict.Error()) {
+			return fmt.Errorf("%w: %s", jobdb.ErrConflict, message)
+		}
 		if err := archivedSchemaError(message); err != nil {
 			return err
 		}
 		if sentinel != nil {
 			return fmt.Errorf("%w: %s", sentinel, message)
 		}
+	case http.StatusRequestEntityTooLarge:
+		return fmt.Errorf("%w: %s", clientpayload.ErrTooLarge, message)
 	case http.StatusBadRequest:
+		if strings.Contains(message, clientpayload.ErrInvalid.Error()) {
+			return fmt.Errorf("%w: %s", clientpayload.ErrInvalid, message)
+		}
 		if strings.Contains(message, jobdb.ErrJobSchemaValidation.Error()) {
 			return fmt.Errorf("%w: %s", jobdb.ErrJobSchemaValidation, message)
 		}
@@ -954,7 +970,12 @@ func responseErrorWithConflict(operation string, status int, body []byte, notFou
 		message = http.StatusText(status)
 	}
 	switch status {
+	case http.StatusRequestEntityTooLarge:
+		return fmt.Errorf("%w: %s", clientpayload.ErrTooLarge, message)
 	case http.StatusBadRequest:
+		if strings.Contains(message, clientpayload.ErrInvalid.Error()) {
+			return fmt.Errorf("%w: %s", clientpayload.ErrInvalid, message)
+		}
 		if strings.Contains(message, jobdb.ErrJobSchemaValidation.Error()) {
 			return fmt.Errorf("%w: %s", jobdb.ErrJobSchemaValidation, message)
 		}
@@ -964,6 +985,9 @@ func responseErrorWithConflict(operation string, status int, body []byte, notFou
 			return fmt.Errorf("%w: %s", notFoundSentinel, message)
 		}
 	case http.StatusConflict:
+		if strings.Contains(message, jobdb.ErrConflict.Error()) {
+			return fmt.Errorf("%w: %s", jobdb.ErrConflict, message)
+		}
 		if err := archivedSchemaError(message); err != nil {
 			return err
 		}
@@ -983,12 +1007,20 @@ func explicitJobCreateError(operation string, status int, body []byte, conflict 
 		message = http.StatusText(status)
 	}
 	switch status {
+	case http.StatusRequestEntityTooLarge:
+		return fmt.Errorf("%w: %s", clientpayload.ErrTooLarge, message)
 	case http.StatusBadRequest:
+		if strings.Contains(message, clientpayload.ErrInvalid.Error()) {
+			return fmt.Errorf("%w: %s", clientpayload.ErrInvalid, message)
+		}
 		if strings.Contains(message, jobdb.ErrJobSchemaValidation.Error()) {
 			return fmt.Errorf("%w: %s", jobdb.ErrJobSchemaValidation, message)
 		}
 		return fmt.Errorf("%s: %s", operation, message)
 	case http.StatusConflict:
+		if strings.Contains(message, jobdb.ErrConflict.Error()) {
+			return fmt.Errorf("%w: %s", jobdb.ErrConflict, message)
+		}
 		if err := archivedSchemaError(message); err != nil {
 			return err
 		}

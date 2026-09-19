@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/colony-2/jobdb/pkg/jobdb"
 	storagepb "github.com/colony-2/jobdb/pkg/internal/storagepb/v1"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -32,24 +32,25 @@ const (
 )
 
 type ChapterMeta struct {
-	Version       int                     `json:"version"`
-	Ordinal       int64                   `json:"ordinal"`
-	TaskType      string                  `json:"task_type"`
-	WorkerID      string                  `json:"worker_id"`
-	CreatedAt     time.Time               `json:"created_at"`
-	StartedAt     *time.Time              `json:"started_at,omitempty"`
-	FinishedAt    *time.Time              `json:"finished_at,omitempty"`
-	InputHash     string                  `json:"input_hash"`
-	Metadata      json.RawMessage         `json:"metadata,omitempty"`
-	Input         json.RawMessage         `json:"input,omitempty"`
-	Attempt       int                     `json:"attempt,omitempty"`
-	MaxAttempts   int                     `json:"max_attempts,omitempty"`
-	NextAttemptAt *time.Time              `json:"next_attempt_at,omitempty"`
-	BackoffMillis int64                   `json:"backoff_ms,omitempty"`
-	Retryable     *bool                   `json:"retryable,omitempty"`
-	InputRef      *jobdb.InputReference   `json:"input_ref,omitempty"`
-	RunPolicy     *jobdb.RunPolicy        `json:"run_policy,omitempty"`
-	Prerequisites []jobdb.JobPrerequisite `json:"prereqs,omitempty"`
+	InitialPayloadDigest string                  `json:"initial_payload_digest,omitempty"`
+	Version              int                     `json:"version"`
+	Ordinal              int64                   `json:"ordinal"`
+	TaskType             string                  `json:"task_type"`
+	WorkerID             string                  `json:"worker_id"`
+	CreatedAt            time.Time               `json:"created_at"`
+	StartedAt            *time.Time              `json:"started_at,omitempty"`
+	FinishedAt           *time.Time              `json:"finished_at,omitempty"`
+	InputHash            string                  `json:"input_hash"`
+	Metadata             json.RawMessage         `json:"metadata,omitempty"`
+	Input                json.RawMessage         `json:"input,omitempty"`
+	Attempt              int                     `json:"attempt,omitempty"`
+	MaxAttempts          int                     `json:"max_attempts,omitempty"`
+	NextAttemptAt        *time.Time              `json:"next_attempt_at,omitempty"`
+	BackoffMillis        int64                   `json:"backoff_ms,omitempty"`
+	Retryable            *bool                   `json:"retryable,omitempty"`
+	InputRef             *jobdb.InputReference   `json:"input_ref,omitempty"`
+	RunPolicy            *jobdb.RunPolicy        `json:"run_policy,omitempty"`
+	Prerequisites        []jobdb.JobPrerequisite `json:"prereqs,omitempty"`
 }
 
 type ChapterEnvelope struct {
@@ -60,9 +61,8 @@ type ChapterEnvelope struct {
 }
 
 type SchedulerPayload struct {
-	RunPolicy      jobdb.RunPolicy
-	TaskWait       *TaskWait
-	VisiblePayload json.RawMessage
+	RunPolicy jobdb.RunPolicy
+	TaskWait  *TaskWait
 }
 
 type TaskWait struct {
@@ -179,12 +179,7 @@ func EncodeSchedulerPayload(payload SchedulerPayload) ([]byte, error) {
 	if payload.TaskWait != nil {
 		builder.TaskWait = taskWaitToProto(*payload.TaskWait)
 	}
-	if len(payload.VisiblePayload) > 0 {
-		if !json.Valid(payload.VisiblePayload) {
-			return nil, fmt.Errorf("visible payload must be valid JSON")
-		}
-		builder.LeasePayload = leasePayloadBytes(payload.VisiblePayload)
-	}
+
 	return deterministicMarshal.Marshal(builder.Build())
 }
 
@@ -201,9 +196,7 @@ func DecodeSchedulerPayload(raw []byte) (SchedulerPayload, error) {
 		tw := taskWaitFromProto(payload.GetTaskWait())
 		out.TaskWait = &tw
 	}
-	if payload.HasLeasePayload() {
-		out.VisiblePayload = cloneJSON(payload.GetLeasePayload().GetData())
-	}
+
 	return out, nil
 }
 
@@ -224,90 +217,6 @@ func DecodeSchedulerPayloadJSON(raw json.RawMessage) (SchedulerPayload, error) {
 		return SchedulerPayload{}, err
 	}
 	return DecodeSchedulerPayload(decoded)
-}
-
-func SchedulerPayloadJSONView(payload SchedulerPayload) (json.RawMessage, error) {
-	if len(payload.VisiblePayload) > 0 {
-		return cloneJSON(payload.VisiblePayload), nil
-	}
-	type taskWaitJSON struct {
-		InputStep  int64  `json:"in"`
-		OutputStep int64  `json:"out"`
-		Next       string `json:"next"`
-		InputHash  string `json:"input_hash,omitempty"`
-	}
-	type jobPayloadJSON struct {
-		RunPolicy jobdb.RunPolicy `json:"run_policy,omitempty"`
-		TaskWait  *taskWaitJSON   `json:"task_wait,omitempty"`
-	}
-	view := jobPayloadJSON{RunPolicy: payload.RunPolicy}
-	if payload.TaskWait != nil {
-		view.TaskWait = &taskWaitJSON{
-			InputStep:  payload.TaskWait.InputStep,
-			OutputStep: payload.TaskWait.OutputStep,
-			Next:       payload.TaskWait.Next,
-			InputHash:  payload.TaskWait.InputHash,
-		}
-	}
-	raw, err := json.Marshal(view)
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(raw), nil
-}
-
-func SchedulerPayloadFromJSONView(raw json.RawMessage) (SchedulerPayload, error) {
-	if len(raw) == 0 {
-		raw = json.RawMessage(`{}`)
-	}
-	if !json.Valid(raw) {
-		return SchedulerPayload{}, fmt.Errorf("visible payload must be valid JSON")
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		return SchedulerPayload{}, err
-	}
-	if fields == nil {
-		return SchedulerPayload{}, fmt.Errorf("visible payload must be a JSON object")
-	}
-	payload := SchedulerPayload{}
-	parsedSchedulerField := false
-	hasNonSchedulerField := false
-	for name := range fields {
-		if name != "run_policy" && name != "task_wait" {
-			hasNonSchedulerField = true
-			break
-		}
-	}
-	if policyRaw, ok := fields["run_policy"]; ok && len(policyRaw) > 0 && string(policyRaw) != "null" {
-		var policy jobdb.RunPolicy
-		if err := json.Unmarshal(policyRaw, &policy); err == nil {
-			payload.RunPolicy = policy
-			parsedSchedulerField = true
-		}
-	}
-	if waitRaw, ok := fields["task_wait"]; ok && len(waitRaw) > 0 && string(waitRaw) != "null" {
-		type taskWaitJSON struct {
-			InputStep  int64  `json:"in"`
-			OutputStep int64  `json:"out"`
-			Next       string `json:"next"`
-			InputHash  string `json:"input_hash,omitempty"`
-		}
-		var wait taskWaitJSON
-		if err := json.Unmarshal(waitRaw, &wait); err == nil {
-			payload.TaskWait = &TaskWait{
-				InputStep:  wait.InputStep,
-				OutputStep: wait.OutputStep,
-				Next:       wait.Next,
-				InputHash:  wait.InputHash,
-			}
-			parsedSchedulerField = true
-		}
-	}
-	if hasNonSchedulerField || !parsedSchedulerField {
-		payload.VisiblePayload = cloneJSON(raw)
-	}
-	return payload, nil
 }
 
 func EncodeWaitForJobs(jobIDs []string) ([]byte, error) {
@@ -364,14 +273,15 @@ func chapterRecordBuilder(meta ChapterMeta) (storagepb.ChapterRecord_builder, er
 		return storagepb.ChapterRecord_builder{}, fmt.Errorf("encode chapter metadata: %w", err)
 	}
 	builder := storagepb.ChapterRecord_builder{
-		Ordinal:       ptr(versioned.Ordinal),
-		TaskType:      ptr(versioned.TaskType),
-		WorkerId:      ptr(versioned.WorkerID),
-		InputHash:     ptr(versioned.InputHash),
-		Attempt:       ptr(int32(versioned.Attempt)),
-		MaxAttempts:   ptr(int32(versioned.MaxAttempts)),
-		BackoffMillis: ptr(versioned.BackoffMillis),
-		Metadata:      metadata,
+		InitialPayloadDigest: ptr(versioned.InitialPayloadDigest),
+		Ordinal:              ptr(versioned.Ordinal),
+		TaskType:             ptr(versioned.TaskType),
+		WorkerId:             ptr(versioned.WorkerID),
+		InputHash:            ptr(versioned.InputHash),
+		Attempt:              ptr(int32(versioned.Attempt)),
+		MaxAttempts:          ptr(int32(versioned.MaxAttempts)),
+		BackoffMillis:        ptr(versioned.BackoffMillis),
+		Metadata:             metadata,
 	}
 	if !versioned.CreatedAt.IsZero() {
 		builder.CreatedAt = timestamppb.New(versioned.CreatedAt)
@@ -409,18 +319,19 @@ func chapterMetaFromProto(record *storagepb.ChapterRecord) (ChapterMeta, error) 
 		return ChapterMeta{}, fmt.Errorf("decode chapter metadata: %w", err)
 	}
 	meta := ChapterMeta{
-		Version:       EnvelopeVersion,
-		Ordinal:       record.GetOrdinal(),
-		TaskType:      record.GetTaskType(),
-		WorkerID:      record.GetWorkerId(),
-		CreatedAt:     timestampToTime(record.GetCreatedAt()),
-		InputHash:     record.GetInputHash(),
-		Metadata:      metadata,
-		Input:         cloneJSON(record.GetInput().GetData()),
-		Attempt:       int(record.GetAttempt()),
-		MaxAttempts:   int(record.GetMaxAttempts()),
-		BackoffMillis: record.GetBackoffMillis(),
-		Prerequisites: prerequisitesFromProto(record.GetPrerequisites()),
+		InitialPayloadDigest: record.GetInitialPayloadDigest(),
+		Version:              EnvelopeVersion,
+		Ordinal:              record.GetOrdinal(),
+		TaskType:             record.GetTaskType(),
+		WorkerID:             record.GetWorkerId(),
+		CreatedAt:            timestampToTime(record.GetCreatedAt()),
+		InputHash:            record.GetInputHash(),
+		Metadata:             metadata,
+		Input:                cloneJSON(record.GetInput().GetData()),
+		Attempt:              int(record.GetAttempt()),
+		MaxAttempts:          int(record.GetMaxAttempts()),
+		BackoffMillis:        record.GetBackoffMillis(),
+		Prerequisites:        prerequisitesFromProto(record.GetPrerequisites()),
 	}
 	if record.HasStartedAt() {
 		t := timestampToTime(record.GetStartedAt())
@@ -516,10 +427,6 @@ func applicationInputBytes(raw []byte) *storagepb.ApplicationInputBytes {
 
 func applicationOutputBytes(raw []byte) *storagepb.ApplicationOutputBytes {
 	return storagepb.ApplicationOutputBytes_builder{Data: cloneBytes(raw)}.Build()
-}
-
-func leasePayloadBytes(raw []byte) *storagepb.LeasePayloadBytes {
-	return storagepb.LeasePayloadBytes_builder{Data: cloneBytes(raw)}.Build()
 }
 
 func appErrorPayloadToProto(payload jobdb.AppErrorPayload) (*storagepb.AppErrorPayload, error) {

@@ -107,6 +107,7 @@ func RunWorkflowRuntimeConformance(t *testing.T, harnesses ...Harness) {
 	t.Run("list_chapters_range", func(t *testing.T) {
 		runListChaptersRange(t, harnesses)
 	})
+	t.Run("client_payload", func(t *testing.T) { RunClientPayloadConformance(t, harnesses...) })
 	t.Run("lease_operations", func(t *testing.T) {
 		runLeaseOperations(t, harnesses)
 	})
@@ -370,9 +371,10 @@ func runScheduleAPIs(t *testing.T, harnesses []Harness) {
 					Interval: time.Hour,
 				},
 				Target: jobdb.ScheduleTarget{
-					JobType:  "scheduled-conformance-job",
-					Data:     NumberTaskData(5),
-					Metadata: json.RawMessage(`{"queue":"blue"}`),
+					ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"n":9007199254740993}`)},
+					JobType:             "scheduled-conformance-job",
+					Data:                NumberTaskData(5),
+					Metadata:            json.RawMessage(`{"queue":"blue"}`),
 				},
 			})
 			if err != nil {
@@ -430,6 +432,11 @@ func runScheduleAPIs(t *testing.T, harnesses []Harness) {
 			}
 			assertScheduleRunListed(t, runs.Runs, *info.NextJobKey)
 			assertScheduleRunListed(t, runs.Runs, manual.JobKey)
+			for _, run := range runs.Runs {
+				if string(run.ClientPayload) != `{"n":9007199254740993}` || run.ClientPayloadRevision != 1 {
+					t.Fatalf("schedule run client state: %+v", run)
+				}
+			}
 
 			expectedGeneration := info.Generation
 			paused, err := built.Runtime.PauseSchedule(ctx, jobdb.ScheduleMutationRequest{
@@ -866,8 +873,8 @@ func runLeaseOperations(t *testing.T, harnesses []Harness) {
 				t.Fatalf("keepalive: %v", err)
 			}
 			if err := leases[0].Reschedule(ctx, jobdb.RescheduleExecutionRequest{
-				NextNeed: "lease-job",
-				Payload:  json.RawMessage(`{"kind":"rescheduled"}`),
+				NextNeed:            "lease-job",
+				ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"kind":"rescheduled"}`), ExpectedRevision: new(int64)},
 			}); err != nil {
 				t.Fatalf("reschedule: %v", err)
 			}
@@ -885,7 +892,7 @@ func runLeaseOperations(t *testing.T, harnesses []Harness) {
 				t.Fatalf("expected 1 lease after reschedule, got %d", len(leases))
 			}
 			payload := map[string]string{}
-			if err := json.Unmarshal(leases[0].Payload(), &payload); err != nil {
+			if err := json.Unmarshal(leases[0].ClientPayload(), &payload); err != nil {
 				t.Fatalf("unmarshal lease payload: %v", err)
 			}
 			if payload["kind"] != "rescheduled" {

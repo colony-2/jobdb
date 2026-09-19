@@ -18,6 +18,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 	chapterartifact "github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/artifact"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
@@ -45,18 +46,19 @@ type taskWait = runtimecodec.TaskWait
 type chapterMeta = runtimecodec.ChapterMeta
 
 type chapterMetadata struct {
-	Attempt       int
-	MaxAttempts   int
-	NextAttemptAt *time.Time
-	BackoffMillis int64
-	Retryable     *bool
-	InputRef      *jobdb.InputReference
-	RunPolicy     *jobdb.RunPolicy
-	Metadata      json.RawMessage
-	InputPayload  json.RawMessage
-	StartedAt     *time.Time
-	FinishedAt    *time.Time
-	Prerequisites []jobdb.JobPrerequisite
+	InitialPayloadDigest string
+	Attempt              int
+	MaxAttempts          int
+	NextAttemptAt        *time.Time
+	BackoffMillis        int64
+	Retryable            *bool
+	InputRef             *jobdb.InputReference
+	RunPolicy            *jobdb.RunPolicy
+	Metadata             json.RawMessage
+	InputPayload         json.RawMessage
+	StartedAt            *time.Time
+	FinishedAt           *time.Time
+	Prerequisites        []jobdb.JobPrerequisite
 }
 
 type chapterEnvelope = runtimecodec.ChapterEnvelope
@@ -107,12 +109,13 @@ func payloadToChapter(payload json.RawMessage, artifacts []jobdb.Artifact, ordin
 		return nil, fmt.Errorf("input hash is required")
 	}
 	meta := chapterMeta{
-		Version:   envelopeVersion,
-		Ordinal:   ordinal,
-		TaskType:  taskType,
-		WorkerID:  workerID,
-		CreatedAt: createdAt,
-		InputHash: inputHash,
+		InitialPayloadDigest: metaOpts.InitialPayloadDigest,
+		Version:              envelopeVersion,
+		Ordinal:              ordinal,
+		TaskType:             taskType,
+		WorkerID:             workerID,
+		CreatedAt:            createdAt,
+		InputHash:            inputHash,
 	}
 	if metaOpts.Attempt > 0 {
 		meta.Attempt = metaOpts.Attempt
@@ -364,20 +367,16 @@ func decodeJobPayload(raw []byte) (jobPayload, error) {
 	return runtimecodec.DecodeSchedulerPayload(raw)
 }
 
-func jobPayloadFromVisibleJSON(raw json.RawMessage) (jobPayload, error) {
-	return runtimecodec.SchedulerPayloadFromJSONView(raw)
-}
-
-func jobPayloadVisibleJSON(raw []byte) json.RawMessage {
-	payload, err := decodeJobPayload(raw)
+func jobExecutionState(raw []byte) jobdb.ExecutionState {
+	p, err := decodeJobPayload(raw)
 	if err != nil {
-		return json.RawMessage(`{}`)
+		return jobdb.ExecutionState{}
 	}
-	view, err := runtimecodec.SchedulerPayloadJSONView(payload)
-	if err != nil {
-		return json.RawMessage(`{}`)
+	state := jobdb.ExecutionState{RunPolicy: p.RunPolicy}
+	if t := p.TaskWait; t != nil {
+		state.TaskWait = &jobdb.TaskWait{InputOrdinal: t.InputStep, OutputOrdinal: t.OutputStep, InputHash: t.InputHash, ResumeNeed: t.Next}
 	}
-	return view
+	return state
 }
 
 func taskTypeFromCapability(capability string) string {
@@ -461,10 +460,21 @@ func attemptFromMetadata(raw json.RawMessage) (int, error) {
 	return payload.Attempt, nil
 }
 
-func compareSubmitStartChapter(jobKey jobdb.JobKey, chapter story.Chapter, jobType string, inputHash string, metadata json.RawMessage, prereqs []jobdb.JobPrerequisite, jobPolicy jobdb.RunPolicy) error {
+func compareSubmitStartChapter(jobKey jobdb.JobKey, chapter story.Chapter, jobType string, inputHash string, metadata json.RawMessage, prereqs []jobdb.JobPrerequisite, jobPolicy jobdb.RunPolicy, update *jobdb.ClientPayloadUpdate) error {
 	env, err := decodeChapterEnvelope(chapter.Body())
 	if err != nil {
 		return jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s start chapter could not be decoded: %v", jobKey, err))
+	}
+	initial, _, err := clientpayload.Initial(update)
+	if err != nil {
+		return err
+	}
+	digest, err := clientpayload.Digest(initial)
+	if err != nil {
+		return err
+	}
+	if digest != env.Meta.InitialPayloadDigest {
+		return jobdb.NewExistingJobMismatchError("initial client payload differs")
 	}
 	if env.ChapterType != chapterTypeJobStart {
 		return jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with chapter type %q at ordinal 0", jobKey, env.ChapterType))

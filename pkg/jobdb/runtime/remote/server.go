@@ -8,13 +8,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/leaseauth"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/runtimeapi"
+	"github.com/go-chi/chi/v5"
 )
 
 type leaseOperationRuntime interface {
@@ -75,7 +76,7 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 		schemaRegistry: runtimeSchemaRegistry(runtime),
 		tokens:         tokens,
 	}
-	strict := runtimeapi.NewStrictHandlerWithOptions(server, nil, runtimeapi.StrictHTTPServerOptions{
+	strict := runtimeapi.NewStrictHandlerWithOptions(server, []runtimeapi.StrictMiddlewareFunc{strictRequestFields}, runtimeapi.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		},
@@ -101,7 +102,9 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 					status = http.StatusConflict
 				case errors.Is(err, jobdb.ErrJobSchemaArchived):
 					status = http.StatusConflict
-				case errors.Is(err, jobdb.ErrJobSchemaValidation):
+				case errors.Is(err, clientpayload.ErrTooLarge):
+					status = http.StatusRequestEntityTooLarge
+				case errors.Is(err, clientpayload.ErrInvalid), errors.Is(err, jobdb.ErrJobSchemaValidation):
 					status = http.StatusBadRequest
 				}
 			}
@@ -111,6 +114,15 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 	router := chi.NewRouter()
 	handler := runtimeapi.HandlerFromMux(strict, router)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			raw, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(raw))
+			r = r.WithContext(context.WithValue(r.Context(), requestBodyKey{}, raw))
+		}
 		if r.Method == http.MethodPost && r.URL.Path == "/v1/jobs/poll" {
 			if err := rejectLegacyPollWorkFields(r); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
@@ -221,15 +233,16 @@ func submitJobRequestFromAPI(body runtimeapi.SubmitJobRequest, tenantID string, 
 	}
 	return jobdb.SubmitJobRequest{
 		Job: jobdb.SubmitJob{
-			AvailableAt:   cloneTime(body.Job.AvailableAt),
-			TenantId:      tenantID,
-			JobID:         jobID,
-			JobType:       body.Job.JobType,
-			Data:          jobdb.JobData(data),
-			RunPolicy:     runPolicy,
-			Metadata:      metadata,
-			Prerequisites: fromAPIPrerequisites(body.Job.Prerequisites),
-			Schema:        jobSchemaSelectorFromAPI(body.Job.Schema),
+			ClientPayloadUpdate: body.Job.ClientPayloadUpdate,
+			AvailableAt:         cloneTime(body.Job.AvailableAt),
+			TenantId:            tenantID,
+			JobID:               jobID,
+			JobType:             body.Job.JobType,
+			Data:                jobdb.JobData(data),
+			RunPolicy:           runPolicy,
+			Metadata:            metadata,
+			Prerequisites:       fromAPIPrerequisites(body.Job.Prerequisites),
+			Schema:              jobSchemaSelectorFromAPI(body.Job.Schema),
 		},
 		RequestTime: derefTime(body.RequestTime),
 		WorkerID:    stringValue(body.WorkerId),
@@ -585,11 +598,12 @@ func (s *proxyServer) PutRestartJob(ctx context.Context, request runtimeapi.PutR
 
 func submitRestartJobRequestFromAPI(body runtimeapi.SubmitRestartJobRequest, tenantID string, jobID string) (jobdb.SubmitRestartJobRequest, error) {
 	job := jobdb.SubmitRestartJob{
-		PriorJobKey:    fromAPIJobKey(body.Job.PriorJobKey),
-		LastStepToKeep: body.Job.LastStepToKeep,
-		JobID:          jobID,
-		Prerequisites:  fromAPIPrerequisites(body.Job.Prerequisites),
-		Schema:         jobSchemaSelectorFromAPI(body.Job.Schema),
+		ClientPayloadUpdate: body.Job.ClientPayloadUpdate,
+		PriorJobKey:         fromAPIJobKey(body.Job.PriorJobKey),
+		LastStepToKeep:      body.Job.LastStepToKeep,
+		JobID:               jobID,
+		Prerequisites:       fromAPIPrerequisites(body.Job.Prerequisites),
+		Schema:              jobSchemaSelectorFromAPI(body.Job.Schema),
 	}
 	if job.PriorJobKey.TenantId != "" && job.PriorJobKey.TenantId != tenantID {
 		return jobdb.SubmitRestartJobRequest{}, fmt.Errorf("priorJobKey tenantId must match path tenantId")
@@ -725,6 +739,7 @@ func (s *proxyServer) CommitChapterIfWaiting(ctx context.Context, request runtim
 		return nil, badRequest(err.Error())
 	}
 	err = s.runtime.CompleteTaskIfWaiting(ctx, jobdb.CompleteTaskIfWaitingRequest{
+		ClientPayloadUpdate: request.Body.ClientPayloadUpdate,
 		JobKey: jobdb.JobKey{
 			TenantId: request.TenantId,
 			JobId:    request.JobId,
@@ -824,10 +839,11 @@ func (s *proxyServer) CompleteJobWithLease(ctx context.Context, request runtimea
 		return nil, badRequest(err.Error())
 	}
 	err = ops.CompleteJobWithLeaseByID(ctx, jobKey, request.LeaseId, claims.WorkerID, jobdb.CompleteExecutionRequest{
-		Status:          request.Body.Status,
-		Detail:          stringValue(request.Body.Detail),
-		Chapter:         &chapter,
-		ArtifactUploads: uploads,
+		ClientPayloadUpdate: request.Body.ClientPayloadUpdate,
+		Status:              request.Body.Status,
+		Detail:              stringValue(request.Body.Detail),
+		Chapter:             &chapter,
+		ArtifactUploads:     uploads,
 	})
 	if err != nil {
 		return nil, err
@@ -878,10 +894,6 @@ func (s *proxyServer) RescheduleJobWithLease(ctx context.Context, request runtim
 	if request.Body == nil {
 		return nil, badRequest("reschedule job body is required")
 	}
-	payload, err := schedulerPayloadPointerFromAPI(request.Body.Payload)
-	if err != nil {
-		return nil, badRequest(err.Error())
-	}
 	alternateAfter, err := fromAPIStdDurationValue(request.Body.AlternateAfter)
 	if err != nil {
 		return nil, badRequest(err.Error())
@@ -896,12 +908,13 @@ func (s *proxyServer) RescheduleJobWithLease(ctx context.Context, request runtim
 		return nil, err
 	}
 	err = ops.RescheduleJobWithLeaseByID(ctx, jobKey, request.LeaseId, claims.WorkerID, jobdb.RescheduleExecutionRequest{
-		AlternateAfter: alternateAfter,
-		AlternateNeed:  stringValue(request.Body.AlternateNeed),
-		NextNeed:       stringValue(request.Body.NextNeed),
-		Payload:        payload,
-		WaitUntil:      request.Body.WaitUntil,
-		WaitForJobIDs:  cloneStringSlice(request.Body.WaitForJobIds),
+		AlternateAfter:      alternateAfter,
+		AlternateNeed:       stringValue(request.Body.AlternateNeed),
+		NextNeed:            stringValue(request.Body.NextNeed),
+		TaskWait:            taskWaitFromAPI(request.Body.TaskWait),
+		ClientPayloadUpdate: request.Body.ClientPayloadUpdate,
+		WaitUntil:           request.Body.WaitUntil,
+		WaitForJobIDs:       cloneStringSlice(request.Body.WaitForJobIds),
 	})
 	if err != nil {
 		return nil, err
@@ -1010,7 +1023,7 @@ func (s *proxyServer) PutRestartJobWithLease(ctx context.Context, request runtim
 }
 
 func (s *proxyServer) toAPIExecutionLease(lease jobdb.ExecutionLease, requestedDuration time.Duration) (runtimeapi.ExecutionLease, error) {
-	payload, err := schedulerPayloadToAPI(lease.Payload())
+	state, err := executionStateToAPI(lease.ExecutionState())
 	if err != nil {
 		return runtimeapi.ExecutionLease{}, err
 	}
@@ -1019,11 +1032,11 @@ func (s *proxyServer) toAPIExecutionLease(lease jobdb.ExecutionLease, requestedD
 		return runtimeapi.ExecutionLease{}, err
 	}
 	return runtimeapi.ExecutionLease{
-		Capability: lease.Capability(),
-		Job:        toAPIJobHandle(lease.Job()),
-		LeaseId:    lease.LeaseID(),
-		LeaseToken: token,
-		Payload:    payload,
+		Capability:     lease.Capability(),
+		Job:            toAPIJobHandle(lease.Job()),
+		LeaseId:        lease.LeaseID(),
+		LeaseToken:     token,
+		ExecutionState: state, ClientPayload: lease.ClientPayload(), ClientPayloadRevision: strconv.FormatInt(lease.ClientPayloadRevision(), 10),
 		SchemaHash: schemaHashPtr(leaseSchemaHash(lease)),
 	}, nil
 }

@@ -391,14 +391,7 @@ func currentNeedFromJobSummary(job JobSummary) string {
 }
 
 func runPolicyFromJobSummary(job JobSummary) (RunPolicy, bool) {
-	if len(job.Payload) == 0 {
-		return RunPolicy{}, false
-	}
-	var payload workerJobPayload
-	if err := json.Unmarshal(job.Payload, &payload); err != nil {
-		return RunPolicy{}, false
-	}
-	return payload.RunPolicy, true
+	return job.ExecutionState.RunPolicy, true
 }
 
 func resolveStoredInputRef(jobKey JobKey, chapterByOrdinal map[int64]Chapter, ref *InputReference, includeArtifacts bool) (*TaskIO, error) {
@@ -573,7 +566,8 @@ func cloneStoredJobRunChapter(chapter Chapter) Chapter {
 func cloneJobSummary(job JobSummary) JobSummary {
 	cloned := job
 	cloned.WaitFor = append([]string(nil), job.WaitFor...)
-	cloned.Payload = append(json.RawMessage(nil), job.Payload...)
+	cloned.ClientPayload = append(json.RawMessage(nil), job.ClientPayload...)
+	cloned.ExecutionState = CloneExecutionState(job.ExecutionState)
 	cloned.Metadata = append(json.RawMessage(nil), job.Metadata...)
 	cloned.ExpiresAt = cloneTimePtr(job.ExpiresAt)
 	cloned.LeaseExpiresAt = cloneTimePtr(job.LeaseExpiresAt)

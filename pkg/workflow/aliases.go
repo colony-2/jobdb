@@ -243,3 +243,7 @@ func JobTypeFromNextNeed(nextNeed string) string { return jobdb.JobTypeFromNextN
 func GetJobRun(ctx context.Context, runtime WorkflowRuntime, req GetJobRunRequest) (GetJobRunResponse, error) {
 	return jobdb.GetJobRun(ctx, runtime, req)
 }
+
+type TaskWait = jobdb.TaskWait
+type ExecutionState = jobdb.ExecutionState
+type ClientPayloadUpdate = jobdb.ClientPayloadUpdate

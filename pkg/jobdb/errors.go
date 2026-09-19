@@ -1,6 +1,10 @@
 package jobdb
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
+)
 
 var (
 	ErrWorkflowNotDeterministic = errors.New("workflow was not deterministic")
@@ -11,7 +15,7 @@ var (
 	ErrJobCancelled             = errors.New("job cancelled")
 	ErrJobNotFound              = errors.New("job not found")
 	ErrExecutionLeaseLost       = errors.New("execution lease lost")
-	ErrConflict                 = errors.New("workflow state conflict")
+	ErrConflict                 = clientpayload.ErrConflict
 	ErrExistingJobMismatch      = errors.New("existing job does not match request")
 	ErrJobSchemaNotFound        = errors.New("job schema not found")
 	ErrJobSchemaArchived        = errors.New("job schema is archived")

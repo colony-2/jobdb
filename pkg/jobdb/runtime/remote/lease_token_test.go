@@ -171,7 +171,7 @@ type testExecutionLease struct {
 func (l *testExecutionLease) LeaseID() string      { return l.leaseID }
 func (l *testExecutionLease) Job() jobdb.JobHandle { return jobdb.JobHandle{JobKey: l.jobKey} }
 func (l *testExecutionLease) Capability() string   { return l.capability }
-func (l *testExecutionLease) Payload() json.RawMessage {
+func (l *testExecutionLease) ClientPayload() json.RawMessage {
 	return append(json.RawMessage(nil), l.payloadJSON...)
 }
 func (l *testExecutionLease) KeepAlive(context.Context) error { return nil }
@@ -290,3 +290,6 @@ func (r *claimsCapturingRuntime) OpenArtifact(context.Context, jobdb.ArtifactRef
 
 var _ jobdb.ExecutionLease = (*testExecutionLease)(nil)
 var _ jobdb.WorkflowRuntime = (*claimsCapturingRuntime)(nil)
+
+func (l *testExecutionLease) ClientPayloadRevision() int64         { return 0 }
+func (l *testExecutionLease) ExecutionState() jobdb.ExecutionState { return jobdb.ExecutionState{} }

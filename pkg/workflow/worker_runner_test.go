@@ -309,7 +309,7 @@ type fakeExecutionLease struct {
 func (l *fakeExecutionLease) LeaseID() string    { return l.leaseID }
 func (l *fakeExecutionLease) Job() JobHandle     { return l.job }
 func (l *fakeExecutionLease) Capability() string { return l.capability }
-func (l *fakeExecutionLease) Payload() json.RawMessage {
+func (l *fakeExecutionLease) ClientPayload() json.RawMessage {
 	return append(json.RawMessage(nil), l.payload...)
 }
 
@@ -368,7 +368,6 @@ func (l *fakeExecutionLease) Complete(ctx context.Context, req CompleteExecution
 func (l *fakeExecutionLease) Reschedule(_ context.Context, req RescheduleExecutionRequest) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	req.Payload = append(json.RawMessage(nil), req.Payload...)
 	l.rescheduleCalls = append(l.rescheduleCalls, req)
 	return l.rescheduleErr
 }
@@ -434,7 +433,7 @@ func TestWorkerRunnerContextSubmitJobUsesLease(t *testing.T) {
 		t.Fatalf("child key = %+v", childKey)
 	}
 
-	taskCtx := newTaskContextWithLeaseActions(parent, 1, nil, nil, nil, runner.SubmitJob, runner.SubmitRestartJob)
+	taskCtx := newTaskContextWithLeaseActions(parent, 1, nil, nil, nil, runner.SubmitJob, runner.SubmitRestartJob, runner.ClientPayload, runner.ClientPayloadRevision, runner.Yield)
 	restartKey, err := taskCtx.SubmitRestartJob(context.Background(), SubmitRestartJob{
 		JobID:          "child-restart",
 		PriorJobKey:    JobKey{JobId: "prior"},
@@ -1298,5 +1297,38 @@ func TestReplayObserverUsesCachedChapterTimes(t *testing.T) {
 	}
 	if !observer.jobEnds[0].At.Equal(metaEndAt(jobMeta)) {
 		t.Fatalf("job end mismatch: got %v want %v", observer.jobEnds[0].At, metaEndAt(jobMeta))
+	}
+}
+
+func (l *fakeExecutionLease) ClientPayloadRevision() int64   { return 0 }
+func (l *fakeExecutionLease) ExecutionState() ExecutionState { return ExecutionState{} }
+
+func TestExplicitYieldOnlyReschedulesAndReplayDoesNotWrite(t *testing.T) {
+	lease := &fakeExecutionLease{job: JobHandle{JobKey: JobKey{TenantId: "tenant", JobId: "yield"}}, payload: json.RawMessage(`{"cursor":1}`)}
+	runner := &workerRunner{lease: lease, jobKey: lease.Job().JobKey}
+	update := &ClientPayloadUpdate{Mode: "patch", Value: json.RawMessage(`{"cursor":2}`), ExpectedRevision: new(int64)}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if err := runner.Yield(context.Background(), RescheduleExecutionRequest{NextNeed: "job", ClientPayloadUpdate: update}); err != nil {
+			t.Error(err)
+		}
+		t.Error("successful yield returned to caller")
+	}()
+	<-done
+	_, _, complete, reschedules := lease.snapshot()
+	if len(complete) != 0 || len(reschedules) != 1 || reschedules[0].ClientPayloadUpdate != update || !runner.rescheduled.Load() {
+		t.Fatalf("yield mutated wrong operation: %+v %+v", complete, reschedules)
+	}
+	runner.replay = true
+	if runner.ClientPayload() != nil {
+		t.Fatal("replay exposed live payload")
+	}
+	if err := runner.Yield(context.Background(), RescheduleExecutionRequest{NextNeed: "job", ClientPayloadUpdate: update}); err == nil {
+		t.Fatal("replay accepted yield")
+	}
+	_, _, _, after := lease.snapshot()
+	if len(after) != 1 {
+		t.Fatal("replay rescheduled")
 	}
 }

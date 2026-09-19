@@ -13,6 +13,9 @@ CREATE TABLE IF NOT EXISTS jobdb_jobs (
 	job_type TEXT NOT NULL,
 	next_need TEXT NOT NULL,
 	payload BLOB NOT NULL DEFAULT x'',
+ client_payload BLOB,
+ client_payload_revision INTEGER NOT NULL DEFAULT 0,
+ initial_payload_digest TEXT NOT NULL,
 	metadata BLOB,
 	parent_job_id TEXT,
 	wait_for BLOB NOT NULL DEFAULT x'',
@@ -76,8 +79,26 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	if db == nil {
 		return fmt.Errorf("sqlite runtime: db is required")
 	}
-	if _, err := db.ExecContext(ctx, schemaSQL); err != nil {
-		return fmt.Errorf("sqlite runtime: migrate: %w", err)
+	var version int
+	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		return err
 	}
-	return nil
+	if version != 2 {
+		var tables int
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tables); err != nil {
+			return err
+		}
+		if version != 0 || tables != 0 {
+			return fmt.Errorf("sqlite runtime: unsupported database format; create a fresh database")
+		}
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, schemaSQL+"; PRAGMA user_version=2;"); err != nil {
+		return fmt.Errorf("sqlite runtime: initialize: %w", err)
+	}
+	return tx.Commit()
 }

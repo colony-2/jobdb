@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -9,6 +10,10 @@ import (
 )
 
 type JobContext interface {
+	ClientPayload() json.RawMessage
+	ClientPayloadRevision() int64
+	// Yield reschedules and stops this invocation. It never writes a chapter.
+	Yield(context.Context, RescheduleExecutionRequest) error
 	GetJobKey() JobKey
 	Logger() *slog.Logger
 	DoTask(policy RunPolicy, taskType string, data TaskData) (TaskData, error)

@@ -24,14 +24,14 @@ func (r *Runtime) reconcileExistingSubmitJob(ctx context.Context, req jobdb.Subm
 		}
 		return jobdb.JobHandle{}, false, nil
 	}
-	if err := compareSubmitStartChapter(jobKey, start, req.Job.JobType, inputHash, req.Job.Metadata, prereqs, jobPolicy); err != nil {
+	if err := compareSubmitStartChapter(jobKey, start, req.Job.JobType, inputHash, req.Job.Metadata, prereqs, jobPolicy, req.Job.ClientPayloadUpdate); err != nil {
 		return jobdb.JobHandle{}, true, err
 	}
 	storedMetadata, err := jobdb.BuildJobMetadataEnvelope(req.Job.Metadata, jobdb.RuntimeJobMetadata{SchemaHash: schemaHash, ParentJobID: parentJobID})
 	if err != nil {
 		return jobdb.JobHandle{}, true, err
 	}
-	if err := r.ensureSubmittedJobRecord(ctx, jobKey, req.Job.JobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, req.Job.AvailableAt); err != nil {
+	if err := r.ensureSubmittedJobRecord(ctx, jobKey, req.Job.JobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, req.Job.AvailableAt, req.Job.ClientPayloadUpdate); err != nil {
 		return jobdb.JobHandle{}, true, err
 	}
 	return jobdb.JobHandle{JobKey: jobKey}, true, nil
@@ -51,7 +51,7 @@ func (r *Runtime) reconcileExistingRestartJob(ctx context.Context, req jobdb.Sub
 	if err := r.compareRestartStoryPrefix(ctx, req.Job, jobKey, extra); err != nil {
 		return jobdb.JobHandle{}, true, err
 	}
-	if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, nil); err != nil {
+	if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, nil, req.Job.ClientPayloadUpdate); err != nil {
 		return jobdb.JobHandle{}, true, err
 	}
 	return jobdb.JobHandle{JobKey: jobKey}, true, nil

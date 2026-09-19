@@ -84,6 +84,7 @@ func jobSummaryFromStored(row StoredJob) (jobdb.JobSummary, error) {
 	}
 	summary := jobdb.JobSummary{
 		JobKey: row.JobKey, Status: row.Status, JobType: row.JobType,
+		ClientPayload: append([]byte(nil), row.ClientPayload...), ClientPayloadRevision: row.ClientPayloadRevision, ExecutionState: executionState(row.RunPolicy, row.TaskWork),
 		NextNeed: &nextNeed, WaitFor: append([]string(nil), row.WaitForJobIDs...),
 		AvailableAt: row.AvailableAt, ExpiresAt: row.ExpiresAt,
 		LeaseExpiresAt: row.LeaseExpiresAt, CancelRequested: row.CancelRequested,
@@ -95,14 +96,6 @@ func jobSummaryFromStored(row StoredJob) (jobdb.JobSummary, error) {
 		if row.TaskWork == nil {
 			return jobdb.JobSummary{}, fmt.Errorf("task route for %s is missing coordinates", row.JobKey)
 		}
-		payload, err := ProjectLeasePayload(LeasePayloadProjection{
-			RunPolicy: row.RunPolicy, TaskWork: row.TaskWork,
-			Opaque: row.LeasePayload, OpaquePresent: row.LeasePayloadVisible,
-		})
-		if err != nil {
-			return jobdb.JobSummary{}, fmt.Errorf("project task payload for %s: %w", row.JobKey, err)
-		}
-		summary.Payload = payload
 		input, output, hash, next := row.TaskWork.InputOrdinal, row.TaskWork.OutputOrdinal,
 			row.TaskWork.InputHash, row.TaskWork.ResumeJobType
 		summary.TaskWaitInput, summary.TaskWaitOutput = &input, &output

@@ -705,9 +705,13 @@ type tenantNamespacedLease struct {
 	runtime *tenantNamespacedRuntime
 }
 
-func (l *tenantNamespacedLease) LeaseID() string          { return l.lease.LeaseID() }
-func (l *tenantNamespacedLease) Capability() string       { return l.lease.Capability() }
-func (l *tenantNamespacedLease) Payload() json.RawMessage { return l.lease.Payload() }
+func (l *tenantNamespacedLease) LeaseID() string                { return l.lease.LeaseID() }
+func (l *tenantNamespacedLease) Capability() string             { return l.lease.Capability() }
+func (l *tenantNamespacedLease) ClientPayload() json.RawMessage { return l.lease.ClientPayload() }
+func (l *tenantNamespacedLease) ClientPayloadRevision() int64   { return l.lease.ClientPayloadRevision() }
+func (l *tenantNamespacedLease) ExecutionState() jobdb.ExecutionState {
+	return l.lease.ExecutionState()
+}
 func (l *tenantNamespacedLease) LeaseToken() string {
 	if tokenLease, ok := l.lease.(interface{ LeaseToken() string }); ok {
 		return tokenLease.LeaseToken()

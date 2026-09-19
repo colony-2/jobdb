@@ -54,7 +54,9 @@ type ExecutionLease interface {
 	LeaseID() string
 	Job() JobHandle
 	Capability() string
-	Payload() json.RawMessage
+	ClientPayload() json.RawMessage
+	ClientPayloadRevision() int64
+	ExecutionState() ExecutionState
 	KeepAlive(ctx context.Context) error
 	StopKeepAlive()
 	Complete(ctx context.Context, req CompleteExecutionRequest) error
@@ -99,13 +101,14 @@ type GetJobLeaseRequest struct {
 }
 
 type CompleteTaskIfWaitingRequest struct {
-	JobKey        JobKey
-	Capability    string
-	ResumeNeed    string
-	InputOrdinal  int64
-	OutputOrdinal int64
-	InputHash     string
-	Data          TaskData
+	ClientPayloadUpdate *ClientPayloadUpdate
+	JobKey              JobKey
+	Capability          string
+	ResumeNeed          string
+	InputOrdinal        int64
+	OutputOrdinal       int64
+	InputHash           string
+	Data                TaskData
 }
 
 type ChapterRef struct {
@@ -147,17 +150,19 @@ type ArtifactUpload struct {
 }
 
 type CompleteExecutionRequest struct {
-	Status          string
-	Detail          string
-	Chapter         *Chapter
-	ArtifactUploads []ArtifactUpload
+	ClientPayloadUpdate *ClientPayloadUpdate
+	Status              string
+	Detail              string
+	Chapter             *Chapter
+	ArtifactUploads     []ArtifactUpload
 }
 
 type RescheduleExecutionRequest struct {
-	NextNeed       string
-	WaitUntil      *time.Time
-	WaitForJobIDs  []string
-	Payload        json.RawMessage
-	AlternateNeed  string
-	AlternateAfter *time.Duration
+	NextNeed            string
+	WaitUntil           *time.Time
+	WaitForJobIDs       []string
+	TaskWait            *TaskWait
+	ClientPayloadUpdate *ClientPayloadUpdate
+	AlternateNeed       string
+	AlternateAfter      *time.Duration
 }

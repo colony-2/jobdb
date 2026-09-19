@@ -12,18 +12,6 @@ import (
 	"time"
 )
 
-type workerJobPayload struct {
-	RunPolicy RunPolicy       `json:"run_policy,omitempty"`
-	TaskWait  *workerTaskWait `json:"task_wait,omitempty"`
-}
-
-type workerTaskWait struct {
-	InputStep  int64  `json:"in"`
-	OutputStep int64  `json:"out"`
-	Next       string `json:"next"`
-	InputHash  string `json:"input_hash,omitempty"`
-}
-
 type runtimeBackedArtifact struct {
 	runtime WorkflowRuntime
 	ref     ArtifactRef

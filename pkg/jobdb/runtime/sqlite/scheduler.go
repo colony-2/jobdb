@@ -9,42 +9,46 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 )
 
 const jobColumns = `
-tenant_id, job_id, job_type, next_need, payload, metadata, parent_job_id, wait_for,
+tenant_id, job_id, job_type, next_need, payload, client_payload, client_payload_revision, initial_payload_digest, metadata, parent_job_id, wait_for,
 available_at_ns, created_at_ns, updated_at_ns, archived_at_ns,
 cancel_requested, completion_status, completion_detail,
 lease_id, lease_worker_id, lease_expires_at_ns, alternate_need, alternate_at_ns
 `
 
 type jobRow struct {
-	tenantID         string
-	jobID            string
-	jobType          string
-	nextNeed         string
-	payload          []byte
-	metadata         json.RawMessage
-	parentJobID      sql.NullString
-	waitForRaw       []byte
-	availableAtNS    int64
-	createdAtNS      int64
-	updatedAtNS      int64
-	archivedAtNS     sql.NullInt64
-	cancelRequested  bool
-	completionStatus sql.NullString
-	completionDetail sql.NullString
-	leaseID          sql.NullString
-	leaseWorkerID    sql.NullString
-	leaseExpiresAtNS sql.NullInt64
-	alternateNeed    sql.NullString
-	alternateAtNS    sql.NullInt64
+	clientPayload         json.RawMessage
+	clientPayloadRevision int64
+	initialPayloadDigest  string
+	tenantID              string
+	jobID                 string
+	jobType               string
+	nextNeed              string
+	payload               []byte
+	metadata              json.RawMessage
+	parentJobID           sql.NullString
+	waitForRaw            []byte
+	availableAtNS         int64
+	createdAtNS           int64
+	updatedAtNS           int64
+	archivedAtNS          sql.NullInt64
+	cancelRequested       bool
+	completionStatus      sql.NullString
+	completionDetail      sql.NullString
+	leaseID               sql.NullString
+	leaseWorkerID         sql.NullString
+	leaseExpiresAtNS      sql.NullInt64
+	alternateNeed         sql.NullString
+	alternateAtNS         sql.NullInt64
 }
 
 func scanJobRow(scanner interface{ Scan(dest ...any) error }) (jobRow, error) {
 	var row jobRow
 	var cancelRequested int
-	var payload []byte
+	var payload, client []byte
 	var metadata []byte
 	var waitFor []byte
 	if err := scanner.Scan(
@@ -52,7 +56,7 @@ func scanJobRow(scanner interface{ Scan(dest ...any) error }) (jobRow, error) {
 		&row.jobID,
 		&row.jobType,
 		&row.nextNeed,
-		&payload,
+		&payload, &client, &row.clientPayloadRevision, &row.initialPayloadDigest,
 		&metadata,
 		&row.parentJobID,
 		&waitFor,
@@ -71,6 +75,7 @@ func scanJobRow(scanner interface{ Scan(dest ...any) error }) (jobRow, error) {
 	); err != nil {
 		return jobRow{}, err
 	}
+	row.clientPayload = cloneJSON(client)
 	row.payload = cloneBytes(payload)
 	row.metadata = append(json.RawMessage(nil), metadata...)
 	row.waitForRaw = cloneBytes(waitFor)
@@ -94,7 +99,15 @@ func (r *Runtime) loadJobRowTx(ctx context.Context, tx *sql.Tx, jobKey jobdb.Job
 	return row, err
 }
 
-func (r *Runtime) insertJobRecord(ctx context.Context, jobKey jobdb.JobKey, jobType string, metadata json.RawMessage, waitFor []string, payload jobPayload, workerID string, availableAt *time.Time) error {
+func (r *Runtime) insertJobRecord(ctx context.Context, jobKey jobdb.JobKey, jobType string, metadata json.RawMessage, waitFor []string, payload jobPayload, workerID string, availableAt *time.Time, update *jobdb.ClientPayloadUpdate) error {
+	initial, revision, err := clientpayload.Initial(update)
+	if err != nil {
+		return err
+	}
+	digest, err := clientpayload.Digest(initial)
+	if err != nil {
+		return err
+	}
 	payloadBytes, err := encodeJobPayload(payload)
 	if err != nil {
 		return err
@@ -110,14 +123,14 @@ func (r *Runtime) insertJobRecord(ctx context.Context, jobKey jobdb.JobKey, jobT
 	}
 	_, err = r.db.ExecContext(ctx, `
 INSERT INTO jobdb_jobs (
-	tenant_id, job_id, job_type, next_need, payload, metadata, parent_job_id, wait_for,
+	tenant_id, job_id, job_type, next_need, payload, client_payload, client_payload_revision, initial_payload_digest, metadata, parent_job_id, wait_for,
 	available_at_ns, created_at_ns, updated_at_ns
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		jobKey.TenantId,
 		jobKey.JobId,
 		jobType,
 		jobType,
-		payloadBytes,
+		payloadBytes, nullableJSON(initial), revision, digest,
 		cloneJSON(metadata),
 		parentJobIDFromMetadata(metadata),
 		waitBytes,
@@ -139,13 +152,25 @@ func parentJobIDFromMetadata(metadata json.RawMessage) any {
 	return parentJobID
 }
 
-func (r *Runtime) ensureSubmittedJobRecord(ctx context.Context, jobKey jobdb.JobKey, jobType string, metadata json.RawMessage, waitFor []string, payload jobPayload, workerID string, availableAt *time.Time) error {
-	if err := r.insertJobRecord(ctx, jobKey, jobType, metadata, waitFor, payload, workerID, availableAt); err == nil {
+func (r *Runtime) ensureSubmittedJobRecord(ctx context.Context, jobKey jobdb.JobKey, jobType string, metadata json.RawMessage, waitFor []string, payload jobPayload, workerID string, availableAt *time.Time, update *jobdb.ClientPayloadUpdate) error {
+	insertErr := r.insertJobRecord(ctx, jobKey, jobType, metadata, waitFor, payload, workerID, availableAt, update)
+	if insertErr == nil {
 		return nil
 	}
 	row, err := r.loadJobRow(ctx, jobKey)
 	if err != nil {
+		return insertErr
+	}
+	initial, _, err := clientpayload.Initial(update)
+	if err != nil {
 		return err
+	}
+	digest, err := clientpayload.Digest(initial)
+	if err != nil {
+		return err
+	}
+	if row.initialPayloadDigest != digest {
+		return jobdb.NewExistingJobMismatchError("initial client payload differs")
 	}
 	if !jsonObjectsEqual(row.metadata, metadata) {
 		return jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different metadata", jobKey))
@@ -291,4 +316,22 @@ func leaseDurationOrDefault(d time.Duration) time.Duration {
 		return defaultRemoteLeaseDuration
 	}
 	return d
+}
+
+func nullableJSON(raw json.RawMessage) any {
+	if raw == nil {
+		return nil
+	}
+	return []byte(raw)
+}
+func (r *Runtime) updateClientPayloadTx(ctx context.Context, tx *sql.Tx, row jobRow, u *jobdb.ClientPayloadUpdate) error {
+	value, rev, err := clientpayload.Apply(row.clientPayload, row.clientPayloadRevision, u)
+	if err != nil {
+		return err
+	}
+	if u == nil {
+		return nil
+	}
+	_, err = tx.ExecContext(ctx, "UPDATE jobdb_jobs SET client_payload=?,client_payload_revision=? WHERE tenant_id=? AND job_id=?", nullableJSON(value), rev, row.tenantID, row.jobID)
+	return err
 }

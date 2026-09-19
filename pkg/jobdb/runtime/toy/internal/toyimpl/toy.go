@@ -59,25 +59,30 @@ type runtimeArtifactKey struct {
 }
 
 type jobRecord struct {
-	mu               sync.Mutex
-	status           jobdb.JobStatus
-	result           jobdb.TaskData
-	err              error
-	cancelled        bool
-	finished         time.Time
-	jobType          string
-	createdAt        time.Time
-	archived         *time.Time
-	payload          []byte
-	metadata         json.RawMessage
-	completionDetail string
-	capability       string
-	step             int64
-	waitFor          []string
-	availableAt      time.Time
-	leased           bool
-	leaseID          string
-	chapters         map[int64]*toyChapter
+	clientPayload         json.RawMessage
+	clientPayloadRevision int64
+	initialPayloadDigest  string
+	leaseExpiresAt        time.Time
+	leaseWorkerID         string
+	mu                    sync.Mutex
+	status                jobdb.JobStatus
+	result                jobdb.TaskData
+	err                   error
+	cancelled             bool
+	finished              time.Time
+	jobType               string
+	createdAt             time.Time
+	archived              *time.Time
+	payload               []byte
+	metadata              json.RawMessage
+	completionDetail      string
+	capability            string
+	step                  int64
+	waitFor               []string
+	availableAt           time.Time
+	leased                bool
+	leaseID               string
+	chapters              map[int64]*toyChapter
 }
 
 type toyScheduleRecord struct {
@@ -840,18 +845,18 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 		}
 		metadataCopy := jobdb.StripRuntimeMetadata(rec.metadata)
 		summary := jobdb.JobSummary{
-			JobKey:            key,
-			Status:            status,
-			JobType:           rec.jobType,
-			NextNeed:          cloneString(rec.capability),
-			WaitFor:           append([]string(nil), rec.waitFor...),
-			AvailableAt:       rec.createdAt,
-			ExpiresAt:         nil,
-			LeaseExpiresAt:    nil,
-			CancelRequested:   rec.cancelled,
-			CreatedAt:         rec.createdAt,
-			ArchivedAt:        rec.archived,
-			Payload:           payloadCopy,
+			JobKey:          key,
+			Status:          status,
+			JobType:         rec.jobType,
+			NextNeed:        cloneString(rec.capability),
+			WaitFor:         append([]string(nil), rec.waitFor...),
+			AvailableAt:     rec.createdAt,
+			ExpiresAt:       nil,
+			LeaseExpiresAt:  nil,
+			CancelRequested: rec.cancelled,
+			CreatedAt:       rec.createdAt,
+			ArchivedAt:      rec.archived,
+			ClientPayload:   cloneJSON(rec.clientPayload), ClientPayloadRevision: rec.clientPayloadRevision, ExecutionState: toyExecutionState(rec.payload),
 			Metadata:          metadataCopy,
 			SchemaHash:        jobmetadata.SchemaHashFromStoredMetadata(rec.metadata),
 			ParentJobID:       parentJobID,

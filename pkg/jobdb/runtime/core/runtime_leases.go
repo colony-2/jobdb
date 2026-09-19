@@ -13,6 +13,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 	"github.com/segmentio/ksuid"
 )
 
@@ -134,7 +135,6 @@ func selectorFromCapabilities(capabilities []string) (WorkSelector, error) {
 type executionLease struct {
 	runtime  *Runtime
 	snapshot LeaseSnapshot
-	payload  json.RawMessage
 
 	mu              sync.Mutex
 	expiresAt       time.Time
@@ -144,15 +144,7 @@ type executionLease struct {
 var _ jobdb.ExecutionLease = (*executionLease)(nil)
 
 func (r *Runtime) wrapLease(snapshot LeaseSnapshot) (*executionLease, error) {
-	payload, err := ProjectLeasePayload(LeasePayloadProjection{
-		RunPolicy: snapshot.RunPolicy, TaskWork: snapshot.TaskWork,
-		Opaque: snapshot.LeasePayload, OpaquePresent: snapshot.LeasePayloadVisible,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &executionLease{runtime: r, snapshot: snapshot, payload: payload,
-		expiresAt: snapshot.Identity.ExpiresAt}, nil
+	return &executionLease{runtime: r, snapshot: snapshot, expiresAt: snapshot.Identity.ExpiresAt}, nil
 }
 
 func (l *executionLease) LeaseID() string { return l.snapshot.Identity.LeaseID }
@@ -168,8 +160,12 @@ func (l *executionLease) Capability() string {
 	return l.snapshot.RouteJobType
 }
 
-func (l *executionLease) Payload() json.RawMessage {
-	return append(json.RawMessage(nil), l.payload...)
+func (l *executionLease) ClientPayload() json.RawMessage {
+	return append(json.RawMessage(nil), l.snapshot.ClientPayload...)
+}
+func (l *executionLease) ClientPayloadRevision() int64 { return l.snapshot.ClientPayloadRevision }
+func (l *executionLease) ExecutionState() jobdb.ExecutionState {
+	return executionState(l.snapshot.RunPolicy, l.snapshot.TaskWork)
 }
 
 func (l *executionLease) LeaseWorkerID() string { return l.snapshot.Identity.WorkerID }
@@ -238,6 +234,9 @@ func (l *executionLease) StopKeepAlive() {
 }
 
 func (l *executionLease) Complete(ctx context.Context, req jobdb.CompleteExecutionRequest) error {
+	if _, _, err := clientpayload.Apply(l.snapshot.ClientPayload, l.snapshot.ClientPayloadRevision, req.ClientPayloadUpdate); err != nil {
+		return err
+	}
 	if err := l.requireCurrent(ctx); err != nil {
 		return err
 	}
@@ -250,7 +249,7 @@ func (l *executionLease) Complete(ctx context.Context, req jobdb.CompleteExecuti
 	}
 	errorKind, retryable := completionDetails(req.Chapter)
 	_, err = l.runtime.scheduler.CompleteLease(ctx, CompletionMutation{
-		Identity: l.snapshot.Identity, Status: status, Detail: req.Detail,
+		Identity: l.snapshot.Identity, Status: status, Detail: req.Detail, ClientPayloadUpdate: req.ClientPayloadUpdate,
 		ErrorKind: errorKind, Retryable: retryable, Now: l.runtime.now(),
 	})
 	if err == nil {
@@ -267,36 +266,22 @@ func (l *executionLease) Reschedule(ctx context.Context, req jobdb.RescheduleExe
 	if jobType == "" || (isTask && (taskType == "" || strings.Contains(taskType, ":"))) {
 		return fmt.Errorf("invalid next need %q", req.NextNeed)
 	}
-	payload := req.Payload
-	if len(payload) == 0 {
-		payload = json.RawMessage(`{}`)
-	}
-	decoded, err := runtimecodec.SchedulerPayloadFromJSONView(payload)
+	task, err := jobdb.RescheduleTaskWait(req.NextNeed, req.TaskWait)
 	if err != nil {
 		return err
 	}
+	if err := clientpayload.ValidateUpdate(req.ClientPayloadUpdate, false); err != nil {
+		return err
+	}
 	mutation := RescheduleMutation{
-		Identity: l.snapshot.Identity, RouteJobType: jobType,
+		Identity: l.snapshot.Identity, RouteJobType: jobType, ClientPayloadUpdate: req.ClientPayloadUpdate,
 		WorkKind: WorkKindJob, WaitUntil: req.WaitUntil,
 		WaitForJobIDs: append([]string(nil), req.WaitForJobIDs...),
 		Now:           l.runtime.now(),
 	}
 	if isTask {
-		if decoded.TaskWait == nil || decoded.TaskWait.Next == "" || decoded.TaskWait.InputHash == "" {
-			return fmt.Errorf("task route %q requires task_wait coordinates", req.NextNeed)
-		}
 		mutation.WorkKind = WorkKindTask
-		mutation.TaskWork = &TaskWork{
-			TaskType: taskType, ResumeJobType: decoded.TaskWait.Next,
-			InputOrdinal:  decoded.TaskWait.InputStep,
-			OutputOrdinal: decoded.TaskWait.OutputStep,
-			InputHash:     decoded.TaskWait.InputHash,
-		}
-	}
-	if len(decoded.VisiblePayload) > 0 {
-		mutation.LeasePayload = decoded.VisiblePayload
-	} else {
-		mutation.ClearLeasePayload = true
+		mutation.TaskWork = &TaskWork{TaskType: taskType, ResumeJobType: task.ResumeNeed, InputOrdinal: task.InputOrdinal, OutputOrdinal: task.OutputOrdinal, InputHash: task.InputHash}
 	}
 	if req.AlternateNeed != "" {
 		alternateJob, alternateTask, alternateIsTask := strings.Cut(req.AlternateNeed, ":")

@@ -120,8 +120,8 @@ func TestRemoteRuntimeLeaseAndMetadataRoundTrip(t *testing.T) {
 				t.Fatalf("keep alive: %v", err)
 			}
 			if err := leases[0].Reschedule(ctx, jobdb.RescheduleExecutionRequest{
-				NextNeed: "lease-job",
-				Payload:  json.RawMessage(`{"kind":"rescheduled"}`),
+				NextNeed:            "lease-job",
+				ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"kind":"rescheduled"}`), ExpectedRevision: new(int64)},
 			}); err != nil {
 				t.Fatalf("reschedule: %v", err)
 			}
@@ -139,7 +139,7 @@ func TestRemoteRuntimeLeaseAndMetadataRoundTrip(t *testing.T) {
 				t.Fatalf("expected 1 lease after reschedule, got %d", len(leases))
 			}
 			payload := map[string]string{}
-			if err := json.Unmarshal(leases[0].Payload(), &payload); err != nil {
+			if err := json.Unmarshal(leases[0].ClientPayload(), &payload); err != nil {
 				t.Fatalf("unmarshal payload: %v", err)
 			}
 			if payload["kind"] != "rescheduled" {

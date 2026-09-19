@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -289,12 +288,7 @@ func runClaimedJobLease(ctx context.Context, runtime WorkflowRuntime, workset *W
 		logger = slog.Default()
 	}
 
-	payload := workerJobPayload{}
-	if raw := lease.Payload(); len(raw) > 0 {
-		if err := json.Unmarshal(raw, &payload); err != nil {
-			logger.Warn("failed to decode job payload", "job", lease.Job().JobKey, "error", err)
-		}
-	}
+	payload := lease.ExecutionState()
 	payload.RunPolicy = normalizeRunPolicy(payload.RunPolicy)
 
 	runner := newWorkerRunner(runtime, workset, lease, workerRunnerOptions{

@@ -11,6 +11,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 	"github.com/segmentio/ksuid"
 )
 
@@ -30,6 +31,14 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		ctx = context.Background()
 	}
 	job := req.Job
+	initial, revision, err := clientpayload.Initial(job.ClientPayloadUpdate)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	digest, err := clientpayload.Digest(initial)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
 	if err := job.PriorJobKey.Validate(); err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -193,6 +202,9 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if existing {
 		stored, err := r.scheduler.GetJob(ctx, key)
 		if err == nil {
+			if stored.InitialPayloadDigest != digest {
+				return jobdb.JobHandle{}, jobdb.NewExistingJobMismatchError("initial client payload differs")
+			}
 			if err := validateStoredJobFacts(stored, key, jobType, schemaHash, parentJobID, metadata, policy, nil); err != nil {
 				return jobdb.JobHandle{}, err
 			}
@@ -203,12 +215,16 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		}
 	}
 	stored, err := r.scheduler.CreateJob(ctx, CreateJobRequest{
+		ClientPayload: initial, ClientPayloadRevision: revision, InitialPayloadDigest: digest,
 		JobKey: key, JobType: jobType, ParentJobID: parentJobID, RunPolicy: policy,
 		AppMetadata: metadata, SchemaHash: schemaHash,
 		WaitForJobIDs: waits, CreatedAt: createdAt.UTC(), WorkerID: workerID,
 	})
 	if err != nil {
 		return jobdb.JobHandle{}, err
+	}
+	if stored.InitialPayloadDigest != digest {
+		return jobdb.JobHandle{}, jobdb.NewExistingJobMismatchError("initial client payload differs")
 	}
 	if err := validateStoredJobFacts(stored, key, jobType, schemaHash, parentJobID, metadata, policy, nil); err != nil {
 		return jobdb.JobHandle{}, err

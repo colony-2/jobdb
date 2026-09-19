@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 )
 
 func (r *Runtime) UpsertSchedule(ctx context.Context, req jobdb.UpsertScheduleRequest) (jobdb.ScheduleInfo, error) {
@@ -238,8 +239,8 @@ func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRu
 			CancelRequested: rec.cancelled,
 			CreatedAt:       rec.createdAt,
 			ArchivedAt:      cloneTime(rec.archived),
-			Payload:         payloadCopy,
-			Metadata:        jobdb.StripRuntimeMetadata(rec.metadata),
+			ClientPayload:   cloneJSON(rec.clientPayload), ClientPayloadRevision: rec.clientPayloadRevision, ExecutionState: toyExecutionState(rec.payload),
+			Metadata: jobdb.StripRuntimeMetadata(rec.metadata),
 		}
 		if wait, waitErr := extractWorkerTaskWait(payloadCopy); waitErr == nil && wait != nil {
 			job.TaskWaitInput = &wait.InputStep
@@ -367,6 +368,14 @@ func (r *Runtime) submitScheduledOccurrenceWithJobID(ctx context.Context, info j
 	if err != nil {
 		return jobdb.JobKey{}, err
 	}
+	initial, initialRevision, err := clientpayload.Initial(target.ClientPayloadUpdate)
+	if err != nil {
+		return jobdb.JobKey{}, err
+	}
+	initialDigest, err := clientpayload.Digest(initial)
+	if err != nil {
+		return jobdb.JobKey{}, err
+	}
 	payloadJSON, err := json.Marshal(workerJobPayload{RunPolicy: target.RunPolicy})
 	if err != nil {
 		return jobdb.JobKey{}, err
@@ -381,6 +390,7 @@ func (r *Runtime) submitScheduledOccurrenceWithJobID(ctx context.Context, info j
 		status = jobdb.JobStatusAwaitingFuture
 	}
 	record := &jobRecord{
+		clientPayload: initial, clientPayloadRevision: initialRevision, initialPayloadDigest: initialDigest,
 		status:      status,
 		jobType:     target.JobType,
 		createdAt:   now,
@@ -437,6 +447,14 @@ func cloneScheduleTarget(target jobdb.ScheduleTarget) jobdb.ScheduleTarget {
 }
 
 func snapshotScheduleTarget(ctx context.Context, target jobdb.ScheduleTarget) (jobdb.ScheduleTarget, error) {
+	initial, _, err := clientpayload.Initial(target.ClientPayloadUpdate)
+	if err != nil {
+		return jobdb.ScheduleTarget{}, err
+	}
+	target.ClientPayloadUpdate = nil
+	if initial != nil {
+		target.ClientPayloadUpdate = &jobdb.ClientPayloadUpdate{Mode: "reset", Value: initial}
+	}
 	if target.Data == nil {
 		target.Metadata = cloneJSON(target.Metadata)
 		return target, nil

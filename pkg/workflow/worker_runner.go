@@ -266,7 +266,7 @@ func (r *workerRunner) awaitUntil(wakeAt time.Time, ordinal int64, attempt int, 
 		if err := r.lease.Reschedule(context.TODO(), RescheduleExecutionRequest{
 			NextNeed:  r.lease.Capability(),
 			WaitUntil: &wakeAt,
-			Payload:   r.lease.Payload(),
+			TaskWait:  r.lease.ExecutionState().TaskWait,
 		}); err != nil {
 			if IsExecutionLeaseLost(err) {
 				r.rescheduled.Store(true)
@@ -349,7 +349,7 @@ func (r *workerRunner) AwaitJobs(jobIds ...string) error {
 	if err := r.lease.Reschedule(context.TODO(), RescheduleExecutionRequest{
 		NextNeed:      r.lease.Capability(),
 		WaitForJobIDs: append([]string(nil), jobIds...),
-		Payload:       r.lease.Payload(),
+		TaskWait:      r.lease.ExecutionState().TaskWait,
 	}); err != nil {
 		if IsExecutionLeaseLost(err) {
 			r.rescheduled.Store(true)
@@ -896,15 +896,7 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 			}
 			req := RescheduleExecutionRequest{
 				NextNeed: workerCapability(r.worker.JobWorker.Name(), taskType),
-				Payload: mustMarshalJSON(workerJobPayload{
-					RunPolicy: r.jobPolicy,
-					TaskWait: &workerTaskWait{
-						InputStep:  inputOrdinal,
-						OutputStep: ordinal,
-						Next:       r.worker.JobWorker.Name(),
-						InputHash:  inputHash,
-					},
-				}),
+				TaskWait: &TaskWait{InputOrdinal: inputOrdinal, OutputOrdinal: ordinal, ResumeNeed: r.worker.JobWorker.Name(), InputHash: inputHash},
 			}
 			if invocationTimeout > 0 {
 				req.AlternateNeed = r.worker.JobWorker.Name()
@@ -971,6 +963,7 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 					},
 					r.SubmitJob,
 					r.SubmitRestartJob,
+					r.ClientPayload, r.ClientPayloadRevision, r.Yield,
 				), data)
 			}()
 			resultCh <- taskResult{output: output, err: taskErr}
@@ -1402,4 +1395,38 @@ func mustMarshalJSON(v any) json.RawMessage {
 		panic(err)
 	}
 	return raw
+}
+
+// ClientPayload returns the payload snapshot acquired with this invocation's lease.
+func (r *workerRunner) ClientPayload() json.RawMessage {
+	if r.lease == nil || r.replay {
+		return nil
+	}
+	return r.lease.ClientPayload()
+}
+func (r *workerRunner) ClientPayloadRevision() int64 {
+	if r.lease == nil || r.replay {
+		return 0
+	}
+	return r.lease.ClientPayloadRevision()
+}
+
+// Yield publishes an explicit scheduler transition. Callers must avoid repeating
+// the yield after resumption, for example by checking a persisted cursor.
+func (r *workerRunner) Yield(ctx context.Context, req RescheduleExecutionRequest) error {
+	if r.replay {
+		return ReplayCacheMissError{JobKey: r.GetJobKey(), Ordinal: r.storyCounter, Attempt: 1, Reason: ReplayCacheMissAwaitNotReady}
+	}
+	if r.lease == nil {
+		return fmt.Errorf("yield requires an execution lease")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := r.lease.Reschedule(ctx, req); err != nil {
+		return err
+	}
+	r.rescheduled.Store(true)
+	prematureCloseOut()
+	return nil
 }

@@ -27,9 +27,12 @@ type FindTasksWaitingRequest struct {
 }
 
 type TaskContext struct {
-	JobKey JobKey
-	Step   int64
-	Logger *slog.Logger
+	clientPayload  func() json.RawMessage
+	clientRevision func() int64
+	yield          func(context.Context, RescheduleExecutionRequest) error
+	JobKey         JobKey
+	Step           int64
+	Logger         *slog.Logger
 	// await is set by the runner so AwaitDuration can be engine-directed.
 	await            func(wakeAt time.Time) error
 	awaitJobs        func(jobIds ...string) error
@@ -96,8 +99,12 @@ func newTaskContextWithLeaseActions(
 	awaitJobs func(...string) error,
 	submitJob func(context.Context, SubmitJob) (JobKey, error),
 	submitRestartJob func(context.Context, SubmitRestartJob) (JobKey, error),
+	clientPayload func() json.RawMessage, clientRevision func() int64, yield func(context.Context, RescheduleExecutionRequest) error,
 ) TaskContext {
 	tc := NewTaskContext(jobKey, step, logger, await, awaitJobs)
+	tc.clientPayload = clientPayload
+	tc.clientRevision = clientRevision
+	tc.yield = yield
 	tc.submitJob = submitJob
 	tc.submitRestartJob = submitRestartJob
 	return tc
@@ -116,6 +123,7 @@ type TaskHandle interface {
 	JobKey() JobKey
 	Data() (TaskData, error)
 	Finish(ctx context.Context, taskData TaskData) error
+	FinishWithClientPayload(ctx context.Context, taskData TaskData, update *ClientPayloadUpdate) error
 	TaskOrdinalToComplete() int64
 	TaskType() string
 	CreatedAt() time.Time
@@ -126,4 +134,23 @@ type TaskCompletion struct {
 	JobKey JobKey
 	Step   int64
 	Error  error
+}
+
+func (tc TaskContext) ClientPayload() json.RawMessage {
+	if tc.clientPayload == nil {
+		return nil
+	}
+	return tc.clientPayload()
+}
+func (tc TaskContext) ClientPayloadRevision() int64 {
+	if tc.clientRevision == nil {
+		return 0
+	}
+	return tc.clientRevision()
+}
+func (tc TaskContext) Yield(ctx context.Context, req RescheduleExecutionRequest) error {
+	if tc.yield == nil {
+		return fmt.Errorf("yield requires an execution lease")
+	}
+	return tc.yield(ctx, req)
 }

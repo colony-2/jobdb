@@ -8,6 +8,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 	"github.com/segmentio/ksuid"
 )
 
@@ -19,6 +20,9 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if err := clientpayload.ValidateUpdate(req.ClientPayloadUpdate, false); err != nil {
+		return err
 	}
 	if err := req.JobKey.Validate(); err != nil {
 		return err
@@ -46,10 +50,13 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	if err != nil {
 		return err
 	}
-	if stored.WorkKind != WorkKindTask || stored.TaskWork == nil ||
+	if stored.CancelRequested || stored.Store == jobdb.JobStoreArchived || stored.WorkKind != WorkKindTask || stored.TaskWork == nil ||
 		!reflect.DeepEqual(*stored.TaskWork, task) ||
 		(stored.LeaseExpiresAt != nil && stored.LeaseExpiresAt.After(r.now())) {
 		return fmt.Errorf("%w: job is not waiting for an unheld external task", jobdb.ErrConflict)
+	}
+	if _, _, err := clientpayload.Apply(stored.ClientPayload, stored.ClientPayloadRevision, req.ClientPayloadUpdate); err != nil {
+		return err
 	}
 	var inherited runtimecodec.ChapterMeta
 	if task.InputOrdinal > 0 {
@@ -126,7 +133,7 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	}
 	_, err = r.scheduler.CompleteTaskWork(ctx, CompleteTaskWorkMutation{
 		JobKey: req.JobKey, WorkerID: workerID,
-		Task: waiting, ClearLeasePayload: true, Now: r.now(),
+		Task: waiting, ClientPayloadUpdate: req.ClientPayloadUpdate, Now: r.now(),
 	})
 	return err
 }

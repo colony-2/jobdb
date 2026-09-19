@@ -29,8 +29,8 @@ func TestRuntimeListJobsKeepsArchivedTaskSummary(t *testing.T) {
 		JobType: "collect", RouteJobType: "collect", WorkKind: runtimecore.WorkKindTask,
 		TaskWork: &runtimecore.TaskWork{TaskType: "download", ResumeJobType: "collect",
 			InputOrdinal: 2, OutputOrdinal: 3, InputHash: "sha256:input"},
-		RunPolicy:    jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 4}},
-		LeasePayload: json.RawMessage(`{}`), LeasePayloadVisible: true,
+		RunPolicy:     jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 4}},
+		ClientPayload: json.RawMessage(`{}`), ClientPayloadRevision: 1,
 		AppMetadata: json.RawMessage(`{"source":"api"}`), SchemaHash: "schema-hash",
 		ParentJobID: "parent", WaitForJobIDs: []string{"prereq"},
 		AvailableAt: created, ExpiresAt: &expiry, CreatedAt: created,
@@ -54,7 +54,7 @@ func TestRuntimeListJobsKeepsArchivedTaskSummary(t *testing.T) {
 		got.TaskWaitOutput == nil || *got.TaskWaitOutput != 3 ||
 		got.TaskWaitNext == nil || *got.TaskWaitNext != "collect" ||
 		got.TaskWaitInputHash == nil || *got.TaskWaitInputHash != "sha256:input" ||
-		string(got.Payload) != `{}` || string(got.Metadata) != `{"source":"api"}` ||
+		string(got.ClientPayload) != `{}` || string(got.Metadata) != `{"source":"api"}` ||
 		got.SchemaHash != "schema-hash" || got.ParentJobID != "parent" ||
 		got.ArchivedAt == nil || !got.ArchivedAt.Equal(archived) ||
 		got.ExpiresAt == nil || !got.ExpiresAt.Equal(expiry) ||

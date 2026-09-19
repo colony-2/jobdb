@@ -36,6 +36,11 @@ fixture and capability flags, then run the same lifecycle, lease, chapter,
 artifact, idempotency, metadata, and conflict behavior checks used by JobDB's
 built-in runtimes.
 
+### `github.com/colony-2/jobdb/pkg/jobdb/clientpayload`
+
+Shared JSON update rules for runtime implementers: lossless RFC 7396 patches,
+reset/clear, revision checking, validation, and initial-value identity.
+
 ### `github.com/colony-2/jobdb/pkg/jobdb/chapterstore/postgres`
 
 Public Postgres chapter and artifact store implementing the runtime core's
@@ -52,11 +57,11 @@ state, artifact persistence, and atomic lease mutations. The schema registry
 adapter in this package owns schema canonicalization and validation before it
 delegates persistence to a `SchemaStore`.
 The scheduler port carries typed job routes, task coordinates, run policy,
-application metadata, schedule occurrence, and lease payload visibility.
+application metadata, schedule occurrence, and client payload with its revision.
 Schedule target, trigger, and failure policy snapshots cross the port as
 opaque JSON after JobDB core has serialized them.
-`ProjectLeasePayload` reconstructs the existing execution lease JSON view from
-typed scheduler fields, including explicit empty application payloads.
+Client state is separate from typed `ExecutionState`; scheduler mutations accept
+explicit client patch/reset updates.
 `NewRuntime` composes the backend ports. Its chapter read and artifact methods
 use the public chapter log and codec, and its job listing projects native
 active and archived rows into the existing `JobSummary` fields.
@@ -69,7 +74,7 @@ chapter data and uploaded artifacts.
 `SubmitRestartJob` clones a validated chapter prefix, checks retry boundaries,
 and optionally appends a cached restart output.
 `PollWork` and `GetJobLease` return leases backed by typed scheduler routes;
-lease methods project the historical payload view and validate ownership before
+lease methods expose separate client/framework snapshots and validate ownership before
 child submission, reschedule, completion, and chapter writes.
 
 ### `github.com/colony-2/jobdb/pkg/jobdb/schemastore/postgres`

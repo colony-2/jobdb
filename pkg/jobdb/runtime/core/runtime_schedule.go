@@ -285,7 +285,8 @@ func (r *Runtime) submitScheduledOccurrenceWithID(ctx context.Context, info jobd
 	}
 	handle, err := r.submitJobWithSchedule(ctx, jobdb.SubmitJobRequest{
 		Job: jobdb.SubmitJob{
-			TenantId: info.TenantId, JobID: jobID, JobType: info.Target.JobType,
+			ClientPayloadUpdate: info.Target.ClientPayloadUpdate,
+			TenantId:            info.TenantId, JobID: jobID, JobType: info.Target.JobType,
 			Data: info.Target.Data, RunPolicy: info.Target.RunPolicy,
 			Metadata: info.Target.Metadata, Prerequisites: prereqs, AvailableAt: &at,
 		}, WorkerID: workerID,

@@ -8,16 +8,18 @@ import (
 	"fmt"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 )
 
 // scheduleTargetSnapshot owns target bytes so a later application mutation
 // cannot change a schedule's submitted input.
 type scheduleTargetSnapshot struct {
-	JobType   string                     `json:"jobType"`
-	Data      json.RawMessage            `json:"data,omitempty"`
-	Artifacts []scheduleArtifactSnapshot `json:"artifacts,omitempty"`
-	RunPolicy jobdb.RunPolicy            `json:"runPolicy,omitempty"`
-	Metadata  json.RawMessage            `json:"metadata,omitempty"`
+	ClientPayload []byte                     `json:"clientPayloadBytes,omitempty"`
+	JobType       string                     `json:"jobType"`
+	Data          json.RawMessage            `json:"data,omitempty"`
+	Artifacts     []scheduleArtifactSnapshot `json:"artifacts,omitempty"`
+	RunPolicy     jobdb.RunPolicy            `json:"runPolicy,omitempty"`
+	Metadata      json.RawMessage            `json:"metadata,omitempty"`
 }
 
 type scheduleArtifactSnapshot struct {
@@ -54,7 +56,11 @@ func snapshotScheduleTarget(ctx context.Context, target jobdb.ScheduleTarget) (s
 			Digest: hex.EncodeToString(sum[:]), Data: append([]byte(nil), body...),
 		})
 	}
-	return scheduleTargetSnapshot{
+	initial, _, err := clientpayload.Initial(target.ClientPayloadUpdate)
+	if err != nil {
+		return scheduleTargetSnapshot{}, err
+	}
+	return scheduleTargetSnapshot{ClientPayload: initial,
 		JobType: target.JobType, Data: append(json.RawMessage(nil), raw...),
 		Artifacts: stored, RunPolicy: target.RunPolicy,
 		Metadata: jobdb.NormalizeJSON(target.Metadata),
@@ -67,7 +73,11 @@ func (s scheduleTargetSnapshot) toTarget() jobdb.ScheduleTarget {
 		artifacts = append(artifacts, jobdb.NewArtifactFromBytes(artifact.Name,
 			append([]byte(nil), artifact.Data...)))
 	}
-	return jobdb.ScheduleTarget{
+	var update *jobdb.ClientPayloadUpdate
+	if s.ClientPayload != nil {
+		update = &jobdb.ClientPayloadUpdate{Mode: "reset", Value: append([]byte(nil), s.ClientPayload...)}
+	}
+	return jobdb.ScheduleTarget{ClientPayloadUpdate: update,
 		JobType:   s.JobType,
 		Data:      &jobdb.SimpleTaskData{Data: append(json.RawMessage(nil), s.Data...), Artifacts: artifacts},
 		RunPolicy: s.RunPolicy,

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -680,16 +681,17 @@ func toAPIStoredChapter(ctx context.Context, chapter jobdb.Chapter) (runtimeapi.
 		})
 	}
 	out := runtimeapi.ChapterRecord{
-		Artifacts: artifacts,
-		Body:      body,
-		CreatedAt: meta.CreatedAt,
-		Input:     input,
-		InputHash: stringPtrOrNil(meta.InputHash),
-		Metadata:  metadata,
-		Ordinal:   meta.Ordinal,
-		RunPolicy: runPolicy,
-		TaskType:  stringPtrOrNil(meta.TaskType),
-		WorkerId:  stringPtrOrNil(meta.WorkerID),
+		InitialPayloadDigest: stringPtrOrNil(meta.InitialPayloadDigest),
+		Artifacts:            artifacts,
+		Body:                 body,
+		CreatedAt:            meta.CreatedAt,
+		Input:                input,
+		InputHash:            stringPtrOrNil(meta.InputHash),
+		Metadata:             metadata,
+		Ordinal:              meta.Ordinal,
+		RunPolicy:            runPolicy,
+		TaskType:             stringPtrOrNil(meta.TaskType),
+		WorkerId:             stringPtrOrNil(meta.WorkerID),
 	}
 	if meta.StartedAt != nil {
 		out.StartedAt = timePtr(*meta.StartedAt)
@@ -1341,23 +1343,24 @@ func chapterMetadataFromAPIRecord(chapter runtimeapi.ChapterRecord) (jobdb.Chapt
 		return jobdb.ChapterMetadata{}, err
 	}
 	meta := runtimecodec.ChapterMeta{
-		Version:       runtimecodec.EnvelopeVersion,
-		Ordinal:       chapter.Ordinal,
-		TaskType:      stringValue(chapter.TaskType),
-		WorkerID:      stringValue(chapter.WorkerId),
-		CreatedAt:     chapter.CreatedAt,
-		StartedAt:     cloneTime(chapter.StartedAt),
-		FinishedAt:    cloneTime(chapter.FinishedAt),
-		InputHash:     stringValue(chapter.InputHash),
-		Metadata:      metadataRaw,
-		Input:         inputRaw,
-		Attempt:       intValue32(chapter.Attempt),
-		MaxAttempts:   intValue32(chapter.MaxAttempts),
-		NextAttemptAt: cloneTime(chapter.NextAttemptAt),
-		BackoffMillis: int64Value(chapter.BackoffMillis),
-		Retryable:     cloneBool(chapter.Retryable),
-		InputRef:      inputReferenceFromAPI(chapter.InputRef),
-		Prerequisites: fromAPIPrerequisites(chapter.Prerequisites),
+		Version:              runtimecodec.EnvelopeVersion,
+		InitialPayloadDigest: stringValue(chapter.InitialPayloadDigest),
+		Ordinal:              chapter.Ordinal,
+		TaskType:             stringValue(chapter.TaskType),
+		WorkerID:             stringValue(chapter.WorkerId),
+		CreatedAt:            chapter.CreatedAt,
+		StartedAt:            cloneTime(chapter.StartedAt),
+		FinishedAt:           cloneTime(chapter.FinishedAt),
+		InputHash:            stringValue(chapter.InputHash),
+		Metadata:             metadataRaw,
+		Input:                inputRaw,
+		Attempt:              intValue32(chapter.Attempt),
+		MaxAttempts:          intValue32(chapter.MaxAttempts),
+		NextAttemptAt:        cloneTime(chapter.NextAttemptAt),
+		BackoffMillis:        int64Value(chapter.BackoffMillis),
+		Retryable:            cloneBool(chapter.Retryable),
+		InputRef:             inputReferenceFromAPI(chapter.InputRef),
+		Prerequisites:        fromAPIPrerequisites(chapter.Prerequisites),
 	}
 	if chapter.RunPolicy != nil {
 		meta.RunPolicy = &runPolicy
@@ -1370,7 +1373,12 @@ func chapterMetadataFromAPIRecord(chapter runtimeapi.ChapterRecord) (jobdb.Chapt
 }
 
 func jobInfoToAPI(ctx context.Context, info jobdb.JobInfo) (runtimeapi.JobInfo, error) {
+	state, err := executionStateToAPI(info.ExecutionState)
+	if err != nil {
+		return runtimeapi.JobInfo{}, err
+	}
 	out := runtimeapi.JobInfo{
+		ExecutionState: state, ClientPayload: cloneRawMessage(info.ClientPayload), ClientPayloadRevision: strconv.FormatInt(info.ClientPayloadRevision, 10),
 		SchemaHash: schemaHashPtr(info.SchemaHash),
 		Status:     runtimeapi.JobStatus(info.Status),
 	}
@@ -1387,7 +1395,16 @@ func jobInfoToAPI(ctx context.Context, info jobdb.JobInfo) (runtimeapi.JobInfo, 
 }
 
 func jobInfoFromAPI(runtime *Runtime, jobKey jobdb.JobKey, info runtimeapi.JobInfo) (jobdb.JobInfo, error) {
+	state, err := executionStateFromAPI(info.ExecutionState)
+	if err != nil {
+		return jobdb.JobInfo{}, err
+	}
+	revision, err := payloadRevision(info.ClientPayloadRevision)
+	if err != nil {
+		return jobdb.JobInfo{}, err
+	}
 	out := jobdb.JobInfo{
+		ExecutionState: state, ClientPayload: cloneRawMessage(info.ClientPayload), ClientPayloadRevision: revision,
 		Status:     jobdb.JobStatus(info.Status),
 		Data:       &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
 		SchemaHash: stringValue(info.SchemaHash),
@@ -1404,7 +1421,7 @@ func jobInfoFromAPI(runtime *Runtime, jobKey jobdb.JobKey, info runtimeapi.JobIn
 }
 
 func jobSummaryToAPI(summary jobdb.JobSummary) (runtimeapi.JobSummary, error) {
-	payload, err := schedulerPayloadOptionalToAPI(summary.Payload)
+	state, err := executionStateToAPI(summary.ExecutionState)
 	if err != nil {
 		return runtimeapi.JobSummary{}, err
 	}
@@ -1413,31 +1430,37 @@ func jobSummaryToAPI(summary jobdb.JobSummary) (runtimeapi.JobSummary, error) {
 		return runtimeapi.JobSummary{}, err
 	}
 	out := runtimeapi.JobSummary{
-		ArchivedAt:        summary.ArchivedAt,
-		AvailableAt:       summary.AvailableAt,
-		CancelRequested:   summary.CancelRequested,
-		CreatedAt:         summary.CreatedAt,
-		ExpiresAt:         summary.ExpiresAt,
-		JobKey:            toAPIJobKey(summary.JobKey),
-		JobType:           summary.JobType,
-		LeaseExpiresAt:    summary.LeaseExpiresAt,
-		Metadata:          metadata,
-		NextNeed:          cloneString(summary.NextNeed),
-		ParentJobId:       stringPtrOrNil(summary.ParentJobID),
-		Payload:           payload,
-		SchemaHash:        schemaHashPtr(summary.SchemaHash),
-		Status:            runtimeapi.JobStatus(summary.Status),
-		TaskWaitInput:     cloneInt64(summary.TaskWaitInput),
-		TaskWaitInputHash: cloneString(summary.TaskWaitInputHash),
-		TaskWaitNext:      cloneString(summary.TaskWaitNext),
-		TaskWaitOutput:    cloneInt64(summary.TaskWaitOutput),
-		WaitFor:           append([]string(nil), summary.WaitFor...),
+		ArchivedAt:            summary.ArchivedAt,
+		AvailableAt:           summary.AvailableAt,
+		CancelRequested:       summary.CancelRequested,
+		CreatedAt:             summary.CreatedAt,
+		ExpiresAt:             summary.ExpiresAt,
+		JobKey:                toAPIJobKey(summary.JobKey),
+		JobType:               summary.JobType,
+		LeaseExpiresAt:        summary.LeaseExpiresAt,
+		Metadata:              metadata,
+		NextNeed:              cloneString(summary.NextNeed),
+		ParentJobId:           stringPtrOrNil(summary.ParentJobID),
+		ExecutionState:        state,
+		ClientPayload:         cloneRawMessage(summary.ClientPayload),
+		ClientPayloadRevision: strconv.FormatInt(summary.ClientPayloadRevision, 10),
+		SchemaHash:            schemaHashPtr(summary.SchemaHash),
+		Status:                runtimeapi.JobStatus(summary.Status),
+		TaskWaitInput:         cloneInt64(summary.TaskWaitInput),
+		TaskWaitInputHash:     cloneString(summary.TaskWaitInputHash),
+		TaskWaitNext:          cloneString(summary.TaskWaitNext),
+		TaskWaitOutput:        cloneInt64(summary.TaskWaitOutput),
+		WaitFor:               append([]string(nil), summary.WaitFor...),
 	}
 	return out, nil
 }
 
 func jobSummaryFromAPI(summary runtimeapi.JobSummary) (jobdb.JobSummary, error) {
-	payload, err := schedulerPayloadPointerFromAPI(summary.Payload)
+	revision, err := payloadRevision(summary.ClientPayloadRevision)
+	if err != nil {
+		return jobdb.JobSummary{}, err
+	}
+	state, err := executionStateFromAPI(summary.ExecutionState)
 	if err != nil {
 		return jobdb.JobSummary{}, err
 	}
@@ -1446,25 +1469,27 @@ func jobSummaryFromAPI(summary runtimeapi.JobSummary) (jobdb.JobSummary, error) 
 		return jobdb.JobSummary{}, err
 	}
 	return jobdb.JobSummary{
-		JobKey:            fromAPIJobKey(summary.JobKey),
-		Status:            jobdb.JobStatus(summary.Status),
-		JobType:           summary.JobType,
-		NextNeed:          cloneString(summary.NextNeed),
-		WaitFor:           append([]string(nil), summary.WaitFor...),
-		AvailableAt:       summary.AvailableAt,
-		ExpiresAt:         summary.ExpiresAt,
-		LeaseExpiresAt:    summary.LeaseExpiresAt,
-		CancelRequested:   summary.CancelRequested,
-		CreatedAt:         summary.CreatedAt,
-		ArchivedAt:        summary.ArchivedAt,
-		Payload:           payload,
-		Metadata:          metadata,
-		SchemaHash:        stringValue(summary.SchemaHash),
-		ParentJobID:       stringValue(summary.ParentJobId),
-		TaskWaitInput:     cloneInt64(summary.TaskWaitInput),
-		TaskWaitOutput:    cloneInt64(summary.TaskWaitOutput),
-		TaskWaitInputHash: cloneString(summary.TaskWaitInputHash),
-		TaskWaitNext:      cloneString(summary.TaskWaitNext),
+		JobKey:                fromAPIJobKey(summary.JobKey),
+		Status:                jobdb.JobStatus(summary.Status),
+		JobType:               summary.JobType,
+		NextNeed:              cloneString(summary.NextNeed),
+		WaitFor:               append([]string(nil), summary.WaitFor...),
+		AvailableAt:           summary.AvailableAt,
+		ExpiresAt:             summary.ExpiresAt,
+		LeaseExpiresAt:        summary.LeaseExpiresAt,
+		CancelRequested:       summary.CancelRequested,
+		CreatedAt:             summary.CreatedAt,
+		ArchivedAt:            summary.ArchivedAt,
+		ExecutionState:        state,
+		ClientPayload:         cloneRawMessage(summary.ClientPayload),
+		ClientPayloadRevision: revision,
+		Metadata:              metadata,
+		SchemaHash:            stringValue(summary.SchemaHash),
+		ParentJobID:           stringValue(summary.ParentJobId),
+		TaskWaitInput:         cloneInt64(summary.TaskWaitInput),
+		TaskWaitOutput:        cloneInt64(summary.TaskWaitOutput),
+		TaskWaitInputHash:     cloneString(summary.TaskWaitInputHash),
+		TaskWaitNext:          cloneString(summary.TaskWaitNext),
 	}, nil
 }
 
@@ -1593,21 +1618,25 @@ func scheduleFailurePolicyFromAPI(policy *runtimeapi.ScheduleFailurePolicy) jobd
 func scheduleTargetToAPI(ctx context.Context, target jobdb.ScheduleTarget) (runtimeapi.ScheduleTarget, error) {
 	data, err := taskDataToAPIWrite(ctx, jobdb.TaskData(target.Data))
 	if err != nil {
-		return runtimeapi.ScheduleTarget{}, err
+		return runtimeapi.ScheduleTarget{
+			ClientPayloadUpdate: target.ClientPayloadUpdate}, err
 	}
 	runPolicy, err := runPolicyToAPI(target.RunPolicy)
 	if err != nil {
-		return runtimeapi.ScheduleTarget{}, err
+		return runtimeapi.ScheduleTarget{
+			ClientPayloadUpdate: target.ClientPayloadUpdate}, err
 	}
 	metadata, err := metadataJSONToAPI(target.Metadata)
 	if err != nil {
-		return runtimeapi.ScheduleTarget{}, err
+		return runtimeapi.ScheduleTarget{
+			ClientPayloadUpdate: target.ClientPayloadUpdate}, err
 	}
 	return runtimeapi.ScheduleTarget{
-		Data:      data,
-		JobType:   target.JobType,
-		Metadata:  metadata,
-		RunPolicy: runPolicy,
+		ClientPayloadUpdate: target.ClientPayloadUpdate,
+		Data:                data,
+		JobType:             target.JobType,
+		Metadata:            metadata,
+		RunPolicy:           runPolicy,
 	}, nil
 }
 
@@ -1625,7 +1654,7 @@ func scheduleTargetFromAPI(target runtimeapi.ScheduleTarget) (jobdb.ScheduleTarg
 		return jobdb.ScheduleTarget{}, err
 	}
 	return jobdb.ScheduleTarget{
-		JobType:   target.JobType,
+		ClientPayloadUpdate: target.ClientPayloadUpdate, JobType: target.JobType,
 		Data:      jobdb.JobData(data),
 		RunPolicy: runPolicy,
 		Metadata:  metadata,
@@ -1797,136 +1826,32 @@ func payloadKindFromTaskData(data jobdb.TaskData, payloadErr error) string {
 	return runtimecodec.PayloadKindApp
 }
 
-func schedulerPayloadOptionalToAPI(raw json.RawMessage) (*runtimeapi.SchedulerPayload, error) {
-	if len(raw) == 0 {
-		return nil, nil
+func taskWaitToAPI(v *jobdb.TaskWait) *runtimeapi.TaskWait {
+	if v == nil {
+		return nil
 	}
-	converted, err := schedulerPayloadToAPI(raw)
-	if err != nil {
-		return nil, err
-	}
-	return &converted, nil
+	return &runtimeapi.TaskWait{InputOrdinal: v.InputOrdinal, OutputOrdinal: v.OutputOrdinal, InputHash: v.InputHash, ResumeNeed: v.ResumeNeed}
 }
-
-func schedulerPayloadToAPI(raw json.RawMessage) (runtimeapi.SchedulerPayload, error) {
-	parsed, err := runtimecodec.SchedulerPayloadFromJSONView(raw)
-	if err != nil {
-		return runtimeapi.SchedulerPayload{}, err
+func taskWaitFromAPI(v *runtimeapi.TaskWait) *jobdb.TaskWait {
+	if v == nil {
+		return nil
 	}
-	runPolicy, err := runPolicyToAPI(parsed.RunPolicy)
-	if err != nil {
-		return runtimeapi.SchedulerPayload{}, err
-	}
-	leasePayloadRaw, err := leasePayloadFromSchedulerJSONView(raw)
-	if err != nil {
-		return runtimeapi.SchedulerPayload{}, err
-	}
-	leasePayload, err := applicationPayloadOptional(leasePayloadRaw)
-	if err != nil {
-		return runtimeapi.SchedulerPayload{}, err
-	}
-	out := runtimeapi.SchedulerPayload{
-		LeasePayload: leasePayload,
-		RunPolicy:    runPolicy,
-	}
-	if parsed.TaskWait != nil {
-		out.TaskWait = &runtimeapi.TaskWait{
-			InputHash:     parsed.TaskWait.InputHash,
-			InputOrdinal:  parsed.TaskWait.InputStep,
-			OutputOrdinal: parsed.TaskWait.OutputStep,
-			ResumeNeed:    parsed.TaskWait.Next,
-		}
-	}
-	return out, nil
+	return &jobdb.TaskWait{InputOrdinal: v.InputOrdinal, OutputOrdinal: v.OutputOrdinal, InputHash: v.InputHash, ResumeNeed: v.ResumeNeed}
 }
-
-func schedulerPayloadPointerFromAPI(value *runtimeapi.SchedulerPayload) (json.RawMessage, error) {
-	if value == nil {
-		return nil, nil
-	}
-	return schedulerPayloadFromAPI(*value)
+func executionStateToAPI(v jobdb.ExecutionState) (runtimeapi.ExecutionState, error) {
+	p, err := runPolicyToAPI(v.RunPolicy)
+	return runtimeapi.ExecutionState{RunPolicy: p, TaskWait: taskWaitToAPI(v.TaskWait)}, err
 }
-
-func schedulerPayloadFromAPI(value runtimeapi.SchedulerPayload) (json.RawMessage, error) {
-	runPolicy, err := runPolicyFromAPI(value.RunPolicy)
-	if err != nil {
-		return nil, err
-	}
-	leasePayload, err := applicationPayloadPointerToRaw(value.LeasePayload)
-	if err != nil {
-		return nil, err
-	}
-	hasRunPolicy := !runPolicyIsZero(runPolicy)
-	hasTaskWait := value.TaskWait != nil
-	if !hasRunPolicy && !hasTaskWait {
-		return cloneRawMessage(leasePayload), nil
-	}
-	fields := make(map[string]json.RawMessage)
-	if len(leasePayload) > 0 {
-		if err := json.Unmarshal(leasePayload, &fields); err != nil || fields == nil {
-			return nil, fmt.Errorf("leasePayload must be a JSON object when runPolicy or taskWait is present")
-		}
-	}
-	if hasRunPolicy {
-		rawPolicy, err := json.Marshal(runPolicy)
-		if err != nil {
-			return nil, err
-		}
-		fields["run_policy"] = rawPolicy
-	}
-	if value.TaskWait != nil {
-		wait := struct {
-			InputStep  int64  `json:"in"`
-			OutputStep int64  `json:"out"`
-			Next       string `json:"next"`
-			InputHash  string `json:"input_hash,omitempty"`
-		}{
-			InputStep:  value.TaskWait.InputOrdinal,
-			OutputStep: value.TaskWait.OutputOrdinal,
-			Next:       value.TaskWait.ResumeNeed,
-			InputHash:  value.TaskWait.InputHash,
-		}
-		rawWait, err := json.Marshal(wait)
-		if err != nil {
-			return nil, err
-		}
-		fields["task_wait"] = rawWait
-	}
-	raw, err := json.Marshal(fields)
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(raw), nil
+func executionStateFromAPI(v runtimeapi.ExecutionState) (jobdb.ExecutionState, error) {
+	p, err := runPolicyFromAPI(v.RunPolicy)
+	return jobdb.ExecutionState{RunPolicy: p, TaskWait: taskWaitFromAPI(v.TaskWait)}, err
 }
-
-func leasePayloadFromSchedulerJSONView(raw json.RawMessage) (json.RawMessage, error) {
-	if len(raw) == 0 {
-		return nil, nil
+func payloadRevision(v string) (int64, error) {
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("invalid client payload revision %q", v)
 	}
-	if !json.Valid(raw) {
-		return nil, fmt.Errorf("scheduler payload must be valid JSON")
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
-		return cloneRawMessage(raw), nil
-	}
-	hadSchedulerField := false
-	if _, ok := fields["run_policy"]; ok {
-		delete(fields, "run_policy")
-		hadSchedulerField = true
-	}
-	if _, ok := fields["task_wait"]; ok {
-		delete(fields, "task_wait")
-		hadSchedulerField = true
-	}
-	if len(fields) == 0 && hadSchedulerField {
-		return nil, nil
-	}
-	out, err := json.Marshal(fields)
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(out), nil
+	return n, nil
 }
 
 func runPolicyIsZero(policy jobdb.RunPolicy) bool {

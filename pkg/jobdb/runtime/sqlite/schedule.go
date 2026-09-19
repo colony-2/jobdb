@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/core"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
 	"github.com/google/uuid"
@@ -35,11 +36,12 @@ type scheduleRow struct {
 }
 
 type storedScheduleTarget struct {
-	JobType   string                   `json:"jobType"`
-	Data      json.RawMessage          `json:"data,omitempty"`
-	Artifacts []storedScheduleArtifact `json:"artifacts,omitempty"`
-	RunPolicy jobdb.RunPolicy          `json:"runPolicy,omitempty"`
-	Metadata  json.RawMessage          `json:"metadata,omitempty"`
+	ClientPayload []byte                   `json:"clientPayloadBytes,omitempty"`
+	JobType       string                   `json:"jobType"`
+	Data          json.RawMessage          `json:"data,omitempty"`
+	Artifacts     []storedScheduleArtifact `json:"artifacts,omitempty"`
+	RunPolicy     jobdb.RunPolicy          `json:"runPolicy,omitempty"`
+	Metadata      json.RawMessage          `json:"metadata,omitempty"`
 }
 
 type storedScheduleArtifact struct {
@@ -376,8 +378,8 @@ func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRu
 			CancelRequested: row.cancelRequested,
 			CreatedAt:       createdAt,
 			ArchivedAt:      nullTimeFromNS(row.archivedAtNS),
-			Payload:         jobPayloadVisibleJSON(row.payload),
-			Metadata:        jobdb.StripRuntimeMetadata(row.metadata),
+			ClientPayload:   cloneJSON(row.clientPayload), ClientPayloadRevision: row.clientPayloadRevision, ExecutionState: jobExecutionState(row.payload),
+			Metadata: jobdb.StripRuntimeMetadata(row.metadata),
 		}
 		if tw, waitErr := extractTaskWaitFromRaw(row.payload); waitErr == nil && tw != nil {
 			job.TaskWaitInput = &tw.InputStep
@@ -515,10 +517,18 @@ func (r *Runtime) submitScheduledOccurrenceWithJobID(ctx context.Context, row sc
 	if err != nil {
 		return jobdb.JobKey{}, err
 	}
+	initial, _, err := clientpayload.Initial(target.ClientPayloadUpdate)
+	if err != nil {
+		return jobdb.JobKey{}, err
+	}
+	initialDigest, err := clientpayload.Digest(initial)
+	if err != nil {
+		return jobdb.JobKey{}, err
+	}
 	jobPolicy := normalizeRunPolicy(target.RunPolicy)
 	initialChapter, err := taskDataToChapter(taskData, 0, target.JobType, r.requestWorkerID(workerID), chapterTypeJobStart, payloadKindApp, inputHash, time.Now().UTC(), chapterMetadata{
-		Attempt:       1,
-		RunPolicy:     &jobPolicy,
+		Attempt:   1,
+		RunPolicy: &jobPolicy, InitialPayloadDigest: initialDigest,
 		Metadata:      metadataForStartChapter(target.Metadata),
 		Prerequisites: prereqs,
 	})
@@ -536,7 +546,7 @@ func (r *Runtime) submitScheduledOccurrenceWithJobID(ctx context.Context, row sc
 		if !exists {
 			return jobdb.JobKey{}, err
 		}
-		if compareErr := compareSubmitStartChapter(jobKey, start, target.JobType, inputHash, target.Metadata, prereqs, jobPolicy); compareErr != nil {
+		if compareErr := compareSubmitStartChapter(jobKey, start, target.JobType, inputHash, target.Metadata, prereqs, jobPolicy, target.ClientPayloadUpdate); compareErr != nil {
 			return jobdb.JobKey{}, compareErr
 		}
 	}
@@ -544,7 +554,7 @@ func (r *Runtime) submitScheduledOccurrenceWithJobID(ctx context.Context, row sc
 		assignArtifactKeys(artifacts, jobKey.JobId, 0)
 		cleanupArtifacts(artifacts, r.logger)
 	}
-	if err := r.ensureSubmittedJobRecord(ctx, jobKey, target.JobType, schedulerMetadata, waitForIDs, jobPayload{RunPolicy: jobPolicy}, workerID, &scheduledAt); err != nil {
+	if err := r.ensureSubmittedJobRecord(ctx, jobKey, target.JobType, schedulerMetadata, waitForIDs, jobPayload{RunPolicy: jobPolicy}, workerID, &scheduledAt, target.ClientPayloadUpdate); err != nil {
 		return jobdb.JobKey{}, err
 	}
 	return jobKey, nil
@@ -636,7 +646,11 @@ func storedTargetFromSchedule(ctx context.Context, target jobdb.ScheduleTarget) 
 			})
 		}
 	}
-	return storedScheduleTarget{
+	initial, _, err := clientpayload.Initial(target.ClientPayloadUpdate)
+	if err != nil {
+		return storedScheduleTarget{}, err
+	}
+	return storedScheduleTarget{ClientPayload: initial,
 		JobType:   target.JobType,
 		Data:      data,
 		Artifacts: storedArtifacts,
@@ -650,7 +664,11 @@ func (t storedScheduleTarget) toScheduleTarget() jobdb.ScheduleTarget {
 	for _, artifact := range t.Artifacts {
 		artifacts = append(artifacts, jobdb.NewArtifactFromBytes(artifact.Name, append([]byte(nil), artifact.Data...)))
 	}
-	return jobdb.ScheduleTarget{
+	var update *jobdb.ClientPayloadUpdate
+	if t.ClientPayload != nil {
+		update = &jobdb.ClientPayloadUpdate{Mode: "reset", Value: append([]byte(nil), t.ClientPayload...)}
+	}
+	return jobdb.ScheduleTarget{ClientPayloadUpdate: update,
 		JobType:   t.JobType,
 		Data:      jobdb.JobData(&jobdb.SimpleTaskData{Data: append(json.RawMessage(nil), t.Data...), Artifacts: artifacts}),
 		RunPolicy: t.RunPolicy,

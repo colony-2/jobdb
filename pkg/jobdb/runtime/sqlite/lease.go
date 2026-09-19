@@ -9,18 +9,21 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 )
 
 type executionLease struct {
-	runtime    *Runtime
-	jobKey     jobdb.JobKey
-	leaseID    string
-	workerID   string
-	capability string
-	payload    []byte
-	duration   time.Duration
-	expiresAt  time.Time
-	schemaHash string
+	clientPayload         json.RawMessage
+	clientPayloadRevision int64
+	runtime               *Runtime
+	jobKey                jobdb.JobKey
+	leaseID               string
+	workerID              string
+	capability            string
+	payload               []byte
+	duration              time.Duration
+	expiresAt             time.Time
+	schemaHash            string
 }
 
 func (l *executionLease) LeaseID() string { return l.leaseID }
@@ -37,9 +40,9 @@ func (l *executionLease) Job() jobdb.JobHandle {
 
 func (l *executionLease) Capability() string { return l.capability }
 
-func (l *executionLease) Payload() json.RawMessage {
-	return jobPayloadVisibleJSON(l.payload)
-}
+func (l *executionLease) ClientPayload() json.RawMessage       { return cloneJSON(l.clientPayload) }
+func (l *executionLease) ClientPayloadRevision() int64         { return l.clientPayloadRevision }
+func (l *executionLease) ExecutionState() jobdb.ExecutionState { return jobExecutionState(l.payload) }
 
 func (l *executionLease) KeepAlive(ctx context.Context) error {
 	expiresAt, err := l.runtime.KeepAliveLeaseByIDWithExpiry(ctx, l.jobKey, l.leaseID, l.workerID, l.duration)
@@ -115,6 +118,18 @@ func (r *Runtime) CompleteJobWithLeaseByID(ctx context.Context, jobKey jobdb.Job
 	if leaseID == "" || workerID == "" {
 		return jobdb.ErrExecutionLeaseLost
 	}
+	if err := clientpayload.ValidateUpdate(req.ClientPayloadUpdate, false); err != nil {
+		return err
+	}
+	if req.ClientPayloadUpdate != nil {
+		row, err := r.validateLease(ctx, jobKey, leaseID, workerID)
+		if err != nil {
+			return err
+		}
+		if _, _, err := clientpayload.Apply(row.clientPayload, row.clientPayloadRevision, req.ClientPayloadUpdate); err != nil {
+			return err
+		}
+	}
 	if err := r.ensureCompletionChapter(ctx, jobKey, leaseID, workerID, req); err != nil {
 		return err
 	}
@@ -125,7 +140,10 @@ func (r *Runtime) CompleteJobWithLeaseByID(ctx context.Context, jobKey jobdb.Job
 		if err != nil {
 			return err
 		}
-		if err := validateLeaseRow(row, leaseID, workerID, now); err != nil {
+		if err := validateLeaseRow(row, leaseID, workerID, time.Now().UTC()); err != nil {
+			return err
+		}
+		if err := r.updateClientPayloadTx(ctx, tx, row, req.ClientPayloadUpdate); err != nil {
 			return err
 		}
 		cancelRequested := 0
@@ -163,16 +181,11 @@ func (r *Runtime) RescheduleJobWithLeaseByID(ctx context.Context, jobKey jobdb.J
 	if req.AlternateNeed == "" && req.AlternateAfter != nil && *req.AlternateAfter > 0 {
 		return fmt.Errorf("alternate capability is required when after is set")
 	}
-	payload := req.Payload
-	if len(payload) == 0 {
-		payload = json.RawMessage(`{}`)
-	}
-	storedPayload, err := jobPayloadFromVisibleJSON(payload)
+	task, err := jobdb.RescheduleTaskWait(req.NextNeed, req.TaskWait)
 	if err != nil {
 		return err
 	}
-	payloadBytes, err := encodeJobPayload(storedPayload)
-	if err != nil {
+	if err := clientpayload.ValidateUpdate(req.ClientPayloadUpdate, false); err != nil {
 		return err
 	}
 	waitFor, err := encodeWaitFor(req.WaitForJobIDs)
@@ -199,7 +212,22 @@ func (r *Runtime) RescheduleJobWithLeaseByID(ctx context.Context, jobKey jobdb.J
 		if err != nil {
 			return err
 		}
-		if err := validateLeaseRow(row, leaseID, workerID, now); err != nil {
+		if err := validateLeaseRow(row, leaseID, workerID, time.Now().UTC()); err != nil {
+			return err
+		}
+		storedPayload, err := decodeJobPayload(row.payload)
+		if err != nil {
+			return err
+		}
+		storedPayload.TaskWait = nil
+		if task != nil {
+			storedPayload.TaskWait = &taskWait{InputStep: task.InputOrdinal, OutputStep: task.OutputOrdinal, InputHash: task.InputHash, Next: task.ResumeNeed}
+		}
+		payloadBytes, err := encodeJobPayload(storedPayload)
+		if err != nil {
+			return err
+		}
+		if err := r.updateClientPayloadTx(ctx, tx, row, req.ClientPayloadUpdate); err != nil {
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `

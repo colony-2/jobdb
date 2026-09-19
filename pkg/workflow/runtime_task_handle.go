@@ -153,14 +153,18 @@ func (h *runtimeListedTaskHandle) Data() (TaskData, error) {
 }
 
 func (h *runtimeListedTaskHandle) Finish(ctx context.Context, taskData TaskData) error {
+	return h.FinishWithClientPayload(ctx, taskData, nil)
+}
+func (h *runtimeListedTaskHandle) FinishWithClientPayload(ctx context.Context, taskData TaskData, update *ClientPayloadUpdate) error {
 	return h.runtime.CompleteTaskIfWaiting(ctx, CompleteTaskIfWaitingRequest{
-		JobKey:        h.jobKey,
-		Capability:    h.capability,
-		ResumeNeed:    h.resumeNeed,
-		InputOrdinal:  h.inputOrdinal,
-		OutputOrdinal: h.outputOrdinal,
-		InputHash:     h.inputHash,
-		Data:          taskData,
+		ClientPayloadUpdate: update,
+		JobKey:              h.jobKey,
+		Capability:          h.capability,
+		ResumeNeed:          h.resumeNeed,
+		InputOrdinal:        h.inputOrdinal,
+		OutputOrdinal:       h.outputOrdinal,
+		InputHash:           h.inputHash,
+		Data:                taskData,
 	})
 }
 

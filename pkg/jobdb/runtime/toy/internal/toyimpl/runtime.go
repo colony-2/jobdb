@@ -13,6 +13,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/leaseauth"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
@@ -50,6 +51,14 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 }
 
 func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRequest, parentJobID string) (jobdb.JobHandle, error) {
+	initial, initialRevision, err := clientpayload.Initial(req.Job.ClientPayloadUpdate)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	initialDigest, err := clientpayload.Digest(initial)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -146,6 +155,7 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 		status = jobdb.JobStatusAwaitingFuture
 	}
 	record := &jobRecord{
+		clientPayload: initial, clientPayloadRevision: initialRevision, initialPayloadDigest: initialDigest,
 		status:      status,
 		jobType:     req.Job.JobType,
 		createdAt:   now,
@@ -181,6 +191,17 @@ func (r *Runtime) existingEquivalentJob(jobKey jobdb.JobKey, job jobdb.SubmitJob
 	record, ok := r.engine.jobRecords[jobKey]
 	if !ok {
 		return jobdb.JobHandle{}, false, nil
+	}
+	initial, _, err := clientpayload.Initial(job.ClientPayloadUpdate)
+	if err != nil {
+		return jobdb.JobHandle{}, false, err
+	}
+	digest, err := clientpayload.Digest(initial)
+	if err != nil {
+		return jobdb.JobHandle{}, false, err
+	}
+	if record.initialPayloadDigest != digest {
+		return jobdb.JobHandle{}, false, jobdb.NewExistingJobMismatchError("initial client payload differs")
 	}
 	start, ok := r.engine.runtimeChapters[jobKey][0]
 	if !ok {
@@ -221,6 +242,14 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 }
 
 func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.SubmitRestartJobRequest, parentJobID string) (jobdb.JobHandle, error) {
+	initial, initialRevision, err := clientpayload.Initial(req.Job.ClientPayloadUpdate)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	initialDigest, err := clientpayload.Digest(initial)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -320,6 +349,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	}
 
 	record := &jobRecord{
+		clientPayload: initial, clientPayloadRevision: initialRevision, initialPayloadDigest: initialDigest,
 		status:      jobdb.JobStatusReady,
 		jobType:     jobType,
 		createdAt:   time.Now().UTC(),
@@ -355,6 +385,18 @@ func (r *Runtime) existingEquivalentRestartJob(jobKey jobdb.JobKey, job jobdb.Su
 	if record == nil {
 		return jobdb.JobHandle{}, false, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists without state", jobKey))
 	}
+	initial, _, err := clientpayload.Initial(job.ClientPayloadUpdate)
+	if err != nil {
+		return jobdb.JobHandle{}, false, err
+	}
+	digest, err := clientpayload.Digest(initial)
+	if err != nil {
+		return jobdb.JobHandle{}, false, err
+	}
+	if record.initialPayloadDigest != digest {
+		return jobdb.JobHandle{}, false, jobdb.NewExistingJobMismatchError("initial client payload differs")
+	}
+
 	if !bytes.Equal(record.metadata, expectedMetadata) {
 		return jobdb.JobHandle{}, false, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different metadata", jobKey))
 	}
@@ -453,13 +495,15 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 		record.leased = true
 		record.status = jobdb.JobStatusActive
 		record.leaseID = ksuid.New().String()
+		record.leaseWorkerID = req.WorkerID
+		record.leaseExpiresAt = now.Add(toyLeaseDurationOrDefault(req.LeaseDuration))
 		payload := cloneJSON(record.payload)
 		out = append(out, &runtimeLease{
 			runtime:    r,
 			jobKey:     key,
 			leaseID:    record.leaseID,
 			capability: record.capability,
-			payload:    payload,
+			payload:    payload, clientPayload: cloneJSON(record.clientPayload), clientPayloadRevision: record.clientPayloadRevision, workerID: req.WorkerID,
 			expiresAt:  now.Add(toyLeaseDurationOrDefault(req.LeaseDuration)),
 			duration:   toyLeaseDurationOrDefault(req.LeaseDuration),
 			schemaHash: jobmetadata.SchemaHashFromStoredMetadata(record.metadata),
@@ -528,12 +572,14 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 	record.leased = true
 	record.status = jobdb.JobStatusActive
 	record.leaseID = ksuid.New().String()
+	record.leaseWorkerID = req.WorkerID
+	record.leaseExpiresAt = now.Add(toyLeaseDurationOrDefault(req.LeaseDuration))
 	lease := &runtimeLease{
 		runtime:    r,
 		jobKey:     req.JobKey,
 		leaseID:    record.leaseID,
 		capability: record.capability,
-		payload:    cloneJSON(record.payload),
+		payload:    cloneJSON(record.payload), clientPayload: cloneJSON(record.clientPayload), clientPayloadRevision: record.clientPayloadRevision, workerID: req.WorkerID,
 		expiresAt:  now.Add(toyLeaseDurationOrDefault(req.LeaseDuration)),
 		duration:   toyLeaseDurationOrDefault(req.LeaseDuration),
 		schemaHash: jobmetadata.SchemaHashFromStoredMetadata(record.metadata),
@@ -593,6 +639,7 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 	record.mu.Lock()
 	defer record.mu.Unlock()
 	job := jobdb.JobInfo{
+		ClientPayload: cloneJSON(record.clientPayload), ClientPayloadRevision: record.clientPayloadRevision, ExecutionState: toyExecutionState(record.payload),
 		Status:     record.status,
 		Data:       &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
 		SchemaHash: jobmetadata.SchemaHashFromStoredMetadata(record.metadata),
@@ -957,6 +1004,12 @@ func (r *Runtime) taskDataFromChapter(jobKey jobdb.JobKey, chapter jobdb.Chapter
 }
 
 func (r *Runtime) advanceRecordStateLocked(tenantId string, now time.Time, record *jobRecord) {
+	if record.leased && !record.leaseExpiresAt.After(now) && record.archived == nil && !record.cancelled {
+		record.leased = false
+		record.leaseID = ""
+		record.status = jobdb.JobStatusReady
+	}
+
 	if record.status == jobdb.JobStatusAwaitingFuture && !record.availableAt.IsZero() && !record.availableAt.After(now) {
 		record.status = jobdb.JobStatusReady
 	}
@@ -986,7 +1039,7 @@ func (r *Runtime) advanceRecordStateLocked(tenantId string, now time.Time, recor
 	}
 }
 
-func (r *Runtime) completeLease(ctx context.Context, jobKey jobdb.JobKey, leaseID string, req jobdb.CompleteExecutionRequest) error {
+func (r *Runtime) completeLease(ctx context.Context, jobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.CompleteExecutionRequest) error {
 	if req.Chapter == nil {
 		return fmt.Errorf("complete lease requires final chapter")
 	}
@@ -998,9 +1051,13 @@ func (r *Runtime) completeLease(ctx context.Context, jobKey jobdb.JobKey, leaseI
 		return jobdb.ErrJobNotFound
 	}
 	record.mu.Lock()
-	if record.leaseID != leaseID {
+	if leaseID == "" || record.leaseID != leaseID || record.leaseWorkerID != workerID || !record.leased || !record.leaseExpiresAt.After(time.Now().UTC()) || record.cancelled || record.archived != nil {
 		record.mu.Unlock()
 		return jobdb.ErrExecutionLeaseLost
+	}
+	if _, _, err := clientpayload.Apply(record.clientPayload, record.clientPayloadRevision, req.ClientPayloadUpdate); err != nil {
+		record.mu.Unlock()
+		return err
 	}
 	schemaHash := jobmetadata.SchemaHashFromStoredMetadata(record.metadata)
 	record.mu.Unlock()
@@ -1011,9 +1068,14 @@ func (r *Runtime) completeLease(ctx context.Context, jobKey jobdb.JobKey, leaseI
 
 	record.mu.Lock()
 	defer record.mu.Unlock()
-	if record.leaseID != leaseID {
+	if leaseID == "" || record.leaseID != leaseID || record.leaseWorkerID != workerID || !record.leased || !record.leaseExpiresAt.After(time.Now().UTC()) || record.cancelled || record.archived != nil {
 		return jobdb.ErrExecutionLeaseLost
 	}
+	value, revision, err := clientpayload.Apply(record.clientPayload, record.clientPayloadRevision, req.ClientPayloadUpdate)
+	if err != nil {
+		return err
+	}
+	record.clientPayload, record.clientPayloadRevision = value, revision
 	record.leased = false
 	record.leaseID = ""
 	now := time.Now().UTC()
@@ -1087,20 +1149,37 @@ func (r *Runtime) existingRuntimeChapter(jobKey jobdb.JobKey, ordinal int64) (jo
 	return cloneChapter(chapter), true
 }
 
-func (r *Runtime) rescheduleLease(jobKey jobdb.JobKey, leaseID string, req jobdb.RescheduleExecutionRequest) error {
+func (r *Runtime) rescheduleLease(jobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.RescheduleExecutionRequest) error {
 	record := r.engine.getJobRecord(jobKey)
 	if record == nil {
 		return jobdb.ErrJobNotFound
 	}
 	record.mu.Lock()
 	defer record.mu.Unlock()
-	if record.leaseID != leaseID {
+	if leaseID == "" || record.leaseID != leaseID || record.leaseWorkerID != workerID || !record.leased || !record.leaseExpiresAt.After(time.Now().UTC()) || record.cancelled || record.archived != nil {
 		return jobdb.ErrExecutionLeaseLost
 	}
+	task, err := jobdb.RescheduleTaskWait(req.NextNeed, req.TaskWait)
+	if err != nil {
+		return err
+	}
+	value, revision, err := clientpayload.Apply(record.clientPayload, record.clientPayloadRevision, req.ClientPayloadUpdate)
+	if err != nil {
+		return err
+	}
+	state := workerJobPayload{}
+	if err := json.Unmarshal(record.payload, &state); err != nil {
+		return err
+	}
+	state.TaskWait = nil
+	if task != nil {
+		state.TaskWait = &workerTaskWait{InputStep: task.InputOrdinal, OutputStep: task.OutputOrdinal, InputHash: task.InputHash, Next: task.ResumeNeed}
+	}
+	record.clientPayload, record.clientPayloadRevision = value, revision
 	record.leased = false
 	record.leaseID = ""
 	record.capability = req.NextNeed
-	record.payload = cloneJSON(req.Payload)
+	record.payload = mustMarshalWorkerPayload(state)
 	record.waitFor = append([]string(nil), req.WaitForJobIDs...)
 	record.availableAt = time.Time{}
 	record.step = 0
@@ -1136,38 +1215,47 @@ func (r *Runtime) rescheduleLease(jobKey jobdb.JobKey, leaseID string, req jobdb
 }
 
 type runtimeLease struct {
-	runtime    *Runtime
-	jobKey     jobdb.JobKey
-	leaseID    string
-	capability string
-	payload    json.RawMessage
-	expiresAt  time.Time
-	duration   time.Duration
-	schemaHash string
+	clientPayload         json.RawMessage
+	clientPayloadRevision int64
+	workerID              string
+	runtime               *Runtime
+	jobKey                jobdb.JobKey
+	leaseID               string
+	capability            string
+	payload               json.RawMessage
+	expiresAt             time.Time
+	duration              time.Duration
+	schemaHash            string
 }
 
-func (l *runtimeLease) LeaseID() string          { return l.leaseID }
-func (l *runtimeLease) Job() jobdb.JobHandle     { return jobdb.JobHandle{JobKey: l.jobKey} }
-func (l *runtimeLease) Capability() string       { return l.capability }
-func (l *runtimeLease) Payload() json.RawMessage { return append(json.RawMessage(nil), l.payload...) }
-func (l *runtimeLease) LeaseExpiry() time.Time   { return l.expiresAt }
-func (l *runtimeLease) LeaseSchemaHash() string  { return l.schemaHash }
-func (l *runtimeLease) KeepAlive(context.Context) error {
-	l.expiresAt = time.Now().UTC().Add(toyLeaseDurationOrDefault(l.duration))
-	return nil
+func (l *runtimeLease) LeaseID() string                      { return l.leaseID }
+func (l *runtimeLease) Job() jobdb.JobHandle                 { return jobdb.JobHandle{JobKey: l.jobKey} }
+func (l *runtimeLease) Capability() string                   { return l.capability }
+func (l *runtimeLease) ClientPayload() json.RawMessage       { return cloneJSON(l.clientPayload) }
+func (l *runtimeLease) ClientPayloadRevision() int64         { return l.clientPayloadRevision }
+func (l *runtimeLease) ExecutionState() jobdb.ExecutionState { return toyExecutionState(l.payload) }
+func (l *runtimeLease) LeaseExpiry() time.Time               { return l.expiresAt }
+func (l *runtimeLease) LeaseSchemaHash() string              { return l.schemaHash }
+func (l *runtimeLease) KeepAlive(ctx context.Context) error {
+	expiry, err := l.runtime.KeepAliveLeaseByIDWithExpiry(ctx, l.jobKey, l.leaseID, l.workerID, l.duration)
+	if err == nil {
+		l.expiresAt = expiry
+	}
+	return err
 }
+
 func (l *runtimeLease) StopKeepAlive() {}
 func (l *runtimeLease) Complete(ctx context.Context, req jobdb.CompleteExecutionRequest) error {
-	return l.runtime.completeLease(ctx, l.jobKey, l.leaseID, req)
+	return l.runtime.completeLease(ctx, l.jobKey, l.leaseID, l.workerID, req)
 }
 func (l *runtimeLease) Reschedule(ctx context.Context, req jobdb.RescheduleExecutionRequest) error {
-	return l.runtime.rescheduleLease(l.jobKey, l.leaseID, req)
+	return l.runtime.rescheduleLease(l.jobKey, l.leaseID, l.workerID, req)
 }
 func (l *runtimeLease) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {
-	return l.runtime.SubmitJobWithLeaseByID(ctx, l.jobKey, l.leaseID, "", req)
+	return l.runtime.SubmitJobWithLeaseByID(ctx, l.jobKey, l.leaseID, l.workerID, req)
 }
 func (l *runtimeLease) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
-	return l.runtime.SubmitRestartJobWithLeaseByID(ctx, l.jobKey, l.leaseID, "", req)
+	return l.runtime.SubmitRestartJobWithLeaseByID(ctx, l.jobKey, l.leaseID, l.workerID, req)
 }
 
 func toyLeaseDurationOrDefault(d time.Duration) time.Duration {
@@ -1222,6 +1310,14 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	payloadInfo := workerJobPayload{}
 
 	record.mu.Lock()
+	if record.archived != nil || record.cancelled || (record.leased && record.leaseExpiresAt.After(time.Now().UTC())) {
+		record.mu.Unlock()
+		return fmt.Errorf("%w: task is not unheld", jobdb.ErrConflict)
+	}
+	if _, _, err := clientpayload.Apply(record.clientPayload, record.clientPayloadRevision, req.ClientPayloadUpdate); err != nil {
+		record.mu.Unlock()
+		return err
+	}
 	payload := cloneJSON(record.payload)
 	currentCapability := record.capability
 	record.mu.Unlock()
@@ -1299,6 +1395,15 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 		return jobdb.ErrJobNotFound
 	}
 	record.mu.Lock()
+	defer record.mu.Unlock()
+	if record.archived != nil || record.cancelled || (record.leased && record.leaseExpiresAt.After(time.Now().UTC())) || record.capability != currentCapability || !bytes.Equal(record.payload, payload) {
+		return fmt.Errorf("%w: waiting task changed", jobdb.ErrConflict)
+	}
+	value, revision, err := clientpayload.Apply(record.clientPayload, record.clientPayloadRevision, req.ClientPayloadUpdate)
+	if err != nil {
+		return err
+	}
+	record.clientPayload, record.clientPayloadRevision = value, revision
 	resumeNeed := wait.Next
 	if req.ResumeNeed != "" {
 		resumeNeed = req.ResumeNeed
@@ -1309,7 +1414,6 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	record.leased = false
 	record.leaseID = ""
 	record.step = wait.OutputStep
-	record.mu.Unlock()
 	return nil
 }
 
@@ -1524,3 +1628,15 @@ func toyAttrDuration(attrs map[string]interface{}, key string) jobdb.Duration {
 	}
 	return jobdb.Duration(d)
 }
+
+func toyExecutionState(raw []byte) jobdb.ExecutionState {
+	var p workerJobPayload
+	_ = json.Unmarshal(raw, &p)
+	state := jobdb.ExecutionState{RunPolicy: p.RunPolicy}
+	if t := p.TaskWait; t != nil {
+		state.TaskWait = &jobdb.TaskWait{InputOrdinal: t.InputStep, OutputOrdinal: t.OutputStep, InputHash: t.InputHash, ResumeNeed: t.Next}
+	}
+	return state
+}
+
+func (l *runtimeLease) LeaseWorkerID() string { return l.workerID }

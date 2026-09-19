@@ -104,12 +104,16 @@ type ChapterRef struct
   field Ordinal int64
   field Attempt int
   field TaskType string
+type ClientPayloadUpdate = github.com/colony-2/jobdb/pkg/jobdb/clientpayload.Update
+func CloneExecutionState func(s ExecutionState) ExecutionState
 type CompleteExecutionRequest struct
+  field ClientPayloadUpdate *ClientPayloadUpdate
   field Status string
   field Detail string
   field Chapter *Chapter
   field ArtifactUploads []ArtifactUpload
 type CompleteTaskIfWaitingRequest struct
+  field ClientPayloadUpdate *ClientPayloadUpdate
   field JobKey JobKey
   field Capability string
   field ResumeNeed string
@@ -147,15 +151,20 @@ var ErrMissingInputHash error
 var ErrWorkflowNotDeterministic error
 type ExecutionLease interface
   method Capability func() string
+  method ClientPayload func() encoding/json.RawMessage
+  method ClientPayloadRevision func() int64
   method Complete func(ctx context.Context, req CompleteExecutionRequest) error
+  method ExecutionState func() ExecutionState
   method Job func() JobHandle
   method KeepAlive func(ctx context.Context) error
   method LeaseID func() string
-  method Payload func() encoding/json.RawMessage
   method Reschedule func(ctx context.Context, req RescheduleExecutionRequest) error
   method StopKeepAlive func()
   method SubmitJob func(ctx context.Context, req SubmitJobRequest) (JobHandle, error)
   method SubmitRestartJob func(ctx context.Context, req SubmitRestartJobRequest) (JobHandle, error)
+type ExecutionState struct
+  field RunPolicy RunPolicy `json:"runPolicy"`
+  field TaskWait *TaskWait `json:"taskWait,omitempty"`
 func ExtractParentJobID func(raw encoding/json.RawMessage) (string, bool, error)
 func ExtractScheduleOccurrenceMetadata func(raw encoding/json.RawMessage) (ScheduleOccurrenceMetadata, bool, error)
 func ExtractTaskDataResult func(data TaskData) (TaskData, error)
@@ -209,6 +218,9 @@ method JobFailedError.Unwrap func() error
 type JobHandle struct
   field JobKey JobKey
 type JobInfo struct
+  field ClientPayload encoding/json.RawMessage
+  field ClientPayloadRevision int64
+  field ExecutionState ExecutionState
   field Status JobStatus
   field Data TaskData
   field SchemaHash string
@@ -292,7 +304,9 @@ type JobSummary struct
   field CancelRequested bool
   field CreatedAt time.Time
   field ArchivedAt *time.Time
-  field Payload encoding/json.RawMessage
+  field ClientPayload encoding/json.RawMessage
+  field ClientPayloadRevision int64
+  field ExecutionState ExecutionState
   field Metadata encoding/json.RawMessage
   field SchemaHash string
   field ParentJobID string
@@ -398,9 +412,11 @@ type RescheduleExecutionRequest struct
   field NextNeed string
   field WaitUntil *time.Time
   field WaitForJobIDs []string
-  field Payload encoding/json.RawMessage
+  field TaskWait *TaskWait
+  field ClientPayloadUpdate *ClientPayloadUpdate
   field AlternateNeed string
   field AlternateAfter *time.Duration
+func RescheduleTaskWait func(next string, task *TaskWait) (*TaskWait, error)
 func ResolveJobSchemaSelector func(selector *JobSchemaSelector) (hash string, schema encoding/json.RawMessage, hasInline bool, err error)
 type RestartExtraChapter struct
   field Output ApplicationOutputBytes
@@ -486,6 +502,7 @@ const ScheduleStateArchived ScheduleState = "ARCHIVED"
 const ScheduleStateFailurePaused ScheduleState = "FAILURE_PAUSED"
 const ScheduleStatePaused ScheduleState = "PAUSED"
 type ScheduleTarget struct
+  field ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
   field JobType string `json:"jobType"`
   field Data JobData `json:"-"`
   field RunPolicy RunPolicy `json:"runPolicy,omitempty"`
@@ -512,6 +529,7 @@ type StoredArtifact struct
   field Size int64
 func StripRuntimeMetadata func(raw encoding/json.RawMessage) encoding/json.RawMessage
 type SubmitJob struct
+  field ClientPayloadUpdate *ClientPayloadUpdate
   field TenantId string
   field JobType string
   field JobID string
@@ -526,6 +544,7 @@ type SubmitJobRequest struct
   field WorkerID string
   field RequestTime time.Time
 type SubmitRestartJob struct
+  field ClientPayloadUpdate *ClientPayloadUpdate
   field PriorJobKey JobKey
   field LastStepToKeep int64
   field JobID string
@@ -616,6 +635,11 @@ type TaskRuntime struct
   field NextNeed *string
   field AvailableAt *time.Time
   field WaitFor []string
+type TaskWait struct
+  field InputOrdinal int64 `json:"inputOrdinal"`
+  field OutputOrdinal int64 `json:"outputOrdinal"`
+  field InputHash string `json:"inputHash"`
+  field ResumeNeed string `json:"resumeNeed"`
 type TimeoutError struct
   field Payload TimeoutPayload
 method TimeoutError.As func(target any) bool
@@ -716,6 +740,7 @@ const MissingTaskName untyped string = "missing"
 func MustDecodeNumberTaskData func(t testing.TB, data github.com/colony-2/jobdb/pkg/jobdb.TaskData) int
 func MustWorkSet func(t testing.TB, job github.com/colony-2/jobdb/pkg/workflow.JobWorker, tasks ...github.com/colony-2/jobdb/pkg/workflow.TaskWorker) github.com/colony-2/jobdb/pkg/workflow.WorkSet
 func NumberTaskData func(n int) github.com/colony-2/jobdb/pkg/jobdb.TaskData
+func RunClientPayloadConformance func(t *testing.T, harnesses ...Harness)
 func RunWorkflowRuntimeConformance func(t *testing.T, harnesses ...Harness)
 const SequenceJobName untyped string = "seq"
 func WaitForEngineStatus func(t testing.TB, ctx context.Context, engine github.com/colony-2/jobdb/pkg/workflow.Engine, jobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey, want github.com/colony-2/jobdb/pkg/jobdb.JobStatus)
@@ -759,10 +784,10 @@ type CompleteTaskWorkMutation struct
   field JobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey
   field WorkerID string
   field Task WaitingTaskSnapshot
-  field LeasePayload encoding/json.RawMessage
-  field ClearLeasePayload bool
+  field ClientPayloadUpdate *github.com/colony-2/jobdb/pkg/jobdb.ClientPayloadUpdate
   field Now time.Time
 type CompletionMutation struct
+  field ClientPayloadUpdate *github.com/colony-2/jobdb/pkg/jobdb.ClientPayloadUpdate
   field Identity LeaseIdentity
   field Status string
   field Detail string
@@ -780,6 +805,9 @@ type Config struct
   field Schemas SchemaStore
   field Now func() time.Time
 type CreateJobRequest struct
+  field ClientPayload encoding/json.RawMessage
+  field ClientPayloadRevision int64
+  field InitialPayloadDigest string
   field JobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey
   field JobType string
   field ParentJobID string
@@ -817,11 +845,6 @@ type LeaseMutation struct
   field Identity LeaseIdentity
   field Duration time.Duration
   field Now time.Time
-type LeasePayloadProjection struct
-  field RunPolicy github.com/colony-2/jobdb/pkg/jobdb.RunPolicy
-  field TaskWork *TaskWork
-  field Opaque encoding/json.RawMessage
-  field OpaquePresent bool
 type LeaseSnapshot struct
   field Identity LeaseIdentity
   field JobType string
@@ -829,8 +852,9 @@ type LeaseSnapshot struct
   field WorkKind WorkKind
   field TaskWork *TaskWork
   field RunPolicy github.com/colony-2/jobdb/pkg/jobdb.RunPolicy
-  field LeasePayload encoding/json.RawMessage
-  field LeasePayloadVisible bool
+  field ClientPayload encoding/json.RawMessage
+  field ClientPayloadRevision int64
+  field InitialPayloadDigest string
   field SchemaHash string
   field Duration time.Duration
 type ListJobSchemasRequest struct
@@ -878,7 +902,6 @@ type ListSchedulesResponse struct
 func NewRuntime func(cfg Config) (*Runtime, error)
 func NewSchemaRegistry func(cfg SchemaRegistryConfig) (*SchemaRegistry, error)
 func PrimeSchema func(ctx context.Context, registry github.com/colony-2/jobdb/pkg/jobdb.JobSchemaRegistry, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey) error
-func ProjectLeasePayload func(req LeasePayloadProjection) (encoding/json.RawMessage, error)
 type RescheduleMutation struct
   field Identity LeaseIdentity
   field RouteJobType string
@@ -886,8 +909,7 @@ type RescheduleMutation struct
   field TaskWork *TaskWork
   field WaitUntil *time.Time
   field WaitForJobIDs []string
-  field LeasePayload encoding/json.RawMessage
-  field ClearLeasePayload bool
+  field ClientPayloadUpdate *github.com/colony-2/jobdb/pkg/jobdb.ClientPayloadUpdate
   field AlternateRoute *AlternateRoute
   field Now time.Time
 func ResolveActiveSchemaForNewJob func(ctx context.Context, registry github.com/colony-2/jobdb/pkg/jobdb.JobSchemaRegistry, tenantID string, selector *github.com/colony-2/jobdb/pkg/jobdb.JobSchemaSelector) (string, error)
@@ -967,8 +989,9 @@ type StoredJob struct
   field TaskWork *TaskWork
   field AlternateRoute *AlternateRoute
   field RunPolicy github.com/colony-2/jobdb/pkg/jobdb.RunPolicy
-  field LeasePayload encoding/json.RawMessage
-  field LeasePayloadVisible bool
+  field ClientPayload encoding/json.RawMessage
+  field ClientPayloadRevision int64
+  field InitialPayloadDigest string
   field AppMetadata encoding/json.RawMessage
   field SchemaHash string
   field ParentJobID string
@@ -1089,6 +1112,7 @@ const ChapterMetadataString github.com/colony-2/jobdb/pkg/jobdb.ChapterMetadataK
 type ChapterMetadataValue = github.com/colony-2/jobdb/pkg/jobdb.ChapterMetadataValue
 type ChapterOutcome = github.com/colony-2/jobdb/pkg/jobdb.ChapterOutcome
 type ChapterRef = github.com/colony-2/jobdb/pkg/jobdb.ChapterRef
+type ClientPayloadUpdate = github.com/colony-2/jobdb/pkg/jobdb/clientpayload.Update
 type CompleteExecutionRequest = github.com/colony-2/jobdb/pkg/jobdb.CompleteExecutionRequest
 type CompleteTaskIfWaitingRequest = github.com/colony-2/jobdb/pkg/jobdb.CompleteTaskIfWaitingRequest
 type Data = encoding/json.RawMessage
@@ -1127,6 +1151,7 @@ var ErrMissingInputHash error
 var ErrReplayShouldNeverMutate error
 var ErrWorkflowNotDeterministic error
 type ExecutionLease = github.com/colony-2/jobdb/pkg/jobdb.ExecutionLease
+type ExecutionState = github.com/colony-2/jobdb/pkg/jobdb.ExecutionState
 func ExtractTaskDataResult func(data TaskData) (TaskData, error)
 type FieldName = github.com/colony-2/jobdb/pkg/jobdb.FieldName
 type FindTasksWaitingRequest struct
@@ -1159,11 +1184,14 @@ type JobAttemptOutcomeChapter = github.com/colony-2/jobdb/pkg/jobdb.JobAttemptOu
 type JobContext interface
   method AwaitDuration func(waitFor Duration) error
   method AwaitJobs func(jobIds ...string) error
+  method ClientPayload func() encoding/json.RawMessage
+  method ClientPayloadRevision func() int64
   method DoTask func(policy RunPolicy, taskType string, data TaskData) (TaskData, error)
   method GetJobKey func() JobKey
   method Logger func() *log/slog.Logger
   method SubmitJob func(ctx context.Context, submit SubmitJob) (JobKey, error)
   method SubmitRestartJob func(ctx context.Context, restart SubmitRestartJob) (JobKey, error)
+  method Yield func(context.Context, RescheduleExecutionRequest) error
 type JobData = github.com/colony-2/jobdb/pkg/jobdb.TaskData
 type JobEndEvent struct
   field JobKey JobKey
@@ -1322,8 +1350,11 @@ type TaskContext struct
   field Logger *log/slog.Logger
 method TaskContext.AwaitDuration func(waitFor Duration) error
 method TaskContext.AwaitJobs func(jobIds ...string) error
+method TaskContext.ClientPayload func() encoding/json.RawMessage
+method TaskContext.ClientPayloadRevision func() int64
 method TaskContext.SubmitJob func(ctx context.Context, submit SubmitJob) (JobKey, error)
 method TaskContext.SubmitRestartJob func(ctx context.Context, restart SubmitRestartJob) (JobKey, error)
+method TaskContext.Yield func(ctx context.Context, req RescheduleExecutionRequest) error
 type TaskData = github.com/colony-2/jobdb/pkg/jobdb.TaskData
 type TaskDeterminismMeta struct
   field Ordinal int64 `json:"ordinal"`
@@ -1356,6 +1387,7 @@ type TaskHandle interface
   method CreatedAt func() time.Time
   method Data func() (TaskData, error)
   method Finish func(ctx context.Context, taskData TaskData) error
+  method FinishWithClientPayload func(ctx context.Context, taskData TaskData, update *ClientPayloadUpdate) error
   method JobKey func() JobKey
   method Metadata func() encoding/json.RawMessage
   method TaskOrdinalToComplete func() int64
@@ -1389,6 +1421,7 @@ type TaskStartEvent struct
   field AttemptNumber int
   field Input TaskData
   field At time.Time
+type TaskWait = github.com/colony-2/jobdb/pkg/jobdb.TaskWait
 type TaskWorker interface
   method Name func() string
   method Run func(context TaskContext, input TaskData) (TaskData, error)
@@ -1502,3 +1535,20 @@ type Option = github.com/colony-2/jobdb/pkg/jobdb/runtime/toy/internal/toyimpl.O
 type Runtime = github.com/colony-2/jobdb/pkg/jobdb/runtime/toy/internal/toyimpl.Runtime
 func WithJobIDGenerator func(gen JobIDGenerator) Option
 func WithLogger func(logger *log/slog.Logger) Option
+
+package github.com/colony-2/jobdb/pkg/jobdb/clientpayload
+func Apply func(current encoding/json.RawMessage, revision int64, u *Update) (encoding/json.RawMessage, int64, error)
+func Clone func(raw encoding/json.RawMessage) encoding/json.RawMessage
+func Digest func(raw encoding/json.RawMessage) (string, error)
+var ErrConflict error
+var ErrInvalid error
+var ErrTooLarge error
+func Initial func(u *Update) (encoding/json.RawMessage, int64, error)
+const MaxBytes untyped int = 65536
+const MaxDepth untyped int = 128
+type Update struct
+  field Mode string `json:"mode"`
+  field Value encoding/json.RawMessage `json:"value,omitempty"`
+  field ExpectedRevision *int64 `json:"expectedRevision,omitempty,string"`
+method Update.UnmarshalJSON func(raw []byte) error
+func ValidateUpdate func(u *Update, initial bool) error

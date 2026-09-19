@@ -17,7 +17,6 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/blobstore"
 	sqliterowstore "github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/sqlite"
 	"github.com/segmentio/ksuid"
-
 	_ "modernc.org/sqlite"
 )
 
@@ -77,6 +76,9 @@ func New(db *sql.DB, opts ...Option) (*Runtime, error) {
 	if cfg.workerID == "" {
 		cfg.workerID = defaultWorkerID()
 	}
+	if err := migrate(ctxOrBackground(nil), db); err != nil {
+		return nil, err
+	}
 	chapterStore, err := buildChapterStore(db, cfg.blobStoreURI, cfg.maxInlineArtifactBytes, cfg.logger)
 	if err != nil {
 		return nil, err
@@ -86,9 +88,6 @@ func New(db *sql.DB, opts ...Option) (*Runtime, error) {
 		chapterStore: chapterStore,
 		logger:       cfg.logger,
 		workerID:     cfg.workerID,
-	}
-	if err := migrate(ctxOrBackground(nil), db); err != nil {
-		return nil, err
 	}
 	return rt, nil
 }

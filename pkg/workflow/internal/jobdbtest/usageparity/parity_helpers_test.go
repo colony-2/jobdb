@@ -445,7 +445,7 @@ func normalizeJobSummaries(jobs []jobdb.JobSummary) []normalizedJobSummary {
 			TaskWaitOutput:    cloneInt64Ptr(job.TaskWaitOutput),
 			TaskWaitInputHash: cloneStringPtr(job.TaskWaitInputHash),
 			TaskWaitNext:      cloneStringPtr(job.TaskWaitNext),
-			Payload:           canonicalJSON(job.Payload),
+			Payload:           canonicalJSON(job.ClientPayload),
 			Metadata:          canonicalJSON(job.Metadata),
 		}
 		out = append(out, item)

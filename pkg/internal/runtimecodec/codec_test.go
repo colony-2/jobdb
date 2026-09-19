@@ -104,7 +104,7 @@ func TestEncodeChapterRejectsCustomOutcome(t *testing.T) {
 	}
 }
 
-func TestSchedulerPayloadRoundTripAndJSONView(t *testing.T) {
+func TestSchedulerPayloadRoundTrip(t *testing.T) {
 	payload := SchedulerPayload{
 		RunPolicy: jobdb.RunPolicy{
 			Retry: jobdb.RetryPolicy{MaximumAttempts: 5},
@@ -124,24 +124,6 @@ func TestSchedulerPayloadRoundTripAndJSONView(t *testing.T) {
 		t.Fatalf("payload mismatch:\nwant %#v\ngot  %#v", payload, got)
 	}
 
-	view, err := SchedulerPayloadJSONView(got)
-	if err != nil {
-		t.Fatalf("json view: %v", err)
-	}
-	var decoded struct {
-		TaskWait struct {
-			InputStep  int64  `json:"in"`
-			OutputStep int64  `json:"out"`
-			Next       string `json:"next"`
-			InputHash  string `json:"input_hash"`
-		} `json:"task_wait"`
-	}
-	if err := json.Unmarshal(view, &decoded); err != nil {
-		t.Fatalf("unmarshal json view: %v", err)
-	}
-	if decoded.TaskWait.InputStep != 2 || decoded.TaskWait.OutputStep != 3 || decoded.TaskWait.Next != "resume" || decoded.TaskWait.InputHash != "hash" {
-		t.Fatalf("unexpected json view: %s", view)
-	}
 }
 
 func assertJSONEqual(t *testing.T, got json.RawMessage, want json.RawMessage) {
@@ -156,43 +138,5 @@ func assertJSONEqual(t *testing.T, got json.RawMessage, want json.RawMessage) {
 	}
 	if !reflect.DeepEqual(gotValue, wantValue) {
 		t.Fatalf("JSON mismatch:\nwant %s\ngot  %s", want, got)
-	}
-}
-
-func TestSchedulerPayloadPreservesVisibleJSONPayload(t *testing.T) {
-	payload, err := SchedulerPayloadFromJSONView(json.RawMessage(`{"kind":"rescheduled","n":2}`))
-	if err != nil {
-		t.Fatalf("from json view: %v", err)
-	}
-	raw, err := EncodeSchedulerPayload(payload)
-	if err != nil {
-		t.Fatalf("encode scheduler payload: %v", err)
-	}
-	got, err := DecodeSchedulerPayload(raw)
-	if err != nil {
-		t.Fatalf("decode scheduler payload: %v", err)
-	}
-	view, err := SchedulerPayloadJSONView(got)
-	if err != nil {
-		t.Fatalf("json view: %v", err)
-	}
-	if string(view) != `{"kind":"rescheduled","n":2}` {
-		t.Fatalf("visible payload mismatch: %s", view)
-	}
-}
-
-func TestSchedulerPayloadFromJSONViewDoesNotDuplicateSchedulerFields(t *testing.T) {
-	payload, err := SchedulerPayloadFromJSONView(json.RawMessage(`{"run_policy":{"retry":{"maximumAttempts":2}},"task_wait":{"in":1,"out":2,"next":"job","input_hash":"abc"}}`))
-	if err != nil {
-		t.Fatalf("from json view: %v", err)
-	}
-	if len(payload.VisiblePayload) != 0 {
-		t.Fatalf("scheduler-shaped payload should not be duplicated as visible JSON: %s", payload.VisiblePayload)
-	}
-	if payload.TaskWait == nil {
-		t.Fatalf("task wait missing")
-	}
-	if payload.TaskWait.InputStep != 1 || payload.TaskWait.OutputStep != 2 || payload.TaskWait.Next != "job" || payload.TaskWait.InputHash != "abc" {
-		t.Fatalf("unexpected task wait: %#v", payload.TaskWait)
 	}
 }

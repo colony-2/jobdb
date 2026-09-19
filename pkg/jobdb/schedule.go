@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 )
 
 type ScheduleKey struct {
@@ -59,10 +61,11 @@ type ScheduleTrigger struct {
 }
 
 type ScheduleTarget struct {
-	JobType   string          `json:"jobType"`
-	Data      JobData         `json:"-"`
-	RunPolicy RunPolicy       `json:"runPolicy,omitempty"`
-	Metadata  json.RawMessage `json:"metadata,omitempty"`
+	ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
+	JobType             string               `json:"jobType"`
+	Data                JobData              `json:"-"`
+	RunPolicy           RunPolicy            `json:"runPolicy,omitempty"`
+	Metadata            json.RawMessage      `json:"metadata,omitempty"`
 }
 
 type ScheduleFailurePolicy struct {
@@ -238,6 +241,14 @@ func ValidateScheduleRequest(req UpsertScheduleRequest) error {
 }
 
 func ScheduleSpecHash(trigger ScheduleTrigger, target ScheduleTarget, overlap ScheduleOverlapPolicy, failure ScheduleFailurePolicy) (string, error) {
+	initial, _, err := clientpayload.Initial(target.ClientPayloadUpdate)
+	if err != nil {
+		return "", err
+	}
+	initialDigest, err := clientpayload.Digest(initial)
+	if err != nil {
+		return "", err
+	}
 	data := target.Data
 	var rawData json.RawMessage
 	var artifacts []scheduleHashArtifact
@@ -260,11 +271,12 @@ func ScheduleSpecHash(trigger ScheduleTrigger, target ScheduleTarget, overlap Sc
 	}{
 		Trigger: trigger,
 		Target: scheduleHashTarget{
-			JobType:   target.JobType,
-			Data:      rawData,
-			Artifacts: artifacts,
-			RunPolicy: target.RunPolicy,
-			Metadata:  NormalizeJSON(target.Metadata),
+			ClientPayloadDigest: initialDigest,
+			JobType:             target.JobType,
+			Data:                rawData,
+			Artifacts:           artifacts,
+			RunPolicy:           target.RunPolicy,
+			Metadata:            NormalizeJSON(target.Metadata),
 		},
 		OverlapPolicy: NormalizeScheduleOverlapPolicy(overlap),
 		FailurePolicy: failure,
@@ -278,11 +290,12 @@ func ScheduleSpecHash(trigger ScheduleTrigger, target ScheduleTarget, overlap Sc
 }
 
 type scheduleHashTarget struct {
-	JobType   string                 `json:"jobType"`
-	Data      json.RawMessage        `json:"data,omitempty"`
-	Artifacts []scheduleHashArtifact `json:"artifacts,omitempty"`
-	RunPolicy RunPolicy              `json:"runPolicy,omitempty"`
-	Metadata  json.RawMessage        `json:"metadata,omitempty"`
+	ClientPayloadDigest string                 `json:"clientPayloadDigest"`
+	JobType             string                 `json:"jobType"`
+	Data                json.RawMessage        `json:"data,omitempty"`
+	Artifacts           []scheduleHashArtifact `json:"artifacts,omitempty"`
+	RunPolicy           RunPolicy              `json:"runPolicy,omitempty"`
+	Metadata            json.RawMessage        `json:"metadata,omitempty"`
 }
 
 type scheduleHashArtifact struct {

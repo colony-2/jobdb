@@ -23,29 +23,30 @@ const (
 )
 
 type ChapterRecord struct {
-	state                    protoimpl.MessageState  `protogen:"opaque.v1"`
-	xxx_hidden_Ordinal       int64                   `protobuf:"varint,1,opt,name=ordinal"`
-	xxx_hidden_TaskType      *string                 `protobuf:"bytes,2,opt,name=task_type,json=taskType"`
-	xxx_hidden_WorkerId      *string                 `protobuf:"bytes,3,opt,name=worker_id,json=workerId"`
-	xxx_hidden_CreatedAt     *timestamppb.Timestamp  `protobuf:"bytes,4,opt,name=created_at,json=createdAt"`
-	xxx_hidden_StartedAt     *timestamppb.Timestamp  `protobuf:"bytes,5,opt,name=started_at,json=startedAt"`
-	xxx_hidden_FinishedAt    *timestamppb.Timestamp  `protobuf:"bytes,6,opt,name=finished_at,json=finishedAt"`
-	xxx_hidden_InputHash     *string                 `protobuf:"bytes,7,opt,name=input_hash,json=inputHash"`
-	xxx_hidden_Metadata      *Metadata               `protobuf:"bytes,8,opt,name=metadata"`
-	xxx_hidden_Input         *ApplicationInputBytes  `protobuf:"bytes,9,opt,name=input"`
-	xxx_hidden_Attempt       int32                   `protobuf:"varint,10,opt,name=attempt"`
-	xxx_hidden_MaxAttempts   int32                   `protobuf:"varint,11,opt,name=max_attempts,json=maxAttempts"`
-	xxx_hidden_NextAttemptAt *timestamppb.Timestamp  `protobuf:"bytes,12,opt,name=next_attempt_at,json=nextAttemptAt"`
-	xxx_hidden_BackoffMillis int64                   `protobuf:"varint,13,opt,name=backoff_millis,json=backoffMillis"`
-	xxx_hidden_Retryable     bool                    `protobuf:"varint,14,opt,name=retryable"`
-	xxx_hidden_InputRef      *InputReference         `protobuf:"bytes,15,opt,name=input_ref,json=inputRef"`
-	xxx_hidden_RunPolicy     *RunPolicy              `protobuf:"bytes,16,opt,name=run_policy,json=runPolicy"`
-	xxx_hidden_Prerequisites *[]*JobPrerequisite     `protobuf:"bytes,17,rep,name=prerequisites"`
-	xxx_hidden_Chapter       isChapterRecord_Chapter `protobuf_oneof:"chapter"`
-	XXX_raceDetectHookData   protoimpl.RaceDetectHookData
-	XXX_presence             [1]uint32
-	unknownFields            protoimpl.UnknownFields
-	sizeCache                protoimpl.SizeCache
+	state                           protoimpl.MessageState  `protogen:"opaque.v1"`
+	xxx_hidden_Ordinal              int64                   `protobuf:"varint,1,opt,name=ordinal"`
+	xxx_hidden_TaskType             *string                 `protobuf:"bytes,2,opt,name=task_type,json=taskType"`
+	xxx_hidden_WorkerId             *string                 `protobuf:"bytes,3,opt,name=worker_id,json=workerId"`
+	xxx_hidden_CreatedAt            *timestamppb.Timestamp  `protobuf:"bytes,4,opt,name=created_at,json=createdAt"`
+	xxx_hidden_StartedAt            *timestamppb.Timestamp  `protobuf:"bytes,5,opt,name=started_at,json=startedAt"`
+	xxx_hidden_FinishedAt           *timestamppb.Timestamp  `protobuf:"bytes,6,opt,name=finished_at,json=finishedAt"`
+	xxx_hidden_InputHash            *string                 `protobuf:"bytes,7,opt,name=input_hash,json=inputHash"`
+	xxx_hidden_Metadata             *Metadata               `protobuf:"bytes,8,opt,name=metadata"`
+	xxx_hidden_Input                *ApplicationInputBytes  `protobuf:"bytes,9,opt,name=input"`
+	xxx_hidden_Attempt              int32                   `protobuf:"varint,10,opt,name=attempt"`
+	xxx_hidden_MaxAttempts          int32                   `protobuf:"varint,11,opt,name=max_attempts,json=maxAttempts"`
+	xxx_hidden_NextAttemptAt        *timestamppb.Timestamp  `protobuf:"bytes,12,opt,name=next_attempt_at,json=nextAttemptAt"`
+	xxx_hidden_BackoffMillis        int64                   `protobuf:"varint,13,opt,name=backoff_millis,json=backoffMillis"`
+	xxx_hidden_Retryable            bool                    `protobuf:"varint,14,opt,name=retryable"`
+	xxx_hidden_InputRef             *InputReference         `protobuf:"bytes,15,opt,name=input_ref,json=inputRef"`
+	xxx_hidden_RunPolicy            *RunPolicy              `protobuf:"bytes,16,opt,name=run_policy,json=runPolicy"`
+	xxx_hidden_Prerequisites        *[]*JobPrerequisite     `protobuf:"bytes,17,rep,name=prerequisites"`
+	xxx_hidden_InitialPayloadDigest *string                 `protobuf:"bytes,18,opt,name=initial_payload_digest,json=initialPayloadDigest"`
+	xxx_hidden_Chapter              isChapterRecord_Chapter `protobuf_oneof:"chapter"`
+	XXX_raceDetectHookData          protoimpl.RaceDetectHookData
+	XXX_presence                    [1]uint32
+	unknownFields                   protoimpl.UnknownFields
+	sizeCache                       protoimpl.SizeCache
 }
 
 func (x *ChapterRecord) Reset() {
@@ -203,6 +204,16 @@ func (x *ChapterRecord) GetPrerequisites() []*JobPrerequisite {
 	return nil
 }
 
+func (x *ChapterRecord) GetInitialPayloadDigest() string {
+	if x != nil {
+		if x.xxx_hidden_InitialPayloadDigest != nil {
+			return *x.xxx_hidden_InitialPayloadDigest
+		}
+		return ""
+	}
+	return ""
+}
+
 func (x *ChapterRecord) GetJobStart() *JobStartChapter {
 	if x != nil {
 		if x, ok := x.xxx_hidden_Chapter.(*chapterRecord_JobStart); ok {
@@ -241,17 +252,17 @@ func (x *ChapterRecord) GetRestartExtra() *RestartExtraChapter {
 
 func (x *ChapterRecord) SetOrdinal(v int64) {
 	x.xxx_hidden_Ordinal = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 18)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 19)
 }
 
 func (x *ChapterRecord) SetTaskType(v string) {
 	x.xxx_hidden_TaskType = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 18)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 19)
 }
 
 func (x *ChapterRecord) SetWorkerId(v string) {
 	x.xxx_hidden_WorkerId = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 18)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 19)
 }
 
 func (x *ChapterRecord) SetCreatedAt(v *timestamppb.Timestamp) {
@@ -268,7 +279,7 @@ func (x *ChapterRecord) SetFinishedAt(v *timestamppb.Timestamp) {
 
 func (x *ChapterRecord) SetInputHash(v string) {
 	x.xxx_hidden_InputHash = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 6, 18)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 6, 19)
 }
 
 func (x *ChapterRecord) SetMetadata(v *Metadata) {
@@ -281,12 +292,12 @@ func (x *ChapterRecord) SetInput(v *ApplicationInputBytes) {
 
 func (x *ChapterRecord) SetAttempt(v int32) {
 	x.xxx_hidden_Attempt = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 9, 18)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 9, 19)
 }
 
 func (x *ChapterRecord) SetMaxAttempts(v int32) {
 	x.xxx_hidden_MaxAttempts = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 10, 18)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 10, 19)
 }
 
 func (x *ChapterRecord) SetNextAttemptAt(v *timestamppb.Timestamp) {
@@ -295,12 +306,12 @@ func (x *ChapterRecord) SetNextAttemptAt(v *timestamppb.Timestamp) {
 
 func (x *ChapterRecord) SetBackoffMillis(v int64) {
 	x.xxx_hidden_BackoffMillis = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 12, 18)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 12, 19)
 }
 
 func (x *ChapterRecord) SetRetryable(v bool) {
 	x.xxx_hidden_Retryable = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 13, 18)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 13, 19)
 }
 
 func (x *ChapterRecord) SetInputRef(v *InputReference) {
@@ -313,6 +324,11 @@ func (x *ChapterRecord) SetRunPolicy(v *RunPolicy) {
 
 func (x *ChapterRecord) SetPrerequisites(v []*JobPrerequisite) {
 	x.xxx_hidden_Prerequisites = &v
+}
+
+func (x *ChapterRecord) SetInitialPayloadDigest(v string) {
+	x.xxx_hidden_InitialPayloadDigest = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 17, 19)
 }
 
 func (x *ChapterRecord) SetJobStart(v *JobStartChapter) {
@@ -459,6 +475,13 @@ func (x *ChapterRecord) HasRunPolicy() bool {
 	return x.xxx_hidden_RunPolicy != nil
 }
 
+func (x *ChapterRecord) HasInitialPayloadDigest() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 17)
+}
+
 func (x *ChapterRecord) HasChapter() bool {
 	if x == nil {
 		return false
@@ -570,6 +593,11 @@ func (x *ChapterRecord) ClearRunPolicy() {
 	x.xxx_hidden_RunPolicy = nil
 }
 
+func (x *ChapterRecord) ClearInitialPayloadDigest() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 17)
+	x.xxx_hidden_InitialPayloadDigest = nil
+}
+
 func (x *ChapterRecord) ClearChapter() {
 	x.xxx_hidden_Chapter = nil
 }
@@ -625,23 +653,24 @@ func (x *ChapterRecord) WhichChapter() case_ChapterRecord_Chapter {
 type ChapterRecord_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Ordinal       *int64
-	TaskType      *string
-	WorkerId      *string
-	CreatedAt     *timestamppb.Timestamp
-	StartedAt     *timestamppb.Timestamp
-	FinishedAt    *timestamppb.Timestamp
-	InputHash     *string
-	Metadata      *Metadata
-	Input         *ApplicationInputBytes
-	Attempt       *int32
-	MaxAttempts   *int32
-	NextAttemptAt *timestamppb.Timestamp
-	BackoffMillis *int64
-	Retryable     *bool
-	InputRef      *InputReference
-	RunPolicy     *RunPolicy
-	Prerequisites []*JobPrerequisite
+	Ordinal              *int64
+	TaskType             *string
+	WorkerId             *string
+	CreatedAt            *timestamppb.Timestamp
+	StartedAt            *timestamppb.Timestamp
+	FinishedAt           *timestamppb.Timestamp
+	InputHash            *string
+	Metadata             *Metadata
+	Input                *ApplicationInputBytes
+	Attempt              *int32
+	MaxAttempts          *int32
+	NextAttemptAt        *timestamppb.Timestamp
+	BackoffMillis        *int64
+	Retryable            *bool
+	InputRef             *InputReference
+	RunPolicy            *RunPolicy
+	Prerequisites        []*JobPrerequisite
+	InitialPayloadDigest *string
 	// Fields of oneof xxx_hidden_Chapter:
 	JobStart           *JobStartChapter
 	JobAttemptOutcome  *JobAttemptOutcomeChapter
@@ -655,46 +684,50 @@ func (b0 ChapterRecord_builder) Build() *ChapterRecord {
 	b, x := &b0, m0
 	_, _ = b, x
 	if b.Ordinal != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 18)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 19)
 		x.xxx_hidden_Ordinal = *b.Ordinal
 	}
 	if b.TaskType != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 18)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 19)
 		x.xxx_hidden_TaskType = b.TaskType
 	}
 	if b.WorkerId != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 18)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 19)
 		x.xxx_hidden_WorkerId = b.WorkerId
 	}
 	x.xxx_hidden_CreatedAt = b.CreatedAt
 	x.xxx_hidden_StartedAt = b.StartedAt
 	x.xxx_hidden_FinishedAt = b.FinishedAt
 	if b.InputHash != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 6, 18)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 6, 19)
 		x.xxx_hidden_InputHash = b.InputHash
 	}
 	x.xxx_hidden_Metadata = b.Metadata
 	x.xxx_hidden_Input = b.Input
 	if b.Attempt != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 9, 18)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 9, 19)
 		x.xxx_hidden_Attempt = *b.Attempt
 	}
 	if b.MaxAttempts != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 10, 18)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 10, 19)
 		x.xxx_hidden_MaxAttempts = *b.MaxAttempts
 	}
 	x.xxx_hidden_NextAttemptAt = b.NextAttemptAt
 	if b.BackoffMillis != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 12, 18)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 12, 19)
 		x.xxx_hidden_BackoffMillis = *b.BackoffMillis
 	}
 	if b.Retryable != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 13, 18)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 13, 19)
 		x.xxx_hidden_Retryable = *b.Retryable
 	}
 	x.xxx_hidden_InputRef = b.InputRef
 	x.xxx_hidden_RunPolicy = b.RunPolicy
 	x.xxx_hidden_Prerequisites = &b.Prerequisites
+	if b.InitialPayloadDigest != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 17, 19)
+		x.xxx_hidden_InitialPayloadDigest = b.InitialPayloadDigest
+	}
 	if b.JobStart != nil {
 		x.xxx_hidden_Chapter = &chapterRecord_JobStart{b.JobStart}
 	}
@@ -1435,84 +1468,6 @@ func (b0 ApplicationOutputBytes_builder) Build() *ApplicationOutputBytes {
 	return m0
 }
 
-type LeasePayloadBytes struct {
-	state                  protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Data        []byte                 `protobuf:"bytes,1,opt,name=data"`
-	XXX_raceDetectHookData protoimpl.RaceDetectHookData
-	XXX_presence           [1]uint32
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
-}
-
-func (x *LeasePayloadBytes) Reset() {
-	*x = LeasePayloadBytes{}
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[8]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *LeasePayloadBytes) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*LeasePayloadBytes) ProtoMessage() {}
-
-func (x *LeasePayloadBytes) ProtoReflect() protoreflect.Message {
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[8]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-func (x *LeasePayloadBytes) GetData() []byte {
-	if x != nil {
-		return x.xxx_hidden_Data
-	}
-	return nil
-}
-
-func (x *LeasePayloadBytes) SetData(v []byte) {
-	if v == nil {
-		v = []byte{}
-	}
-	x.xxx_hidden_Data = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 1)
-}
-
-func (x *LeasePayloadBytes) HasData() bool {
-	if x == nil {
-		return false
-	}
-	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
-}
-
-func (x *LeasePayloadBytes) ClearData() {
-	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
-	x.xxx_hidden_Data = nil
-}
-
-type LeasePayloadBytes_builder struct {
-	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
-
-	Data []byte
-}
-
-func (b0 LeasePayloadBytes_builder) Build() *LeasePayloadBytes {
-	m0 := &LeasePayloadBytes{}
-	b, x := &b0, m0
-	_, _ = b, x
-	if b.Data != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 1)
-		x.xxx_hidden_Data = b.Data
-	}
-	return m0
-}
-
 type Metadata struct {
 	state             protoimpl.MessageState    `protogen:"opaque.v1"`
 	xxx_hidden_Fields map[string]*MetadataValue `protobuf:"bytes,1,rep,name=fields" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
@@ -1522,7 +1477,7 @@ type Metadata struct {
 
 func (x *Metadata) Reset() {
 	*x = Metadata{}
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[9]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1534,7 +1489,7 @@ func (x *Metadata) String() string {
 func (*Metadata) ProtoMessage() {}
 
 func (x *Metadata) ProtoReflect() protoreflect.Message {
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[9]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1579,7 +1534,7 @@ type MetadataValue struct {
 
 func (x *MetadataValue) Reset() {
 	*x = MetadataValue{}
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[10]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1591,7 +1546,7 @@ func (x *MetadataValue) String() string {
 func (*MetadataValue) ProtoMessage() {}
 
 func (x *MetadataValue) ProtoReflect() protoreflect.Message {
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[10]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1888,7 +1843,7 @@ func (b0 MetadataValue_builder) Build() *MetadataValue {
 type case_MetadataValue_Kind protoreflect.FieldNumber
 
 func (x case_MetadataValue_Kind) String() string {
-	md := file_jobdb_storage_v1_storage_proto_msgTypes[10].Descriptor()
+	md := file_jobdb_storage_v1_storage_proto_msgTypes[9].Descriptor()
 	if x == 0 {
 		return "not set"
 	}
@@ -1950,7 +1905,7 @@ type MetadataList struct {
 
 func (x *MetadataList) Reset() {
 	*x = MetadataList{}
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[11]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1962,7 +1917,7 @@ func (x *MetadataList) String() string {
 func (*MetadataList) ProtoMessage() {}
 
 func (x *MetadataList) ProtoReflect() protoreflect.Message {
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[11]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2009,7 +1964,7 @@ type MetadataMap struct {
 
 func (x *MetadataMap) Reset() {
 	*x = MetadataMap{}
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[12]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2021,7 +1976,7 @@ func (x *MetadataMap) String() string {
 func (*MetadataMap) ProtoMessage() {}
 
 func (x *MetadataMap) ProtoReflect() protoreflect.Message {
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[12]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2072,7 +2027,7 @@ type AppErrorPayload struct {
 
 func (x *AppErrorPayload) Reset() {
 	*x = AppErrorPayload{}
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[13]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2084,7 +2039,7 @@ func (x *AppErrorPayload) String() string {
 func (*AppErrorPayload) ProtoMessage() {}
 
 func (x *AppErrorPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[13]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2237,7 +2192,7 @@ type SystemErrorPayload struct {
 
 func (x *SystemErrorPayload) Reset() {
 	*x = SystemErrorPayload{}
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[14]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2249,7 +2204,7 @@ func (x *SystemErrorPayload) String() string {
 func (*SystemErrorPayload) ProtoMessage() {}
 
 func (x *SystemErrorPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[14]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2452,7 +2407,7 @@ type TimeoutPayload struct {
 
 func (x *TimeoutPayload) Reset() {
 	*x = TimeoutPayload{}
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[15]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2464,7 +2419,7 @@ func (x *TimeoutPayload) String() string {
 func (*TimeoutPayload) ProtoMessage() {}
 
 func (x *TimeoutPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[15]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2736,7 +2691,7 @@ type InputReference struct {
 
 func (x *InputReference) Reset() {
 	*x = InputReference{}
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[16]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2748,7 +2703,7 @@ func (x *InputReference) String() string {
 func (*InputReference) ProtoMessage() {}
 
 func (x *InputReference) ProtoReflect() protoreflect.Message {
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[16]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2847,7 +2802,7 @@ type RetryPolicy struct {
 
 func (x *RetryPolicy) Reset() {
 	*x = RetryPolicy{}
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[17]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2859,7 +2814,7 @@ func (x *RetryPolicy) String() string {
 func (*RetryPolicy) ProtoMessage() {}
 
 func (x *RetryPolicy) ProtoReflect() protoreflect.Message {
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[17]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3012,7 +2967,7 @@ type RunPolicy struct {
 
 func (x *RunPolicy) Reset() {
 	*x = RunPolicy{}
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[18]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3024,7 +2979,7 @@ func (x *RunPolicy) String() string {
 func (*RunPolicy) ProtoMessage() {}
 
 func (x *RunPolicy) ProtoReflect() protoreflect.Message {
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[18]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3131,7 +3086,7 @@ type JobPrerequisite struct {
 
 func (x *JobPrerequisite) Reset() {
 	*x = JobPrerequisite{}
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[19]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3143,7 +3098,7 @@ func (x *JobPrerequisite) String() string {
 func (*JobPrerequisite) ProtoMessage() {}
 
 func (x *JobPrerequisite) ProtoReflect() protoreflect.Message {
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[19]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3231,17 +3186,16 @@ func (b0 JobPrerequisite_builder) Build() *JobPrerequisite {
 }
 
 type SchedulerPayload struct {
-	state                   protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_RunPolicy    *RunPolicy             `protobuf:"bytes,1,opt,name=run_policy,json=runPolicy"`
-	xxx_hidden_TaskWait     *TaskWait              `protobuf:"bytes,2,opt,name=task_wait,json=taskWait"`
-	xxx_hidden_LeasePayload *LeasePayloadBytes     `protobuf:"bytes,3,opt,name=lease_payload,json=leasePayload"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	state                protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_RunPolicy *RunPolicy             `protobuf:"bytes,1,opt,name=run_policy,json=runPolicy"`
+	xxx_hidden_TaskWait  *TaskWait              `protobuf:"bytes,2,opt,name=task_wait,json=taskWait"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *SchedulerPayload) Reset() {
 	*x = SchedulerPayload{}
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[20]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3253,7 +3207,7 @@ func (x *SchedulerPayload) String() string {
 func (*SchedulerPayload) ProtoMessage() {}
 
 func (x *SchedulerPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[20]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3278,23 +3232,12 @@ func (x *SchedulerPayload) GetTaskWait() *TaskWait {
 	return nil
 }
 
-func (x *SchedulerPayload) GetLeasePayload() *LeasePayloadBytes {
-	if x != nil {
-		return x.xxx_hidden_LeasePayload
-	}
-	return nil
-}
-
 func (x *SchedulerPayload) SetRunPolicy(v *RunPolicy) {
 	x.xxx_hidden_RunPolicy = v
 }
 
 func (x *SchedulerPayload) SetTaskWait(v *TaskWait) {
 	x.xxx_hidden_TaskWait = v
-}
-
-func (x *SchedulerPayload) SetLeasePayload(v *LeasePayloadBytes) {
-	x.xxx_hidden_LeasePayload = v
 }
 
 func (x *SchedulerPayload) HasRunPolicy() bool {
@@ -3311,13 +3254,6 @@ func (x *SchedulerPayload) HasTaskWait() bool {
 	return x.xxx_hidden_TaskWait != nil
 }
 
-func (x *SchedulerPayload) HasLeasePayload() bool {
-	if x == nil {
-		return false
-	}
-	return x.xxx_hidden_LeasePayload != nil
-}
-
 func (x *SchedulerPayload) ClearRunPolicy() {
 	x.xxx_hidden_RunPolicy = nil
 }
@@ -3326,16 +3262,11 @@ func (x *SchedulerPayload) ClearTaskWait() {
 	x.xxx_hidden_TaskWait = nil
 }
 
-func (x *SchedulerPayload) ClearLeasePayload() {
-	x.xxx_hidden_LeasePayload = nil
-}
-
 type SchedulerPayload_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	RunPolicy    *RunPolicy
-	TaskWait     *TaskWait
-	LeasePayload *LeasePayloadBytes
+	RunPolicy *RunPolicy
+	TaskWait  *TaskWait
 }
 
 func (b0 SchedulerPayload_builder) Build() *SchedulerPayload {
@@ -3344,7 +3275,6 @@ func (b0 SchedulerPayload_builder) Build() *SchedulerPayload {
 	_, _ = b, x
 	x.xxx_hidden_RunPolicy = b.RunPolicy
 	x.xxx_hidden_TaskWait = b.TaskWait
-	x.xxx_hidden_LeasePayload = b.LeasePayload
 	return m0
 }
 
@@ -3362,7 +3292,7 @@ type TaskWait struct {
 
 func (x *TaskWait) Reset() {
 	*x = TaskWait{}
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[21]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3374,7 +3304,7 @@ func (x *TaskWait) String() string {
 func (*TaskWait) ProtoMessage() {}
 
 func (x *TaskWait) ProtoReflect() protoreflect.Message {
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[21]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3528,7 +3458,7 @@ type WaitForJobs struct {
 
 func (x *WaitForJobs) Reset() {
 	*x = WaitForJobs{}
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[22]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3540,7 +3470,7 @@ func (x *WaitForJobs) String() string {
 func (*WaitForJobs) ProtoMessage() {}
 
 func (x *WaitForJobs) ProtoReflect() protoreflect.Message {
-	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[22]
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3580,7 +3510,7 @@ var File_jobdb_storage_v1_storage_proto protoreflect.FileDescriptor
 
 const file_jobdb_storage_v1_storage_proto_rawDesc = "" +
 	"\n" +
-	"\x1ejobdb/storage/v1/storage.proto\x12\x10jobdb.storage.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x90\t\n" +
+	"\x1ejobdb/storage/v1/storage.proto\x12\x10jobdb.storage.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc6\t\n" +
 	"\rChapterRecord\x12\x18\n" +
 	"\aordinal\x18\x01 \x01(\x03R\aordinal\x12\x1b\n" +
 	"\ttask_type\x18\x02 \x01(\tR\btaskType\x12\x1b\n" +
@@ -3604,7 +3534,8 @@ const file_jobdb_storage_v1_storage_proto_rawDesc = "" +
 	"\tinput_ref\x18\x0f \x01(\v2 .jobdb.storage.v1.InputReferenceR\binputRef\x12:\n" +
 	"\n" +
 	"run_policy\x18\x10 \x01(\v2\x1b.jobdb.storage.v1.RunPolicyR\trunPolicy\x12G\n" +
-	"\rprerequisites\x18\x11 \x03(\v2!.jobdb.storage.v1.JobPrerequisiteR\rprerequisites\x12@\n" +
+	"\rprerequisites\x18\x11 \x03(\v2!.jobdb.storage.v1.JobPrerequisiteR\rprerequisites\x124\n" +
+	"\x16initial_payload_digest\x18\x12 \x01(\tR\x14initialPayloadDigest\x12@\n" +
 	"\tjob_start\x18\x1e \x01(\v2!.jobdb.storage.v1.JobStartChapterH\x00R\bjobStart\x12\\\n" +
 	"\x13job_attempt_outcome\x18\x1f \x01(\v2*.jobdb.storage.v1.JobAttemptOutcomeChapterH\x00R\x11jobAttemptOutcome\x12_\n" +
 	"\x14task_attempt_outcome\x18  \x01(\v2+.jobdb.storage.v1.TaskAttemptOutcomeChapterH\x00R\x12taskAttemptOutcome\x12L\n" +
@@ -3628,8 +3559,6 @@ const file_jobdb_storage_v1_storage_proto_rawDesc = "" +
 	"\x15ApplicationInputBytes\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\",\n" +
 	"\x16ApplicationOutputBytes\x12\x12\n" +
-	"\x04data\x18\x01 \x01(\fR\x04data\"'\n" +
-	"\x11LeasePayloadBytes\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\"\xa6\x01\n" +
 	"\bMetadata\x12>\n" +
 	"\x06fields\x18\x01 \x03(\v2&.jobdb.storage.v1.Metadata.FieldsEntryR\x06fields\x1aZ\n" +
@@ -3700,12 +3629,11 @@ const file_jobdb_storage_v1_storage_proto_rawDesc = "" +
 	"\rtotal_timeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\ftotalTimeout\"F\n" +
 	"\x0fJobPrerequisite\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x1c\n" +
-	"\tcondition\x18\x02 \x01(\tR\tcondition\"\xd1\x01\n" +
+	"\tcondition\x18\x02 \x01(\tR\tcondition\"\x87\x01\n" +
 	"\x10SchedulerPayload\x12:\n" +
 	"\n" +
 	"run_policy\x18\x01 \x01(\v2\x1b.jobdb.storage.v1.RunPolicyR\trunPolicy\x127\n" +
-	"\ttask_wait\x18\x02 \x01(\v2\x1a.jobdb.storage.v1.TaskWaitR\btaskWait\x12H\n" +
-	"\rlease_payload\x18\x03 \x01(\v2#.jobdb.storage.v1.LeasePayloadBytesR\fleasePayload\"}\n" +
+	"\ttask_wait\x18\x02 \x01(\v2\x1a.jobdb.storage.v1.TaskWaitR\btaskWait\"}\n" +
 	"\bTaskWait\x12\x1d\n" +
 	"\n" +
 	"input_step\x18\x01 \x01(\x03R\tinputStep\x12\x1f\n" +
@@ -3715,9 +3643,9 @@ const file_jobdb_storage_v1_storage_proto_rawDesc = "" +
 	"\n" +
 	"input_hash\x18\x04 \x01(\tR\tinputHash\"&\n" +
 	"\vWaitForJobs\x12\x17\n" +
-	"\ajob_ids\x18\x01 \x03(\tR\x06jobIdsBEZCgithub.com/colony-2/jobdb/pkg/jobdb/internal/storagepb/v1;storagepbb\beditionsp\xe9\a"
+	"\ajob_ids\x18\x01 \x03(\tR\x06jobIdsB?Z=github.com/colony-2/jobdb/pkg/internal/storagepb/v1;storagepbb\beditionsp\xe9\a"
 
-var file_jobdb_storage_v1_storage_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_jobdb_storage_v1_storage_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_jobdb_storage_v1_storage_proto_goTypes = []any{
 	(*ChapterRecord)(nil),             // 0: jobdb.storage.v1.ChapterRecord
 	(*JobStartChapter)(nil),           // 1: jobdb.storage.v1.JobStartChapter
@@ -3727,37 +3655,36 @@ var file_jobdb_storage_v1_storage_proto_goTypes = []any{
 	(*TaskOutcome)(nil),               // 5: jobdb.storage.v1.TaskOutcome
 	(*ApplicationInputBytes)(nil),     // 6: jobdb.storage.v1.ApplicationInputBytes
 	(*ApplicationOutputBytes)(nil),    // 7: jobdb.storage.v1.ApplicationOutputBytes
-	(*LeasePayloadBytes)(nil),         // 8: jobdb.storage.v1.LeasePayloadBytes
-	(*Metadata)(nil),                  // 9: jobdb.storage.v1.Metadata
-	(*MetadataValue)(nil),             // 10: jobdb.storage.v1.MetadataValue
-	(*MetadataList)(nil),              // 11: jobdb.storage.v1.MetadataList
-	(*MetadataMap)(nil),               // 12: jobdb.storage.v1.MetadataMap
-	(*AppErrorPayload)(nil),           // 13: jobdb.storage.v1.AppErrorPayload
-	(*SystemErrorPayload)(nil),        // 14: jobdb.storage.v1.SystemErrorPayload
-	(*TimeoutPayload)(nil),            // 15: jobdb.storage.v1.TimeoutPayload
-	(*InputReference)(nil),            // 16: jobdb.storage.v1.InputReference
-	(*RetryPolicy)(nil),               // 17: jobdb.storage.v1.RetryPolicy
-	(*RunPolicy)(nil),                 // 18: jobdb.storage.v1.RunPolicy
-	(*JobPrerequisite)(nil),           // 19: jobdb.storage.v1.JobPrerequisite
-	(*SchedulerPayload)(nil),          // 20: jobdb.storage.v1.SchedulerPayload
-	(*TaskWait)(nil),                  // 21: jobdb.storage.v1.TaskWait
-	(*WaitForJobs)(nil),               // 22: jobdb.storage.v1.WaitForJobs
-	nil,                               // 23: jobdb.storage.v1.Metadata.FieldsEntry
-	nil,                               // 24: jobdb.storage.v1.MetadataMap.FieldsEntry
-	nil,                               // 25: jobdb.storage.v1.AppErrorPayload.AttrsEntry
-	(*timestamppb.Timestamp)(nil),     // 26: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),       // 27: google.protobuf.Duration
+	(*Metadata)(nil),                  // 8: jobdb.storage.v1.Metadata
+	(*MetadataValue)(nil),             // 9: jobdb.storage.v1.MetadataValue
+	(*MetadataList)(nil),              // 10: jobdb.storage.v1.MetadataList
+	(*MetadataMap)(nil),               // 11: jobdb.storage.v1.MetadataMap
+	(*AppErrorPayload)(nil),           // 12: jobdb.storage.v1.AppErrorPayload
+	(*SystemErrorPayload)(nil),        // 13: jobdb.storage.v1.SystemErrorPayload
+	(*TimeoutPayload)(nil),            // 14: jobdb.storage.v1.TimeoutPayload
+	(*InputReference)(nil),            // 15: jobdb.storage.v1.InputReference
+	(*RetryPolicy)(nil),               // 16: jobdb.storage.v1.RetryPolicy
+	(*RunPolicy)(nil),                 // 17: jobdb.storage.v1.RunPolicy
+	(*JobPrerequisite)(nil),           // 18: jobdb.storage.v1.JobPrerequisite
+	(*SchedulerPayload)(nil),          // 19: jobdb.storage.v1.SchedulerPayload
+	(*TaskWait)(nil),                  // 20: jobdb.storage.v1.TaskWait
+	(*WaitForJobs)(nil),               // 21: jobdb.storage.v1.WaitForJobs
+	nil,                               // 22: jobdb.storage.v1.Metadata.FieldsEntry
+	nil,                               // 23: jobdb.storage.v1.MetadataMap.FieldsEntry
+	nil,                               // 24: jobdb.storage.v1.AppErrorPayload.AttrsEntry
+	(*timestamppb.Timestamp)(nil),     // 25: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),       // 26: google.protobuf.Duration
 }
 var file_jobdb_storage_v1_storage_proto_depIdxs = []int32{
-	26, // 0: jobdb.storage.v1.ChapterRecord.created_at:type_name -> google.protobuf.Timestamp
-	26, // 1: jobdb.storage.v1.ChapterRecord.started_at:type_name -> google.protobuf.Timestamp
-	26, // 2: jobdb.storage.v1.ChapterRecord.finished_at:type_name -> google.protobuf.Timestamp
-	9,  // 3: jobdb.storage.v1.ChapterRecord.metadata:type_name -> jobdb.storage.v1.Metadata
+	25, // 0: jobdb.storage.v1.ChapterRecord.created_at:type_name -> google.protobuf.Timestamp
+	25, // 1: jobdb.storage.v1.ChapterRecord.started_at:type_name -> google.protobuf.Timestamp
+	25, // 2: jobdb.storage.v1.ChapterRecord.finished_at:type_name -> google.protobuf.Timestamp
+	8,  // 3: jobdb.storage.v1.ChapterRecord.metadata:type_name -> jobdb.storage.v1.Metadata
 	6,  // 4: jobdb.storage.v1.ChapterRecord.input:type_name -> jobdb.storage.v1.ApplicationInputBytes
-	26, // 5: jobdb.storage.v1.ChapterRecord.next_attempt_at:type_name -> google.protobuf.Timestamp
-	16, // 6: jobdb.storage.v1.ChapterRecord.input_ref:type_name -> jobdb.storage.v1.InputReference
-	18, // 7: jobdb.storage.v1.ChapterRecord.run_policy:type_name -> jobdb.storage.v1.RunPolicy
-	19, // 8: jobdb.storage.v1.ChapterRecord.prerequisites:type_name -> jobdb.storage.v1.JobPrerequisite
+	25, // 5: jobdb.storage.v1.ChapterRecord.next_attempt_at:type_name -> google.protobuf.Timestamp
+	15, // 6: jobdb.storage.v1.ChapterRecord.input_ref:type_name -> jobdb.storage.v1.InputReference
+	17, // 7: jobdb.storage.v1.ChapterRecord.run_policy:type_name -> jobdb.storage.v1.RunPolicy
+	18, // 8: jobdb.storage.v1.ChapterRecord.prerequisites:type_name -> jobdb.storage.v1.JobPrerequisite
 	1,  // 9: jobdb.storage.v1.ChapterRecord.job_start:type_name -> jobdb.storage.v1.JobStartChapter
 	2,  // 10: jobdb.storage.v1.ChapterRecord.job_attempt_outcome:type_name -> jobdb.storage.v1.JobAttemptOutcomeChapter
 	3,  // 11: jobdb.storage.v1.ChapterRecord.task_attempt_outcome:type_name -> jobdb.storage.v1.TaskAttemptOutcomeChapter
@@ -3767,35 +3694,34 @@ var file_jobdb_storage_v1_storage_proto_depIdxs = []int32{
 	5,  // 15: jobdb.storage.v1.TaskAttemptOutcomeChapter.outcome:type_name -> jobdb.storage.v1.TaskOutcome
 	7,  // 16: jobdb.storage.v1.RestartExtraChapter.output:type_name -> jobdb.storage.v1.ApplicationOutputBytes
 	7,  // 17: jobdb.storage.v1.TaskOutcome.app_output:type_name -> jobdb.storage.v1.ApplicationOutputBytes
-	13, // 18: jobdb.storage.v1.TaskOutcome.app_error:type_name -> jobdb.storage.v1.AppErrorPayload
-	14, // 19: jobdb.storage.v1.TaskOutcome.system_error:type_name -> jobdb.storage.v1.SystemErrorPayload
-	15, // 20: jobdb.storage.v1.TaskOutcome.timeout:type_name -> jobdb.storage.v1.TimeoutPayload
-	23, // 21: jobdb.storage.v1.Metadata.fields:type_name -> jobdb.storage.v1.Metadata.FieldsEntry
-	11, // 22: jobdb.storage.v1.MetadataValue.list_value:type_name -> jobdb.storage.v1.MetadataList
-	12, // 23: jobdb.storage.v1.MetadataValue.map_value:type_name -> jobdb.storage.v1.MetadataMap
-	10, // 24: jobdb.storage.v1.MetadataList.values:type_name -> jobdb.storage.v1.MetadataValue
-	24, // 25: jobdb.storage.v1.MetadataMap.fields:type_name -> jobdb.storage.v1.MetadataMap.FieldsEntry
-	25, // 26: jobdb.storage.v1.AppErrorPayload.attrs:type_name -> jobdb.storage.v1.AppErrorPayload.AttrsEntry
-	16, // 27: jobdb.storage.v1.AppErrorPayload.input_ref:type_name -> jobdb.storage.v1.InputReference
-	16, // 28: jobdb.storage.v1.SystemErrorPayload.input_ref:type_name -> jobdb.storage.v1.InputReference
-	27, // 29: jobdb.storage.v1.TimeoutPayload.after:type_name -> google.protobuf.Duration
-	16, // 30: jobdb.storage.v1.TimeoutPayload.input_ref:type_name -> jobdb.storage.v1.InputReference
-	27, // 31: jobdb.storage.v1.RetryPolicy.initial_interval:type_name -> google.protobuf.Duration
-	27, // 32: jobdb.storage.v1.RetryPolicy.maximum_interval:type_name -> google.protobuf.Duration
-	17, // 33: jobdb.storage.v1.RunPolicy.retry:type_name -> jobdb.storage.v1.RetryPolicy
-	27, // 34: jobdb.storage.v1.RunPolicy.invocation_timeout:type_name -> google.protobuf.Duration
-	27, // 35: jobdb.storage.v1.RunPolicy.total_timeout:type_name -> google.protobuf.Duration
-	18, // 36: jobdb.storage.v1.SchedulerPayload.run_policy:type_name -> jobdb.storage.v1.RunPolicy
-	21, // 37: jobdb.storage.v1.SchedulerPayload.task_wait:type_name -> jobdb.storage.v1.TaskWait
-	8,  // 38: jobdb.storage.v1.SchedulerPayload.lease_payload:type_name -> jobdb.storage.v1.LeasePayloadBytes
-	10, // 39: jobdb.storage.v1.Metadata.FieldsEntry.value:type_name -> jobdb.storage.v1.MetadataValue
-	10, // 40: jobdb.storage.v1.MetadataMap.FieldsEntry.value:type_name -> jobdb.storage.v1.MetadataValue
-	10, // 41: jobdb.storage.v1.AppErrorPayload.AttrsEntry.value:type_name -> jobdb.storage.v1.MetadataValue
-	42, // [42:42] is the sub-list for method output_type
-	42, // [42:42] is the sub-list for method input_type
-	42, // [42:42] is the sub-list for extension type_name
-	42, // [42:42] is the sub-list for extension extendee
-	0,  // [0:42] is the sub-list for field type_name
+	12, // 18: jobdb.storage.v1.TaskOutcome.app_error:type_name -> jobdb.storage.v1.AppErrorPayload
+	13, // 19: jobdb.storage.v1.TaskOutcome.system_error:type_name -> jobdb.storage.v1.SystemErrorPayload
+	14, // 20: jobdb.storage.v1.TaskOutcome.timeout:type_name -> jobdb.storage.v1.TimeoutPayload
+	22, // 21: jobdb.storage.v1.Metadata.fields:type_name -> jobdb.storage.v1.Metadata.FieldsEntry
+	10, // 22: jobdb.storage.v1.MetadataValue.list_value:type_name -> jobdb.storage.v1.MetadataList
+	11, // 23: jobdb.storage.v1.MetadataValue.map_value:type_name -> jobdb.storage.v1.MetadataMap
+	9,  // 24: jobdb.storage.v1.MetadataList.values:type_name -> jobdb.storage.v1.MetadataValue
+	23, // 25: jobdb.storage.v1.MetadataMap.fields:type_name -> jobdb.storage.v1.MetadataMap.FieldsEntry
+	24, // 26: jobdb.storage.v1.AppErrorPayload.attrs:type_name -> jobdb.storage.v1.AppErrorPayload.AttrsEntry
+	15, // 27: jobdb.storage.v1.AppErrorPayload.input_ref:type_name -> jobdb.storage.v1.InputReference
+	15, // 28: jobdb.storage.v1.SystemErrorPayload.input_ref:type_name -> jobdb.storage.v1.InputReference
+	26, // 29: jobdb.storage.v1.TimeoutPayload.after:type_name -> google.protobuf.Duration
+	15, // 30: jobdb.storage.v1.TimeoutPayload.input_ref:type_name -> jobdb.storage.v1.InputReference
+	26, // 31: jobdb.storage.v1.RetryPolicy.initial_interval:type_name -> google.protobuf.Duration
+	26, // 32: jobdb.storage.v1.RetryPolicy.maximum_interval:type_name -> google.protobuf.Duration
+	16, // 33: jobdb.storage.v1.RunPolicy.retry:type_name -> jobdb.storage.v1.RetryPolicy
+	26, // 34: jobdb.storage.v1.RunPolicy.invocation_timeout:type_name -> google.protobuf.Duration
+	26, // 35: jobdb.storage.v1.RunPolicy.total_timeout:type_name -> google.protobuf.Duration
+	17, // 36: jobdb.storage.v1.SchedulerPayload.run_policy:type_name -> jobdb.storage.v1.RunPolicy
+	20, // 37: jobdb.storage.v1.SchedulerPayload.task_wait:type_name -> jobdb.storage.v1.TaskWait
+	9,  // 38: jobdb.storage.v1.Metadata.FieldsEntry.value:type_name -> jobdb.storage.v1.MetadataValue
+	9,  // 39: jobdb.storage.v1.MetadataMap.FieldsEntry.value:type_name -> jobdb.storage.v1.MetadataValue
+	9,  // 40: jobdb.storage.v1.AppErrorPayload.AttrsEntry.value:type_name -> jobdb.storage.v1.MetadataValue
+	41, // [41:41] is the sub-list for method output_type
+	41, // [41:41] is the sub-list for method input_type
+	41, // [41:41] is the sub-list for extension type_name
+	41, // [41:41] is the sub-list for extension extendee
+	0,  // [0:41] is the sub-list for field type_name
 }
 
 func init() { file_jobdb_storage_v1_storage_proto_init() }
@@ -3815,7 +3741,7 @@ func file_jobdb_storage_v1_storage_proto_init() {
 		(*taskOutcome_SystemError)(nil),
 		(*taskOutcome_Timeout)(nil),
 	}
-	file_jobdb_storage_v1_storage_proto_msgTypes[10].OneofWrappers = []any{
+	file_jobdb_storage_v1_storage_proto_msgTypes[9].OneofWrappers = []any{
 		(*metadataValue_BoolValue)(nil),
 		(*metadataValue_IntValue)(nil),
 		(*metadataValue_DoubleValue)(nil),
@@ -3830,7 +3756,7 @@ func file_jobdb_storage_v1_storage_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_jobdb_storage_v1_storage_proto_rawDesc), len(file_jobdb_storage_v1_storage_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   26,
+			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

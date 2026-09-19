@@ -13,25 +13,26 @@ func (r *Runtime) KeepAliveLeaseByID(ctx context.Context, jobKey jobdb.JobKey, l
 	return err
 }
 
-func (r *Runtime) KeepAliveLeaseByIDWithExpiry(_ context.Context, jobKey jobdb.JobKey, leaseID string, _ string, leaseDuration time.Duration) (time.Time, error) {
+func (r *Runtime) KeepAliveLeaseByIDWithExpiry(_ context.Context, jobKey jobdb.JobKey, leaseID string, workerID string, leaseDuration time.Duration) (time.Time, error) {
 	record := r.engine.getJobRecord(jobKey)
 	if record == nil {
 		return time.Time{}, jobdb.ErrJobNotFound
 	}
 	record.mu.Lock()
 	defer record.mu.Unlock()
-	if record.leaseID != leaseID {
+	if leaseID == "" || record.leaseID != leaseID || record.leaseWorkerID != workerID || !record.leased || !record.leaseExpiresAt.After(time.Now().UTC()) || record.cancelled || record.archived != nil {
 		return time.Time{}, jobdb.ErrExecutionLeaseLost
 	}
-	return time.Now().UTC().Add(toyLeaseDurationOrDefault(leaseDuration)), nil
+	record.leaseExpiresAt = time.Now().UTC().Add(toyLeaseDurationOrDefault(leaseDuration))
+	return record.leaseExpiresAt, nil
 }
 
-func (r *Runtime) CompleteJobWithLeaseByID(ctx context.Context, jobKey jobdb.JobKey, leaseID string, _ string, req jobdb.CompleteExecutionRequest) error {
-	return r.completeLease(ctx, jobKey, leaseID, req)
+func (r *Runtime) CompleteJobWithLeaseByID(ctx context.Context, jobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.CompleteExecutionRequest) error {
+	return r.completeLease(ctx, jobKey, leaseID, workerID, req)
 }
 
-func (r *Runtime) RescheduleJobWithLeaseByID(_ context.Context, jobKey jobdb.JobKey, leaseID string, _ string, req jobdb.RescheduleExecutionRequest) error {
-	return r.rescheduleLease(jobKey, leaseID, req)
+func (r *Runtime) RescheduleJobWithLeaseByID(_ context.Context, jobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.RescheduleExecutionRequest) error {
+	return r.rescheduleLease(jobKey, leaseID, workerID, req)
 }
 
 func (r *Runtime) SubmitJobWithLeaseByID(ctx context.Context, parentJobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {

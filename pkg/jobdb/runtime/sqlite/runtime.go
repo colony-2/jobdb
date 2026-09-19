@@ -15,6 +15,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 	chapterartifact "github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/artifact"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/core"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/pagination"
@@ -45,6 +46,14 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	if err := jobKey.Validate(); err != nil {
 		return jobdb.JobHandle{}, err
 	}
+	initial, _, err := clientpayload.Initial(req.Job.ClientPayloadUpdate)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	initialDigest, err := clientpayload.Digest(initial)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
 	if err := jobdb.ValidateApplicationMetadata(req.Job.Metadata); err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -68,10 +77,11 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	}
 	jobPolicy := normalizeRunPolicy(req.Job.RunPolicy)
 	initialChapter, err := taskDataToChapter(taskData, 0, req.Job.JobType, r.requestWorkerID(req.WorkerID), chapterTypeJobStart, payloadKindApp, inputHash, time.Now().UTC(), chapterMetadata{
-		Attempt:       1,
-		RunPolicy:     &jobPolicy,
-		Metadata:      metadataForStartChapter(req.Job.Metadata),
-		Prerequisites: prereqs,
+		InitialPayloadDigest: initialDigest,
+		Attempt:              1,
+		RunPolicy:            &jobPolicy,
+		Metadata:             metadataForStartChapter(req.Job.Metadata),
+		Prerequisites:        prereqs,
 	})
 	if err != nil {
 		return jobdb.JobHandle{}, err
@@ -95,7 +105,7 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 		assignArtifactKeys(artifacts, jobKey.JobId, 0)
 		cleanupArtifacts(artifacts, r.logger)
 	}
-	if err := r.ensureSubmittedJobRecord(ctx, jobKey, req.Job.JobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, req.Job.AvailableAt); err != nil {
+	if err := r.ensureSubmittedJobRecord(ctx, jobKey, req.Job.JobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, req.Job.AvailableAt, req.Job.ClientPayloadUpdate); err != nil {
 		return jobdb.JobHandle{}, err
 	}
 	return jobdb.JobHandle{JobKey: jobKey}, nil
@@ -110,6 +120,9 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		ctx = context.Background()
 	}
 	if err := r.validate(); err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	if err := clientpayload.ValidateUpdate(req.Job.ClientPayloadUpdate, true); err != nil {
 		return jobdb.JobHandle{}, err
 	}
 	job := req.Job
@@ -243,7 +256,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 			cleanupArtifacts(artifacts, r.logger)
 		}
 	}
-	if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, nil); err != nil {
+	if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, nil, req.Job.ClientPayloadUpdate); err != nil {
 		return jobdb.JobHandle{}, err
 	}
 	return jobdb.JobHandle{JobKey: jobKey}, nil
@@ -450,7 +463,7 @@ WHERE tenant_id = ? AND job_id = ?`,
 				leaseID:    leaseID,
 				workerID:   workerID,
 				capability: nextNeed,
-				payload:    cloneBytes(row.payload),
+				payload:    cloneBytes(row.payload), clientPayload: cloneJSON(row.clientPayload), clientPayloadRevision: row.clientPayloadRevision,
 				duration:   leaseDurationOrDefault(req.LeaseDuration),
 				expiresAt:  expires,
 				schemaHash: jobmetadata.SchemaHashFromStoredMetadata(row.metadata),
@@ -535,7 +548,7 @@ WHERE tenant_id = ? AND job_id = ?`,
 			leaseID:    leaseID,
 			workerID:   workerID,
 			capability: nextNeed,
-			payload:    cloneBytes(row.payload),
+			payload:    cloneBytes(row.payload), clientPayload: cloneJSON(row.clientPayload), clientPayloadRevision: row.clientPayloadRevision,
 			duration:   leaseDurationOrDefault(req.LeaseDuration),
 			expiresAt:  expires,
 			schemaHash: jobmetadata.SchemaHashFromStoredMetadata(row.metadata),
@@ -607,6 +620,7 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 		return jobdb.JobInfo{}, err
 	}
 	job := jobdb.JobInfo{
+		ClientPayload: cloneJSON(row.clientPayload), ClientPayloadRevision: row.clientPayloadRevision, ExecutionState: jobExecutionState(row.payload),
 		Status:     status,
 		Data:       &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
 		SchemaHash: jobmetadata.SchemaHashFromStoredMetadata(row.metadata),
@@ -779,10 +793,10 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 			CancelRequested: row.cancelRequested,
 			CreatedAt:       createdAt,
 			ArchivedAt:      nullTimeFromNS(row.archivedAtNS),
-			Payload:         jobPayloadVisibleJSON(row.payload),
-			Metadata:        jobdb.StripRuntimeMetadata(row.metadata),
-			SchemaHash:      jobmetadata.SchemaHashFromStoredMetadata(row.metadata),
-			ParentJobID:     parentJobID,
+			ClientPayload:   cloneJSON(row.clientPayload), ClientPayloadRevision: row.clientPayloadRevision, ExecutionState: jobExecutionState(row.payload),
+			Metadata:    jobdb.StripRuntimeMetadata(row.metadata),
+			SchemaHash:  jobmetadata.SchemaHashFromStoredMetadata(row.metadata),
+			ParentJobID: parentJobID,
 		}
 		if tw, waitErr := extractTaskWaitFromRaw(row.payload); waitErr == nil && tw != nil {
 			summary.TaskWaitInput = &tw.InputStep
@@ -1077,9 +1091,18 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	if err := r.validate(); err != nil {
 		return err
 	}
+	if err := clientpayload.ValidateUpdate(req.ClientPayloadUpdate, false); err != nil {
+		return err
+	}
 	jobKey := req.JobKey
 	row, err := r.loadJobRow(ctx, jobKey)
 	if err != nil {
+		return err
+	}
+	if row.archivedAtNS.Valid || row.cancelRequested || (row.leaseExpiresAtNS.Valid && row.leaseExpiresAtNS.Int64 > timeToNS(time.Now().UTC())) {
+		return fmt.Errorf("%w: task is not unheld", jobdb.ErrConflict)
+	}
+	if _, _, err := clientpayload.Apply(row.clientPayload, row.clientPayloadRevision, req.ClientPayloadUpdate); err != nil {
 		return err
 	}
 	tw, err := extractTaskWaitFromRaw(row.payload)
@@ -1173,22 +1196,21 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC()
-	result, err := r.db.ExecContext(ctx, `
-UPDATE jobdb_jobs
-SET next_need = ?, payload = ?, wait_for = ?, available_at_ns = ?,
-	lease_id = NULL, lease_worker_id = NULL, lease_expires_at_ns = NULL,
-	alternate_need = NULL, alternate_at_ns = NULL, updated_at_ns = ?
-WHERE tenant_id = ? AND job_id = ? AND archived_at_ns IS NULL AND next_need = ?`,
-		resumeNeed, resumePayload, waitFor, timeToNS(now), timeToNS(now), jobKey.TenantId, jobKey.JobId, currentCapability)
-	if err != nil {
+	return r.withTx(ctx, func(tx *sql.Tx) error {
+		current, err := r.loadJobRowTx(ctx, tx, jobKey)
+		if err != nil {
+			return err
+		}
+		now := time.Now().UTC()
+		if current.archivedAtNS.Valid || current.cancelRequested || (current.leaseExpiresAtNS.Valid && current.leaseExpiresAtNS.Int64 > timeToNS(now)) || current.nextNeed != currentCapability || !bytes.Equal(current.payload, row.payload) {
+			return fmt.Errorf("%w: waiting task changed", jobdb.ErrConflict)
+		}
+		if err := r.updateClientPayloadTx(ctx, tx, current, req.ClientPayloadUpdate); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE jobdb_jobs SET next_need=?,payload=?,wait_for=?,available_at_ns=?,lease_id=NULL,lease_worker_id=NULL,lease_expires_at_ns=NULL,alternate_need=NULL,alternate_at_ns=NULL,updated_at_ns=? WHERE tenant_id=? AND job_id=?`, resumeNeed, resumePayload, waitFor, timeToNS(now), timeToNS(now), jobKey.TenantId, jobKey.JobId)
 		return err
-	}
-	n, _ := result.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("%w: job is no longer in a commit-if-waiting state", jobdb.ErrConflict)
-	}
-	return nil
+	})
 }
 
 func (r *Runtime) ensureNextVisibleChapterOrdinal(ctx context.Context, jobKey jobdb.JobKey, ordinal int64) error {

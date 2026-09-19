@@ -14,6 +14,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 	"github.com/segmentio/ksuid"
 )
 
@@ -48,6 +49,14 @@ func (r *Runtime) submitJobWithSchedule(ctx context.Context, req jobdb.SubmitJob
 	if err := jobdb.ValidateApplicationMetadata(req.Job.Metadata); err != nil {
 		return jobdb.JobHandle{}, err
 	}
+	initialPayload, initialRevision, err := clientpayload.Initial(req.Job.ClientPayloadUpdate)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	initialDigest, err := clientpayload.Digest(initialPayload)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
 	schemaHash, err := ResolveActiveSchemaForNewJob(ctx, r.schemas, key.TenantId, req.Job.Schema)
 	if err != nil {
 		return jobdb.JobHandle{}, err
@@ -74,7 +83,7 @@ func (r *Runtime) submitJobWithSchedule(ctx context.Context, req jobdb.SubmitJob
 		createdAt = r.now()
 	}
 	meta := runtimecodec.ChapterMeta{
-		Version: runtimecodec.EnvelopeVersion, Ordinal: 0,
+		Version: runtimecodec.EnvelopeVersion, Ordinal: 0, InitialPayloadDigest: initialDigest,
 		TaskType: req.Job.JobType, WorkerID: workerID,
 		CreatedAt: createdAt.UTC(), InputHash: inputHash,
 		Attempt: 1, RunPolicy: &policy, Metadata: metadata,
@@ -122,6 +131,9 @@ func (r *Runtime) submitJobWithSchedule(ctx context.Context, req jobdb.SubmitJob
 	if existingChapter {
 		stored, err := r.scheduler.GetJob(ctx, key)
 		if err == nil {
+			if stored.InitialPayloadDigest != initialDigest {
+				return jobdb.JobHandle{}, jobdb.NewExistingJobMismatchError("initial client payload differs")
+			}
 			if err := validateStoredJobFacts(stored, key, req.Job.JobType,
 				schemaHash, parentJobID, metadata, policy, occurrence); err != nil {
 				return jobdb.JobHandle{}, err
@@ -134,6 +146,7 @@ func (r *Runtime) submitJobWithSchedule(ctx context.Context, req jobdb.SubmitJob
 	}
 	created, err := r.scheduler.CreateJob(ctx, CreateJobRequest{
 		JobKey: key, JobType: req.Job.JobType, ParentJobID: parentJobID, RunPolicy: policy,
+		ClientPayload: initialPayload, ClientPayloadRevision: initialRevision, InitialPayloadDigest: initialDigest,
 		AppMetadata: metadata, SchemaHash: schemaHash, Schedule: occurrence,
 		WaitForJobIDs: waits, AvailableAt: req.Job.AvailableAt,
 		CreatedAt: createdAt.UTC(), WorkerID: workerID,
@@ -195,6 +208,9 @@ func (r *Runtime) validateExistingInitialChapter(ctx context.Context, key jobdb.
 	wantMeta, err := initialChapterMetadata(want.Metadata)
 	if err != nil {
 		return err
+	}
+	if gotMeta.InitialPayloadDigest != wantMeta.InitialPayloadDigest {
+		return jobdb.NewExistingJobMismatchError("initial client payload differs")
 	}
 	if !sameJSONObject(gotMeta.Metadata, wantMeta.Metadata) {
 		return jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different metadata", key))

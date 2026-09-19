@@ -25,6 +25,7 @@ func (r *Runtime) GetJob(ctx context.Context, key jobdb.JobKey) (jobdb.JobInfo, 
 	}
 	info := jobdb.JobInfo{
 		Status: stored.Status, SchemaHash: stored.SchemaHash,
+		ClientPayload: append([]byte(nil), stored.ClientPayload...), ClientPayloadRevision: stored.ClientPayloadRevision, ExecutionState: executionState(stored.RunPolicy, stored.TaskWork),
 		Data: &runtimeJobData{err: jobdb.ErrJobNotComplete},
 	}
 	if stored.Store != jobdb.JobStoreArchived {

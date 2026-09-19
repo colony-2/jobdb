@@ -36,18 +36,21 @@ type Scheduler interface {
 // CreateJobRequest contains the immutable job facts and initial route written
 // after runtime core has validated and encoded the first chapter.
 type CreateJobRequest struct {
-	JobKey        jobdb.JobKey
-	JobType       string
-	ParentJobID   string
-	RunPolicy     jobdb.RunPolicy
-	AppMetadata   json.RawMessage
-	Schedule      *jobdb.ScheduleOccurrenceMetadata
-	SchemaHash    string
-	WaitForJobIDs []string
-	AvailableAt   *time.Time
-	ExpiresAt     *time.Time
-	CreatedAt     time.Time
-	WorkerID      string
+	ClientPayload         json.RawMessage
+	ClientPayloadRevision int64
+	InitialPayloadDigest  string
+	JobKey                jobdb.JobKey
+	JobType               string
+	ParentJobID           string
+	RunPolicy             jobdb.RunPolicy
+	AppMetadata           json.RawMessage
+	Schedule              *jobdb.ScheduleOccurrenceMetadata
+	SchemaHash            string
+	WaitForJobIDs         []string
+	AvailableAt           *time.Time
+	ExpiresAt             *time.Time
+	CreatedAt             time.Time
+	WorkerID              string
 }
 
 // WorkKind identifies whether the current route runs a job or a task.
@@ -67,32 +70,33 @@ type AlternateRoute struct {
 
 // StoredJob joins immutable facts with current or archived scheduler state.
 type StoredJob struct {
-	JobKey              jobdb.JobKey
-	Store               jobdb.JobStore
-	JobType             string
-	Status              jobdb.JobStatus
-	RouteJobType        string
-	WorkKind            WorkKind
-	TaskWork            *TaskWork
-	AlternateRoute      *AlternateRoute
-	RunPolicy           jobdb.RunPolicy
-	LeasePayload        json.RawMessage
-	LeasePayloadVisible bool
-	AppMetadata         json.RawMessage
-	SchemaHash          string
-	ParentJobID         string
-	Schedule            *jobdb.ScheduleOccurrenceMetadata
-	WaitForJobIDs       []string
-	AvailableAt         time.Time
-	ExpiresAt           *time.Time
-	LeaseExpiresAt      *time.Time
-	LeaseWorkerID       string
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
-	ArchivedAt          *time.Time
-	CancelRequested     bool
-	Completion          *CompletionSnapshot
-	Lease               *LeaseIdentity
+	JobKey                jobdb.JobKey
+	Store                 jobdb.JobStore
+	JobType               string
+	Status                jobdb.JobStatus
+	RouteJobType          string
+	WorkKind              WorkKind
+	TaskWork              *TaskWork
+	AlternateRoute        *AlternateRoute
+	RunPolicy             jobdb.RunPolicy
+	ClientPayload         json.RawMessage
+	ClientPayloadRevision int64
+	InitialPayloadDigest  string
+	AppMetadata           json.RawMessage
+	SchemaHash            string
+	ParentJobID           string
+	Schedule              *jobdb.ScheduleOccurrenceMetadata
+	WaitForJobIDs         []string
+	AvailableAt           time.Time
+	ExpiresAt             *time.Time
+	LeaseExpiresAt        *time.Time
+	LeaseWorkerID         string
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	ArchivedAt            *time.Time
+	CancelRequested       bool
+	Completion            *CompletionSnapshot
+	Lease                 *LeaseIdentity
 }
 
 // CompletionSnapshot describes a terminal scheduler outcome.
@@ -163,16 +167,17 @@ type LeaseIdentity struct {
 
 // LeaseSnapshot is the typed lease returned by the scheduler.
 type LeaseSnapshot struct {
-	Identity            LeaseIdentity
-	JobType             string
-	RouteJobType        string
-	WorkKind            WorkKind
-	TaskWork            *TaskWork
-	RunPolicy           jobdb.RunPolicy
-	LeasePayload        json.RawMessage
-	LeasePayloadVisible bool
-	SchemaHash          string
-	Duration            time.Duration
+	Identity              LeaseIdentity
+	JobType               string
+	RouteJobType          string
+	WorkKind              WorkKind
+	TaskWork              *TaskWork
+	RunPolicy             jobdb.RunPolicy
+	ClientPayload         json.RawMessage
+	ClientPayloadRevision int64
+	InitialPayloadDigest  string
+	SchemaHash            string
+	Duration              time.Duration
 }
 
 // LeaseMutation renews a live lease.
@@ -184,26 +189,26 @@ type LeaseMutation struct {
 
 // CompletionMutation completes a live lease.
 type CompletionMutation struct {
-	Identity  LeaseIdentity
-	Status    string
-	Detail    string
-	ErrorKind string
-	Retryable *bool
-	Now       time.Time
+	ClientPayloadUpdate *jobdb.ClientPayloadUpdate
+	Identity            LeaseIdentity
+	Status              string
+	Detail              string
+	ErrorKind           string
+	Retryable           *bool
+	Now                 time.Time
 }
 
 // RescheduleMutation returns a live lease to the scheduler queue.
 type RescheduleMutation struct {
-	Identity          LeaseIdentity
-	RouteJobType      string
-	WorkKind          WorkKind
-	TaskWork          *TaskWork
-	WaitUntil         *time.Time
-	WaitForJobIDs     []string
-	LeasePayload      json.RawMessage
-	ClearLeasePayload bool
-	AlternateRoute    *AlternateRoute
-	Now               time.Time
+	Identity            LeaseIdentity
+	RouteJobType        string
+	WorkKind            WorkKind
+	TaskWork            *TaskWork
+	WaitUntil           *time.Time
+	WaitForJobIDs       []string
+	ClientPayloadUpdate *jobdb.ClientPayloadUpdate
+	AlternateRoute      *AlternateRoute
+	Now                 time.Time
 }
 
 // WaitingTaskSnapshot describes a job waiting for task output.
@@ -214,12 +219,11 @@ type WaitingTaskSnapshot struct {
 
 // CompleteTaskWorkMutation atomically resumes a job waiting on task output.
 type CompleteTaskWorkMutation struct {
-	JobKey            jobdb.JobKey
-	WorkerID          string
-	Task              WaitingTaskSnapshot
-	LeasePayload      json.RawMessage
-	ClearLeasePayload bool
-	Now               time.Time
+	JobKey              jobdb.JobKey
+	WorkerID            string
+	Task                WaitingTaskSnapshot
+	ClientPayloadUpdate *jobdb.ClientPayloadUpdate
+	Now                 time.Time
 }
 
 // CancelJobMutation atomically cancels a job.

@@ -1202,6 +1202,8 @@ components:
       required: [jobType, data]
       additionalProperties: false
       properties:
+        clientPayloadUpdate:
+          $ref: '#/components/schemas/ClientPayloadUpdate'
         jobType:
           type: string
         data:
@@ -1565,6 +1567,8 @@ components:
       required: [jobType, data]
       additionalProperties: false
       properties:
+        clientPayloadUpdate:
+          $ref: '#/components/schemas/ClientPayloadUpdate'
         jobType:
           type: string
         data:
@@ -1599,6 +1603,8 @@ components:
       required: [priorJobKey, lastStepToKeep]
       additionalProperties: false
       properties:
+        clientPayloadUpdate:
+          $ref: '#/components/schemas/ClientPayloadUpdate'
         priorJobKey:
           $ref: '#/components/schemas/JobKey'
         lastStepToKeep:
@@ -1729,7 +1735,7 @@ components:
           type: string
         inputHash:
           type: string
-    SchedulerPayload:
+    ExecutionState:
       type: object
       additionalProperties: false
       properties:
@@ -1737,13 +1743,19 @@ components:
           $ref: '#/components/schemas/RunPolicy'
         taskWait:
           $ref: '#/components/schemas/TaskWait'
-        leasePayload:
-          $ref: '#/components/schemas/ApplicationPayload'
     ExecutionLease:
       type: object
-      required: [leaseId, leaseToken, job, capability, payload]
+      required: [leaseId, leaseToken, job, capability, executionState, clientPayloadRevision]
       additionalProperties: false
       properties:
+        clientPayload:
+          x-go-type: json.RawMessage
+          x-go-type-skip-optional-pointer: true
+        clientPayloadRevision:
+          type: string
+          pattern: '^[0-9]+$'
+        executionState:
+          $ref: '#/components/schemas/ExecutionState'
         leaseId:
           type: string
         leaseToken:
@@ -1752,8 +1764,6 @@ components:
           $ref: '#/components/schemas/JobHandle'
         capability:
           type: string
-        payload:
-          $ref: '#/components/schemas/SchedulerPayload'
         schemaHash:
           $ref: '#/components/schemas/JobSchemaHash'
     CompleteExecutionRequest:
@@ -1761,6 +1771,8 @@ components:
       required: [status, chapter]
       additionalProperties: false
       properties:
+        clientPayloadUpdate:
+          $ref: '#/components/schemas/ClientPayloadUpdate'
         status:
           type: string
         detail:
@@ -1780,6 +1792,10 @@ components:
       type: object
       additionalProperties: false
       properties:
+        taskWait:
+          $ref: '#/components/schemas/TaskWait'
+        clientPayloadUpdate:
+          $ref: '#/components/schemas/ClientPayloadUpdate'
         nextNeed:
           type: string
         waitUntil:
@@ -1789,8 +1805,6 @@ components:
           type: array
           items:
             type: string
-        payload:
-          $ref: '#/components/schemas/SchedulerPayload'
         alternateNeed:
           type: string
         alternateAfter:
@@ -1801,6 +1815,8 @@ components:
       required: [data]
       additionalProperties: false
       properties:
+        clientPayloadUpdate:
+          $ref: '#/components/schemas/ClientPayloadUpdate'
         capability:
           type: string
           description: Optional guard for the currently waiting capability.
@@ -1909,6 +1925,8 @@ components:
       required: [ordinal, createdAt, body, artifacts]
       additionalProperties: false
       properties:
+        initialPayloadDigest:
+          type: string
         ordinal:
           type: integer
           format: int64
@@ -1985,9 +2003,17 @@ components:
             $ref: '#/components/schemas/ArtifactWrite'
     JobInfo:
       type: object
-      required: [status, data]
+      required: [status, data, executionState, clientPayloadRevision]
       additionalProperties: false
       properties:
+        clientPayload:
+          x-go-type: json.RawMessage
+          x-go-type-skip-optional-pointer: true
+        clientPayloadRevision:
+          type: string
+          pattern: '^[0-9]+$'
+        executionState:
+          $ref: '#/components/schemas/ExecutionState'
         status:
           $ref: '#/components/schemas/JobStatus'
         data:
@@ -2064,9 +2090,17 @@ components:
           type: string
     JobSummary:
       type: object
-      required: [jobKey, status, jobType, waitFor, availableAt, cancelRequested, createdAt]
+      required: [jobKey, status, jobType, waitFor, availableAt, cancelRequested, createdAt, executionState, clientPayloadRevision]
       additionalProperties: false
       properties:
+        clientPayload:
+          x-go-type: json.RawMessage
+          x-go-type-skip-optional-pointer: true
+        clientPayloadRevision:
+          type: string
+          pattern: '^[0-9]+$'
+        executionState:
+          $ref: '#/components/schemas/ExecutionState'
         jobKey:
           $ref: '#/components/schemas/JobKey'
         status:
@@ -2108,8 +2142,6 @@ components:
             - type: string
               format: date-time
             - type: 'null'
-        payload:
-          $ref: '#/components/schemas/SchedulerPayload'
         metadata:
           $ref: '#/components/schemas/Metadata'
         schemaHash:
@@ -2149,3 +2181,22 @@ components:
             $ref: '#/components/schemas/JobSummary'
         nextPageToken:
           type: string
+
+    ClientPayloadUpdate:
+      type: object
+      additionalProperties: false
+      required: [mode]
+      x-go-type: clientpayload.Update
+      x-go-type-import:
+        path: github.com/colony-2/jobdb/pkg/jobdb/clientpayload
+        name: clientpayload
+      properties:
+        mode:
+          type: string
+          enum: [patch, reset]
+        value:
+          x-go-type: json.RawMessage
+          x-go-type-skip-optional-pointer: true
+        expectedRevision:
+          type: string
+          pattern: '^[0-9]+$'

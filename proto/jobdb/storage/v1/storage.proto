@@ -2,7 +2,7 @@ edition = "2024";
 
 package jobdb.storage.v1;
 
-option go_package = "github.com/colony-2/jobdb/pkg/jobdb/internal/storagepb/v1;storagepb";
+option go_package = "github.com/colony-2/jobdb/pkg/internal/storagepb/v1;storagepb";
 
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
@@ -25,6 +25,7 @@ message ChapterRecord {
   InputReference input_ref = 15;
   RunPolicy run_policy = 16;
   repeated JobPrerequisite prerequisites = 17;
+  string initial_payload_digest = 18;
 
   oneof chapter {
     JobStartChapter job_start = 30;
@@ -64,10 +65,6 @@ message ApplicationInputBytes {
 }
 
 message ApplicationOutputBytes {
-  bytes data = 1;
-}
-
-message LeasePayloadBytes {
   bytes data = 1;
 }
 
@@ -150,7 +147,6 @@ message JobPrerequisite {
 message SchedulerPayload {
   RunPolicy run_policy = 1;
   TaskWait task_wait = 2;
-  LeasePayloadBytes lease_payload = 3;
 }
 
 message TaskWait {
