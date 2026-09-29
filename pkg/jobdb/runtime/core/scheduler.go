@@ -24,6 +24,8 @@ type Scheduler interface {
 	RescheduleLease(ctx context.Context, mutation RescheduleMutation) (StoredJob, error)
 
 	GetWaitingTask(ctx context.Context, key jobdb.JobKey) (WaitingTaskSnapshot, error)
+	// CompleteTaskWork is retained for backend compatibility. External completion
+	// uses TaskCompletionStore followed by RescheduleLease instead.
 	CompleteTaskWork(ctx context.Context, mutation CompleteTaskWorkMutation) (StoredJob, error)
 
 	UpsertSchedule(ctx context.Context, mutation StoredScheduleMutation) (StoredSchedule, error)

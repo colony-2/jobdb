@@ -712,6 +712,7 @@ func NewSQLDB func(ctx context.Context, db *database/sql.DB, cfg Config) (*Store
 func OpenDSN func(ctx context.Context, dsn string, cfg Config) (*Store, error)
 type Store struct
 method Store.Append func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb/runtime/core.ChapterLogKey, chapter github.com/colony-2/jobdb/pkg/jobdb/runtime/core.EncodedChapter) error
+method Store.AppendWithMutation func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb/runtime/core.ChapterLogKey, chapter github.com/colony-2/jobdb/pkg/jobdb/runtime/core.EncodedChapter, mutation func(*database/sql.Tx) error) error
 method Store.ClonePrefix func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb/runtime/core.ClonePrefixRequest) error
 method Store.Close func(ctx context.Context) error
 method Store.Count func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb/runtime/core.ChapterLogKey) (int64, error)
@@ -779,6 +780,12 @@ type ChapterLogKey struct
 type ChapterRange struct
   field StartOrdinal int64
   field EndOrdinal *int64
+type ClaimTaskRequest struct
+  field JobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey
+  field WorkerID string
+  field Task WaitingTaskSnapshot
+  field LeaseDuration time.Duration
+  field Now time.Time
 type ClonePrefixRequest struct
   field SourceKey ChapterLogKey
   field DestinationKey ChapterLogKey
@@ -805,6 +812,7 @@ type CompletionSnapshot struct
   field Retryable *bool
 type Config struct
   field Scheduler Scheduler
+  field TaskCompletions TaskCompletionStore
   field Chapters ChapterLog
   field Schemas SchemaStore
   field Now func() time.Time
@@ -1046,6 +1054,13 @@ type StoredScheduleMutation struct
   field ExpectedGeneration *int64
   field RequestTime time.Time
   field WorkerID string
+type TaskCompletionStore interface
+  method ClaimTask func(context.Context, ClaimTaskRequest) (LeaseIdentity, error)
+  method PublishTaskOutput func(context.Context, TaskOutputRequest) error
+type TaskOutputRequest struct
+  field Identity LeaseIdentity
+  field Chapter EncodedChapter
+  field ClientPayloadUpdate *github.com/colony-2/jobdb/pkg/jobdb.ClientPayloadUpdate
 type TaskWork struct
   field TaskType string
   field ResumeJobType string

@@ -9,6 +9,11 @@ Postgres chapter and schema stores with the separate `/pgjobdb` scheduler.
 The sections below record the design constraints and incremental plan;
 prospective wording reflects that plan.
 
+For the required commit-if-waiting recovery update, follow
+[GUIDE-PGJOBDB-TASK-COMPLETION-RECOVERY.md](GUIDE-PGJOBDB-TASK-COMPLETION-RECOVERY.md).
+That guide supersedes the original append-then-`CompleteTaskWork` sequence and
+adds the `TaskCompletionStore` port.
+
 This guide is pgjobdb-specific, but it is based on the generic runtime
 extension design in
 [DESIGN-JOBDB-RUNTIME-EXTENSION-SURFACE.md](DESIGN-JOBDB-RUNTIME-EXTENSION-SURFACE.md).

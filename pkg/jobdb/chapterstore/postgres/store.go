@@ -19,6 +19,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/core"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/pagination"
 	postgresrows "github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/postgres"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/storage"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 )
@@ -128,6 +129,18 @@ func (s *Store) Append(ctx context.Context, key runtimecore.ChapterLogKey, chapt
 		return err
 	}
 	return translateError(s.inner.SaveChapter(ctx, storyKey(key), stored), jobdb.ErrJobNotFound)
+}
+
+// AppendWithMutation publishes a chapter and a caller-supplied database mutation
+// in one transaction. The mutation must use tx, must not commit it, and should
+// lock and validate scheduler ownership before updating any scheduler state.
+// Artifact uploads are prepared before the transaction starts. A failed mutation
+// or append leaves neither chapter rows nor the mutation committed.
+func (s *Store) AppendWithMutation(ctx context.Context, key runtimecore.ChapterLogKey, chapter runtimecore.EncodedChapter, mutation func(*sql.Tx) error) error {
+	if mutation == nil {
+		return fmt.Errorf("chapter append mutation is required")
+	}
+	return s.Append(storage.WithAppendMutation(ctx, mutation), key, chapter)
 }
 
 func (s *Store) Get(ctx context.Context, key runtimecore.ChapterLogKey, ordinal int64) (runtimecore.EncodedChapter, error) {

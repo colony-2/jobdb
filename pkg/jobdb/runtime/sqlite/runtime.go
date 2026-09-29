@@ -1101,12 +1101,6 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	if req.Route.TaskType == "" {
 		return fmt.Errorf("task route required")
 	}
-	if err := req.Route.Validate(); err != nil {
-		return err
-	}
-	if req.Route.TaskType == "" {
-		return fmt.Errorf("task route required")
-	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -1194,42 +1188,16 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	if err := r.ensureNextVisibleChapterOrdinal(ctx, jobKey, tw.OutputStep); err != nil {
 		return err
 	}
-	err = r.chapterStore.SaveChapter(chapterContext(ctx), storyKeyForJob(jobKey), chapter)
+	lease, err := r.claimWaitingTask(ctx, row, tw.Next, payload.RunPolicy)
 	if err != nil {
-		if errors.Is(err, core.ErrConflict) {
-			return fmt.Errorf("%w: output chapter %d already exists or is not appendable", jobdb.ErrConflict, tw.OutputStep)
-		}
+		return err
+	}
+	if err := r.publishTaskOutput(ctx, lease, chapter, req.ClientPayloadUpdate); err != nil {
 		return err
 	}
 	artifacts, _ := req.Data.GetArtifacts()
 	assignArtifactKeys(artifacts, jobKey.JobId, tw.OutputStep)
-	resumeJobType := tw.Next
-	if req.ResumeJobType != "" {
-		resumeJobType = req.ResumeJobType
-	}
-	resumePayload, err := encodeJobPayload(jobPayload{RunPolicy: payload.RunPolicy})
-	if err != nil {
-		return err
-	}
-	waitFor, err := encodeWaitFor(nil)
-	if err != nil {
-		return err
-	}
-	return r.withTx(ctx, func(tx *sql.Tx) error {
-		current, err := r.loadJobRowTx(ctx, tx, jobKey)
-		if err != nil {
-			return err
-		}
-		now := time.Now().UTC()
-		if current.archivedAtNS.Valid || current.cancelRequested || (current.leaseExpiresAtNS.Valid && current.leaseExpiresAtNS.Int64 > timeToNS(now)) || current.nextRoute != currentRoute || !bytes.Equal(current.payload, row.payload) {
-			return fmt.Errorf("%w: waiting task changed", jobdb.ErrConflict)
-		}
-		if err := r.updateClientPayloadTx(ctx, tx, current, req.ClientPayloadUpdate); err != nil {
-			return err
-		}
-		_, err = tx.ExecContext(ctx, `UPDATE jobdb_jobs SET route_job_type=?,route_task_type='',payload=?,wait_for=?,available_at_ns=?,lease_id=NULL,lease_worker_id=NULL,lease_expires_at_ns=NULL,alternate_job_type=NULL,alternate_task_type=NULL,alternate_at_ns=NULL,updated_at_ns=? WHERE tenant_id=? AND job_id=?`, resumeJobType, resumePayload, waitFor, timeToNS(now), timeToNS(now), jobKey.TenantId, jobKey.JobId)
-		return err
-	})
+	return lease.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: lease.route})
 }
 
 func (r *Runtime) ensureNextVisibleChapterOrdinal(ctx context.Context, jobKey jobdb.JobKey, ordinal int64) error {

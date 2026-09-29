@@ -97,6 +97,20 @@ The operation must obey these rules:
 
 `commit-if-waiting` is not a silent no-op API. A conflicting or stale completion attempt must fail with a conflict response rather than returning success.
 
+Durable implementations must make interrupted completion recoverable. Before
+publishing output, atomically claim the eligible waiting slot with a finite lease
+and its job-only resume route. If the process stops, lease expiry allows a job
+handler to reconstruct the pending wait or consume the recorded output from
+chapter history. The current and resume job types are normally equal, but the
+runtime API permits distinct resume types.
+
+Output publication must fence the claim against lease takeover and cancellation.
+A supplied client-payload update and the output chapter must become visible
+together, or neither may commit. Releasing/rescheduling the lease happens after
+publication; failure at that point leaves a recoverable job lease. No result is
+acknowledged as successful until publication and rescheduling finish. Recovery
+before publication may require the external caller to retry its result.
+
 ## Lease Guarantees
 
 Execution leases are the normal ownership mechanism for job mutation.

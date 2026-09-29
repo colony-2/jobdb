@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -23,6 +24,9 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	}
 	if err := r.validate(); err != nil {
 		return err
+	}
+	if r.taskCompletions == nil {
+		return fmt.Errorf("runtime core task completion store is required")
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -127,7 +131,18 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 		return fmt.Errorf("%w: task output ordinal %d is not appendable; expected %d",
 			jobdb.ErrConflict, task.OutputOrdinal, count)
 	}
-	if err := r.chapters.Append(ctx, logKey, encoded); err != nil {
+	// The durable claim routes expired leases to a job worker, which can
+	// reconstruct either an unfinished wait or a completed task from history.
+	identity, err := r.taskCompletions.ClaimTask(ctx, ClaimTaskRequest{
+		JobKey: req.JobKey, WorkerID: workerID, Task: waiting,
+		LeaseDuration: 30 * time.Second, Now: r.now(),
+	})
+	if err != nil {
+		return err
+	}
+	if err := r.taskCompletions.PublishTaskOutput(ctx, TaskOutputRequest{
+		Identity: identity, Chapter: encoded, ClientPayloadUpdate: req.ClientPayloadUpdate,
+	}); err != nil {
 		return err
 	}
 	for _, artifact := range sourceArtifacts {
@@ -137,9 +152,8 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 		})
 		_ = artifact.Cleanup()
 	}
-	_, err = r.scheduler.CompleteTaskWork(ctx, CompleteTaskWorkMutation{
-		JobKey: req.JobKey, WorkerID: workerID,
-		Task: waiting, ClientPayloadUpdate: req.ClientPayloadUpdate, Now: r.now(),
+	_, err = r.scheduler.RescheduleLease(ctx, RescheduleMutation{
+		Identity: identity, RouteJobType: task.ResumeJobType, WorkKind: WorkKindJob, Now: r.now(),
 	})
 	return err
 }

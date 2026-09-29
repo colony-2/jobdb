@@ -385,6 +385,10 @@ func (s *Store) AppendChapter(ctx context.Context, rec storage.ChapterRecord, no
 	}
 	defer rollback(tx)
 
+	if err := storage.ApplyAppendMutation(ctx, tx); err != nil {
+		return storage.StoryRecord{}, err
+	}
+
 	meta, err := scanStory(tx.QueryRowContext(ctx, `
 SELECT `+storyColumns+`
 FROM jobdb_chapter_stories
