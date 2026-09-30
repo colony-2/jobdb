@@ -295,11 +295,15 @@ type ExecutionLease struct {
 	ClientPayload         json.RawMessage `json:"clientPayload,omitempty"`
 	ClientPayloadRevision string          `json:"clientPayloadRevision"`
 	ExecutionState        ExecutionState  `json:"executionState"`
-	Job                   JobHandle       `json:"job"`
-	LeaseId               string          `json:"leaseId"`
-	LeaseToken            string          `json:"leaseToken"`
-	Route                 Route           `json:"route"`
-	SchemaHash            *JobSchemaHash  `json:"schemaHash,omitempty"`
+
+	// ExpiresAt Safe validity deadline, including capability expiration.
+	ExpiresAt  *time.Time     `json:"expiresAt,omitempty"`
+	Job        JobHandle      `json:"job"`
+	LeaseId    string         `json:"leaseId"`
+	LeaseToken string         `json:"leaseToken"`
+	Route      Route          `json:"route"`
+	SchemaHash *JobSchemaHash `json:"schemaHash,omitempty"`
+	WorkerId   *string        `json:"workerId,omitempty"`
 }
 
 // ExecutionState defines model for ExecutionState.
@@ -453,7 +457,8 @@ type JsonSchemaFragment = json.RawMessage
 
 // KeepAliveLeaseResponse defines model for KeepAliveLeaseResponse.
 type KeepAliveLeaseResponse struct {
-	LeaseToken string `json:"leaseToken"`
+	Lease      *ExecutionLease `json:"lease,omitempty"`
+	LeaseToken string          `json:"leaseToken"`
 }
 
 // ListChaptersResponse defines model for ListChaptersResponse.

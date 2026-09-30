@@ -10,9 +10,12 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type workerRunnerOptions struct {
+	BeforeRun      func(context.Context, ExecutionLease) error
 	Logger         *slog.Logger
 	JobPolicy      RunPolicy
 	WorkerID       string
@@ -23,10 +26,11 @@ type workerRunnerOptions struct {
 }
 
 type workerRunner struct {
-	runtime WorkflowRuntime
-	worker  *WorkSet
-	lease   ExecutionLease
-	logger  *slog.Logger
+	beforeRun func(context.Context, ExecutionLease) error
+	runtime   WorkflowRuntime
+	worker    *WorkSet
+	lease     ExecutionLease
+	logger    *slog.Logger
 
 	jobPolicy      RunPolicy
 	workerID       string
@@ -80,6 +84,7 @@ func newWorkerRunner(runtime WorkflowRuntime, ws *WorkSet, lease ExecutionLease,
 	}
 	return &workerRunner{
 		runtime:        runtime,
+		beforeRun:      opts.BeforeRun,
 		worker:         ws,
 		lease:          lease,
 		logger:         logger,
@@ -318,11 +323,19 @@ func (r *workerRunner) awaitJobsComplete(ctx context.Context, jobIds []string) (
 }
 
 func (r *workerRunner) AwaitJobs(jobIds ...string) error {
+	ctx := r.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := context.Cause(ctx); err != nil {
+		return err
+	}
+
 	if len(jobIds) == 0 {
 		return fmt.Errorf("at least one jobId is required")
 	}
 	if r.replay {
-		complete, err := r.awaitJobsComplete(context.Background(), jobIds)
+		complete, err := r.awaitJobsComplete(ctx, jobIds)
 		if err != nil {
 			return err
 		}
@@ -336,7 +349,7 @@ func (r *workerRunner) AwaitJobs(jobIds ...string) error {
 			Reason:  ReplayCacheMissAwaitJobsPending,
 		}
 	}
-	complete, err := r.awaitJobsComplete(context.Background(), jobIds)
+	complete, err := r.awaitJobsComplete(ctx, jobIds)
 	if err != nil {
 		return err
 	}
@@ -487,6 +500,10 @@ func (r *workerRunner) executeJobWorkerAsync(inputData TaskData) chan jobResult 
 			jobErr = normalizeComparableError(jobErr)
 			resultCh <- jobResult{output: output, err: jobErr}
 		}()
+		if err := context.Cause(r.ctx); err != nil {
+			jobErr = err
+			return
+		}
 		output, jobErr = r.worker.JobWorker.Run(r, inputData)
 	}()
 	return resultCh
@@ -499,13 +516,19 @@ func (r *workerRunner) waitForJobResultWithDeadline(resultCh chan jobResult, att
 	}
 
 	if deadline.IsZero() {
-		res := <-resultCh
-		return res.output, res.err
+		select {
+		case res := <-resultCh:
+			return res.output, res.err
+		case <-r.ctx.Done():
+			return nil, context.Cause(r.ctx)
+		}
 	}
 
 	timer := time.NewTimer(time.Until(deadline))
 	defer timer.Stop()
 	select {
+	case <-r.ctx.Done():
+		return nil, context.Cause(r.ctx)
 	case res := <-resultCh:
 		return res.output, res.err
 	case <-timer.C:
@@ -772,6 +795,9 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if err := context.Cause(ctx); err != nil {
+		return nil, err
+	}
 	inputHash, err := computeInputHash(ctx, data)
 	if err != nil {
 		return nil, fmt.Errorf("compute input hash: %w", err)
@@ -946,6 +972,10 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 					}
 					taskErr = normalizeComparableError(taskErr)
 				}()
+				if err := context.Cause(ctx); err != nil {
+					taskErr = err
+					return
+				}
 				output, taskErr = worker.Run(newTaskContextWithLeaseActions(
 					r.GetJobKey(),
 					ordinal,
@@ -981,6 +1011,8 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 		var taskErr error
 		if deadline.IsZero() {
 			select {
+			case <-ctx.Done():
+				return nil, context.Cause(ctx)
 			case res := <-resultCh:
 				output, taskErr = res.output, res.err
 			case <-exitCh:
@@ -989,6 +1021,9 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 		} else {
 			timer := time.NewTimer(time.Until(deadline))
 			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, context.Cause(ctx)
 			case res := <-resultCh:
 				if !timer.Stop() {
 					select {
@@ -1012,6 +1047,13 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 					taskErr = NewTimeoutError("task", invocationTimeout, TimeoutScopeInvocation, inputRef, true)
 				}
 			}
+		}
+
+		if err := context.Cause(ctx); err != nil {
+			return nil, err
+		}
+		if errors.Is(taskErr, ErrExecutionLeaseLost) {
+			return nil, taskErr
 		}
 
 		now = time.Now()
@@ -1120,11 +1162,51 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 	}
 }
 
-func (r *workerRunner) DoJob(ctx context.Context) (JobData, error) {
+func (r *workerRunner) DoJob(ctx context.Context) (output JobData, runErr error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	var session *leaseSession
+	if r.lease != nil && !r.replay {
+		if renewable, ok := r.lease.(jobdb.RenewableExecutionLease); ok {
+			var err error
+			session, err = startLeaseSession(ctx, renewable)
+			if err != nil {
+				return nil, err
+			}
+			ctx = session.ctx
+			r.lease = session
+			r.jobPolicy = normalizeRunPolicy(session.ExecutionState().RunPolicy)
+			r.workerID = session.LeaseWorkerID()
+			defer func() {
+				// Capture the failure before cleanup cancels the execution context.
+				session.stop()
+				<-session.done
+				cause := context.Cause(ctx)
+				session.close()
+				if cause != nil {
+					output, runErr = nil, cause
+				}
+			}()
+		} else {
+			if err := r.lease.KeepAlive(ctx); err != nil {
+				return nil, &jobdb.LeaseRenewalError{Err: err}
+			}
+			defer r.lease.StopKeepAlive()
+		}
+	}
 	r.ctx = ctx
+	if r.beforeRun != nil {
+		if err := r.beforeRun(ctx, r.lease); err != nil {
+			return nil, err
+		}
+		if session != nil && session.isReleased() {
+			return nil, nil
+		}
+	}
+	if err := context.Cause(ctx); err != nil {
+		return nil, err
+	}
 
 	inputData, _, meta, err := r.loadInitialChapterAndPolicy(ctx)
 	if err != nil {
@@ -1145,11 +1227,6 @@ func (r *workerRunner) DoJob(ctx context.Context) (JobData, error) {
 	attempt := 1
 	initialStartAt := meta.CreatedAt
 	var nextAttemptStartAt *time.Time
-
-	if r.lease != nil && !r.replay {
-		_ = r.lease.KeepAlive(ctx)
-		defer r.lease.StopKeepAlive()
-	}
 
 	for {
 		startAt := time.Now().UTC()
@@ -1239,6 +1316,12 @@ func (r *workerRunner) DoJob(ctx context.Context) (JobData, error) {
 		attemptStartAt := startAt
 		resultCh := r.executeJobWorkerAsync(inputData)
 		output, jobErr := r.waitForJobResultWithDeadline(resultCh, attemptInvocationDeadline, config.totalDeadline, config.invocationTimeout, config.totalTimeout, config.inputRef)
+		if err := context.Cause(ctx); err != nil {
+			return nil, err
+		}
+		if errors.Is(jobErr, ErrExecutionLeaseLost) {
+			return nil, jobErr
+		}
 		if output == nil && jobErr == nil {
 			r.emitJobEnd(attempt, nil, nil, attemptStartAt)
 			return nil, nil

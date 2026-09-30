@@ -1718,6 +1718,9 @@ components:
       additionalProperties: false
       required: [leaseToken]
       properties:
+        lease:
+          $ref: '#/components/schemas/ExecutionLease'
+          description: Authoritative renewed snapshot; absent on servers without supplied-lease support.
         leaseToken:
           type: string
     Route:
@@ -1761,6 +1764,12 @@ components:
       required: [leaseId, leaseToken, job, route, executionState, clientPayloadRevision]
       additionalProperties: false
       properties:
+        workerId:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+          description: Safe validity deadline, including capability expiration.
         clientPayload:
           x-go-type: json.RawMessage
           x-go-type-skip-optional-pointer: true

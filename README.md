@@ -132,7 +132,9 @@ Workflow workers are intentionally documented separately from the server. If you
 are writing job workers, task workers, or a process that runs worker loops, use
 the `pkg/workflow` package.
 
-See [pkg/workflow/README.md](pkg/workflow/README.md).
+See [pkg/workflow/README.md](pkg/workflow/README.md). To hand a claimed lease to
+another worker process without acquiring it again, see
+[supplied-lease execution](docs/SUPPLIED-LEASE-EXECUTION.md).
 
 ## Development
 

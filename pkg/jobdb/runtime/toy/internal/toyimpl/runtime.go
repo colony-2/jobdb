@@ -730,15 +730,17 @@ func (r *Runtime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) e
 	if record == nil {
 		return jobdb.ErrJobNotFound
 	}
-	if authorized, err := leaseauth.Authorize(ctx, req.Ref.JobKey, req.LeaseID); err != nil {
+	if _, err := leaseauth.Authorize(ctx, req.Ref.JobKey, req.LeaseID); err != nil {
 		return err
-	} else if !authorized {
-		record.mu.Lock()
-		if record.leaseID != req.LeaseID {
-			record.mu.Unlock()
-			return jobdb.ErrExecutionLeaseLost
-		}
-		record.mu.Unlock()
+	}
+	record.mu.Lock()
+	valid := record.leaseID == req.LeaseID && record.leased && record.leaseExpiresAt.After(time.Now()) && !record.cancelled && record.archived == nil
+	if claims, ok := leaseauth.ClaimsFromContext(ctx); ok {
+		valid = valid && claims.WorkerID == record.leaseWorkerID
+	}
+	record.mu.Unlock()
+	if !valid {
+		return jobdb.ErrExecutionLeaseLost
 	}
 
 	chapter, err := r.prepareChapterWrite(ctx, req)

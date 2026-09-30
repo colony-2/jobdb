@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -10,9 +11,12 @@ import (
 	"time"
 
 	"github.com/segmentio/ksuid"
+
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type claimedJobRunOptions struct {
+	BeforeRun      func(context.Context, ExecutionLease) error
 	Logger         *slog.Logger
 	WorkerID       string
 	AwaitThreshold time.Duration
@@ -29,6 +33,9 @@ const (
 )
 
 type GetJobForRunRequest struct {
+	// BeforeRun runs under the validated, renewing lease before application work.
+	// It may reschedule the supplied lease to reject execution admission.
+	BeforeRun     func(context.Context, ExecutionLease) error
 	JobKey        JobKey
 	JobWorker     JobWorker
 	TaskWorkers   []TaskWorker
@@ -67,6 +74,7 @@ type JobRunListener interface {
 }
 
 type JobRunnable struct {
+	beforeRun       func(context.Context, ExecutionLease) error
 	ctx             context.Context
 	runtime         WorkflowRuntime
 	workset         *WorkSet
@@ -127,6 +135,7 @@ func GetJobForRun(ctx context.Context, runtime WorkflowRuntime, req GetJobForRun
 		}
 		return &JobRunnable{
 			ctx:             ctx,
+			beforeRun:       req.BeforeRun,
 			runtime:         runtime,
 			workset:         workset,
 			workerID:        workerID,
@@ -145,6 +154,7 @@ func GetJobForRun(ctx context.Context, runtime WorkflowRuntime, req GetJobForRun
 	}
 	return &JobRunnable{
 		ctx:             ctx,
+		beforeRun:       req.BeforeRun,
 		runtime:         runtime,
 		workset:         workset,
 		lease:           lease,
@@ -154,6 +164,46 @@ func GetJobForRun(ctx context.Context, runtime WorkflowRuntime, req GetJobForRun
 		supportedRoutes: routeSet,
 		jobKey:          jobKey,
 	}, nil
+}
+
+// GetJobForRunWithLease prepares one invocation using existing authority. It
+// never acquires work. Validation and renewal occur when Run starts, so a delay
+// between preparation and execution cannot bypass the authority check.
+func GetJobForRunWithLease(ctx context.Context, runtime WorkflowRuntime, lease ExecutionLease, req GetJobForRunRequest) (*JobRunnable, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if runtime == nil || lease == nil || req.JobWorker == nil {
+		return nil, fmt.Errorf("runtime, lease and job worker are required")
+	}
+	renewable, ok := lease.(jobdb.RenewableExecutionLease)
+	if !ok {
+		return nil, jobdb.ErrLeaseRenewalUnsupported
+	}
+	if lease.LeaseID() == "" || lease.Job().JobKey != req.JobKey {
+		return nil, jobdb.ErrExecutionLeaseLost
+	}
+	if req.WorkerID != "" && req.WorkerID != renewable.LeaseWorkerID() {
+		return nil, jobdb.ErrExecutionLeaseLost
+	}
+	ws, err := AsWorkSet(req.JobWorker, req.TaskWorkers...)
+	if err != nil {
+		return nil, err
+	}
+	routes := make(map[Route]struct{})
+	for _, route := range workSetRoutes(ws) {
+		routes[route] = struct{}{}
+	}
+	beforeRun := func(ctx context.Context, current ExecutionLease) error {
+		if _, ok := routes[current.Route()]; !ok {
+			return fmt.Errorf("supplied lease route is not supported by these workers")
+		}
+		if req.BeforeRun != nil {
+			return req.BeforeRun(ctx, current)
+		}
+		return nil
+	}
+	return &JobRunnable{ctx: ctx, runtime: runtime, workset: ws, lease: lease, workerID: renewable.LeaseWorkerID(), logger: req.Logger, awaitThreshold: req.AwaitThreshold, supportedRoutes: routes, jobKey: req.JobKey, beforeRun: beforeRun}, nil
 }
 
 func (r *JobRunnable) JobKey() JobKey {
@@ -230,6 +280,7 @@ func (r *JobRunnable) Run(listener JobRunListener) (JobRunOutcome, error) {
 		WorkerID:       workerID,
 		AwaitThreshold: awaitThreshold,
 		Observer:       observer,
+		BeforeRun:      r.beforeRun,
 	})
 	if asyncListener != nil {
 		asyncListener.Close()
@@ -296,6 +347,7 @@ func runClaimedJobLease(ctx context.Context, runtime WorkflowRuntime, workset *W
 		JobPolicy:      payload.RunPolicy,
 		WorkerID:       opts.WorkerID,
 		Observer:       opts.Observer,
+		BeforeRun:      opts.BeforeRun,
 		AwaitThreshold: opts.AwaitThreshold,
 	})
 	return runner.DoJob(ctx)
@@ -323,6 +375,10 @@ func classifyJobRunWithoutLease(ctx context.Context, runtime WorkflowRuntime, jo
 }
 
 func classifyJobRunAfterRun(ctx context.Context, runtime WorkflowRuntime, jobKey JobKey, supportedRoutes map[Route]struct{}, directOutput JobData, runErr error) (JobRunOutcome, error) {
+	var renewalErr *jobdb.LeaseRenewalError
+	if errors.As(runErr, &renewalErr) || errors.Is(runErr, ErrExecutionLeaseLost) || (ctx.Err() != nil && errors.Is(runErr, ctx.Err())) {
+		return JobRunOutcome{}, runErr
+	}
 	job, err := runtime.GetJob(ctx, jobKey)
 	if err != nil {
 		return JobRunOutcome{}, err

@@ -92,3 +92,24 @@ func leaseIdentityForTransport(key jobdb.JobKey, leaseID, workerID string) (Leas
 	}
 	return LeaseIdentity{JobKey: key, LeaseID: leaseID, WorkerID: workerID}, nil
 }
+
+// RenewExecutionLeaseByID validates and renews an exact lease, returning its
+// authoritative snapshot. This is for trusted transports, not acquisition.
+func (r *Runtime) RenewExecutionLeaseByID(ctx context.Context, key jobdb.JobKey, leaseID, workerID string, duration time.Duration) (jobdb.RenewableExecutionLease, error) {
+	identity, err := leaseIdentityForTransport(key, leaseID, workerID)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.validate(); err != nil {
+		return nil, err
+	}
+	snapshot, err := r.scheduler.KeepAliveLease(ctx, LeaseMutation{Identity: identity, Duration: duration, Now: r.now()})
+	if err != nil {
+		return nil, err
+	}
+	return r.wrapLease(snapshot)
+}
+
+func (l *executionLease) Renew(ctx context.Context) (jobdb.RenewableExecutionLease, error) {
+	return l.runtime.RenewExecutionLeaseByID(ctx, l.Job().JobKey, l.LeaseID(), l.LeaseWorkerID(), l.snapshot.Duration)
+}

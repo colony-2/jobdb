@@ -281,7 +281,7 @@ func (r *Runtime) validateLease(ctx context.Context, jobKey jobdb.JobKey, leaseI
 }
 
 func validateLeaseRow(row jobRow, leaseID string, workerID string, now time.Time) error {
-	if row.archivedAtNS.Valid {
+	if row.archivedAtNS.Valid || row.cancelRequested {
 		return jobdb.ErrExecutionLeaseLost
 	}
 	if !row.leaseID.Valid || row.leaseID.String == "" || row.leaseID.String != leaseID {

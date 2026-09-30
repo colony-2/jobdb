@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
 )
 
 func (r *Runtime) KeepAliveLeaseByID(ctx context.Context, jobKey jobdb.JobKey, leaseID string, workerID string, leaseDuration time.Duration) error {
@@ -52,4 +53,29 @@ func (r *Runtime) SubmitRestartJobWithLeaseByID(ctx context.Context, parentJobKe
 	}
 	req.Job.PriorJobKey.TenantId = parentJobKey.TenantId
 	return r.submitRestartJobWithParent(ctx, req, parentJobKey.JobId)
+}
+
+func (l *runtimeLease) Renew(ctx context.Context) (jobdb.RenewableExecutionLease, error) {
+	return l.runtime.RenewExecutionLeaseByID(ctx, l.jobKey, l.leaseID, l.workerID, l.duration)
+}
+
+// RenewExecutionLeaseByID validates and renews the exact lease under the record lock.
+func (r *Runtime) RenewExecutionLeaseByID(ctx context.Context, key jobdb.JobKey, leaseID, workerID string, duration time.Duration) (jobdb.RenewableExecutionLease, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	record := r.engine.getJobRecord(key)
+	if record == nil {
+		return nil, jobdb.ErrExecutionLeaseLost
+	}
+	record.mu.Lock()
+	defer record.mu.Unlock()
+	if leaseID == "" || workerID == "" || record.leaseID != leaseID || record.leaseWorkerID != workerID || !record.leased || !record.leaseExpiresAt.After(time.Now().UTC()) || record.cancelled || record.archived != nil {
+		return nil, jobdb.ErrExecutionLeaseLost
+	}
+	duration = toyLeaseDurationOrDefault(duration)
+	record.leaseExpiresAt = time.Now().UTC().Add(duration)
+	return &runtimeLease{runtime: r, jobKey: key, leaseID: leaseID, workerID: workerID,
+		route: record.route, payload: cloneJSON(record.payload), clientPayload: cloneJSON(record.clientPayload), clientPayloadRevision: record.clientPayloadRevision,
+		duration: duration, expiresAt: record.leaseExpiresAt, schemaHash: jobmetadata.SchemaHashFromStoredMetadata(record.metadata)}, nil
 }

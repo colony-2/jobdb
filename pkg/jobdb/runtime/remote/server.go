@@ -868,6 +868,19 @@ func (s *proxyServer) KeepAliveLease(ctx context.Context, request runtimeapi.Kee
 		return nil, err
 	}
 	leaseDuration := claims.leaseDuration()
+	if renewal, ok := ops.(interface {
+		RenewExecutionLeaseByID(context.Context, jobdb.JobKey, string, string, time.Duration) (jobdb.RenewableExecutionLease, error)
+	}); ok {
+		lease, err := renewal.RenewExecutionLeaseByID(ctx, jobKey, request.LeaseId, claims.WorkerID, leaseDuration)
+		if err != nil {
+			return nil, err
+		}
+		snapshot, err := s.toAPIExecutionLease(lease, leaseDuration)
+		if err != nil {
+			return nil, err
+		}
+		return runtimeapi.KeepAliveLease200JSONResponse{LeaseToken: snapshot.LeaseToken, Lease: &snapshot}, nil
+	}
 	leaseExpiresAt := time.Now().UTC().Add(leaseDuration)
 	if renewal, ok := ops.(leaseRenewalRuntime); ok {
 		var err error
@@ -1030,11 +1043,18 @@ func (s *proxyServer) toAPIExecutionLease(lease jobdb.ExecutionLease, requestedD
 	if err != nil {
 		return runtimeapi.ExecutionLease{}, err
 	}
+	// Publish the exact signed deadline; clients never decode private token claims.
+	claims, err := s.tokens.parse(token)
+	if err != nil {
+		return runtimeapi.ExecutionLease{}, err
+	}
+	expiry, worker := claims.expiresAt(), claims.WorkerID
 	return runtimeapi.ExecutionLease{
-		Route:          runtimeapi.Route(lease.Route()),
-		Job:            toAPIJobHandle(lease.Job()),
-		LeaseId:        lease.LeaseID(),
-		LeaseToken:     token,
+		Route:      runtimeapi.Route(lease.Route()),
+		Job:        toAPIJobHandle(lease.Job()),
+		LeaseId:    lease.LeaseID(),
+		LeaseToken: token,
+		ExpiresAt:  &expiry, WorkerId: &worker,
 		ExecutionState: state, ClientPayload: lease.ClientPayload(), ClientPayloadRevision: strconv.FormatInt(lease.ClientPayloadRevision(), 10),
 		SchemaHash: schemaHashPtr(leaseSchemaHash(lease)),
 	}, nil

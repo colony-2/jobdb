@@ -699,6 +699,8 @@ func (r *Runtime) OpenArtifact(ctx context.Context, ref jobdb.ArtifactRef) (jobd
 }
 
 type remoteExecutionLease struct {
+	workerID       string
+	expiresAt      time.Time
 	runtime        *Runtime
 	leaseID        string
 	jobKey         jobdb.JobKey
@@ -744,6 +746,9 @@ func (l *remoteExecutionLease) KeepAlive(ctx context.Context) error {
 	if resp.StatusCode() == http.StatusOK && resp.JSON200 != nil {
 		l.mu.Lock()
 		l.leaseToken = resp.JSON200.LeaseToken
+		if resp.JSON200.Lease != nil && resp.JSON200.Lease.ExpiresAt != nil {
+			l.expiresAt = *resp.JSON200.Lease.ExpiresAt
+		}
 		l.mu.Unlock()
 		return nil
 	}
@@ -924,6 +929,7 @@ func (r *Runtime) executionLeaseFromAPI(lease runtimeapi.ExecutionLease) (jobdb.
 		schemaHash:    stringValue(lease.SchemaHash),
 		clientPayload: cloneRawMessage(lease.ClientPayload), clientRevision: revision, state: state,
 		leaseToken: lease.LeaseToken,
+		workerID:   stringValue(lease.WorkerId), expiresAt: timeValue(lease.ExpiresAt),
 	}, nil
 }
 
@@ -1013,6 +1019,9 @@ func responseErrorWithConflict(operation string, status int, body []byte, notFou
 			return fmt.Errorf("%w: %s", notFoundSentinel, message)
 		}
 	case http.StatusConflict:
+		if strings.Contains(message, jobdb.ErrExecutionLeaseLost.Error()) {
+			return jobdb.ErrExecutionLeaseLost
+		}
 		if strings.Contains(message, jobdb.ErrConflict.Error()) {
 			return fmt.Errorf("%w: %s", jobdb.ErrConflict, message)
 		}

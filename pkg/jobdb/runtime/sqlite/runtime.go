@@ -911,19 +911,19 @@ func (r *Runtime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) e
 	if req.Chapter.Ordinal != req.Ref.Ordinal {
 		return fmt.Errorf("chapter ordinal %d does not match target ordinal %d", req.Chapter.Ordinal, req.Ref.Ordinal)
 	}
-	schemaHash := ""
-	if claims, ok := leaseauth.ClaimsFromContext(ctx); ok && leaseauth.Matches(claims, req.Ref.JobKey, req.LeaseID) {
-		schemaHash = claims.SchemaHash
-	}
-	if authorized, err := leaseauth.Authorize(ctx, req.Ref.JobKey, req.LeaseID); err != nil {
+	// Signed claims authorize the request but do not prove the lease is still live.
+	if _, err := leaseauth.Authorize(ctx, req.Ref.JobKey, req.LeaseID); err != nil {
 		return err
-	} else if !authorized {
-		row, err := r.validateLease(ctx, req.Ref.JobKey, req.LeaseID, "")
-		if err != nil {
-			return err
-		}
-		schemaHash = jobmetadata.SchemaHashFromStoredMetadata(row.metadata)
 	}
+	workerID := ""
+	if claims, ok := leaseauth.ClaimsFromContext(ctx); ok {
+		workerID = claims.WorkerID
+	}
+	row, err := r.validateLease(ctx, req.Ref.JobKey, req.LeaseID, workerID)
+	if err != nil {
+		return err
+	}
+	schemaHash := jobmetadata.SchemaHashFromStoredMetadata(row.metadata)
 	if err := r.ensureNextVisibleChapterOrdinal(ctx, req.Ref.JobKey, req.Ref.Ordinal); err != nil {
 		return err
 	}

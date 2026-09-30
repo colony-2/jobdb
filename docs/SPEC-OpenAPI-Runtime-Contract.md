@@ -853,10 +853,21 @@ the local runtime lease operation. `keepAliveLease` returns a fresh
 the renewed scheduler lease expiry, with a small skew so the transport token
 does not outlive the underlying lease.
 
+Servers supporting supplied-lease execution also return
+`KeepAliveLeaseResponse.lease`, an authoritative `ExecutionLease` snapshot with
+`workerId` and `expiresAt`. The latter is the safe signed-token validity deadline.
+These are additive optional wire fields for compatibility; supplied-lease clients
+require them and fail as unsupported if the renewed snapshot is absent. Import
+uses this existing token-authorized endpoint, with no acquisition or owner change.
+See [supplied-lease execution](SUPPLIED-LEASE-EXECUTION.md) for the versioned
+capability export format and public Go entry points.
+
 When the server handles `addChapterWithLease`, validated token claims are passed
-into the local runtime so the chapter write can be authorized by the already
-validated lease identity. A stale, missing, expired, or mismatched token maps to
-lease-lost conflict semantics.
+into the local runtime. The runtime also checks live backend ownership: signature
+and token expiry alone are insufficient after cancellation or superseding a lease.
+A stale, missing, expired, or mismatched token maps to lease-lost conflict semantics.
+Chapter append remains independent of scheduler operations; a preceding authority
+check does not create atomic revocation-versus-append fencing across stores.
 
 ## Jobs
 
@@ -998,7 +1009,7 @@ schemas:
 | `submitRestartJob`, `putRestartJob` | restart payload fields are `TaskDataWrite`; `lastStepToKeep` is `integer/int64`. |
 | `listJobs` | filters use typed `MetadataPredicate`; summaries expose `SchedulerPayload` and `Metadata`. |
 | `pollWork`, `getJobLease` | `ExecutionLease.payload` is `SchedulerPayload`; responses include a runtime-minted `leaseToken`. |
-| `keepAliveLease` | requires `X-JobDB-Lease-Token`; response returns a fresh `leaseToken` for the renewed lease. |
+| `keepAliveLease` | requires `X-JobDB-Lease-Token`; response returns a fresh `leaseToken` and, on supplied-lease servers, an authoritative `lease` snapshot with owner and safe expiry. |
 | `rescheduleJobWithLease` | requires `X-JobDB-Lease-Token`; request payload is typed `SchedulerPayload`; caller-owned lease payload is `ApplicationPayload`. |
 | `completeJobWithLease` | requires `X-JobDB-Lease-Token`; terminal detail remains the operation detail payload. |
 | `addChapterWithLease` | requires `X-JobDB-Lease-Token`; request body uses `ChapterWrite`; chapter body is a discriminated union. |
