@@ -228,7 +228,7 @@ type Scheduler interface {
     ValidateLease(context.Context, LeaseIdentity) (LeaseSnapshot, error)
 
     GetWaitingTask(context.Context, jobdb.JobKey) (WaitingTaskSnapshot, error)
-    CompleteTaskWork(context.Context, CompleteTaskWorkMutation) error
+    ClaimTask(context.Context, ClaimTaskRequest) (LeaseIdentity, error)
 
     UpsertSchedule(context.Context, StoredScheduleMutation) (StoredSchedule, error)
     GetSchedule(context.Context, jobdb.ScheduleKey) (StoredSchedule, error)

@@ -114,7 +114,6 @@ type CompleteExecutionRequest struct
   field Chapter *Chapter
   field ArtifactUploads []ArtifactUpload
 type CompleteTaskIfWaitingRequest struct
-  field ClientPayloadUpdate *ClientPayloadUpdate
   field JobKey JobKey
   field Route Route
   field ResumeJobType string
@@ -712,7 +711,6 @@ func NewSQLDB func(ctx context.Context, db *database/sql.DB, cfg Config) (*Store
 func OpenDSN func(ctx context.Context, dsn string, cfg Config) (*Store, error)
 type Store struct
 method Store.Append func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb/runtime/core.ChapterLogKey, chapter github.com/colony-2/jobdb/pkg/jobdb/runtime/core.EncodedChapter) error
-method Store.AppendWithMutation func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb/runtime/core.ChapterLogKey, chapter github.com/colony-2/jobdb/pkg/jobdb/runtime/core.EncodedChapter, mutation func(*database/sql.Tx) error) error
 method Store.ClonePrefix func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb/runtime/core.ClonePrefixRequest) error
 method Store.Close func(ctx context.Context) error
 method Store.Count func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb/runtime/core.ChapterLogKey) (int64, error)
@@ -791,12 +789,6 @@ type ClonePrefixRequest struct
   field DestinationKey ChapterLogKey
   field LastOrdinal int64
   field Append *EncodedChapter
-type CompleteTaskWorkMutation struct
-  field JobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey
-  field WorkerID string
-  field Task WaitingTaskSnapshot
-  field ClientPayloadUpdate *github.com/colony-2/jobdb/pkg/jobdb.ClientPayloadUpdate
-  field Now time.Time
 type CompletionMutation struct
   field ClientPayloadUpdate *github.com/colony-2/jobdb/pkg/jobdb.ClientPayloadUpdate
   field Identity LeaseIdentity
@@ -812,7 +804,6 @@ type CompletionSnapshot struct
   field Retryable *bool
 type Config struct
   field Scheduler Scheduler
-  field TaskCompletions TaskCompletionStore
   field Chapters ChapterLog
   field Schemas SchemaStore
   field Now func() time.Time
@@ -964,8 +955,8 @@ type Scheduler interface
   method AcquireJobLease func(ctx context.Context, req JobLeaseRequest) (*LeaseSnapshot, error)
   method AcquireWork func(ctx context.Context, req WorkRequest) ([]LeaseSnapshot, error)
   method CancelJob func(ctx context.Context, req CancelJobMutation) (StoredJob, error)
+  method ClaimTask func(ctx context.Context, req ClaimTaskRequest) (LeaseIdentity, error)
   method CompleteLease func(ctx context.Context, mutation CompletionMutation) (StoredJob, error)
-  method CompleteTaskWork func(ctx context.Context, mutation CompleteTaskWorkMutation) (StoredJob, error)
   method CreateJob func(ctx context.Context, req CreateJobRequest) (StoredJob, error)
   method GetJob func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey) (StoredJob, error)
   method GetSchedule func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey) (StoredSchedule, error)
@@ -1054,13 +1045,6 @@ type StoredScheduleMutation struct
   field ExpectedGeneration *int64
   field RequestTime time.Time
   field WorkerID string
-type TaskCompletionStore interface
-  method ClaimTask func(context.Context, ClaimTaskRequest) (LeaseIdentity, error)
-  method PublishTaskOutput func(context.Context, TaskOutputRequest) error
-type TaskOutputRequest struct
-  field Identity LeaseIdentity
-  field Chapter EncodedChapter
-  field ClientPayloadUpdate *github.com/colony-2/jobdb/pkg/jobdb.ClientPayloadUpdate
 type TaskWork struct
   field TaskType string
   field ResumeJobType string
@@ -1406,7 +1390,6 @@ type TaskHandle interface
   method CreatedAt func() time.Time
   method Data func() (TaskData, error)
   method Finish func(ctx context.Context, taskData TaskData) error
-  method FinishWithClientPayload func(ctx context.Context, taskData TaskData, update *ClientPayloadUpdate) error
   method JobKey func() JobKey
   method Metadata func() encoding/json.RawMessage
   method TaskOrdinalToComplete func() int64

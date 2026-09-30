@@ -1107,9 +1107,6 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	if err := r.validate(); err != nil {
 		return err
 	}
-	if err := clientpayload.ValidateUpdate(req.ClientPayloadUpdate, false); err != nil {
-		return err
-	}
 	jobKey := req.JobKey
 	row, err := r.loadJobRow(ctx, jobKey)
 	if err != nil {
@@ -1117,9 +1114,6 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	}
 	if row.archivedAtNS.Valid || row.cancelRequested || (row.leaseExpiresAtNS.Valid && row.leaseExpiresAtNS.Int64 > timeToNS(time.Now().UTC())) {
 		return fmt.Errorf("%w: task is not unheld", jobdb.ErrConflict)
-	}
-	if _, _, err := clientpayload.Apply(row.clientPayload, row.clientPayloadRevision, req.ClientPayloadUpdate); err != nil {
-		return err
 	}
 	tw, err := extractTaskWaitFromRaw(row.payload)
 	if err != nil {
@@ -1192,7 +1186,7 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	if err != nil {
 		return err
 	}
-	if err := r.publishTaskOutput(ctx, lease, chapter, req.ClientPayloadUpdate); err != nil {
+	if err := r.appendTaskOutput(ctx, lease, chapter); err != nil {
 		return err
 	}
 	artifacts, _ := req.Data.GetArtifacts()

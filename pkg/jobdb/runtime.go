@@ -100,15 +100,16 @@ type GetJobLeaseRequest struct {
 	LeaseDuration time.Duration
 }
 
+// CompleteTaskIfWaitingRequest completes an external task without changing the
+// job's client payload. Update client state through a leased scheduler operation.
 type CompleteTaskIfWaitingRequest struct {
-	ClientPayloadUpdate *ClientPayloadUpdate
-	JobKey              JobKey
-	Route               Route
-	ResumeJobType       string
-	InputOrdinal        int64
-	OutputOrdinal       int64
-	InputHash           string
-	Data                TaskData
+	JobKey        JobKey
+	Route         Route
+	ResumeJobType string
+	InputOrdinal  int64
+	OutputOrdinal int64
+	InputHash     string
+	Data          TaskData
 }
 
 type ChapterRef struct {

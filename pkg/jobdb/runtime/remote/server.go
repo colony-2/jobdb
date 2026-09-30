@@ -739,7 +739,6 @@ func (s *proxyServer) CommitChapterIfWaiting(ctx context.Context, request runtim
 		return nil, badRequest(err.Error())
 	}
 	err = s.runtime.CompleteTaskIfWaiting(ctx, jobdb.CompleteTaskIfWaitingRequest{
-		ClientPayloadUpdate: request.Body.ClientPayloadUpdate,
 		JobKey: jobdb.JobKey{
 			TenantId: request.TenantId,
 			JobId:    request.JobId,

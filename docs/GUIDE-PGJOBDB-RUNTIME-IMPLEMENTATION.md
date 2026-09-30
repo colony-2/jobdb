@@ -12,7 +12,7 @@ prospective wording reflects that plan.
 For the required commit-if-waiting recovery update, follow
 [GUIDE-PGJOBDB-TASK-COMPLETION-RECOVERY.md](GUIDE-PGJOBDB-TASK-COMPLETION-RECOVERY.md).
 That guide supersedes the original append-then-`CompleteTaskWork` sequence and
-adds the `TaskCompletionStore` port.
+adds the scheduler-only `ClaimTask` operation. Chapter insertion stays independent.
 
 This guide is pgjobdb-specific, but it is based on the generic runtime
 extension design in
@@ -173,7 +173,7 @@ pgjobdb should implement its Postgres scheduler around the
 - `CreateJob`, `GetJob`, `ListJobs`, and `CancelJob`
 - `AcquireWork` and `AcquireJobLease`
 - `ValidateLease`, `KeepAliveLease`, `CompleteLease`, and `RescheduleLease`
-- `GetWaitingTask` and `CompleteTaskWork`
+- `GetWaitingTask` and `ClaimTask`
 - `UpsertSchedule`, `GetSchedule`, `ListSchedules`, `MutateSchedule`, and
   `ListScheduleRuns`
 

@@ -19,20 +19,21 @@ Job input, task input/results, and metadata keep their existing separate roles.
 
 ## The four operations
 
-All four accept the same optional `ClientPayloadUpdate`.
+Submission, rescheduling, and job completion accept an optional
+`ClientPayloadUpdate`. External task completion preserves client state.
 
 | Operation | Immutable settings | Scheduling and completion | Client payload |
 | --- | --- | --- | --- |
 | Submit job | Set once. | Set initial route, availability, and prerequisites. | Apply update to an absent value; omission leaves it absent. |
 | Reschedule job | Unchanged. | Set next route, waits, alternate route, and task coordinates; release lease even if `NextRoute` is unchanged. | Preserve, patch, or reset atomically with rescheduling. |
-| Complete task if waiting | Unchanged. | Match the waiting task, record its result, clear pending-task state, and set the resume route. | Preserve, patch, or reset as part of the accepted task completion. |
+| Complete task if waiting | Unchanged. | Match the waiting task, record its result, clear pending-task state, and set the resume route. | Preserve unchanged; no update field. |
 | Complete job | Unchanged. | Record the final outcome and archive the job. | Preserve, patch, or reset before the final state becomes visible. |
 
 Chapter completion is not a scheduler operation. Ordinary job/task chapter
 writes, including in-process task results, must not touch scheduler rows and
 accept no client-payload update. During execution, updates belong to explicit
-reschedule/yield. `CompleteTaskIfWaiting` includes a resume/yield transition;
-its payload update belongs to that transition, not its result-chapter write.
+reschedule/yield. `CompleteTaskIfWaiting` accepts no client-payload update;
+its claim, chapter insertion, and final reschedule are independent commits.
 Submission initializes state and complete-job finalization archives it separately
 from writing the corresponding chapters.
 
@@ -97,7 +98,7 @@ handoff.
 Reschedule and complete-job writes require the current live lease and reject
 cancellation. Complete-task-if-waiting uses its own existing authorization:
 match the exact waiting route, ordinals, and input hash; require no live lease
-and no cancellation. That authorized operation may update client payload too.
+and no cancellation. It preserves client payload without an update.
 Recheck these conditions under the job lock, not only before entering storage.
 Existing chapter/artifact preparation remains separate; this change guarantees
 atomic scheduler acceptance, not a new cross-store transaction protocol.
@@ -127,8 +128,8 @@ JSON`, its revision, and an immutable initial-value digest for submission retrie
 Create its row with the job and retain it across active/archive transitions;
 remove it on permanent job deletion.
 
-Extend the native submit, reschedule, complete-task-work, and complete-job
-functions and Go bindings with the client update. Implement one shared native
+Extend the native submit, reschedule, and complete-job functions and Go bindings
+with the client update. External completion/claim must preserve client state. Implement one shared native
 patch/reset helper, called under the job lock after authorization and revision
 checks. Apply the same patch rules as JobDB without converting numbers to floats
 or JSONB. The runtime adapter forwards the update; it must not do a separate

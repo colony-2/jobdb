@@ -250,13 +250,12 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 		return err
 	}
 	body := runtimeapi.CommitChapterIfWaitingRequest{
-		ClientPayloadUpdate: req.ClientPayloadUpdate,
-		Route:               runtimeapi.Route(req.Route),
-		Data:                data,
-		InputHash:           stringPtrOrNil(req.InputHash),
-		InputOrdinal:        int64Ptr(req.InputOrdinal),
-		OutputOrdinal:       int64Ptr(req.OutputOrdinal),
-		ResumeJobType:       stringPtrOrNil(req.ResumeJobType),
+		Route:         runtimeapi.Route(req.Route),
+		Data:          data,
+		InputHash:     stringPtrOrNil(req.InputHash),
+		InputOrdinal:  int64Ptr(req.InputOrdinal),
+		OutputOrdinal: int64Ptr(req.OutputOrdinal),
+		ResumeJobType: stringPtrOrNil(req.ResumeJobType),
 	}
 	resp, err := r.client.CommitChapterIfWaitingWithResponse(ctx, req.JobKey.TenantId, req.JobKey.JobId, req.OutputOrdinal, body)
 	if err != nil {

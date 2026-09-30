@@ -11,11 +11,10 @@ import (
 // Runtime owns JobDB workflow semantics and delegates durable state to its
 // backend ports. Its methods are being moved here from concrete runtimes.
 type Runtime struct {
-	scheduler       Scheduler
-	taskCompletions TaskCompletionStore
-	chapters        ChapterLog
-	schemas         *SchemaRegistry
-	now             func() time.Time
+	scheduler Scheduler
+	chapters  ChapterLog
+	schemas   *SchemaRegistry
+	now       func() time.Time
 }
 
 var _ jobdb.WorkflowRuntime = (*Runtime)(nil)
@@ -30,11 +29,10 @@ func NewRuntime(cfg Config) (*Runtime, error) {
 		return nil, err
 	}
 	return &Runtime{
-		scheduler:       cfg.Scheduler,
-		taskCompletions: cfg.TaskCompletions,
-		chapters:        cfg.Chapters,
-		schemas:         schemas,
-		now:             nowFunc(cfg.Now),
+		scheduler: cfg.Scheduler,
+		chapters:  cfg.Chapters,
+		schemas:   schemas,
+		now:       nowFunc(cfg.Now),
 	}, nil
 }
 

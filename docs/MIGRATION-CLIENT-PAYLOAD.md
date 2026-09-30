@@ -29,7 +29,7 @@ over. Installers reject old database formats; they do not delete or upgrade them
 | `task_wait` embedded in payload | Supply typed task coordinates and explicit next/resume route fields. |
 | Copying payload into each wait/task transition | Omit the client update; persistence is automatic. |
 | Replacing or clearing combined payload | Send a client-only patch or reset. |
-| Task result completion cannot update client state | `CompleteTaskIfWaiting` accepts the same client update as the other operations. |
+| Client update attached to external task completion | Remove it; `CompleteTaskIfWaiting` preserves client state. Use explicit leased reschedule/yield for updates. |
 | Ordinary chapter/task-result write | Writes chapters/artifacts only; use explicit reschedule/yield to change client state during execution. |
 | Old native SQL signatures and REST payload schema | Update callers; old signatures/fields are removed. |
 
@@ -37,13 +37,13 @@ Only client payload has patch/reset semantics. Next need, waits, and other
 mutable scheduling fields retain their operation-specific assignment rules.
 Each reschedule supplies its full route/waits; omitted alternate routing clears
 it. Native unheld administrative operations preserve client state; client changes
-require a lease or an authorized complete-task-if-waiting transition.
+require a lease. External task completion preserves client state.
 Job/task inputs, results, and metadata remain separate; do not rename unrelated
 payload fields mechanically.
 
 ## Client updates
 
-Submit job, reschedule job, complete task if waiting, and complete job all accept
+Submit job, reschedule job, and complete job accept
 an optional `ClientPayloadUpdate`:
 
 - Omit it to preserve existing state (or start absent on submission).
@@ -73,13 +73,13 @@ Include the observed revision for an existing job; omit it on submission.
 On conflicts or uncertain responses, reconcile against current state rather
 than retrying an old update with a new revision. Job lease operations retain
 lease checks; task-if-waiting completion retains its exact waiting-task guards
-and may update the payload without acquiring a lease.
+and preserves the payload.
 
 Payload changes and the operation's scheduling/terminal transition commit
 together. Updated workflow helpers preserve client state across tasks and pass
-explicit patches/resets into that same operation. `CompleteTaskIfWaiting` applies
-its update at the resume/yield transition. Its chapter write, like any ordinary
-chapter completion, never updates scheduler rows or flushes client state.
+explicit patches/resets into that same operation. `CompleteTaskIfWaiting` has no
+client update. Its independent chapter insertion never updates scheduler rows or
+flushes client state.
 Read-only replay never writes.
 Child/restart jobs start absent unless initialized explicitly; schedule targets
 provide the initial value for each occurrence.
@@ -89,16 +89,17 @@ provide the initial value for each occurrence.
 - Read `lease.ClientPayload()`, `lease.ClientPayloadRevision()`, and
   `lease.ExecutionState()`. `JobInfo` and `JobSummary` expose equivalent fields.
 - Set `SubmitJob.ClientPayloadUpdate` (also supported by restart jobs and schedule
-  targets). Existing-job request types expose the same field.
+  targets). Reschedule and complete-job requests expose the same field.
 - Use `JobContext.Yield(ctx, RescheduleExecutionRequest{...})` or
   `TaskContext.Yield` to publish a change during execution. Supply `NextRoute` and,
   for a task route, `TaskWait`. A successful yield stops the invocation without
   writing a chapter; gate it on persisted state so resumption does not repeat it.
-- External task handles offer `FinishWithClientPayload(ctx, data, update)`;
-  `Finish` preserves client state. Ordinary in-process task results never publish
-  updates. Read-only replay returns no live client snapshot and rejects yield.
+- External task handles use `Finish(ctx, data)`, which preserves client state.
+  `FinishWithClientPayload` has been removed. Ordinary in-process task results
+  never publish updates. Read-only replay returns no live client snapshot and
+  rejects yield.
 - Native pgjobdb uses `SubmitJobRequest.ClientPayloadUpdate`,
-  `RescheduleRequest.ClientPayloadUpdate`, `CompleteTaskWorkRequest.ClientPayloadUpdate`,
+  `RescheduleRequest.ClientPayloadUpdate`,
   and `Completion.ClientPayloadUpdate`. Native leases and job details expose
   `ClientPayload` and `ClientPayloadRevision`. The stored JSON is in
   `pgjobdb.job_client_state`, separate from immutable `job_facts`.

@@ -8,12 +8,9 @@ import (
 // Config wires the durable backend ports used by runtime core.
 type Config struct {
 	Scheduler Scheduler
-	// TaskCompletions coordinates external completion claims and fenced output publication.
-	// Required by CompleteTaskIfWaiting.
-	TaskCompletions TaskCompletionStore
-	Chapters        ChapterLog
-	Schemas         SchemaStore
-	Now             func() time.Time
+	Chapters  ChapterLog
+	Schemas   SchemaStore
+	Now       func() time.Time
 }
 
 // ValidateConfig validates the public runtime-core backend wiring.

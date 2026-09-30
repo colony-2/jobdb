@@ -24,6 +24,7 @@ func waitingTaskFixture(t *testing.T) (*Runtime, Config, jobdb.CompleteTaskIfWai
 	t.Cleanup(func() { _ = r.Close(ctx) })
 	h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
 		TenantId: "tenant", JobID: "job", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1),
+		ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"keep":true}`)},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -39,11 +40,9 @@ func waitingTaskFixture(t *testing.T) (*Runtime, Config, jobdb.CompleteTaskIfWai
 	if err != nil {
 		t.Fatal(err)
 	}
-	revision := int64(0)
 	return r, cfg, jobdb.CompleteTaskIfWaitingRequest{
 		JobKey: h.JobKey, Route: jobdb.Route{JobType: "job", TaskType: "external"},
 		OutputOrdinal: 1, InputHash: "input", Data: jobdb.NewTaskDataOrPanic(2),
-		ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"done":true}`), ExpectedRevision: &revision},
 	}
 }
 
@@ -100,20 +99,23 @@ func TestTaskCompletionRecoversAfterRestart(t *testing.T) {
 			if err != nil || lease == nil {
 				t.Fatalf("job recovery lease: %v %v", lease, err)
 			}
+			if lease.ClientPayloadRevision() != 1 || string(lease.ClientPayload()) != `{"keep":true}` {
+				t.Fatalf("completion changed client payload: %s", lease.ClientPayload())
+			}
 			chapter, err := recovered.GetChapter(ctx, jobdb.ChapterRef{JobKey: req.JobKey, Ordinal: 1})
 			if afterChapter {
 				if err != nil {
 					t.Fatal(err)
 				}
 				outcome := chapter.Body.(jobdb.TaskAttemptOutcomeChapter).Outcome.(jobdb.ApplicationOutputOutcome)
-				if string(outcome.Output.Data) != "2" || lease.ClientPayloadRevision() != 1 || string(lease.ClientPayload()) != `{"done":true}` {
-					t.Fatalf("lost output/payload: %+v %s", chapter, lease.ClientPayload())
+				if string(outcome.Output.Data) != "2" {
+					t.Fatalf("lost output: %+v", chapter)
 				}
 			} else {
 				if !errors.Is(err, jobdb.ErrChapterNotFound) {
 					t.Fatalf("unexpected chapter: %v", err)
 				}
-				if lease.ClientPayloadRevision() != 0 || lease.ClientPayload() != nil {
+				if lease.ClientPayloadRevision() != 1 || string(lease.ClientPayload()) != `{"keep":true}` {
 					t.Fatalf("payload committed without chapter: %s", lease.ClientPayload())
 				}
 				if err := lease.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: req.Route, TaskWait: &jobdb.TaskWait{InputOrdinal: 0, OutputOrdinal: 1, ResumeJobType: "job", InputHash: "input"}}); err != nil {
@@ -127,8 +129,8 @@ func TestTaskCompletionRecoversAfterRestart(t *testing.T) {
 	}
 }
 
-func TestTaskCompletionClaimAndPublicationAreFenced(t *testing.T) {
-	for _, cause := range []string{"expired", "replaced", "cancelled", "payload_conflict"} {
+func TestTaskCompletionChecksClaimBeforeAppend(t *testing.T) {
+	for _, cause := range []string{"expired", "replaced", "cancelled"} {
 		t.Run(cause, func(t *testing.T) {
 			ctx := context.Background()
 			r, _, req := waitingTaskFixture(t)
@@ -144,20 +146,19 @@ func TestTaskCompletionClaimAndPublicationAreFenced(t *testing.T) {
 				t.Fatalf("duplicate claim: %v", err)
 			}
 			statement := map[string]string{
-				"expired":          `UPDATE jobdb_jobs SET lease_expires_at_ns=0`,
-				"replaced":         `UPDATE jobdb_jobs SET lease_id='replacement'`,
-				"cancelled":        `UPDATE jobdb_jobs SET cancel_requested=1`,
-				"payload_conflict": `UPDATE jobdb_jobs SET client_payload_revision=1`,
+				"expired":   `UPDATE jobdb_jobs SET lease_expires_at_ns=0`,
+				"replaced":  `UPDATE jobdb_jobs SET lease_id='replacement'`,
+				"cancelled": `UPDATE jobdb_jobs SET cancel_requested=1`,
 			}[cause]
 			if _, err := r.db.ExecContext(ctx, statement); err != nil {
 				t.Fatal(err)
 			}
 			chapter := story.NewChapter().WithOrdinal(1).WithBytes([]byte(`{}`))
-			err = r.publishTaskOutput(ctx, lease, chapter, req.ClientPayloadUpdate)
+			err = r.appendTaskOutput(ctx, lease, chapter)
 			if err == nil {
 				t.Fatal("accepted invalid publication")
 			}
-			if cause != "payload_conflict" && !errors.Is(err, jobdb.ErrExecutionLeaseLost) {
+			if !errors.Is(err, jobdb.ErrExecutionLeaseLost) {
 				t.Fatalf("publication: %v", err)
 			}
 			if _, err := r.GetChapter(ctx, jobdb.ChapterRef{JobKey: req.JobKey, Ordinal: 1}); !errors.Is(err, jobdb.ErrChapterNotFound) {

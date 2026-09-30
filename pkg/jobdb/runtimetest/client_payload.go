@@ -94,7 +94,7 @@ func RunClientPayloadConformance(t *testing.T, harnesses ...Harness) {
 			}
 			check(patched, 2)
 			taskLease := leaseFor(jobdb.Route{JobType: "payloadjob", TaskType: "external"})
-			complete := jobdb.CompleteTaskIfWaitingRequest{JobKey: handle.JobKey, Route: jobdb.Route{JobType: "payloadjob", TaskType: "external"}, InputOrdinal: 1, OutputOrdinal: 2, InputHash: "task-hash", ResumeJobType: "payloadjob", Data: NumberTaskData(2), ClientPayloadUpdate: update("reset", `null`, 2)}
+			complete := jobdb.CompleteTaskIfWaitingRequest{JobKey: handle.JobKey, Route: jobdb.Route{JobType: "payloadjob", TaskType: "external"}, InputOrdinal: 1, OutputOrdinal: 2, InputHash: "task-hash", ResumeJobType: "payloadjob", Data: NumberTaskData(2)}
 			if err := r.CompleteTaskIfWaiting(ctx, complete); !errors.Is(err, jobdb.ErrConflict) {
 				t.Fatalf("accepted task completion with live owner: %v", err)
 			}
@@ -102,6 +102,11 @@ func RunClientPayloadConformance(t *testing.T, harnesses ...Harness) {
 				t.Fatal(err)
 			}
 			if err := r.CompleteTaskIfWaiting(ctx, complete); err != nil {
+				t.Fatal(err)
+			}
+			check(patched, 2)
+			l = leaseFor(jobdb.Route{JobType: "payloadjob"})
+			if err := l.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "payloadjob"}, ClientPayloadUpdate: update("reset", `null`, 2)}); err != nil {
 				t.Fatal(err)
 			}
 			check(`null`, 3)

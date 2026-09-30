@@ -123,7 +123,6 @@ type TaskHandle interface {
 	JobKey() JobKey
 	Data() (TaskData, error)
 	Finish(ctx context.Context, taskData TaskData) error
-	FinishWithClientPayload(ctx context.Context, taskData TaskData, update *ClientPayloadUpdate) error
 	TaskOrdinalToComplete() int64
 	TaskType() string
 	CreatedAt() time.Time

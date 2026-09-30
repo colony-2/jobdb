@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -144,52 +143,4 @@ func TestChapterLogRoundTrip(t *testing.T) {
 	if _, err := store.Get(ctx, key, 99); !errors.Is(err, jobdb.ErrChapterNotFound) {
 		t.Fatalf("missing chapter = %v, want chapter not found", err)
 	}
-	t.Run("append_with_scheduler_mutation", func(t *testing.T) {
-		db, err := sql.Open("pgx", cfg.GetConnectionURL())
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer db.Close()
-		if _, err := db.ExecContext(ctx, `CREATE TABLE append_test_state (revision integer NOT NULL); INSERT INTO append_test_state VALUES (0)`); err != nil {
-			t.Fatal(err)
-		}
-		mutation := func(tx *sql.Tx) error {
-			_, err := tx.ExecContext(ctx, `UPDATE append_test_state SET revision=revision+1`)
-			return err
-		}
-		check := func(want int) {
-			t.Helper()
-			var got int
-			if err := db.QueryRowContext(ctx, `SELECT revision FROM append_test_state`).Scan(&got); err != nil || got != want {
-				t.Fatalf("mutation revision: %d %v", got, err)
-			}
-		}
-		third := runtimecore.EncodedChapter{Ordinal: 2, Payload: []byte(`{"kind":"outcome"}`)}
-		rejected := errors.New("lease lost")
-		err = store.AppendWithMutation(ctx, key, third, func(tx *sql.Tx) error {
-			if err := mutation(tx); err != nil {
-				return err
-			}
-			return rejected
-		})
-		if !errors.Is(err, rejected) {
-			t.Fatalf("rejected append: %v", err)
-		}
-		check(0)
-		if _, err := store.Get(ctx, key, 2); !errors.Is(err, jobdb.ErrChapterNotFound) {
-			t.Fatalf("rejected chapter exists: %v", err)
-		}
-		if err := store.AppendWithMutation(ctx, key, second, mutation); !errors.Is(err, jobdb.ErrConflict) {
-			t.Fatalf("duplicate append: %v", err)
-		}
-		check(0)
-		if err := store.AppendWithMutation(ctx, key, third, mutation); err != nil {
-			t.Fatal(err)
-		}
-		check(1)
-		if _, err := store.Get(ctx, key, 2); err != nil {
-			t.Fatal(err)
-		}
-	})
-
 }

@@ -104,12 +104,20 @@ handler to reconstruct the pending wait or consume the recorded output from
 chapter history. The current and resume job types are normally equal, but the
 runtime API permits distinct resume types.
 
-Output publication must fence the claim against lease takeover and cancellation.
-A supplied client-payload update and the output chapter must become visible
-together, or neither may commit. Releasing/rescheduling the lease happens after
-publication; failure at that point leaves a recoverable job lease. No result is
-acknowledged as successful until publication and rescheduling finish. Recovery
-before publication may require the external caller to retry its result.
+The scheduler claim, chapter insertion, and final reschedule are independent
+commits; adapters may store chapters and scheduling state in separate systems.
+Validate the claim before appending. The chapter store atomically enforces
+ordinal uniqueness and sequence; no scheduler transaction spans insertion.
+Lease expiry or cancellation during an in-flight append may leave a committed
+chapter even if the final lease-authorized reschedule fails. Recovery uses that
+committed history. No result is acknowledged as successful until insertion and
+rescheduling finish. Recovery before insertion may require the external caller
+to retry its result.
+
+External completion preserves client payload and revision. The
+`CompleteTaskIfWaitingRequest` and HTTP commit-if-waiting request accept no
+client-payload update; use an explicit leased reschedule/yield to change that
+state during execution.
 
 ## Lease Guarantees
 

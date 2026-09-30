@@ -24,9 +24,7 @@ type Scheduler interface {
 	RescheduleLease(ctx context.Context, mutation RescheduleMutation) (StoredJob, error)
 
 	GetWaitingTask(ctx context.Context, key jobdb.JobKey) (WaitingTaskSnapshot, error)
-	// CompleteTaskWork is retained for backend compatibility. External completion
-	// uses TaskCompletionStore followed by RescheduleLease instead.
-	CompleteTaskWork(ctx context.Context, mutation CompleteTaskWorkMutation) (StoredJob, error)
+	ClaimTask(ctx context.Context, req ClaimTaskRequest) (LeaseIdentity, error)
 
 	UpsertSchedule(ctx context.Context, mutation StoredScheduleMutation) (StoredSchedule, error)
 	GetSchedule(ctx context.Context, key jobdb.ScheduleKey) (StoredSchedule, error)
@@ -216,15 +214,6 @@ type RescheduleMutation struct {
 type WaitingTaskSnapshot struct {
 	JobType string
 	Task    TaskWork
-}
-
-// CompleteTaskWorkMutation atomically resumes a job waiting on task output.
-type CompleteTaskWorkMutation struct {
-	JobKey              jobdb.JobKey
-	WorkerID            string
-	Task                WaitingTaskSnapshot
-	ClientPayloadUpdate *jobdb.ClientPayloadUpdate
-	Now                 time.Time
 }
 
 // CancelJobMutation atomically cancels a job.

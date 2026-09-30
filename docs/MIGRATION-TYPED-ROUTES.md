@@ -59,8 +59,9 @@ The REST equivalents use `routes`, `route`, `nextRoute`, `alternateRoute`, and
 }
 ```
 
-For external completion, prefer the discovered task handle's `Finish` or
-`FinishWithClientPayload`. Direct callers supply the exact route and coordinates
+For external completion, use the discovered task handle's `Finish`.
+Client-payload updates on external completion are no longer supported.
+Direct callers supply the exact route and coordinates
 from the current summary; a different route conflicts. `ResumeJobType`, when
 supplied on completion, guards the stored resume job type. It does not override
 it.

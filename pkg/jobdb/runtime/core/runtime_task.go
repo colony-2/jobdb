@@ -9,7 +9,6 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 	"github.com/segmentio/ksuid"
 )
 
@@ -25,14 +24,8 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	if err := r.validate(); err != nil {
 		return err
 	}
-	if r.taskCompletions == nil {
-		return fmt.Errorf("runtime core task completion store is required")
-	}
 	if ctx == nil {
 		ctx = context.Background()
-	}
-	if err := clientpayload.ValidateUpdate(req.ClientPayloadUpdate, false); err != nil {
-		return err
 	}
 	if err := req.JobKey.Validate(); err != nil {
 		return err
@@ -64,9 +57,6 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 		!reflect.DeepEqual(*stored.TaskWork, task) ||
 		(stored.LeaseExpiresAt != nil && stored.LeaseExpiresAt.After(r.now())) {
 		return fmt.Errorf("%w: job is not waiting for an unheld external task", jobdb.ErrConflict)
-	}
-	if _, _, err := clientpayload.Apply(stored.ClientPayload, stored.ClientPayloadRevision, req.ClientPayloadUpdate); err != nil {
-		return err
 	}
 	var inherited runtimecodec.ChapterMeta
 	if task.InputOrdinal > 0 {
@@ -133,16 +123,20 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	}
 	// The durable claim routes expired leases to a job worker, which can
 	// reconstruct either an unfinished wait or a completed task from history.
-	identity, err := r.taskCompletions.ClaimTask(ctx, ClaimTaskRequest{
+	identity, err := r.scheduler.ClaimTask(ctx, ClaimTaskRequest{
 		JobKey: req.JobKey, WorkerID: workerID, Task: waiting,
 		LeaseDuration: 30 * time.Second, Now: r.now(),
 	})
 	if err != nil {
 		return err
 	}
-	if err := r.taskCompletions.PublishTaskOutput(ctx, TaskOutputRequest{
-		Identity: identity, Chapter: encoded, ClientPayloadUpdate: req.ClientPayloadUpdate,
-	}); err != nil {
+	// Lease validation and chapter insertion are independent operations. The
+	// chapter store arbitrates competing appends with its ordinal constraint;
+	// scheduler recovery never depends on a transaction spanning the stores.
+	if _, err := r.scheduler.ValidateLease(ctx, identity); err != nil {
+		return err
+	}
+	if err := r.chapters.Append(ctx, logKey, encoded); err != nil {
 		return err
 	}
 	for _, artifact := range sourceArtifacts {

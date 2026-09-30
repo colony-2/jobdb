@@ -1308,10 +1308,6 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 		record.mu.Unlock()
 		return fmt.Errorf("%w: task is not unheld", jobdb.ErrConflict)
 	}
-	if _, _, err := clientpayload.Apply(record.clientPayload, record.clientPayloadRevision, req.ClientPayloadUpdate); err != nil {
-		record.mu.Unlock()
-		return err
-	}
 	payload := cloneJSON(record.payload)
 	currentRoute := record.route
 	record.mu.Unlock()
@@ -1393,11 +1389,6 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	if record.archived != nil || record.cancelled || (record.leased && record.leaseExpiresAt.After(time.Now().UTC())) || record.route != currentRoute || !bytes.Equal(record.payload, payload) {
 		return fmt.Errorf("%w: waiting task changed", jobdb.ErrConflict)
 	}
-	value, revision, err := clientpayload.Apply(record.clientPayload, record.clientPayloadRevision, req.ClientPayloadUpdate)
-	if err != nil {
-		return err
-	}
-	record.clientPayload, record.clientPayloadRevision = value, revision
 	resumeJobType := wait.Next
 	if req.ResumeJobType != "" {
 		resumeJobType = req.ResumeJobType

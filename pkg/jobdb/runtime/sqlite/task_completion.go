@@ -10,7 +10,6 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/core"
-	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/storage"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
 	"github.com/segmentio/ksuid"
 )
@@ -63,28 +62,21 @@ func (r *Runtime) claimWaitingTask(ctx context.Context, expected jobRow, resumeJ
 	return lease, nil
 }
 
-func (r *Runtime) publishTaskOutput(ctx context.Context, lease *executionLease, chapter story.Chapter, update *jobdb.ClientPayloadUpdate) error {
-	// Artifact storage completes before this callback runs. Hold the scheduler
-	// write lock until chapter publication commits, fencing expired writers and
-	// making the client payload update indivisible from the output chapter.
-	appendCtx := storage.WithAppendMutation(chapterContext(ctx), func(tx *sql.Tx) error {
-		row, err := r.loadJobRowTx(ctx, tx, lease.jobKey)
-		if err != nil {
-			return err
-		}
-		if row.cancelRequested {
-			return jobdb.ErrExecutionLeaseLost
-		}
-		if err := validateLeaseRow(row, lease.leaseID, lease.workerID, time.Now().UTC()); err != nil {
-			return err
-		}
-		// Even with no payload update, take a write lock before chapter insertion.
-		if _, err := tx.ExecContext(ctx, `UPDATE jobdb_jobs SET updated_at_ns=? WHERE tenant_id=? AND job_id=?`, timeToNS(time.Now().UTC()), lease.jobKey.TenantId, lease.jobKey.JobId); err != nil {
-			return err
-		}
-		return r.updateClientPayloadTx(ctx, tx, row, update)
-	})
-	if err := r.chapterStore.SaveChapter(appendCtx, storyKeyForJob(lease.jobKey), chapter); err != nil {
+func (r *Runtime) appendTaskOutput(ctx context.Context, lease *executionLease, chapter story.Chapter) error {
+	row, err := r.loadJobRow(ctx, lease.jobKey)
+	if err != nil {
+		return err
+	}
+	if row.cancelRequested {
+		return jobdb.ErrExecutionLeaseLost
+	}
+	if err := validateLeaseRow(row, lease.leaseID, lease.workerID, time.Now().UTC()); err != nil {
+		return err
+	}
+	// The chapter store commits independently. A lease can expire after this
+	// check; the atomic ordinal constraint decides competing appends, and the
+	// job-only recovery route lets a new worker replay the committed history.
+	if err := r.chapterStore.SaveChapter(chapterContext(ctx), storyKeyForJob(lease.jobKey), chapter); err != nil {
 		if errors.Is(err, core.ErrConflict) {
 			return fmt.Errorf("%w: output chapter %d already exists or is not appendable", jobdb.ErrConflict, chapter.Ordinal())
 		}

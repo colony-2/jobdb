@@ -250,10 +250,9 @@ type ChapterRecord struct {
 // ClientPayloadUpdate defines model for ClientPayloadUpdate.
 type ClientPayloadUpdate = clientpayload.Update
 
-// CommitChapterIfWaitingRequest defines model for CommitChapterIfWaitingRequest.
+// CommitChapterIfWaitingRequest Completes an external task without changing client payload.
 type CommitChapterIfWaitingRequest struct {
-	ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
-	Data                TaskDataWrite        `json:"data"`
+	Data TaskDataWrite `json:"data"`
 
 	// InputHash Optional guard for deterministic input matching.
 	InputHash *string `json:"inputHash,omitempty"`

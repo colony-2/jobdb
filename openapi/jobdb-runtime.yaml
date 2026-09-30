@@ -1826,11 +1826,10 @@ components:
           description: Duration string.
     CommitChapterIfWaitingRequest:
       type: object
+      description: Completes an external task without changing client payload.
       required: [data, route]
       additionalProperties: false
       properties:
-        clientPayloadUpdate:
-          $ref: '#/components/schemas/ClientPayloadUpdate'
         route:
           $ref: '#/components/schemas/Route'
           description: Required exact route of the waiting task.
