@@ -726,9 +726,6 @@ func (r *workerRunner) checkCachedJobResult(ctx context.Context, ordinal int64, 
 	if meta.InputHash != "" && meta.InputHash != inputHash {
 		return nil, 0, false, false, nil, fmt.Errorf("%w: ordinal %d job result input hash mismatch", ErrWorkflowNotDeterministic, ordinal), nil, nil
 	}
-	if !totalDeadline.IsZero() && time.Now().After(totalDeadline) {
-		return nil, 0, false, false, nil, NewTimeoutError("job", totalTimeout, TimeoutScopeTotal, inputRef, false), nil, nil
-	}
 
 	priorAttempt := meta.Attempt
 	if priorAttempt <= 0 {
@@ -788,6 +785,15 @@ func (r *workerRunner) prepareJobResultPayload(output JobData, originalErr error
 }
 
 func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) (TaskData, error) {
+	options := TaskOptionsFor(data)
+	if alt := options.Alternate; alt != nil {
+		if err := validateIdentifier(alt.TaskType); err != nil {
+			return nil, fmt.Errorf("alternate task type: %w", err)
+		}
+		if alt.At.IsZero() || alt.TaskType == taskType {
+			return nil, fmt.Errorf("alternate requires a different task type and an absolute eligibility time")
+		}
+	}
 	if err := validateIdentifier(taskType); err != nil {
 		return nil, fmt.Errorf("task type: %w", err)
 	}
@@ -908,7 +914,40 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 			}
 		}
 
-		worker, local := r.worker.TaskWorkers[taskType]
+		// Completed outcomes above always win. Unfinished deadline failures go
+		// through normal task outcome persistence, so catch/retry replay is stable.
+		now := time.Now()
+		var preflightErr error
+		if !totalDeadline.IsZero() && !now.Before(totalDeadline) {
+			preflightErr = NewTimeoutError("task", totalTimeout, TimeoutScopeTotal, inputRef, false)
+		}
+		if err := r.checkTotalTimeoutExceeded(r.currentTotalDeadline, r.currentTotalLimit, r.currentInputRef); err != nil {
+			preflightErr = err
+		}
+		handlerType := taskType
+		if alt := options.Alternate; alt != nil && r.lease != nil {
+			wait := r.lease.ExecutionState().TaskWait
+			if r.lease.Route() == workerRoute(r.worker.JobWorker.Name(), alt.TaskType) &&
+				wait != nil && wait.OutputOrdinal == ordinal && wait.InputOrdinal == inputRef.Ordinal &&
+				wait.InputHash == inputHash && wait.ResumeJobType == r.worker.JobWorker.Name() && !now.Before(alt.At) {
+				handlerType = alt.TaskType
+			}
+		}
+		worker, local := r.worker.TaskWorkers[handlerType]
+		externalInvocationDeadline := time.Time{}
+		pending := r.lease != nil && r.lease.ExecutionState().TaskWait != nil && r.lease.ExecutionState().TaskWait.OutputOrdinal == ordinal && r.lease.ExecutionState().TaskWait.InputHash == inputHash
+		if invocationTimeout > 0 && (!local || pending) {
+			externalInvocationDeadline, err = r.taskTotalDeadline(ctx, ordinal, invocationTimeout)
+			if err != nil {
+				return nil, err
+			}
+			if preflightErr == nil && !now.Before(externalInvocationDeadline) {
+				preflightErr = NewTimeoutError("task", invocationTimeout, TimeoutScopeInvocation, inputRef, true)
+			}
+		}
+		if preflightErr != nil {
+			local = true
+		}
 		if !local {
 			if r.lease == nil || r.replay {
 				return nil, ReplayCacheMissError{
@@ -927,9 +966,24 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 				NextRoute: workerRoute(r.worker.JobWorker.Name(), taskType),
 				TaskWait:  &TaskWait{InputOrdinal: inputOrdinal, OutputOrdinal: ordinal, ResumeJobType: r.worker.JobWorker.Name(), InputHash: inputHash},
 			}
-			if invocationTimeout > 0 {
-				req.AlternateRoute = &Route{JobType: r.worker.JobWorker.Name()}
-				req.AlternateAfter = &invocationTimeout
+			// There is one scheduler alternate. Wake for the earliest hard
+			// deadline or successful fallback, keeping every deadline absolute.
+			wakeAt := totalDeadline
+			// Job invocation timeouts bound the current worker run and reset
+			// on resume. Only its total deadline spans external handoffs.
+			if deadline := r.currentTotalDeadline; !deadline.IsZero() && (wakeAt.IsZero() || deadline.Before(wakeAt)) {
+				wakeAt = deadline
+			}
+			if !externalInvocationDeadline.IsZero() && (wakeAt.IsZero() || externalInvocationDeadline.Before(wakeAt)) {
+				wakeAt = externalInvocationDeadline
+			}
+			route := Route{JobType: r.worker.JobWorker.Name()}
+			if alt := options.Alternate; alt != nil && (wakeAt.IsZero() || alt.At.Before(wakeAt)) {
+				wakeAt, route = alt.At, workerRoute(r.worker.JobWorker.Name(), alt.TaskType)
+			}
+			if !wakeAt.IsZero() {
+				delay := max(time.Until(wakeAt), 0)
+				req.AlternateRoute, req.AlternateAfter = &route, &delay
 			}
 			if err := r.lease.Reschedule(context.TODO(), req); err != nil {
 				if IsExecutionLeaseLost(err) {
@@ -944,16 +998,14 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 
 		r.emitTaskStart(taskType, ordinal, attempt, data, startAt)
 		attemptStartAt := startAt
-		now := time.Now()
-		if !totalDeadline.IsZero() && now.After(totalDeadline) {
-			err := NewTimeoutError("task", totalTimeout, TimeoutScopeTotal, inputRef, false)
-			r.emitTaskEnd(taskType, ordinal, attempt, nil, err, startAt)
-			return nil, err
-		}
+		now = time.Now()
 
 		attemptInvocationDeadline := time.Time{}
 		if invocationTimeout > 0 {
 			attemptInvocationDeadline = now.Add(invocationTimeout)
+		}
+		if !externalInvocationDeadline.IsZero() && externalInvocationDeadline.Before(attemptInvocationDeadline) {
+			attemptInvocationDeadline = externalInvocationDeadline
 		}
 
 		exitCh := make(chan struct{})
@@ -974,6 +1026,10 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 				}()
 				if err := context.Cause(ctx); err != nil {
 					taskErr = err
+					return
+				}
+				if preflightErr != nil {
+					taskErr = preflightErr
 					return
 				}
 				output, taskErr = worker.Run(newTaskContextWithLeaseActions(
@@ -1241,27 +1297,45 @@ func (r *workerRunner) DoJob(ctx context.Context) (output JobData, runErr error)
 		r.lastTaskEndAt = nil
 		r.emitJobStart(attempt, inputData, startAt)
 
-		if err := r.checkTotalTimeoutExceeded(config.totalDeadline, config.totalTimeout, config.inputRef); err != nil {
-			if r.replay {
-				miss := r.replayJobResultMissing(r.storyCounter, attempt)
-				r.emitJobEnd(attempt, nil, miss, startAt)
-				return nil, miss
+		if timeoutErr := r.checkTotalTimeoutExceeded(config.totalDeadline, config.totalTimeout, config.inputRef); timeoutErr != nil {
+			// A resumed job may already have task chapters. Never write a final
+			// timeout over them, and never invalidate a completed job on replay.
+			for {
+				ch, _, readErr := r.getChapter(ctx, r.storyCounter)
+				if errors.Is(readErr, ErrChapterNotFound) {
+					break
+				}
+				if readErr != nil {
+					return nil, readErr
+				}
+				if chapterIs(ch, chapterTypeJobAttemptOutcome) {
+					timeoutErr = nil
+					break
+				}
+				r.markStoryOrdinalConsumed(r.storyCounter)
 			}
-			payload, artifacts, payloadKind, prepErr := r.prepareJobResultPayload(nil, err, config.inputRef)
-			if prepErr != nil {
-				return nil, prepErr
+			if err := timeoutErr; err != nil {
+				if r.replay {
+					miss := r.replayJobResultMissing(r.storyCounter, attempt)
+					r.emitJobEnd(attempt, nil, miss, startAt)
+					return nil, miss
+				}
+				payload, artifacts, payloadKind, prepErr := r.prepareJobResultPayload(nil, err, config.inputRef)
+				if prepErr != nil {
+					return nil, prepErr
+				}
+				ordinal := r.storyCounter
+				if _, saveErr := r.completeJobOutcome(ctx, ordinal, payload, artifacts, payloadKind, config.inputRef.Hash, attempt, config.inputRef, nil, nil, err); saveErr != nil {
+					return nil, saveErr
+				}
+				r.markStoryOrdinalConsumed(ordinal)
+				cleanupArtifacts(artifacts, r.logger)
+				if inputArtifacts, _ := inputData.GetArtifacts(); len(inputArtifacts) > 0 {
+					cleanupArtifacts(inputArtifacts, r.logger)
+				}
+				r.emitJobEnd(attempt, nil, err, startAt)
+				return nil, err
 			}
-			ordinal := r.storyCounter
-			if _, saveErr := r.completeJobOutcome(ctx, ordinal, payload, artifacts, payloadKind, config.inputRef.Hash, attempt, config.inputRef, nil, nil, err); saveErr != nil {
-				return nil, saveErr
-			}
-			r.markStoryOrdinalConsumed(ordinal)
-			cleanupArtifacts(artifacts, r.logger)
-			if inputArtifacts, _ := inputData.GetArtifacts(); len(inputArtifacts) > 0 {
-				cleanupArtifacts(inputArtifacts, r.logger)
-			}
-			r.emitJobEnd(attempt, nil, err, startAt)
-			return nil, err
 		}
 
 		var (

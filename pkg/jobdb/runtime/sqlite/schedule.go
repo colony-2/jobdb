@@ -366,7 +366,7 @@ func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRu
 		if err != nil {
 			return jobdb.ListScheduleRunsResponse{}, err
 		}
-		nextRoute, _ := effectiveNextRoute(row, now)
+		nextRoute := row.nextRoute
 		job := jobdb.JobSummary{
 			JobKey:          key,
 			Status:          status,

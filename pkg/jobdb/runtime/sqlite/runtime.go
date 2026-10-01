@@ -797,7 +797,7 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 		if err != nil {
 			return jobdb.ListJobsResponse{}, err
 		}
-		nextRoute, _ := effectiveNextRoute(row, now)
+		nextRoute := row.nextRoute
 		summary := jobdb.JobSummary{
 			JobKey:          key,
 			Status:          status,

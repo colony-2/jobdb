@@ -484,7 +484,7 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 			record.mu.Unlock()
 			continue
 		}
-		if _, ok := capSet[record.route]; !ok {
+		if _, ok := capSet[effectiveRoute(record, now)]; !ok {
 			record.mu.Unlock()
 			continue
 		}
@@ -499,6 +499,10 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 				record.mu.Unlock()
 				continue
 			}
+		}
+		if record.alternateRoute != nil && !now.Before(record.alternateAt) {
+			record.route = *record.alternateRoute
+			record.alternateRoute = nil
 		}
 		record.leased = true
 		record.status = jobdb.JobStatusActive
@@ -576,12 +580,16 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 		r.engine.mu.Unlock()
 		return nil, nil
 	}
-	if _, ok := capSet[record.route]; !ok {
+	if _, ok := capSet[effectiveRoute(record, now)]; !ok {
 		record.mu.Unlock()
 		r.engine.mu.Unlock()
 		return nil, nil
 	}
 
+	if record.alternateRoute != nil && !now.Before(record.alternateAt) {
+		record.route = *record.alternateRoute
+		record.alternateRoute = nil
+	}
 	record.leased = true
 	record.status = jobdb.JobStatusActive
 	record.leaseID = ksuid.New().String()
@@ -1023,11 +1031,6 @@ func (r *Runtime) advanceRecordStateLocked(tenantId string, now time.Time, recor
 		record.leased = false
 		record.leaseID = ""
 		record.status = jobdb.JobStatusReady
-	}
-
-	if !record.leased && record.archived == nil && !record.cancelled && record.alternateRoute != nil && !now.Before(record.alternateAt) {
-		record.route = *record.alternateRoute
-		record.alternateRoute = nil
 	}
 
 	if record.status == jobdb.JobStatusAwaitingFuture && !record.availableAt.IsZero() && !record.availableAt.After(now) {
@@ -1628,3 +1631,12 @@ func toyExecutionState(raw []byte) jobdb.ExecutionState {
 }
 
 func (l *runtimeLease) LeaseWorkerID() string { return l.workerID }
+
+// Eligibility must not change completion authority. Commit the alternate route
+// only when a matching worker actually acquires the pending execution.
+func effectiveRoute(record *jobRecord, now time.Time) jobdb.Route {
+	if record.alternateRoute != nil && !now.Before(record.alternateAt) {
+		return *record.alternateRoute
+	}
+	return record.route
+}

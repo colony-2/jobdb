@@ -1054,7 +1054,7 @@ func TestWorkerRunnerRescheduleSetsAlternateRouteFromInvocationTimeout(t *testin
 	if reschedules[0].AlternateRoute == nil || *reschedules[0].AlternateRoute != (Route{JobType: job.Name()}) {
 		t.Fatalf("expected alternate need %q, got %q", job.Name(), reschedules[0].AlternateRoute)
 	}
-	if reschedules[0].AlternateAfter == nil || time.Duration(*reschedules[0].AlternateAfter) != 2*time.Second {
+	if reschedules[0].AlternateAfter == nil || *reschedules[0].AlternateAfter <= 0 || *reschedules[0].AlternateAfter > 2*time.Second {
 		t.Fatalf("unexpected alternate after %+v", reschedules[0].AlternateAfter)
 	}
 }

@@ -1349,6 +1349,9 @@ type SubmitRestartJobRequest = github.com/colony-2/jobdb/pkg/jobdb.SubmitRestart
 type SystemError = github.com/colony-2/jobdb/pkg/jobdb.SystemError
 type SystemErrorOutcome = github.com/colony-2/jobdb/pkg/jobdb.SystemErrorOutcome
 type SystemErrorPayload = github.com/colony-2/jobdb/pkg/jobdb.SystemErrorPayload
+type TaskAlternate struct
+  field TaskType string `json:"taskType"`
+  field At time.Time `json:"at"`
 type TaskAttempt = github.com/colony-2/jobdb/pkg/jobdb.TaskAttempt
 type TaskAttemptOutcomeChapter = github.com/colony-2/jobdb/pkg/jobdb.TaskAttemptOutcomeChapter
 const TaskAttemptStateFailed untyped string = "FAILED"
@@ -1425,6 +1428,9 @@ method TaskInputMismatchError.ChapterMeta func() TaskDeterminismMeta
 method TaskInputMismatchError.Error func() string
 method TaskInputMismatchError.Unwrap func() error
 func TaskInputStorageEnabled func() bool
+type TaskOptions struct
+  field Alternate *TaskAlternate `json:"alternate,omitempty"`
+func TaskOptionsFor func(data TaskData) TaskOptions
 type TaskOutcome = github.com/colony-2/jobdb/pkg/jobdb.TaskOutcome
 const TaskOutcomeStatusFailed untyped string = "FAILED"
 const TaskOutcomeStatusSucceeded untyped string = "SUCCEEDED"
@@ -1450,6 +1456,7 @@ type TriggerScheduleRequest = github.com/colony-2/jobdb/pkg/jobdb.TriggerSchedul
 func UnexpectedChapter func(err error) (TaskInputMismatchError, bool)
 type UpsertScheduleRequest = github.com/colony-2/jobdb/pkg/jobdb.UpsertScheduleRequest
 func WaitForJobToComplete func(ctx context.Context, timeout time.Duration, jobKey JobKey, engine Engine) error
+func WithTaskOptions func(data TaskData, options TaskOptions) TaskData
 type WorkRegistrationOptions struct
   field MetadataFilter MetadataFilter
 type WorkSet struct
