@@ -238,3 +238,19 @@ for _, handle := range handles {
 `workflow.ReplayRunRequest` and `Engine.ReplayJobRun` can replay persisted
 history for inspection and determinism checks. Runtime-level job-run read models
 come from `pkg/jobdb`.
+
+Historical replay consumes recorded outcomes and emits their task/job lifecycle
+events, including failed attempts, with the recorded timestamps. Execution-policy
+timeouts do not expire historical results or limit inspection; use the caller's
+context to cancel or bound replay. Recorded timeout failures remain failures.
+Replay never runs task workers or writes history. Missing outcomes and future
+waits still produce `ReplayCacheMissError`.
+
+When changing shared runner timeout, retry, cache, or recovery paths, test both
+live execution and read-only replay. Final-result assertions alone miss skipped
+observer events: compare the complete ordered event stream before and after
+aging fixture timestamps past execution deadlines, including task and job retries
+ending in success and failure. Also check unchanged chapters, zero task execution,
+caller cancellation, and incomplete-history cache misses. The regression matrix
+in `replay_history_test.go` runs in the normal test suite; it was added after a
+live recovery scan accidentally skipped historical task events during replay.

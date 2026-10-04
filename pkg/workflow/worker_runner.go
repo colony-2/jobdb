@@ -239,6 +239,20 @@ func (r *workerRunner) jobTotalDeadline(meta chapterMeta, totalTimeout time.Dura
 
 func (r *workerRunner) awaitUntil(wakeAt time.Time, ordinal int64, attempt int, kind string, inputRef *InputReference, invocationDeadline time.Time, totalDeadline time.Time, invocationLimit time.Duration, totalLimit time.Duration) error {
 	now := time.Now()
+	if r.replay {
+		if r.ctx != nil && context.Cause(r.ctx) != nil {
+			return context.Cause(r.ctx)
+		}
+		// Historical deadlines cannot invalidate a recorded retry. Replay
+		// never waits, but still reports a cache miss for a future wakeup.
+		if wakeAt.IsZero() || !wakeAt.After(now) {
+			return nil
+		}
+		return ReplayCacheMissError{
+			JobKey: r.GetJobKey(), Ordinal: ordinal, Attempt: attempt,
+			Reason: ReplayCacheMissAwaitNotReady,
+		}
+	}
 	if !totalDeadline.IsZero() && now.After(totalDeadline) {
 		return NewTimeoutError(kind, totalLimit, TimeoutScopeTotal, inputRef, false)
 	}
@@ -253,14 +267,6 @@ func (r *workerRunner) awaitUntil(wakeAt time.Time, ordinal int64, attempt int, 
 	}
 	if wakeAt.IsZero() || !wakeAt.After(now) {
 		return nil
-	}
-	if r.replay {
-		return ReplayCacheMissError{
-			JobKey:  r.GetJobKey(),
-			Ordinal: ordinal,
-			Attempt: attempt,
-			Reason:  ReplayCacheMissAwaitNotReady,
-		}
 	}
 	wait := time.Until(wakeAt)
 	threshold := r.awaitThreshold
@@ -452,6 +458,12 @@ func (r *workerRunner) setupJobExecutionConfig(ctx context.Context, inputData Ta
 	retryCfg := r.jobPolicy.Retry
 	invocationTimeout := durationPtrToDuration(r.jobPolicy.InvocationTimeout)
 	totalTimeout := durationPtrToDuration(r.jobPolicy.TotalTimeout)
+	if r.replay {
+		// Execution budgets apply to live work, not inspection of recorded
+		// history. Disable both the recovery scan and execution timers for
+		// replay; the caller's context still bounds the replay itself.
+		invocationTimeout, totalTimeout = 0, 0
+	}
 	inputHash, err := computeInputHash(ctx, inputData)
 	if err != nil {
 		return jobExecutionConfig{}, fmt.Errorf("failed to hash job input: %w", err)
@@ -740,7 +752,7 @@ func (r *workerRunner) checkCachedJobResult(ctx context.Context, ordinal int64, 
 	}
 
 	if !isRetryable(payloadErr, retryCfg) || priorAttempt >= int(retryCfg.MaximumAttempts) {
-		return nil, nextAttempt, true, true, payloadErr, payloadErr, &endAt, &endAt
+		return nil, nextAttempt, true, true, payloadErr, nil, &endAt, &endAt
 	}
 
 	backoff := computeBackoff(retryCfg, priorAttempt)
