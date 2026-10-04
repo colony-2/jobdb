@@ -109,6 +109,7 @@ func RunWorkflowRuntimeConformance(t *testing.T, harnesses ...Harness) {
 	})
 	t.Run("typed_routes", func(t *testing.T) { RunRouteConformance(t, harnesses...) })
 	t.Run("client_payload", func(t *testing.T) { RunClientPayloadConformance(t, harnesses...) })
+	t.Run("completion_summaries", func(t *testing.T) { runCompletionSummaries(t, harnesses) })
 	t.Run("lease_operations", func(t *testing.T) {
 		runLeaseOperations(t, harnesses)
 	})

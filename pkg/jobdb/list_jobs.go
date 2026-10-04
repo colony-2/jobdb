@@ -11,8 +11,13 @@ import (
 
 // JobSummary is a lightweight view of a job from the selected runtime.
 type JobSummary struct {
-	JobKey                JobKey
-	Status                JobStatus
+	JobKey JobKey
+	Status JobStatus
+	// CompletionStatus is the persisted terminal outcome, independent of Status.
+	// Empty means unavailable; unfamiliar values must be preserved.
+	CompletionStatus string
+	// CompletionDetail is the persisted completion detail; empty is valid.
+	CompletionDetail      string
 	JobType               string
 	NextRoute             *Route
 	WaitFor               []string // JobIds only - all WaitFor jobs must be in same tenant

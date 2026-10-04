@@ -432,18 +432,24 @@ type JobSummary struct {
 	CancelRequested       bool            `json:"cancelRequested"`
 	ClientPayload         json.RawMessage `json:"clientPayload,omitempty"`
 	ClientPayloadRevision string          `json:"clientPayloadRevision"`
-	CreatedAt             time.Time       `json:"createdAt"`
-	ExecutionState        ExecutionState  `json:"executionState"`
-	ExpiresAt             *time.Time      `json:"expiresAt,omitempty"`
-	JobKey                JobKey          `json:"jobKey"`
-	JobType               string          `json:"jobType"`
-	LeaseExpiresAt        *time.Time      `json:"leaseExpiresAt,omitempty"`
-	Metadata              *Metadata       `json:"metadata,omitempty"`
-	NextRoute             *Route          `json:"nextRoute,omitempty"`
-	ParentJobId           *string         `json:"parentJobId,omitempty"`
-	SchemaHash            *JobSchemaHash  `json:"schemaHash,omitempty"`
-	Status                JobStatus       `json:"status"`
-	WaitFor               []string        `json:"waitFor"`
+
+	// CompletionDetail Persisted terminal completion detail. Empty is valid, including for success.
+	CompletionDetail *string `json:"completionDetail,omitempty"`
+
+	// CompletionStatus Persisted terminal outcome, independent of scheduler status. Absent or empty means unavailable. Unfamiliar values are preserved.
+	CompletionStatus *string        `json:"completionStatus,omitempty"`
+	CreatedAt        time.Time      `json:"createdAt"`
+	ExecutionState   ExecutionState `json:"executionState"`
+	ExpiresAt        *time.Time     `json:"expiresAt,omitempty"`
+	JobKey           JobKey         `json:"jobKey"`
+	JobType          string         `json:"jobType"`
+	LeaseExpiresAt   *time.Time     `json:"leaseExpiresAt,omitempty"`
+	Metadata         *Metadata      `json:"metadata,omitempty"`
+	NextRoute        *Route         `json:"nextRoute,omitempty"`
+	ParentJobId      *string        `json:"parentJobId,omitempty"`
+	SchemaHash       *JobSchemaHash `json:"schemaHash,omitempty"`
+	Status           JobStatus      `json:"status"`
+	WaitFor          []string       `json:"waitFor"`
 }
 
 // JobTaskFilter defines model for JobTaskFilter.

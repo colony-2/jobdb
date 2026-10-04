@@ -8,7 +8,37 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
+	"github.com/stretchr/testify/require"
 )
+
+// Any chapter or artifact operation panics: listing must use scheduler data only.
+type noSummaryHistory struct{ runtimecore.ChapterLog }
+
+func TestCompletionSummaryUsesOnlyScheduler(t *testing.T) {
+	for _, status := range []string{"", "success", "failed_app", "failed_system", "failed_timeout", "cancelled", "future_category"} {
+		t.Run(status, func(t *testing.T) {
+			row := runtimecore.StoredJob{JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}, JobType: "job", RouteJobType: "job", WorkKind: runtimecore.WorkKindJob, Status: jobdb.JobStatusCompleted}
+			detail := ""
+			if status != "" {
+				if status != "success" {
+					detail = "exact persisted detail\n"
+				}
+				row.Completion = &runtimecore.CompletionSnapshot{Status: status, Detail: detail}
+			} else {
+				// A cancellation request is not evidence of terminal completion.
+				row.CancelRequested = true
+			}
+			rt, err := runtimecore.NewRuntime(runtimecore.Config{Scheduler: listTestScheduler{rows: []runtimecore.StoredJob{row}}, Chapters: noSummaryHistory{}, Schemas: readTestSchemas{}})
+			require.NoError(t, err)
+			listed, err := rt.ListJobs(context.Background(), jobdb.ListJobsRequest{TenantIds: []string{"tenant"}})
+			require.NoError(t, err)
+			require.Len(t, listed.Jobs, 1)
+			require.Equal(t, status, listed.Jobs[0].CompletionStatus)
+			require.Equal(t, detail, listed.Jobs[0].CompletionDetail)
+			require.Equal(t, row.Status, listed.Jobs[0].Status)
+		})
+	}
+}
 
 type listTestScheduler struct {
 	runtimecore.Scheduler

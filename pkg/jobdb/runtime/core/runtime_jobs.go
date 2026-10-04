@@ -95,6 +95,10 @@ func jobSummaryFromStored(row StoredJob) (jobdb.JobSummary, error) {
 		Metadata:   append([]byte(nil), row.AppMetadata...),
 		SchemaHash: row.SchemaHash, ParentJobID: row.ParentJobID,
 	}
+	if row.Completion != nil {
+		summary.CompletionStatus = row.Completion.Status
+		summary.CompletionDetail = row.Completion.Detail
+	}
 	if row.WorkKind == WorkKindTask {
 		if row.TaskWork == nil {
 			return jobdb.JobSummary{}, fmt.Errorf("task route for %s is missing coordinates", row.JobKey)

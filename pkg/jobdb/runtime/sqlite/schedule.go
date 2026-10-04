@@ -368,17 +368,19 @@ func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRu
 		}
 		nextRoute := row.nextRoute
 		job := jobdb.JobSummary{
-			JobKey:          key,
-			Status:          status,
-			JobType:         row.jobType,
-			NextRoute:       jobdb.CloneRoute(&nextRoute),
-			WaitFor:         waitFor,
-			AvailableAt:     timeFromNS(row.availableAtNS),
-			LeaseExpiresAt:  nullTimeFromNS(row.leaseExpiresAtNS),
-			CancelRequested: row.cancelRequested,
-			CreatedAt:       createdAt,
-			ArchivedAt:      nullTimeFromNS(row.archivedAtNS),
-			ClientPayload:   cloneJSON(row.clientPayload), ClientPayloadRevision: row.clientPayloadRevision, ExecutionState: jobExecutionState(row.payload),
+			JobKey:           key,
+			Status:           status,
+			CompletionStatus: row.completionStatus.String,
+			CompletionDetail: row.completionDetail.String,
+			JobType:          row.jobType,
+			NextRoute:        jobdb.CloneRoute(&nextRoute),
+			WaitFor:          waitFor,
+			AvailableAt:      timeFromNS(row.availableAtNS),
+			LeaseExpiresAt:   nullTimeFromNS(row.leaseExpiresAtNS),
+			CancelRequested:  row.cancelRequested,
+			CreatedAt:        createdAt,
+			ArchivedAt:       nullTimeFromNS(row.archivedAtNS),
+			ClientPayload:    cloneJSON(row.clientPayload), ClientPayloadRevision: row.clientPayloadRevision, ExecutionState: jobExecutionState(row.payload),
 			Metadata: jobdb.StripRuntimeMetadata(row.metadata),
 		}
 		out = append(out, jobdb.ScheduleRunSummary{

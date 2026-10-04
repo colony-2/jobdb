@@ -229,16 +229,18 @@ func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRu
 			}
 		}
 		job := jobdb.JobSummary{
-			JobKey:          key,
-			Status:          rec.status,
-			JobType:         rec.jobType,
-			NextRoute:       jobdb.CloneRoute(&rec.route),
-			WaitFor:         append([]string(nil), rec.waitFor...),
-			AvailableAt:     rec.availableAt,
-			CancelRequested: rec.cancelled,
-			CreatedAt:       rec.createdAt,
-			ArchivedAt:      cloneTime(rec.archived),
-			ClientPayload:   cloneJSON(rec.clientPayload), ClientPayloadRevision: rec.clientPayloadRevision, ExecutionState: toyExecutionState(rec.payload),
+			JobKey:           key,
+			Status:           rec.status,
+			CompletionStatus: rec.completionStatus,
+			CompletionDetail: rec.completionDetail,
+			JobType:          rec.jobType,
+			NextRoute:        jobdb.CloneRoute(&rec.route),
+			WaitFor:          append([]string(nil), rec.waitFor...),
+			AvailableAt:      rec.availableAt,
+			CancelRequested:  rec.cancelled,
+			CreatedAt:        rec.createdAt,
+			ArchivedAt:       cloneTime(rec.archived),
+			ClientPayload:    cloneJSON(rec.clientPayload), ClientPayloadRevision: rec.clientPayloadRevision, ExecutionState: toyExecutionState(rec.payload),
 			Metadata: jobdb.StripRuntimeMetadata(rec.metadata),
 		}
 		rec.mu.Unlock()

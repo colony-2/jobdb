@@ -283,14 +283,16 @@ SET cancel_requested = 1,
 	lease_worker_id = NULL,
 	lease_expires_at_ns = NULL,
 	updated_at_ns = ?
-WHERE tenant_id = ? AND job_id = ?`,
+WHERE tenant_id = ? AND job_id = ? AND archived_at_ns IS NULL`,
 		timeToNS(now), req.Reason, timeToNS(now), req.JobKey.TenantId, req.JobKey.JobId)
 	if err != nil {
 		return err
 	}
 	n, _ := result.RowsAffected()
 	if n == 0 {
-		return jobdb.ErrJobNotFound
+		// Cancellation is a no-op after finalization; preserve its outcome.
+		_, err := r.loadJobRow(ctx, req.JobKey)
+		return err
 	}
 	return nil
 }
@@ -799,17 +801,19 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 		}
 		nextRoute := row.nextRoute
 		summary := jobdb.JobSummary{
-			JobKey:          key,
-			Status:          status,
-			JobType:         row.jobType,
-			NextRoute:       jobdb.CloneRoute(&nextRoute),
-			WaitFor:         waitFor,
-			AvailableAt:     timeFromNS(row.availableAtNS),
-			LeaseExpiresAt:  nullTimeFromNS(row.leaseExpiresAtNS),
-			CancelRequested: row.cancelRequested,
-			CreatedAt:       createdAt,
-			ArchivedAt:      nullTimeFromNS(row.archivedAtNS),
-			ClientPayload:   cloneJSON(row.clientPayload), ClientPayloadRevision: row.clientPayloadRevision, ExecutionState: jobExecutionState(row.payload),
+			JobKey:           key,
+			Status:           status,
+			CompletionStatus: row.completionStatus.String,
+			CompletionDetail: row.completionDetail.String,
+			JobType:          row.jobType,
+			NextRoute:        jobdb.CloneRoute(&nextRoute),
+			WaitFor:          waitFor,
+			AvailableAt:      timeFromNS(row.availableAtNS),
+			LeaseExpiresAt:   nullTimeFromNS(row.leaseExpiresAtNS),
+			CancelRequested:  row.cancelRequested,
+			CreatedAt:        createdAt,
+			ArchivedAt:       nullTimeFromNS(row.archivedAtNS),
+			ClientPayload:    cloneJSON(row.clientPayload), ClientPayloadRevision: row.clientPayloadRevision, ExecutionState: jobExecutionState(row.payload),
 			Metadata:    jobdb.StripRuntimeMetadata(row.metadata),
 			SchemaHash:  jobmetadata.SchemaHashFromStoredMetadata(row.metadata),
 			ParentJobID: parentJobID,

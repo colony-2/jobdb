@@ -244,6 +244,8 @@ type JobRunSummary struct
   field JobKey JobKey
   field JobType string
   field Status JobStatus
+  field CompletionStatus string
+  field CompletionDetail string
   field CreatedAt time.Time
   field ArchivedAt *time.Time
   field Metadata encoding/json.RawMessage
@@ -296,6 +298,8 @@ const JobStoreArchived JobStore = "ARCHIVED"
 type JobSummary struct
   field JobKey JobKey
   field Status JobStatus
+  field CompletionStatus string
+  field CompletionDetail string
   field JobType string
   field NextRoute *Route
   field WaitFor []string

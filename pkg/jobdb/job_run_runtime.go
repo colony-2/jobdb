@@ -30,12 +30,14 @@ func GetJobRun(ctx context.Context, runtime WorkflowRuntime, req GetJobRunReques
 
 	resp := GetJobRunResponse{
 		Job: JobRunSummary{
-			JobKey:     req.JobKey,
-			JobType:    job.JobType,
-			Status:     job.Status,
-			CreatedAt:  job.CreatedAt,
-			ArchivedAt: job.ArchivedAt,
-			Metadata:   append(json.RawMessage(nil), job.Metadata...),
+			JobKey:           req.JobKey,
+			JobType:          job.JobType,
+			Status:           job.Status,
+			CompletionStatus: job.CompletionStatus,
+			CompletionDetail: job.CompletionDetail,
+			CreatedAt:        job.CreatedAt,
+			ArchivedAt:       job.ArchivedAt,
+			Metadata:         append(json.RawMessage(nil), job.Metadata...),
 		},
 	}
 

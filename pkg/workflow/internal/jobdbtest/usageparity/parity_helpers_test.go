@@ -286,24 +286,28 @@ type normalizedJobAttempt struct {
 }
 
 type normalizedJobRun struct {
-	JobKey    jobdb.JobKey           `json:"jobKey"`
-	JobType   string                 `json:"jobType"`
-	Status    jobdb.JobStatus        `json:"status"`
-	Start     *normalizedTaskIO      `json:"start,omitempty"`
-	Attempts  []normalizedJobAttempt `json:"attempts,omitempty"`
-	OutputErr string                 `json:"outputErr,omitempty"`
+	CompletionStatus string                 `json:"completionStatus,omitempty"`
+	CompletionDetail string                 `json:"completionDetail,omitempty"`
+	JobKey           jobdb.JobKey           `json:"jobKey"`
+	JobType          string                 `json:"jobType"`
+	Status           jobdb.JobStatus        `json:"status"`
+	Start            *normalizedTaskIO      `json:"start,omitempty"`
+	Attempts         []normalizedJobAttempt `json:"attempts,omitempty"`
+	OutputErr        string                 `json:"outputErr,omitempty"`
 }
 
 type normalizedJobSummary struct {
-	JobKey          jobdb.JobKey    `json:"jobKey"`
-	Status          jobdb.JobStatus `json:"status"`
-	JobType         string          `json:"jobType"`
-	NextRoute       *jobdb.Route    `json:"nextRoute,omitempty"`
-	WaitFor         []string        `json:"waitFor,omitempty"`
-	CancelRequested bool            `json:"cancelRequested,omitempty"`
-	TaskWait        *jobdb.TaskWait `json:"taskWait,omitempty"`
-	Payload         string          `json:"payload,omitempty"`
-	Metadata        string          `json:"metadata,omitempty"`
+	CompletionStatus string          `json:"completionStatus,omitempty"`
+	CompletionDetail string          `json:"completionDetail,omitempty"`
+	JobKey           jobdb.JobKey    `json:"jobKey"`
+	Status           jobdb.JobStatus `json:"status"`
+	JobType          string          `json:"jobType"`
+	NextRoute        *jobdb.Route    `json:"nextRoute,omitempty"`
+	WaitFor          []string        `json:"waitFor,omitempty"`
+	CancelRequested  bool            `json:"cancelRequested,omitempty"`
+	TaskWait         *jobdb.TaskWait `json:"taskWait,omitempty"`
+	Payload          string          `json:"payload,omitempty"`
+	Metadata         string          `json:"metadata,omitempty"`
 }
 
 type normalizedStoredChapter struct {
@@ -382,11 +386,13 @@ func normalizeTaskIO(io *jobdb.TaskIO) *normalizedTaskIO {
 func normalizeJobRun(t *testing.T, run jobdb.GetJobRunResponse, outputErr error) normalizedJobRun {
 	t.Helper()
 	out := normalizedJobRun{
-		JobKey:    run.Job.JobKey,
-		JobType:   run.Job.JobType,
-		Status:    run.Job.Status,
-		Start:     normalizeTaskIO(run.Start.Input),
-		OutputErr: normalizeError(outputErr),
+		CompletionStatus: run.Job.CompletionStatus,
+		CompletionDetail: run.Job.CompletionDetail,
+		JobKey:           run.Job.JobKey,
+		JobType:          run.Job.JobType,
+		Status:           run.Job.Status,
+		Start:            normalizeTaskIO(run.Start.Input),
+		OutputErr:        normalizeError(outputErr),
 	}
 	out.Attempts = make([]normalizedJobAttempt, 0, len(run.Attempts))
 	for _, attempt := range run.Attempts {
@@ -432,15 +438,17 @@ func normalizeJobSummaries(jobs []jobdb.JobSummary) []normalizedJobSummary {
 	out := make([]normalizedJobSummary, 0, len(jobs))
 	for _, job := range jobs {
 		item := normalizedJobSummary{
-			JobKey:          job.JobKey,
-			Status:          job.Status,
-			JobType:         job.JobType,
-			NextRoute:       jobdb.CloneRoute(job.NextRoute),
-			WaitFor:         append([]string(nil), job.WaitFor...),
-			CancelRequested: job.CancelRequested,
-			TaskWait:        jobdb.CloneExecutionState(job.ExecutionState).TaskWait,
-			Payload:         canonicalJSON(job.ClientPayload),
-			Metadata:        canonicalJSON(job.Metadata),
+			CompletionStatus: job.CompletionStatus,
+			CompletionDetail: job.CompletionDetail,
+			JobKey:           job.JobKey,
+			Status:           job.Status,
+			JobType:          job.JobType,
+			NextRoute:        jobdb.CloneRoute(job.NextRoute),
+			WaitFor:          append([]string(nil), job.WaitFor...),
+			CancelRequested:  job.CancelRequested,
+			TaskWait:         jobdb.CloneExecutionState(job.ExecutionState).TaskWait,
+			Payload:          canonicalJSON(job.ClientPayload),
+			Metadata:         canonicalJSON(job.Metadata),
 		}
 		out = append(out, item)
 	}

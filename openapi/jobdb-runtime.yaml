@@ -2115,6 +2115,12 @@ components:
       required: [jobKey, status, jobType, waitFor, availableAt, cancelRequested, createdAt, executionState, clientPayloadRevision]
       additionalProperties: false
       properties:
+        completionStatus:
+          type: string
+          description: Persisted terminal outcome, independent of scheduler status. Absent or empty means unavailable. Unfamiliar values are preserved.
+        completionDetail:
+          type: string
+          description: Persisted terminal completion detail. Empty is valid, including for success.
         clientPayload:
           x-go-type: json.RawMessage
           x-go-type-skip-optional-pointer: true

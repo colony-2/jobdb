@@ -76,6 +76,7 @@ type jobRecord struct {
 	payload               []byte
 	metadata              json.RawMessage
 	completionDetail      string
+	completionStatus      string
 	route                 jobdb.Route
 	alternateRoute        *jobdb.Route
 	alternateAt           time.Time
@@ -249,17 +250,19 @@ func (e *ToyEngine) GetJobRun(ctx context.Context, req jobdb.GetJobRunRequest) (
 
 	includeInputs, includeOutputs, includeArtifacts, _ := normalizeToyJobRunOptions(req)
 
+	record.mu.Lock()
 	resp := jobdb.GetJobRunResponse{
 		Job: jobdb.JobRunSummary{
-			JobKey:     req.JobKey,
-			JobType:    record.jobType,
-			Status:     record.status,
-			CreatedAt:  record.createdAt,
-			ArchivedAt: record.archived,
+			JobKey:           req.JobKey,
+			JobType:          record.jobType,
+			Status:           record.status,
+			CompletionStatus: record.completionStatus,
+			CompletionDetail: record.completionDetail,
+			CreatedAt:        record.createdAt,
+			ArchivedAt:       record.archived,
 		},
 	}
 
-	record.mu.Lock()
 	if len(record.metadata) > 0 {
 		resp.Job.Metadata = jobdb.AppMetadataFromStoredMetadata(record.metadata)
 	}
@@ -843,18 +846,20 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 
 		metadataCopy := jobdb.StripRuntimeMetadata(rec.metadata)
 		summary := jobdb.JobSummary{
-			JobKey:          key,
-			Status:          status,
-			JobType:         rec.jobType,
-			NextRoute:       jobdb.CloneRoute(&rec.route),
-			WaitFor:         append([]string(nil), rec.waitFor...),
-			AvailableAt:     rec.createdAt,
-			ExpiresAt:       nil,
-			LeaseExpiresAt:  nil,
-			CancelRequested: rec.cancelled,
-			CreatedAt:       rec.createdAt,
-			ArchivedAt:      rec.archived,
-			ClientPayload:   cloneJSON(rec.clientPayload), ClientPayloadRevision: rec.clientPayloadRevision, ExecutionState: toyExecutionState(rec.payload),
+			JobKey:           key,
+			Status:           status,
+			CompletionStatus: rec.completionStatus,
+			CompletionDetail: rec.completionDetail,
+			JobType:          rec.jobType,
+			NextRoute:        jobdb.CloneRoute(&rec.route),
+			WaitFor:          append([]string(nil), rec.waitFor...),
+			AvailableAt:      rec.createdAt,
+			ExpiresAt:        nil,
+			LeaseExpiresAt:   nil,
+			CancelRequested:  rec.cancelled,
+			CreatedAt:        rec.createdAt,
+			ArchivedAt:       rec.archived,
+			ClientPayload:    cloneJSON(rec.clientPayload), ClientPayloadRevision: rec.clientPayloadRevision, ExecutionState: toyExecutionState(rec.payload),
 			Metadata:    metadataCopy,
 			SchemaHash:  jobmetadata.SchemaHashFromStoredMetadata(rec.metadata),
 			ParentJobID: parentJobID,

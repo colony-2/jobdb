@@ -433,7 +433,12 @@ func (r *Runtime) CancelJob(ctx context.Context, req jobdb.CancelJobRequest) err
 	}
 	record.mu.Lock()
 	defer record.mu.Unlock()
+	if record.archived != nil {
+		return nil
+	}
 	record.cancelled = true
+	record.completionStatus = "cancelled"
+	record.completionDetail = req.Reason
 	record.status = jobdb.JobStatusCancelled
 	record.err = context.Canceled
 	now := time.Now().UTC()
@@ -1104,6 +1109,10 @@ func (r *Runtime) completeLease(ctx context.Context, jobKey jobdb.JobKey, leaseI
 	now := time.Now().UTC()
 	record.archived = &now
 	record.completionDetail = req.Detail
+	record.completionStatus = req.Status
+	if record.completionStatus == "" || record.completionStatus == "succeeded" {
+		record.completionStatus = "success"
+	}
 	switch req.Status {
 	case "cancelled":
 		record.status = jobdb.JobStatusCancelled

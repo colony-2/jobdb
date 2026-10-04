@@ -1430,6 +1430,8 @@ func jobSummaryToAPI(summary jobdb.JobSummary) (runtimeapi.JobSummary, error) {
 		return runtimeapi.JobSummary{}, err
 	}
 	out := runtimeapi.JobSummary{
+		CompletionStatus:      stringPtrOrNil(summary.CompletionStatus),
+		CompletionDetail:      stringPtrOrNil(summary.CompletionDetail),
 		ArchivedAt:            summary.ArchivedAt,
 		AvailableAt:           summary.AvailableAt,
 		CancelRequested:       summary.CancelRequested,
@@ -1465,6 +1467,8 @@ func jobSummaryFromAPI(summary runtimeapi.JobSummary) (jobdb.JobSummary, error) 
 		return jobdb.JobSummary{}, err
 	}
 	return jobdb.JobSummary{
+		CompletionStatus:      stringValue(summary.CompletionStatus),
+		CompletionDetail:      stringValue(summary.CompletionDetail),
 		JobKey:                fromAPIJobKey(summary.JobKey),
 		Status:                jobdb.JobStatus(summary.Status),
 		JobType:               summary.JobType,

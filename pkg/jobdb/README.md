@@ -193,3 +193,13 @@ The runtime API includes first-class schedule and job listing types:
 
 The server exposes these through the same remote runtime API used for job
 lifecycle and leasing.
+
+`JobSummary.CompletionStatus` and `CompletionDetail` expose the persisted terminal
+scheduler outcome without reading history or replaying the workflow. Known
+categories are `success`, `failed_app`, `failed_system`, `failed_timeout`, and
+`cancelled`; other values are preserved. Empty status means unavailable, and empty
+detail is valid. Scheduler `Status` and its filters are unchanged: `COMPLETED`
+alone does not imply success. Retry attempts and cancellation requests alone do
+not establish a final outcome. The fields also appear in schedule-run summaries
+and `GetJobRun`'s job summary. Remote JSON uses optional `completionStatus` and
+`completionDetail` fields; older servers may omit them.

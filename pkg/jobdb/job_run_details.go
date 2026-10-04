@@ -20,12 +20,14 @@ type GetJobRunResponse struct {
 }
 
 type JobRunSummary struct {
-	JobKey     JobKey
-	JobType    string
-	Status     JobStatus
-	CreatedAt  time.Time
-	ArchivedAt *time.Time
-	Metadata   json.RawMessage
+	JobKey           JobKey
+	JobType          string
+	Status           JobStatus
+	CompletionStatus string
+	CompletionDetail string
+	CreatedAt        time.Time
+	ArchivedAt       *time.Time
+	Metadata         json.RawMessage
 }
 
 type JobStart struct {
