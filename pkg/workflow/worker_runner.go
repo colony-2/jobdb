@@ -41,6 +41,8 @@ type workerRunner struct {
 	ctx          context.Context
 	jobKey       JobKey
 	storyCounter int64
+	// Serializes a task's history updates with the enclosing job timeout.
+	taskMu sync.Mutex
 
 	currentInvocationDeadline time.Time
 	currentTotalDeadline      time.Time
@@ -115,6 +117,27 @@ func (r *workerRunner) ManipulateStepForTest(newStep int64) {
 func (r *workerRunner) markStoryOrdinalConsumed(ordinal int64) {
 	if ordinal >= r.storyCounter {
 		r.storyCounter = ordinal + 1
+	}
+}
+
+// Timeout recovery must account for a task append that committed even when its
+// acknowledgement was lost to cancellation. Only the durable log owns ordinals.
+func (r *workerRunner) seekJobOutcome(ctx context.Context) (bool, error) {
+	for {
+		chapter, _, err := r.getChapter(ctx, r.storyCounter)
+		if errors.Is(err, ErrChapterNotFound) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if chapterIs(chapter, chapterTypeJobAttemptOutcome) {
+			return true, nil
+		}
+		if !chapterIs(chapter, chapterTypeTaskAttemptOutcome) && !chapterIs(chapter, chapterTypeRestartExtra) {
+			return false, fmt.Errorf("%w: unexpected chapter at ordinal %d during timeout recovery", ErrWorkflowNotDeterministic, r.storyCounter)
+		}
+		r.markStoryOrdinalConsumed(r.storyCounter)
 	}
 }
 
@@ -239,10 +262,10 @@ func (r *workerRunner) jobTotalDeadline(meta chapterMeta, totalTimeout time.Dura
 
 func (r *workerRunner) awaitUntil(wakeAt time.Time, ordinal int64, attempt int, kind string, inputRef *InputReference, invocationDeadline time.Time, totalDeadline time.Time, invocationLimit time.Duration, totalLimit time.Duration) error {
 	now := time.Now()
+	if r.ctx != nil && context.Cause(r.ctx) != nil {
+		return context.Cause(r.ctx)
+	}
 	if r.replay {
-		if r.ctx != nil && context.Cause(r.ctx) != nil {
-			return context.Cause(r.ctx)
-		}
 		// Historical deadlines cannot invalidate a recorded retry. Replay
 		// never waits, but still reports a cache miss for a future wakeup.
 		if wakeAt.IsZero() || !wakeAt.After(now) {
@@ -382,6 +405,9 @@ func (r *workerRunner) AwaitJobs(jobIds ...string) error {
 }
 
 func (r *workerRunner) SubmitJob(ctx context.Context, submit SubmitJob) (JobKey, error) {
+	if r.ctx != nil && context.Cause(r.ctx) != nil {
+		return JobKey{}, context.Cause(r.ctx)
+	}
 	if r.lease == nil || r.replay {
 		return JobKey{}, fmt.Errorf("submitting jobs requires an active execution lease")
 	}
@@ -403,6 +429,9 @@ func (r *workerRunner) SubmitJob(ctx context.Context, submit SubmitJob) (JobKey,
 }
 
 func (r *workerRunner) SubmitRestartJob(ctx context.Context, restart SubmitRestartJob) (JobKey, error) {
+	if r.ctx != nil && context.Cause(r.ctx) != nil {
+		return JobKey{}, context.Cause(r.ctx)
+	}
 	if r.lease == nil || r.replay {
 		return JobKey{}, fmt.Errorf("submitting restart jobs requires an active execution lease")
 	}
@@ -797,6 +826,8 @@ func (r *workerRunner) prepareJobResultPayload(output JobData, originalErr error
 }
 
 func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) (TaskData, error) {
+	r.taskMu.Lock()
+	defer r.taskMu.Unlock()
 	options := TaskOptionsFor(data)
 	if alt := options.Alternate; alt != nil {
 		if err := validateIdentifier(alt.TaskType); err != nil {
@@ -848,7 +879,17 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 
 		chapter, meta, err := r.getChapter(ctx, ordinal)
 		if err == nil {
-			r.markStoryOrdinalConsumed(ordinal)
+			// A job deadline can interrupt orchestration or a task before that
+			// task records an outcome. Leave the job's timeout at this ordinal
+			// for DoJob to consume and apply its job retry policy. It is not a
+			// task outcome and must not emit task events or advance the cursor.
+			if chapterIs(chapter, chapterTypeJobAttemptOutcome) {
+				_, jobErr := chapterToTaskData(r.runtime, r.GetJobKey(), chapter)
+				var timeout TimeoutError
+				if errors.As(jobErr, &timeout) && timeout.Payload.Kind == "job" {
+					return nil, jobErr
+				}
+			}
 			if !chapterIs(chapter, chapterTypeTaskAttemptOutcome) && !chapterIs(chapter, chapterTypeRestartExtra) {
 				got, _ := chapterType(chapter)
 				return nil, fmt.Errorf("%w: unexpected chapter type %q at ordinal %d", ErrWorkflowNotDeterministic, got, ordinal)
@@ -888,6 +929,7 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 					},
 				}
 			}
+			r.markStoryOrdinalConsumed(ordinal)
 			td, payloadErr := chapterToTaskData(r.runtime, r.GetJobKey(), chapter)
 			if payloadErr == nil {
 				r.emitTaskEnd(taskType, ordinal, attempt, td, nil, metaEndAt(meta))
@@ -1183,7 +1225,7 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 		if r.replay {
 			return nil, ErrReplayShouldNeverMutate
 		}
-		persistedOutput, err := persistTaskDataChapter(context.TODO(), r.runtime, r.lease, ChapterRef{
+		persistedOutput, err := persistTaskDataChapter(ctx, r.runtime, r.lease, ChapterRef{
 			JobKey:  r.GetJobKey(),
 			Ordinal: ordinal,
 		}, taskType, chapterTypeTaskAttemptOutcome, payloadKind, inputHash, time.Now().UTC(), meta, payload, artifacts)
@@ -1312,19 +1354,12 @@ func (r *workerRunner) DoJob(ctx context.Context) (output JobData, runErr error)
 		if timeoutErr := r.checkTotalTimeoutExceeded(config.totalDeadline, config.totalTimeout, config.inputRef); timeoutErr != nil {
 			// A resumed job may already have task chapters. Never write a final
 			// timeout over them, and never invalidate a completed job on replay.
-			for {
-				ch, _, readErr := r.getChapter(ctx, r.storyCounter)
-				if errors.Is(readErr, ErrChapterNotFound) {
-					break
-				}
-				if readErr != nil {
-					return nil, readErr
-				}
-				if chapterIs(ch, chapterTypeJobAttemptOutcome) {
-					timeoutErr = nil
-					break
-				}
-				r.markStoryOrdinalConsumed(r.storyCounter)
+			found, readErr := r.seekJobOutcome(ctx)
+			if readErr != nil {
+				return nil, readErr
+			}
+			if found {
+				timeoutErr = nil
 			}
 			if err := timeoutErr; err != nil {
 				if r.replay {
@@ -1398,17 +1433,46 @@ func (r *workerRunner) DoJob(ctx context.Context) (output JobData, runErr error)
 			return nil, err
 		}
 
-		attemptInvocationDeadline := r.setupAttemptDeadlines(config.invocationTimeout, config.totalDeadline, config.totalTimeout, config.inputRef)
+		// A timed-out worker may return late. Give it an attempt-local context
+		// and cursor so it cannot mutate the next attempt's execution state.
+		attemptRunner := newWorkerRunner(r.runtime, r.worker, r.lease, workerRunnerOptions{
+			JobKey: r.jobKey, JobPolicy: r.jobPolicy, WorkerID: r.workerID,
+			Logger: r.logger, Observer: r.observer, Replay: r.replay, AwaitThreshold: r.awaitThreshold,
+		})
+		attemptCtx, stopAttempt := context.WithCancel(ctx)
+		attemptRunner.ctx = attemptCtx
+		attemptRunner.storyCounter = r.storyCounter
+		attemptRunner.currentJobAttemptStartAt = startAt
+		attemptInvocationDeadline := attemptRunner.setupAttemptDeadlines(config.invocationTimeout, config.totalDeadline, config.totalTimeout, config.inputRef)
 		attemptStartAt := startAt
-		resultCh := r.executeJobWorkerAsync(inputData)
+		resultCh := attemptRunner.executeJobWorkerAsync(inputData)
 		output, jobErr := r.waitForJobResultWithDeadline(resultCh, attemptInvocationDeadline, config.totalDeadline, config.invocationTimeout, config.totalTimeout, config.inputRef)
+		stopAttempt()
+		// Cancellation releases a DoTask waiting on an uncooperative worker.
+		// Wait for its cursor/persistence updates before appending a job outcome.
+		attemptRunner.taskMu.Lock()
+		r.storyCounter = attemptRunner.storyCounter
+		r.lastTaskEndAt = attemptRunner.lastTaskEndAt
+		r.rescheduled.Store(attemptRunner.rescheduled.Load())
+		attemptRunner.taskMu.Unlock()
 		if err := context.Cause(ctx); err != nil {
 			return nil, err
 		}
 		if errors.Is(jobErr, ErrExecutionLeaseLost) {
 			return nil, jobErr
 		}
-		if output == nil && jobErr == nil {
+		if errors.Is(jobErr, ErrWorkflowNotDeterministic) || errors.Is(jobErr, ErrMissingInputHash) {
+			// Do not replace the original mismatch with a second cache lookup
+			// error, or hide it behind a recorded outcome at the same ordinal.
+			return nil, jobErr
+		}
+		var timeout TimeoutError
+		if !r.replay && errors.As(jobErr, &timeout) && timeout.Payload.Kind == "job" {
+			if _, err := r.seekJobOutcome(ctx); err != nil {
+				return nil, err
+			}
+		}
+		if output == nil && jobErr == nil && r.rescheduled.Load() {
 			r.emitJobEnd(attempt, nil, nil, attemptStartAt)
 			return nil, nil
 		}
@@ -1454,6 +1518,10 @@ func (r *workerRunner) DoJob(ctx context.Context) (output JobData, runErr error)
 			nextAttemptStartAt = nextStartAt
 			attempt = nextAttempt
 			continue
+		}
+		if output == nil && jobErr == nil {
+			r.emitJobEnd(attempt, nil, nil, attemptStartAt)
+			return nil, nil
 		}
 		if r.replay {
 			if jobErr != nil {
@@ -1586,6 +1654,9 @@ func (r *workerRunner) ClientPayloadRevision() int64 {
 // Yield publishes an explicit scheduler transition. Callers must avoid repeating
 // the yield after resumption, for example by checking a persisted cursor.
 func (r *workerRunner) Yield(ctx context.Context, req RescheduleExecutionRequest) error {
+	if r.ctx != nil && context.Cause(r.ctx) != nil {
+		return context.Cause(r.ctx)
+	}
 	if r.replay {
 		return ReplayCacheMissError{JobKey: r.GetJobKey(), Ordinal: r.storyCounter, Attempt: 1, Reason: ReplayCacheMissAwaitNotReady}
 	}

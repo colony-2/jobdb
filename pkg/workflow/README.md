@@ -246,6 +246,12 @@ context to cancel or bound replay. Recorded timeout failures remain failures.
 Replay never runs task workers or writes history. Missing outcomes and future
 waits still produce `ReplayCacheMissError`.
 
+A job deadline can interrupt orchestration or an in-flight task before a task
+outcome is recorded. At that boundary, `DoTask` returns the recorded job timeout
+without consuming it or emitting task events. The job runner consumes the job
+outcome and applies the job retry policy. Non-timeout job outcomes in place of
+task outcomes, and task input mismatches, remain determinism errors.
+
 When changing shared runner timeout, retry, cache, or recovery paths, test both
 live execution and read-only replay. Final-result assertions alone miss skipped
 observer events: compare the complete ordered event stream before and after
@@ -254,3 +260,12 @@ ending in success and failure. Also check unchanged chapters, zero task executio
 caller cancellation, and incomplete-history cache misses. The regression matrix
 in `replay_history_test.go` runs in the normal test suite; it was added after a
 live recovery scan accidentally skipped historical task events during replay.
+
+Returned timeout errors alone do not cover interruption: they let the worker
+unwind normally and can produce task/job outcome pairs that a real timer never
+records. `replay_interruption_test.go` covers interrupted attempts, late workers,
+and a task append that commits before cancellation loses its acknowledgement.
+`replay_interruption_integration_test.go` generates interrupted histories using
+real timers through the public run API on toy, SQLite, and remote runtimes, then
+checks replay event order, unchanged history, and no task re-execution. CI also
+runs the workflow package with the race detector to check timeout/worker overlap.
