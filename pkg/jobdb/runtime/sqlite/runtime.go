@@ -413,21 +413,11 @@ func (r *Runtime) acquireOneLease(ctx context.Context, req jobdb.PollWorkRequest
 			if _, ok := capSet[need]; !ok {
 				continue
 			}
-			if row.leaseID.Valid && row.leaseID.String != "" && row.leaseExpiresAtNS.Valid && timeFromNS(row.leaseExpiresAtNS.Int64).After(now) {
-				continue
-			}
-			waitFor, err := decodeWaitFor(row.waitForRaw)
+			status, err := statusFromRow(ctx, tx, row, now)
 			if err != nil {
 				return err
 			}
-			ready, err := dependenciesReady(ctx, tx, row.tenantID, waitFor)
-			if err != nil {
-				return err
-			}
-			if !ready {
-				continue
-			}
-			if available := timeFromNS(row.availableAtNS); !available.IsZero() && available.After(now) {
+			if status != jobdb.JobStatusReady {
 				continue
 			}
 			if len(metadataPredicates) > 0 {
@@ -456,7 +446,8 @@ func (r *Runtime) acquireOneLease(ctx context.Context, req jobdb.PollWorkRequest
 			}
 			result, err := tx.ExecContext(ctx, `
 UPDATE jobdb_jobs
-SET route_job_type = ?, route_task_type = ?, lease_id = ?, lease_worker_id = ?, lease_expires_at_ns = ?,
+SET consecutive_expirations = CASE WHEN lease_id IS NOT NULL THEN consecutive_expirations + 1 ELSE 0 END,
+	route_job_type = ?, route_task_type = ?, lease_id = ?, lease_worker_id = ?, lease_expires_at_ns = ?,
 	alternate_job_type = ?, alternate_task_type = ?, alternate_at_ns = ?, updated_at_ns = ?
 WHERE tenant_id = ? AND job_id = ?`,
 				nextRoute.JobType, nextRoute.TaskType, leaseID, workerID, timeToNS(expires), altJob, altTask, altAt, timeToNS(now), row.tenantID, row.jobID)
@@ -525,7 +516,7 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 		if err != nil {
 			return err
 		}
-		if status != jobdb.JobStatusReady && status != jobdb.JobStatusCrashConcern {
+		if status != jobdb.JobStatusReady {
 			return nil
 		}
 		need, altFired := effectiveNextRoute(row, now)
@@ -550,7 +541,8 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 		}
 		_, err = tx.ExecContext(ctx, `
 UPDATE jobdb_jobs
-SET route_job_type = ?, route_task_type = ?, lease_id = ?, lease_worker_id = ?, lease_expires_at_ns = ?,
+SET consecutive_expirations = CASE WHEN lease_id IS NOT NULL THEN consecutive_expirations + 1 ELSE 0 END,
+	route_job_type = ?, route_task_type = ?, lease_id = ?, lease_worker_id = ?, lease_expires_at_ns = ?,
 	alternate_job_type = ?, alternate_task_type = ?, alternate_at_ns = ?, updated_at_ns = ?
 WHERE tenant_id = ? AND job_id = ?`,
 			nextRoute.JobType, nextRoute.TaskType, leaseID, workerID, timeToNS(expires), altJob, altTask, altAt, timeToNS(now), row.tenantID, row.jobID)

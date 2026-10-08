@@ -230,7 +230,7 @@ func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRu
 		}
 		job := jobdb.JobSummary{
 			JobKey:           key,
-			Status:           rec.status,
+			Status:           rec.currentStatus(time.Now()),
 			CompletionStatus: rec.completionStatus,
 			CompletionDetail: rec.completionDetail,
 			JobType:          rec.jobType,

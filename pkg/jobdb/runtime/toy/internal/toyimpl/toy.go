@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/crashconcern"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
 	"github.com/segmentio/ksuid"
 )
@@ -86,6 +87,20 @@ type jobRecord struct {
 	leased                bool
 	leaseID               string
 	chapters              map[int64]*toyChapter
+
+	consecutiveExpirations int64
+}
+
+// currentStatus projects lease expiry without counting it again on each read.
+// The caller holds the record lock.
+func (r *jobRecord) currentStatus(now time.Time) jobdb.JobStatus {
+	if r.leased && !r.leaseExpiresAt.After(now) && r.archived == nil && !r.cancelled {
+		if r.consecutiveExpirations >= crashconcern.DefaultThreshold {
+			return jobdb.JobStatusCrashConcern
+		}
+		return jobdb.JobStatusReady
+	}
+	return r.status
 }
 
 type toyScheduleRecord struct {
@@ -255,7 +270,7 @@ func (e *ToyEngine) GetJobRun(ctx context.Context, req jobdb.GetJobRunRequest) (
 		Job: jobdb.JobRunSummary{
 			JobKey:           req.JobKey,
 			JobType:          record.jobType,
-			Status:           record.status,
+			Status:           record.currentStatus(time.Now()),
 			CompletionStatus: record.completionStatus,
 			CompletionDetail: record.completionDetail,
 			CreatedAt:        record.createdAt,
@@ -272,7 +287,7 @@ func (e *ToyEngine) GetJobRun(ctx context.Context, req jobdb.GetJobRunRequest) (
 	}
 	route := record.route
 	pendingStep := record.step
-	status := record.status
+	status := record.currentStatus(time.Now())
 	finished := record.finished
 	result := record.result
 	jobErr := record.err
@@ -769,7 +784,7 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 	e.mu.Lock()
 	for key, rec := range e.jobRecords {
 		rec.mu.Lock()
-		status := rec.status
+		status := rec.currentStatus(time.Now())
 		store := jobdb.JobStoreActive
 		if status == jobdb.JobStatusCompleted {
 			store = jobdb.JobStoreArchived

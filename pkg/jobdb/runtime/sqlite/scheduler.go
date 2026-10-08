@@ -10,13 +10,14 @@ import (
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/crashconcern"
 )
 
 const jobColumns = `
 tenant_id, job_id, job_type, route_job_type, route_task_type, payload, client_payload, client_payload_revision, initial_payload_digest, metadata, parent_job_id, wait_for,
 available_at_ns, created_at_ns, updated_at_ns, archived_at_ns,
 cancel_requested, completion_status, completion_detail,
-lease_id, lease_worker_id, lease_expires_at_ns, alternate_job_type, alternate_task_type, alternate_at_ns
+consecutive_expirations, lease_id, lease_worker_id, lease_expires_at_ns, alternate_job_type, alternate_task_type, alternate_at_ns
 `
 
 type jobRow struct {
@@ -43,6 +44,8 @@ type jobRow struct {
 	leaseExpiresAtNS      sql.NullInt64
 	alternateRoute        *jobdb.Route
 	alternateAtNS         sql.NullInt64
+
+	consecutiveExpirations int64
 }
 
 func scanJobRow(scanner interface{ Scan(dest ...any) error }) (jobRow, error) {
@@ -68,6 +71,7 @@ func scanJobRow(scanner interface{ Scan(dest ...any) error }) (jobRow, error) {
 		&cancelRequested,
 		&row.completionStatus,
 		&row.completionDetail,
+		&row.consecutiveExpirations,
 		&row.leaseID,
 		&row.leaseWorkerID,
 		&row.leaseExpiresAtNS,
@@ -260,7 +264,6 @@ func statusFromRow(ctx context.Context, tx queryer, row jobRow, now time.Time) (
 		if row.leaseExpiresAtNS.Valid && timeFromNS(row.leaseExpiresAtNS.Int64).After(now) {
 			return jobdb.JobStatusActive, nil
 		}
-		return jobdb.JobStatusCrashConcern, nil
 	}
 	waitFor, err := decodeWaitFor(row.waitForRaw)
 	if err != nil {
@@ -275,6 +278,9 @@ func statusFromRow(ctx context.Context, tx queryer, row jobRow, now time.Time) (
 	}
 	if available := timeFromNS(row.availableAtNS); !available.IsZero() && available.After(now) {
 		return jobdb.JobStatusAwaitingFuture, nil
+	}
+	if row.consecutiveExpirations >= crashconcern.DefaultThreshold {
+		return jobdb.JobStatusCrashConcern, nil
 	}
 	return jobdb.JobStatusReady, nil
 }

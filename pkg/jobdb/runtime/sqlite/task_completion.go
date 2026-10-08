@@ -38,21 +38,17 @@ func (r *Runtime) claimWaitingTask(ctx context.Context, expected jobRow, resumeJ
 		}
 		// Claim only eligible work. Existing availability and dependencies can stay
 		// unchanged: they have already been satisfied when the lease is installed.
-		waitFor, err := decodeWaitFor(current.waitForRaw)
+		status, err := statusFromRow(ctx, tx, current, now)
 		if err != nil {
 			return err
 		}
-		ready, err := dependenciesReady(ctx, tx, key.TenantId, waitFor)
-		if err != nil {
-			return err
-		}
-		if !ready || current.availableAtNS > timeToNS(now) {
-			return fmt.Errorf("%w: waiting task is not available", jobdb.ErrConflict)
+		if status != jobdb.JobStatusReady {
+			return fmt.Errorf("%w: waiting task is not ready", jobdb.ErrConflict)
 		}
 		lease.expiresAt = now.Add(lease.duration)
 		// Drop task coordinates to match the job-only route. Alternate routing must
 		// not redirect recovery to another task after this lease expires.
-		_, err = tx.ExecContext(ctx, `UPDATE jobdb_jobs SET route_job_type=?,route_task_type='',payload=?,lease_id=?,lease_worker_id=?,lease_expires_at_ns=?,alternate_job_type=NULL,alternate_task_type=NULL,alternate_at_ns=NULL,updated_at_ns=? WHERE tenant_id=? AND job_id=?`,
+		_, err = tx.ExecContext(ctx, `UPDATE jobdb_jobs SET consecutive_expirations=CASE WHEN lease_id IS NOT NULL THEN consecutive_expirations+1 ELSE 0 END,route_job_type=?,route_task_type='',payload=?,lease_id=?,lease_worker_id=?,lease_expires_at_ns=?,alternate_job_type=NULL,alternate_task_type=NULL,alternate_at_ns=NULL,updated_at_ns=? WHERE tenant_id=? AND job_id=?`,
 			resumeJobType, payload, lease.leaseID, lease.workerID, timeToNS(lease.expiresAt), timeToNS(now), key.TenantId, key.JobId)
 		return err
 	})

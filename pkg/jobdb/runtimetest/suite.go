@@ -86,6 +86,9 @@ func RunWorkflowRuntimeConformance(t *testing.T, harnesses ...Harness) {
 	if len(harnesses) == 0 {
 		t.Fatal("runtimetest: at least one harness is required")
 	}
+	t.Run("crash_concern_excludes_ready_work", func(t *testing.T) {
+		runCrashConcern(t, harnesses)
+	})
 	t.Run("construct_and_execute_through_builder", func(t *testing.T) {
 		runConstructAndExecuteThroughBuilder(t, harnesses)
 	})

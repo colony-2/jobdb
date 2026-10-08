@@ -226,7 +226,7 @@ func (r *Runtime) RescheduleJobWithLeaseByID(ctx context.Context, jobKey jobdb.J
 		}
 		_, err = tx.ExecContext(ctx, `
 UPDATE jobdb_jobs
-SET route_job_type = ?, route_task_type = ?, payload = ?, wait_for = ?, available_at_ns = ?,
+SET consecutive_expirations = 0, route_job_type = ?, route_task_type = ?, payload = ?, wait_for = ?, available_at_ns = ?,
 	lease_id = NULL, lease_worker_id = NULL, lease_expires_at_ns = NULL,
 	alternate_job_type = ?, alternate_task_type = ?, alternate_at_ns = ?, updated_at_ns = ?
 WHERE tenant_id = ? AND job_id = ?`,

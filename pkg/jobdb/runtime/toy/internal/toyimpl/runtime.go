@@ -511,6 +511,11 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 		}
 		record.leased = true
 		record.status = jobdb.JobStatusActive
+		if record.leaseID != "" {
+			record.consecutiveExpirations++
+		} else {
+			record.consecutiveExpirations = 0
+		}
 		record.leaseID = ksuid.New().String()
 		record.leaseWorkerID = req.WorkerID
 		record.leaseExpiresAt = now.Add(toyLeaseDurationOrDefault(req.LeaseDuration))
@@ -597,6 +602,11 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 	}
 	record.leased = true
 	record.status = jobdb.JobStatusActive
+	if record.leaseID != "" {
+		record.consecutiveExpirations++
+	} else {
+		record.consecutiveExpirations = 0
+	}
 	record.leaseID = ksuid.New().String()
 	record.leaseWorkerID = req.WorkerID
 	record.leaseExpiresAt = now.Add(toyLeaseDurationOrDefault(req.LeaseDuration))
@@ -666,7 +676,7 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 	defer record.mu.Unlock()
 	job := jobdb.JobInfo{
 		ClientPayload: cloneJSON(record.clientPayload), ClientPayloadRevision: record.clientPayloadRevision, ExecutionState: toyExecutionState(record.payload),
-		Status:     record.status,
+		Status:     record.currentStatus(time.Now()),
 		Data:       &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
 		SchemaHash: jobmetadata.SchemaHashFromStoredMetadata(record.metadata),
 	}
@@ -1033,9 +1043,8 @@ func (r *Runtime) taskDataFromChapter(jobKey jobdb.JobKey, chapter jobdb.Chapter
 
 func (r *Runtime) advanceRecordStateLocked(tenantId string, now time.Time, record *jobRecord) {
 	if record.leased && !record.leaseExpiresAt.After(now) && record.archived == nil && !record.cancelled {
+		record.status = record.currentStatus(now)
 		record.leased = false
-		record.leaseID = ""
-		record.status = jobdb.JobStatusReady
 	}
 
 	if record.status == jobdb.JobStatusAwaitingFuture && !record.availableAt.IsZero() && !record.availableAt.After(now) {
@@ -1213,6 +1222,7 @@ func (r *Runtime) rescheduleLease(jobKey jobdb.JobKey, leaseID string, workerID 
 	record.clientPayload, record.clientPayloadRevision = value, revision
 	record.leased = false
 	record.leaseID = ""
+	record.consecutiveExpirations = 0
 	record.route = req.NextRoute
 	record.alternateRoute = jobdb.CloneRoute(req.AlternateRoute)
 	if req.AlternateAfter != nil {
@@ -1311,20 +1321,25 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	if req.Route.TaskType == "" {
 		return fmt.Errorf("task route required")
 	}
-	record := r.engine.getJobRecord(req.JobKey)
+	r.engine.mu.Lock()
+	record := r.engine.jobRecords[req.JobKey]
 	if record == nil {
+		r.engine.mu.Unlock()
 		return jobdb.ErrJobNotFound
 	}
 	payloadInfo := workerJobPayload{}
 
 	record.mu.Lock()
-	if record.archived != nil || record.cancelled || (record.leased && record.leaseExpiresAt.After(time.Now().UTC())) {
+	r.advanceRecordStateLocked(req.JobKey.TenantId, time.Now().UTC(), record)
+	if record.status != jobdb.JobStatusReady || record.archived != nil || record.cancelled {
 		record.mu.Unlock()
+		r.engine.mu.Unlock()
 		return fmt.Errorf("%w: task is not unheld", jobdb.ErrConflict)
 	}
 	payload := cloneJSON(record.payload)
 	currentRoute := record.route
 	record.mu.Unlock()
+	r.engine.mu.Unlock()
 
 	_ = json.Unmarshal(payload, &payloadInfo)
 	wait, err := extractWorkerTaskWait(payload)
@@ -1400,7 +1415,7 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	}
 	record.mu.Lock()
 	defer record.mu.Unlock()
-	if record.archived != nil || record.cancelled || (record.leased && record.leaseExpiresAt.After(time.Now().UTC())) || record.route != currentRoute || !bytes.Equal(record.payload, payload) {
+	if record.currentStatus(time.Now().UTC()) != jobdb.JobStatusReady || record.archived != nil || record.cancelled || record.route != currentRoute || !bytes.Equal(record.payload, payload) {
 		return fmt.Errorf("%w: waiting task changed", jobdb.ErrConflict)
 	}
 	resumeJobType := wait.Next
@@ -1414,6 +1429,7 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	record.leased = false
 	record.leaseID = ""
 	record.step = wait.OutputStep
+	record.consecutiveExpirations = 0
 	return nil
 }
 

@@ -146,6 +146,25 @@ err = lease.Complete(ctx, jobdb.CompleteExecutionRequest{
 Most applications should not implement worker execution directly against leases.
 Use [pkg/workflow](../workflow/README.md) for job and task workers.
 
+## Crash Concern And Ready Work
+
+`PollWork`, `GetJobLease`, and external-task completion claims require `READY`.
+`CRASH_CONCERN` jobs are excluded, including when an alternate route becomes due.
+SQLite and toy use pgjobdb's default threshold of five consecutive expired-lease
+reclaims. The first acquisition starts at zero; reacquiring an expired lease
+increments the count. A live lease remains `ACTIVE` even at the threshold. If
+that lease expires, the job becomes `CRASH_CONCERN` and cannot be acquired again.
+Thus, at the default threshold, an uninterrupted failure cycle stops after the
+sixth lease expires. Reads and renewals do not increment or reset the count;
+successful rescheduling resets it. A single expired lease remains recoverable.
+
+SQLite persists the counter across daemon restarts. Format 3 databases upgrade
+to format 4 by adding the counter, initialized to zero; prior expiry counts were
+not recorded and cannot be reconstructed. Toy retains it for the runtime's
+lifetime. Remote runtimes use their underlying scheduler's policy. PostgreSQL
+also supports a configured threshold and its existing explicit
+`clear_crash_concern` operation; there is no new portable clearing API here.
+
 ## Data And Artifacts
 
 `TaskData` is the runtime payload container. It carries JSON data and optional
