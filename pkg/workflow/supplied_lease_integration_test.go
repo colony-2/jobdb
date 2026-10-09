@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -43,6 +44,8 @@ type suppliedFixture struct {
 	lease                  jobdb.ExecutionLease
 	acquisitions, renewals atomic.Int64
 	failRenew              atomic.Bool
+	corruptRenew           atomic.Value // string fault applied after a successful backend renewal
+	corruptedRenewals      atomic.Int64
 }
 
 func newSuppliedFixture(t *testing.T) *suppliedFixture {
@@ -64,6 +67,40 @@ func newSuppliedFixture(t *testing.T) *suppliedFixture {
 				f.renewals.Add(1)
 				if f.failRenew.Load() {
 					http.Error(w, "injected failure", http.StatusServiceUnavailable)
+					return
+				}
+				if fault, _ := f.corruptRenew.Load().(string); fault != "" {
+					// Commit a real backend renewal before damaging its response. The
+					// client must still stop, without assuming the renewal had no effect.
+					recorded := httptest.NewRecorder()
+					handler.ServeHTTP(recorded, r)
+					if recorded.Code != http.StatusOK {
+						t.Errorf("backend renewal failed before fault injection: status %d", recorded.Code)
+						w.WriteHeader(recorded.Code)
+						return
+					}
+					f.corruptedRenewals.Add(1)
+					w.Header().Set("Content-Type", "application/json")
+					switch fault {
+					case "decode":
+						fmt.Fprint(w, `{"broken":`)
+					case "read":
+						w.Header().Set("Content-Length", "100")
+						fmt.Fprint(w, `{"broken":`)
+					case "snapshot":
+						var response map[string]any
+						if err := json.Unmarshal(recorded.Body.Bytes(), &response); err != nil {
+							t.Error(err)
+							w.WriteHeader(500)
+							return
+						}
+						response["lease"].(map[string]any)["clientPayloadRevision"] = "private-renewal-secret"
+						if err := json.NewEncoder(w).Encode(response); err != nil {
+							t.Error(err)
+						}
+					case "unsupported":
+						fmt.Fprint(w, `{"leaseToken":"private-renewal-secret"}`)
+					}
 					return
 				}
 			}
@@ -237,6 +274,83 @@ func TestSuppliedLeaseInvalidBeforeExecution(t *testing.T) {
 			require.False(t, called.Load())
 			require.Zero(t, f.acquisitions.Load())
 		})
+	}
+}
+
+func TestSuppliedLeaseDamagedRenewalResponseStopsExecution(t *testing.T) {
+	for _, tc := range []struct {
+		fault    string
+		phase    remote.LeaseFailurePhase
+		category remote.LeaseFailureCategory
+	}{
+		{"decode", remote.LeasePhaseDecode, remote.LeaseFailureDecode},
+		{"read", remote.LeasePhaseRead, remote.LeaseFailureRead},
+		{"snapshot", remote.LeasePhaseSnapshot, remote.LeaseFailureSnapshot},
+		{"unsupported", remote.LeasePhaseSnapshot, remote.LeaseFailureUnsupported},
+	} {
+		for _, heartbeat := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/heartbeat=%t", tc.fault, heartbeat), func(t *testing.T) {
+				f := newSuppliedFixture(t)
+				entered, exited := make(chan struct{}), make(chan struct{})
+				lease := f.imported(t)
+				runnable, err := workflow.GetJobForRunWithLease(context.Background(), f.receiver, lease, workflow.GetJobForRunRequest{JobKey: f.key, JobWorker: suppliedJob{run: func(ctx workflow.JobContext, _ jobdb.JobData) (jobdb.JobData, error) {
+					close(entered)
+					defer close(exited)
+					return nil, ctx.AwaitDuration(jobdb.Duration(time.Minute))
+				}}})
+				require.NoError(t, err)
+				if !heartbeat {
+					f.corruptRenew.Store(tc.fault)
+				}
+				result := make(chan error, 1)
+				go func() { _, err := runnable.Run(nil); result <- err }()
+				if heartbeat {
+					select {
+					case <-entered:
+					case <-time.After(3 * time.Second):
+						t.Fatal("runner did not start")
+					}
+					f.corruptRenew.Store(tc.fault)
+				}
+				select {
+				case err = <-result:
+				case <-time.After(3 * time.Second):
+					t.Fatal("failed renewal did not stop execution")
+				}
+				var renewal *jobdb.LeaseRenewalError
+				require.ErrorAs(t, err, &renewal)
+				var diagnostic *remote.LeaseTransportError
+				require.ErrorAs(t, err, &diagnostic)
+				require.Equal(t, "renew", diagnostic.Operation)
+				require.Equal(t, tc.phase, diagnostic.Phase)
+				require.Equal(t, tc.category, diagnostic.Category)
+				require.Equal(t, 200, diagnostic.StatusCode)
+				require.True(t, diagnostic.ResponseReceived)
+				require.False(t, errors.Is(err, jobdb.ErrExecutionLeaseLost))
+				require.Equal(t, tc.fault == "unsupported", errors.Is(err, jobdb.ErrLeaseRenewalUnsupported))
+				require.Contains(t, err.Error(), "HTTP status 200")
+				require.Contains(t, err.Error(), string(tc.phase))
+				require.NotContains(t, err.Error(), "private-renewal-secret")
+				if heartbeat {
+					select {
+					case <-exited:
+					case <-time.After(time.Second):
+						t.Fatal("execution context was not cancelled")
+					}
+				} else {
+					select {
+					case <-entered:
+						t.Fatal("execution started after initial renewal failed")
+					default:
+					}
+				}
+				chapters, err := f.backend.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: f.key})
+				require.NoError(t, err)
+				require.Len(t, chapters, 1, "renewal failure must not append an outcome")
+				require.Zero(t, f.acquisitions.Load())
+				require.Equal(t, int64(1), f.corruptedRenewals.Load(), "failed renewal must not retry")
+			})
+		}
 	}
 }
 func TestSuppliedInMemoryLease(t *testing.T) {

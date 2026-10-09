@@ -4,13 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
-	"net/http"
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	"github.com/colony-2/jobdb/pkg/jobdb/internal/runtimeapi"
 )
 
 // LeaseCapability is a bearer credential. Only Encode deliberately exposes it.
@@ -82,51 +79,12 @@ func (r *Runtime) ImportLease(ctx context.Context, capability LeaseCapability) (
 	return lease.Renew(ctx)
 }
 
-// LeaseTransportError preserves HTTP/transport failures without reflecting a
-// response body or credential into diagnostics. A failed renewal is not proof
-// that the server did not extend the lease; callers must stop execution.
-type LeaseTransportError struct {
-	StatusCode int
-	Err        error
-}
-
-func (e *LeaseTransportError) Error() string {
-	return fmt.Sprintf("lease renewal transport failed (HTTP status %d)", e.StatusCode)
-}
-func (e *LeaseTransportError) Unwrap() error    { return e.Err }
-func (e *LeaseTransportError) GoString() string { return e.Error() }
-
 func (l *remoteExecutionLease) Renew(ctx context.Context) (jobdb.RenewableExecutionLease, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	// Bound even direct import calls made without a caller deadline.
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	resp, err := l.runtime.client.KeepAliveLeaseWithResponse(ctx, l.jobKey.TenantId, l.jobKey.JobId, l.leaseID, &runtimeapi.KeepAliveLeaseParams{XJobDBLeaseToken: l.LeaseToken()})
+	response, err := l.requestRenewal(ctx, "renew")
 	if err != nil {
-		return nil, &LeaseTransportError{Err: err}
+		return nil, err
 	}
-	if resp.StatusCode() != http.StatusOK {
-		switch resp.StatusCode() {
-		case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusConflict:
-			return nil, jobdb.ErrExecutionLeaseLost
-		default:
-			return nil, &LeaseTransportError{StatusCode: resp.StatusCode()}
-		}
-	}
-	if resp.JSON200 == nil || resp.JSON200.Lease == nil {
-		return nil, jobdb.ErrLeaseRenewalUnsupported
-	}
-	snapshot := resp.JSON200.Lease
-	if snapshot.LeaseId != l.leaseID || fromAPIJobKey(snapshot.Job.JobKey) != l.jobKey || snapshot.WorkerId == nil || *snapshot.WorkerId == "" || (l.workerID != "" && *snapshot.WorkerId != l.workerID) || snapshot.ExpiresAt == nil || !snapshot.ExpiresAt.After(time.Now()) || snapshot.LeaseToken == "" {
-		return nil, jobdb.ErrExecutionLeaseLost
-	}
-	lease, err := l.runtime.executionLeaseFromAPI(*snapshot)
-	if err != nil {
-		return nil, &LeaseTransportError{StatusCode: resp.StatusCode()}
-	}
-	return lease.(jobdb.RenewableExecutionLease), nil
+	return l.renewedSnapshot(response, "renew")
 }
 func (l *remoteExecutionLease) LeaseWorkerID() string { return l.workerID }
 func (l *remoteExecutionLease) LeaseExpiry() time.Time {

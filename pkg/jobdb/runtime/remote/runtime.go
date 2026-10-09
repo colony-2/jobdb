@@ -733,26 +733,31 @@ func (l *remoteExecutionLease) ExecutionState() jobdb.ExecutionState {
 	return jobdb.CloneExecutionState(l.state)
 }
 func (l *remoteExecutionLease) KeepAlive(ctx context.Context) error {
-	resp, err := l.runtime.client.KeepAliveLeaseWithResponse(
-		ctx,
-		l.jobKey.TenantId,
-		l.jobKey.JobId,
-		l.leaseID,
-		&runtimeapi.KeepAliveLeaseParams{XJobDBLeaseToken: l.LeaseToken()},
-	)
+	response, err := l.requestRenewal(ctx, "keep_alive")
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode() == http.StatusOK && resp.JSON200 != nil {
-		l.mu.Lock()
-		l.leaseToken = resp.JSON200.LeaseToken
-		if resp.JSON200.Lease != nil && resp.JSON200.Lease.ExpiresAt != nil {
-			l.expiresAt = *resp.JSON200.Lease.ExpiresAt
+	// Legacy servers return only a token. Full snapshots must validate before
+	// updating the credentials or expiry of the existing lease.
+	token := response.LeaseToken
+	var expiry time.Time
+	if response.Lease != nil {
+		next, err := l.renewedSnapshot(response, "keep_alive")
+		if err != nil {
+			return err
 		}
-		l.mu.Unlock()
-		return nil
+		token = next.(interface{ LeaseToken() string }).LeaseToken()
+		expiry = next.LeaseExpiry()
+	} else if token == "" {
+		return l.renewalError("keep_alive", LeasePhaseSnapshot, LeaseFailureSnapshot, http.StatusOK, jobdb.ErrExecutionLeaseLost)
 	}
-	return responseError("keep lease alive", resp.StatusCode(), resp.Body, jobdb.ErrExecutionLeaseLost)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.leaseToken = token
+	if !expiry.IsZero() {
+		l.expiresAt = expiry
+	}
+	return nil
 }
 
 func (l *remoteExecutionLease) Complete(ctx context.Context, req jobdb.CompleteExecutionRequest) error {

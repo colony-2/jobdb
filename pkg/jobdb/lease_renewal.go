@@ -29,7 +29,15 @@ type RenewableExecutionLease interface {
 // preserves authority errors (ErrExecutionLeaseLost) and transport errors.
 type LeaseRenewalError struct{ Err error }
 
-func (e *LeaseRenewalError) Error() string { return "execution lease renewal failed" }
+// Causes may opt into user-visible diagnostics with SafeMessage. Ordinary error
+// text is deliberately not included: transports can embed bearer credentials.
+func (e *LeaseRenewalError) Error() string {
+	var safe interface{ SafeMessage() string }
+	if errors.As(e.Err, &safe) {
+		return "execution lease renewal failed: " + safe.SafeMessage()
+	}
+	return "execution lease renewal failed"
+}
 func (e *LeaseRenewalError) Unwrap() error { return e.Err }
 
 func (e *LeaseRenewalError) GoString() string { return e.Error() }
