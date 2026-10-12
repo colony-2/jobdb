@@ -285,8 +285,12 @@ _ = raw
 _ = present
 ```
 
-Each call reads the current tenant snapshot from the backend/server; contexts do
-not cache or prefetch it. The caller owns the returned map and raw JSON bytes.
+The first successful call reads and caches the complete tenant snapshot for the
+live job attempt. Job and task contexts share it, including task retries and lease
+renewal. Whole-job retries and resumptions start fresh. Nothing is prefetched;
+each caller owns its returned map and raw JSON bytes. `ResolveSecrets` caches
+values and omissions by name in the same scope. See the
+[cache lifecycle and migration guide](../../docs/MIGRATION-Workflow-Read-Caching.md).
 Invocation cancellation and timeouts still apply when passing a background
 context, and saved contexts cannot read after their invocation ends. Read-only
 replay rejects live reads. Record settings that control durable workflow

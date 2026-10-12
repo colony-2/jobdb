@@ -257,9 +257,9 @@ timeout and the request token's expiry. JobDB does not automatically retry
 provider calls. Callers may retry transient failures with a valid lease; retries
 may return different values or cause another credential issuance.
 
-## No caching, persistence, or unsafe diagnostics
+## Runtime caching, workflow caching, and diagnostics
 
-JobDB never caches successful results, empty results, or per-name denials, and
+The runtime/server never caches successful results, empty results, or per-name denials, and
 does not coalesce independent requests into one shared provider result. Output
 exists only as transient data needed to validate and return that request.
 
@@ -267,6 +267,12 @@ Consequently, every independently admitted request invokes the provider, even
 when its lease and requested names match a previous request. A provider may
 cache internally, so this contract does not guarantee that repeated requests
 observe rotation immediately. Expiration metadata never authorizes core caching.
+
+Workflow `JobContext` and `TaskContext` cache values and omissions by name for
+one live job attempt. They request only unresolved names from the lease/provider,
+share successful concurrent reads, and never cache failed calls. Whole-job retries
+and resumptions start fresh. Expired cached values fail without refreshing in the
+same attempt. See the [workflow cache contract](MIGRATION-Workflow-Read-Caching.md).
 
 Responses bypass chapters, task inputs/results, client payloads, artifacts,
 job inspection, exports, and replay history. The read-only replay runtime

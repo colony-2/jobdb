@@ -143,8 +143,10 @@ accepts a quoted ETag for conditional writes. Configuration is ordinary JSON
 application data; use the secrets API for credentials.
 
 Go workers call `ctx.GetConfiguration(context.Background())` on job or task
-contexts. Each explicit call fetches a fresh, complete tenant snapshot under the
-current lease. Nothing is prefetched or cached. See the
+contexts. The first successful read is cached for the live job attempt and shared
+by its tasks. Whole-job retries and resumptions start fresh. Secrets use the same
+scope, caching each requested name. See the
+[cache lifecycle and migration guide](docs/MIGRATION-Workflow-Read-Caching.md) and the
 [configuration contract](docs/SPEC-Tenant-Configuration-Store.md), including
 replay rules and the companion Postgres runtime upgrade.
 

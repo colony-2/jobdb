@@ -50,8 +50,8 @@ func (w *configurationReadingTask) Run(ctx TaskContext, input TaskData) (TaskDat
 	if err != nil {
 		return nil, err
 	}
-	if first.Revision == second.Revision || string(second.Values["setting"]) != `"new-task-value"` {
-		return nil, fmt.Errorf("task configuration was cached or wrong tenant")
+	if first.Revision != second.Revision || string(second.Values["setting"]) != `"configuration-initial-value"` {
+		return nil, fmt.Errorf("task configuration changed or wrong tenant")
 	}
 	return input, nil
 }
@@ -78,13 +78,13 @@ func (w *configurationReadingJob) Run(ctx JobContext, input JobData) (JobData, e
 		if err != nil {
 			return nil, err
 		}
-		if first.Revision == second.Revision {
-			return nil, fmt.Errorf("job configuration was cached")
+		if first.Revision != second.Revision {
+			return nil, fmt.Errorf("job configuration changed")
 		}
 	}
 	return ctx.DoTask(RunPolicy{}, "configuration-task", input)
 }
-func TestConfigurationContextsAreExplicitFreshAndInvocationBound(t *testing.T) {
+func TestConfigurationContextsAreCachedAndInvocationBound(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite"} {
 		for _, transport := range []string{"embedded", "http"} {
 			for _, readJob := range []bool{false, true} {
@@ -128,10 +128,7 @@ func TestConfigurationContextsAreExplicitFreshAndInvocationBound(t *testing.T) {
 					runner := newWorkerRunner(rt, ws, lease, workerRunnerOptions{})
 					_, err = runner.DoJob(ctx)
 					require.NoError(t, err)
-					want := int32(2)
-					if readJob {
-						want = 4
-					}
+					want := int32(1)
 					require.Equal(t, want, counter.calls.Load())
 					_, err = task.captured.GetConfiguration(ctx)
 					require.Error(t, err)
@@ -244,6 +241,9 @@ type expiredConfigurationTask struct {
 
 func (*expiredConfigurationTask) Name() string { return "expired-task" }
 func (w *expiredConfigurationTask) Run(ctx TaskContext, input TaskData) (TaskData, error) {
+	if _, err := ctx.GetConfiguration(context.Background()); err != nil {
+		return nil, err
+	}
 	w.captured <- ctx
 	<-w.release
 	return input, nil

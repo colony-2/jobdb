@@ -9,10 +9,12 @@ import (
 )
 
 type JobContext interface {
-	// GetConfiguration reads a fresh tenant snapshot under this invocation's live lease.
+	// GetConfiguration returns a copy of the first successful tenant snapshot in
+	// this live job attempt. Tasks share the same cache; whole-job retries reset it.
 	GetConfiguration(context.Context) (ConfigurationSnapshot, error)
 	// ResolveSecrets retrieves allowed names under this invocation's live lease.
-	// Results are not recorded or cached. Offline replay rejects secret reads;
+	// Values and omissions are cached by name for this live job attempt, never
+	// recorded. Expired values fail without refreshing. Offline replay rejects reads;
 	// use task-level resolution for workflows that must support offline replay.
 	ResolveSecrets(context.Context, []string) (SecretResolveResult, error)
 	ClientPayload() json.RawMessage

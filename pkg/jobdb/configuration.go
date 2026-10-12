@@ -17,7 +17,8 @@ var (
 )
 
 // ConfigurationSnapshot is one coherent, caller-owned tenant snapshot. Each read
-// fetches current storage; runtimes and workflow contexts never cache results.
+// through a runtime or lease fetches current storage. Workflow contexts retain
+// the first successful snapshot for their live job attempt and return copies.
 type ConfigurationSnapshot struct {
 	Revision string                     `json:"revision"`
 	Values   map[string]json.RawMessage `json:"values"`

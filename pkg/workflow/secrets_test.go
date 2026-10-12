@@ -15,9 +15,15 @@ import (
 
 type workflowSecretProvider struct{ calls atomic.Int32 }
 
-func (p *workflowSecretProvider) ResolveSecrets(context.Context, jobdb.SecretResolveRequest) (jobdb.SecretResolveResult, error) {
+func (p *workflowSecretProvider) ResolveSecrets(_ context.Context, req jobdb.SecretResolveRequest) (jobdb.SecretResolveResult, error) {
 	p.calls.Add(1)
-	return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "private-provider-value"}}}, nil
+	result := jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{}}
+	for _, name := range req.Names {
+		if name == "token" {
+			result.Secrets[name] = jobdb.SecretValue{Value: "private-provider-value"}
+		}
+	}
+	return result, nil
 }
 
 type secretReadingTask struct{ captured TaskContext }
@@ -25,7 +31,7 @@ type secretReadingTask struct{ captured TaskContext }
 func (*secretReadingTask) Name() string { return "secret-task" }
 func (w *secretReadingTask) Run(ctx TaskContext, input TaskData) (TaskData, error) {
 	w.captured = ctx
-	// Repeated reads must reach the provider each time.
+	// Repeated reads reuse values and omissions within the live job attempt.
 	for i := 0; i < 2; i++ {
 		result, err := ctx.ResolveSecrets(context.Background(), []string{"token", "denied"})
 		if err != nil {
@@ -74,7 +80,7 @@ func TestWorkflowContextsResolveSecretsWithoutRecordingOrReplayingValues(t *test
 			runner := newWorkerRunner(runtime, ws, lease, workerRunnerOptions{})
 			_, err = runner.DoJob(ctx)
 			require.NoError(t, err)
-			wantCalls := int32(2)
+			wantCalls := int32(1)
 			if readJob {
 				wantCalls++
 			}
@@ -134,6 +140,9 @@ type expiredSecretTask struct {
 
 func (*expiredSecretTask) Name() string { return "expired-task" }
 func (w *expiredSecretTask) Run(ctx TaskContext, input TaskData) (TaskData, error) {
+	if _, err := ctx.ResolveSecrets(context.Background(), []string{"token"}); err != nil {
+		return nil, err
+	}
 	w.captured <- ctx
 	<-w.release
 	return input, nil

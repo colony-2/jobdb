@@ -10,10 +10,11 @@ administration routes in the main public OpenAPI document and a separate
 lease-scoped endpoint that returns the tenant's complete configuration.
 
 Fetch configuration only when a client explicitly calls a retrieval method.
-Every call reads a fresh snapshot from storage, through the server for remote
-clients. The SDK retains no configuration cache and does not combine concurrent
-calls into a shared read. Workers do not declare requested names, and
-applications need not manage HTTP requests.
+Runtime, lease, and administration calls read fresh snapshots from storage,
+through the server for remote clients. Workflow contexts cache the first
+successful snapshot for one live job attempt, sharing concurrent reads.
+Workers do not declare requested names, and applications need not manage HTTP
+requests.
 
 The separate read provides explicit authorization, freshness, and failure
 behavior. Do not prefetch configuration during startup, lease acquisition,
@@ -227,16 +228,15 @@ The SDK convenience layer provides these semantics:
 
 - Fetch the entire map only in response to an explicit retrieval call. Creating
   a client, context, or execution session performs no configuration read.
-- Each call through a job context, task context, lease, or administration client
-  issues its own read. Embedded callers read the backend store; remote callers
-  issue a new HTTP request, which reads the server's backend store. Concurrent
-  calls are not coalesced, even for the same tenant or lease.
-- Keep no successful or empty snapshot, failure, or revision in an SDK/session
-  cache for reuse by later calls. Do not fall back to an earlier result on error.
-  No refresh flag or cache invalidation mechanism is needed.
-- Return a caller-owned snapshot. The client retains no additional copy after
-  returning it; application code may explicitly keep the returned value for its
-  own operation. Later reads neither reuse nor mutate that value.
+- Lease and administration clients issue a fresh read per call. Workflow job and
+  task contexts share the first successful complete snapshot for one live job
+  attempt, including empty snapshots. Concurrent first reads share a successful
+  fetch; failures are not cached.
+- Task retries, lease renewal, and waits within the invocation retain the snapshot.
+  Whole-job retries, suspension/resumption, process restart, and lease loss create
+  a fresh scope, even if the durable job attempt number is unchanged.
+- Return caller-owned copies of the map and raw JSON bytes. Caller mutations
+  cannot change the cached snapshot or another caller's result.
 - Validate lease authority on every worker read. Calls after known lease loss
   or release fail without returning previously retrieved values.
 
@@ -297,13 +297,11 @@ decoding with its own return type. Typed decoding is application-owned. A
 missing map key is distinct from a present JSON null, and no implicit defaults
 or string conversions are applied.
 
-Wire both context APIs to the runner's current lease read capability. Every call
-performs a new read, including repeated calls within one job or task, calls by
-inline tasks, and calls through copies of a `TaskContext`. A separately leased
-task reads with its own lease. Contexts share authority where appropriate, but
-never a stored configuration result. Each returned map and its
-`json.RawMessage` bytes must be isolated from backend state and other returned
-snapshots; caller mutations cannot affect storage or another caller's values.
+Wire both context APIs to the runner's current lease read capability and its
+attempt-local cache. Inline tasks and copies of a `TaskContext` share the job's
+snapshot. A separately leased invocation starts a fresh scope. Each returned map
+and its `json.RawMessage` bytes must be isolated from the cache, backend state,
+and other returned snapshots.
 
 Follow the existing secrets invocation boundaries in
 [`workflow/secrets.go`](../pkg/workflow/secrets.go) and
@@ -518,9 +516,9 @@ conditional-write behavior, and error responses in the main OpenAPI document.
    `pgjobdb` implementation before claiming backend parity.
 3. Implement admin handlers and embedded/remote lease reads, including both
    live-lease checks and forwarding through supplied/renewed lease wrappers.
-4. Add `GetConfiguration(ctx)` on job and task contexts as uncached reads through
-   the current lease, and add replay guards. Wire inline and separately leased
-   task paths, update context implementations/mocks, and document the
+4. Add `GetConfiguration(ctx)` on job and task contexts with a shared live
+   job-attempt cache backed by the current lease, and add replay guards. Wire inline
+   and separately leased task paths, update context implementations/mocks, and document the
    `WorkflowRuntime`, `ExecutionLease`, and `JobContext` interface changes.
    Existing chapter and lease acquisition wire formats remain unchanged.
 5. Add `jobdb config set`/`add` and `remove` through the administration API, with
@@ -529,23 +527,23 @@ conditional-write behavior, and error responses in the main OpenAPI document.
    tenant isolation; empty maps; JSON/null fidelity; persistence where supported;
    no-op and conditional mutations; concurrent revisions and size limits;
    coherent snapshots; fresh reads after commits; stale/cancelled leases and
-   lease loss during reads; repeated SDK calls issuing independent reads; and replay
+   lease loss during reads; repeated lease calls issuing independent reads; and replay
    making zero live configuration reads.
 
 Also verify that all administration routes appear in generated public clients
 and are registered on each backend without an enablement flag, and that missing
 storage cannot silently yield an empty successful result. Tests should demonstrate
-the chosen update semantics: a second SDK read in the same session sees an
-acknowledged edit while the first returned snapshot remains unchanged. Starting
+the chosen update semantics: a second direct lease read sees an acknowledged
+edit, while workflow context reads retain their live job-attempt snapshot. Starting
 jobs/tasks, importing or renewing leases, and reading chapters must make zero
 configuration reads unless application code explicitly requests configuration.
 
 Go context tests must exercise both job and task access on embedded and remote
 runtimes, including supplied leases. Verify automatic tenant binding, one storage
-read per admitted call and one HTTP request per remote call, including repeated
-job/inline-task calls and concurrent callers; isolation of returned values;
-independent cancellation; fresh reads after empty results and failures without
-stale fallback; renewal; rejection after known lease loss; and
+read per successful initial fetch shared by job/inline-task and concurrent
+callers; isolation of returned values; independent cancellation; cached empty
+snapshots; fresh reads after failures and whole-job retries/resumptions; renewal;
+rejection after known lease loss; and
 explicit failures for replay and unbound contexts without any live store read.
 Follow the existing [secrets context tests](../pkg/workflow/secrets_test.go) for
 captured contexts after invocation completion, task timeout while its job lease

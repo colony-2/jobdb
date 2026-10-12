@@ -22,6 +22,8 @@ var (
 // honor context cancellation. Core never caches provider output or denials.
 // The caller owns provider configuration and lifecycle; runtimes do not close
 // injected providers. A provider may implement its own caching policy.
+// Workflow job/task contexts separately cache resolutions by name for one live
+// job attempt, so providers receive only names not yet resolved in that scope.
 type SecretProvider interface {
 	ResolveSecrets(context.Context, SecretResolveRequest) (SecretResolveResult, error)
 }

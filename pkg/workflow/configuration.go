@@ -2,13 +2,15 @@ package workflow
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 // GetConfiguration reads the complete tenant configuration using the current
-// invocation's live lease. Every call reaches storage; nothing is prefetched,
-// cached, or automatically recorded in workflow history.
+// invocation's live lease. The first successful read is cached for the live job
+// attempt and shared with other tasks. Each call returns a caller-owned copy.
+// Nothing is prefetched or automatically recorded in workflow history.
 func (tc TaskContext) GetConfiguration(ctx context.Context) (ConfigurationSnapshot, error) {
 	if tc.getConfiguration == nil {
 		return ConfigurationSnapshot{}, jobdb.ErrExecutionLeaseLost
@@ -25,15 +27,38 @@ func (r *workerRunner) GetConfiguration(ctx context.Context) (ConfigurationSnaps
 	}
 	callCtx, cancel := invocationCallContext(ctx, r.ctx)
 	defer cancel()
-	if callCtx.Err() != nil {
+	if r.configurationCache.lock(callCtx) != nil {
 		return ConfigurationSnapshot{}, jobdb.ErrConfigurationUnavailable
 	}
-	result, err := r.lease.GetConfiguration(callCtx)
+	defer r.configurationCache.unlock()
+	if r.rescheduled.Load() {
+		return ConfigurationSnapshot{}, jobdb.ErrExecutionLeaseLost
+	}
+	result := r.configurationCache.value
+	if result == nil {
+		fetched, err := r.lease.GetConfiguration(callCtx)
+		if err != nil {
+			return ConfigurationSnapshot{}, err
+		}
+		result = &fetched
+	}
 	if r.rescheduled.Load() {
 		return ConfigurationSnapshot{}, jobdb.ErrExecutionLeaseLost
 	}
 	if callCtx.Err() != nil {
 		return ConfigurationSnapshot{}, jobdb.ErrConfigurationUnavailable
 	}
-	return result, err
+	if r.configurationCache.value == nil {
+		snapshot := cloneConfiguration(*result)
+		r.configurationCache.value = &snapshot
+	}
+	return cloneConfiguration(*r.configurationCache.value), nil
+}
+
+func cloneConfiguration(snapshot ConfigurationSnapshot) ConfigurationSnapshot {
+	values := make(map[string]json.RawMessage, len(snapshot.Values))
+	for name, value := range snapshot.Values {
+		values[name] = append(json.RawMessage(nil), value...)
+	}
+	return ConfigurationSnapshot{Revision: snapshot.Revision, Values: values}
 }

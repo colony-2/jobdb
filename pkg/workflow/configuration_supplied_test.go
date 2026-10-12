@@ -30,8 +30,8 @@ func TestSuppliedLeaseConfigurationReads(t *testing.T) {
 		if e != nil {
 			return nil, e
 		}
-		require.Equal(t, "2", string(b.Values["x"]))
-		require.NotEqual(t, a.Revision, b.Revision)
+		require.Equal(t, "1", string(b.Values["x"]))
+		require.Equal(t, a.Revision, b.Revision)
 		return data, nil
 	}}
 	runnable, err := workflow.GetJobForRunWithLease(ctx, f.receiver, lease, workflow.GetJobForRunRequest{JobKey: f.key, JobWorker: job})

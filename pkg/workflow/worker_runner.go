@@ -53,6 +53,8 @@ type workerRunner struct {
 	currentJobAttemptStartAt  time.Time
 	lastTaskEndAt             *time.Time
 	rescheduled               atomic.Bool
+	configurationCache        attemptCache[*ConfigurationSnapshot]
+	secretCache               attemptCache[map[string]*SecretValue]
 }
 
 type jobExecutionConfig struct {
