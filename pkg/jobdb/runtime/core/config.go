@@ -5,10 +5,13 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
 )
 
 // Config wires the durable backend ports used by runtime core.
 type Config struct {
+	Configurations      configuration.Store
+	ConfigurationLimits jobdb.ConfigurationLimits
 	// SecretProvider is caller-owned and independent of scheduler and chapter storage.
 	SecretProvider jobdb.SecretProvider
 	SecretLimits   jobdb.SecretLimits
@@ -20,6 +23,9 @@ type Config struct {
 
 // ValidateConfig validates the public runtime-core backend wiring.
 func ValidateConfig(cfg Config) error {
+	if cfg.Configurations == nil {
+		return fmt.Errorf("runtime core configuration store is required")
+	}
 	if cfg.Scheduler == nil {
 		return fmt.Errorf("runtime core scheduler is required")
 	}

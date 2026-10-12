@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 )
 
@@ -35,7 +36,7 @@ func TestRuntimeGetJobUsesFinalChapterForArchivedData(t *testing.T) {
 		JobKey: key, Store: jobdb.JobStoreArchived,
 		Status: jobdb.JobStatusCompleted, SchemaHash: "schema-hash",
 	}}
-	runtime, err := runtimecore.NewRuntime(runtimecore.Config{
+	runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{},
 		Scheduler: scheduler, Chapters: readTestChapters{encoded: encoded},
 		Schemas: readTestSchemas{},
 	})
@@ -51,7 +52,7 @@ func TestRuntimeGetJobUsesFinalChapterForArchivedData(t *testing.T) {
 		t.Fatalf("archived job data = %s, %v", data, err)
 	}
 	scheduler.job.Store = jobdb.JobStoreActive
-	runtime, err = runtimecore.NewRuntime(runtimecore.Config{
+	runtime, err = runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{},
 		Scheduler: scheduler, Chapters: readTestChapters{encoded: encoded},
 		Schemas: readTestSchemas{},
 	})

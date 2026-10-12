@@ -9,6 +9,8 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
+type ConfigurationSnapshot = jobdb.ConfigurationSnapshot
+
 type SecretResolveResult = jobdb.SecretResolveResult
 type SecretValue = jobdb.SecretValue
 

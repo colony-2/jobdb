@@ -10,6 +10,9 @@ import (
 // WorkflowRuntime is the backend-agnostic facade used to isolate jobdb from
 // concrete persistence, artifact storage, and lease-management backends.
 type WorkflowRuntime interface {
+	// GetConfiguration reads current tenant configuration using verified lease claims.
+	GetConfiguration(context.Context, GetConfigurationRequest) (ConfigurationSnapshot, error)
+
 	// ResolveSecrets resolves names using a verified lease capability. Embedded
 	// callers use ExecutionLease.ResolveSecrets; raw lease IDs are not authority.
 	ResolveSecrets(context.Context, ResolveSecretsRequest) (SecretResolveResult, error)
@@ -55,6 +58,9 @@ type JobHandle struct {
 // ExecutionLease represents a leased unit of work returned by PollWork or
 // GetJobLease.
 type ExecutionLease interface {
+	// GetConfiguration reads a fresh tenant snapshot using this live lease.
+	GetConfiguration(context.Context) (ConfigurationSnapshot, error)
+
 	// ResolveSecrets retrieves the allowed subset using this live lease.
 	ResolveSecrets(context.Context, []string) (SecretResolveResult, error)
 

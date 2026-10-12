@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 )
 
@@ -46,7 +47,7 @@ func TestRuntimeReadsChapterThroughPublicPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := runtimecore.NewRuntime(runtimecore.Config{
+	runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{},
 		Scheduler: readTestScheduler{}, Chapters: readTestChapters{encoded: encoded},
 		Schemas: readTestSchemas{},
 	})

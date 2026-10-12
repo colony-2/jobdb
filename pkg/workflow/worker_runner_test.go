@@ -435,7 +435,7 @@ func TestWorkerRunnerContextSubmitJobUsesLease(t *testing.T) {
 		t.Fatalf("child key = %+v", childKey)
 	}
 
-	taskCtx := newTaskContextWithLeaseActions(parent, 1, nil, nil, nil, runner.SubmitJob, runner.SubmitRestartJob, runner.ClientPayload, runner.ClientPayloadRevision, runner.Yield, runner.ResolveSecrets)
+	taskCtx := newTaskContextWithLeaseActions(parent, 1, nil, nil, nil, runner.SubmitJob, runner.SubmitRestartJob, runner.ClientPayload, runner.ClientPayloadRevision, runner.Yield, runner.ResolveSecrets, runner.GetConfiguration)
 	restartKey, err := taskCtx.SubmitRestartJob(context.Background(), SubmitRestartJob{
 		JobID:          "child-restart",
 		PriorJobKey:    JobKey{JobId: "prior"},
@@ -1341,4 +1341,12 @@ func (*runnerTestRuntime) ResolveSecrets(context.Context, jobdb.ResolveSecretsRe
 
 func (*fakeExecutionLease) ResolveSecrets(context.Context, []string) (jobdb.SecretResolveResult, error) {
 	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
+}
+
+func (*runnerTestRuntime) GetConfiguration(context.Context, jobdb.GetConfigurationRequest) (jobdb.ConfigurationSnapshot, error) {
+	return jobdb.ConfigurationSnapshot{}, jobdb.ErrExecutionLeaseLost
+}
+
+func (*fakeExecutionLease) GetConfiguration(context.Context) (jobdb.ConfigurationSnapshot, error) {
+	return jobdb.ConfigurationSnapshot{}, jobdb.ErrExecutionLeaseLost
 }

@@ -58,6 +58,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(
 		newSQLiteCmd(&listenAddr, &dbPath, &sqliteDSN, &blobDir, &blobStoreURI, &dev),
 		newSecretsCmd(),
+		newConfigurationCmd(),
 		newToyCmd(&listenAddr),
 		newHealthcheckCmd(),
 	)

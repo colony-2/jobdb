@@ -247,3 +247,27 @@ func (s *leaseSession) ResolveSecrets(ctx context.Context, names []string) (jobd
 	}
 	return result, nil
 }
+
+// GetConfiguration snapshots the current capability without holding the renewal
+// lock during storage I/O. Slow lookups must not prevent heartbeats.
+func (s *leaseSession) GetConfiguration(ctx context.Context) (jobdb.ConfigurationSnapshot, error) {
+	s.mu.Lock()
+	if err := s.check(); err != nil {
+		s.mu.Unlock()
+		return jobdb.ConfigurationSnapshot{}, err
+	}
+	lease := s.current
+	callCtx, cancel := s.operationContext(ctx)
+	s.mu.Unlock()
+	defer cancel()
+	result, err := lease.GetConfiguration(callCtx)
+	if err != nil {
+		return jobdb.ConfigurationSnapshot{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.check(); err != nil {
+		return jobdb.ConfigurationSnapshot{}, err
+	}
+	return result, nil
+}

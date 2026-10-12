@@ -27,19 +27,25 @@ const (
 
 // Defines values for ErrorCode.
 const (
-	ChapterNotFound           ErrorCode = "chapter_not_found"
-	Conflict                  ErrorCode = "conflict"
-	ExecutionLeaseLost        ErrorCode = "execution_lease_lost"
-	ExistingJobMismatch       ErrorCode = "existing_job_mismatch"
-	Internal                  ErrorCode = "internal"
-	InvalidRequest            ErrorCode = "invalid_request"
-	JobNotComplete            ErrorCode = "job_not_complete"
-	JobNotFound               ErrorCode = "job_not_found"
-	JobSchemaArchived         ErrorCode = "job_schema_archived"
-	JobSchemaNotFound         ErrorCode = "job_schema_not_found"
-	JobSchemaValidationFailed ErrorCode = "job_schema_validation_failed"
-	NotFound                  ErrorCode = "not_found"
-	WorkflowNotDeterministic  ErrorCode = "workflow_not_deterministic"
+	ChapterNotFound               ErrorCode = "chapter_not_found"
+	ConfigurationFailed           ErrorCode = "configuration_failed"
+	ConfigurationReadTooLarge     ErrorCode = "configuration_read_too_large"
+	ConfigurationRevisionMismatch ErrorCode = "configuration_revision_mismatch"
+	ConfigurationTooLarge         ErrorCode = "configuration_too_large"
+	ConfigurationUnavailable      ErrorCode = "configuration_unavailable"
+	Conflict                      ErrorCode = "conflict"
+	ExecutionLeaseLost            ErrorCode = "execution_lease_lost"
+	ExistingJobMismatch           ErrorCode = "existing_job_mismatch"
+	Internal                      ErrorCode = "internal"
+	InvalidConfigurationRequest   ErrorCode = "invalid_configuration_request"
+	InvalidRequest                ErrorCode = "invalid_request"
+	JobNotComplete                ErrorCode = "job_not_complete"
+	JobNotFound                   ErrorCode = "job_not_found"
+	JobSchemaArchived             ErrorCode = "job_schema_archived"
+	JobSchemaNotFound             ErrorCode = "job_schema_not_found"
+	JobSchemaValidationFailed     ErrorCode = "job_schema_validation_failed"
+	NotFound                      ErrorCode = "not_found"
+	WorkflowNotDeterministic      ErrorCode = "workflow_not_deterministic"
 )
 
 // Defines values for JobAttemptOutcomeChapterKind.
@@ -279,6 +285,12 @@ type CompleteExecutionRequest struct {
 	ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
 	Detail              *string              `json:"detail,omitempty"`
 	Status              string               `json:"status"`
+}
+
+// ConfigurationSnapshot defines model for ConfigurationSnapshot.
+type ConfigurationSnapshot struct {
+	Revision string                        `json:"revision"`
+	Values   map[string]ApplicationPayload `json:"values"`
 }
 
 // ErrorCode defines model for ErrorCode.
@@ -642,6 +654,11 @@ type RegisterJobSchemaRequest struct {
 	Schema JobSchemaDocument `json:"schema"`
 }
 
+// RemoveConfigurationBody defines model for RemoveConfigurationBody.
+type RemoveConfigurationBody struct {
+	Name string `json:"name"`
+}
+
 // RescheduleExecutionRequest defines model for RescheduleExecutionRequest.
 type RescheduleExecutionRequest struct {
 	// AlternateAfter Duration string.
@@ -791,6 +808,17 @@ type SecretValue struct {
 	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
 	Value     string     `json:"value"`
 	Version   *string    `json:"version,omitempty"`
+}
+
+// SetConfigurationBody defines model for SetConfigurationBody.
+type SetConfigurationBody struct {
+	Name string `json:"name"`
+
+	// Value Caller-owned application JSON payload embedded directly in REST
+	// requests and responses. This value is any valid JSON value: object,
+	// array, string, number, boolean, or null. It is never base64-encoded and
+	// never wrapped in a protobuf `Any`-style envelope on the REST boundary.
+	Value ApplicationPayload `json:"value"`
 }
 
 // StoredArtifact defines model for StoredArtifact.
@@ -991,6 +1019,18 @@ type StartOrdinal = int64
 // TenantId defines model for TenantId.
 type TenantId = string
 
+// RemoveTenantConfigurationValueParams defines parameters for RemoveTenantConfigurationValue.
+type RemoveTenantConfigurationValueParams struct {
+	// IfMatch One quoted revision ETag; weak tags, lists and wildcard are invalid.
+	IfMatch *string `json:"If-Match,omitempty"`
+}
+
+// SetTenantConfigurationValueParams defines parameters for SetTenantConfigurationValue.
+type SetTenantConfigurationValueParams struct {
+	// IfMatch One quoted revision ETag; weak tags, lists and wildcard are invalid.
+	IfMatch *string `json:"If-Match,omitempty"`
+}
+
 // ListChaptersParams defines parameters for ListChapters.
 type ListChaptersParams struct {
 	StartOrdinal StartOrdinal `form:"startOrdinal" json:"startOrdinal"`
@@ -1004,6 +1044,11 @@ type AddChapterWithLeaseParams struct {
 
 // CompleteJobWithLeaseParams defines parameters for CompleteJobWithLease.
 type CompleteJobWithLeaseParams struct {
+	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
+}
+
+// GetConfigurationWithLeaseParams defines parameters for GetConfigurationWithLease.
+type GetConfigurationWithLeaseParams struct {
 	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
 }
 
@@ -1049,6 +1094,12 @@ type ListJobSchemasParams struct {
 
 // PollWorkJSONRequestBody defines body for PollWork for application/json ContentType.
 type PollWorkJSONRequestBody = PollWorkRequest
+
+// RemoveTenantConfigurationValueJSONRequestBody defines body for RemoveTenantConfigurationValue for application/json ContentType.
+type RemoveTenantConfigurationValueJSONRequestBody = RemoveConfigurationBody
+
+// SetTenantConfigurationValueJSONRequestBody defines body for SetTenantConfigurationValue for application/json ContentType.
+type SetTenantConfigurationValueJSONRequestBody = SetConfigurationBody
 
 // SubmitJobJSONRequestBody defines body for SubmitJob for application/json ContentType.
 type SubmitJobJSONRequestBody = SubmitJobRequest
@@ -1737,6 +1788,19 @@ type ClientInterface interface {
 
 	PollWork(ctx context.Context, body PollWorkJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetTenantConfiguration request
+	GetTenantConfiguration(ctx context.Context, tenantId TenantId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RemoveTenantConfigurationValueWithBody request with any body
+	RemoveTenantConfigurationValueWithBody(ctx context.Context, tenantId TenantId, params *RemoveTenantConfigurationValueParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	RemoveTenantConfigurationValue(ctx context.Context, tenantId TenantId, params *RemoveTenantConfigurationValueParams, body RemoveTenantConfigurationValueJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetTenantConfigurationValueWithBody request with any body
+	SetTenantConfigurationValueWithBody(ctx context.Context, tenantId TenantId, params *SetTenantConfigurationValueParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	SetTenantConfigurationValue(ctx context.Context, tenantId TenantId, params *SetTenantConfigurationValueParams, body SetTenantConfigurationValueJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// SubmitJobWithBody request with any body
 	SubmitJobWithBody(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1793,6 +1857,9 @@ type ClientInterface interface {
 	CompleteJobWithLeaseWithBody(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *CompleteJobWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	CompleteJobWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *CompleteJobWithLeaseParams, body CompleteJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetConfigurationWithLease request
+	GetConfigurationWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *GetConfigurationWithLeaseParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// KeepAliveLease request
 	KeepAliveLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *KeepAliveLeaseParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1899,6 +1966,66 @@ func (c *Client) PollWorkWithBody(ctx context.Context, contentType string, body 
 
 func (c *Client) PollWork(ctx context.Context, body PollWorkJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPollWorkRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetTenantConfiguration(ctx context.Context, tenantId TenantId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetTenantConfigurationRequest(c.Server, tenantId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RemoveTenantConfigurationValueWithBody(ctx context.Context, tenantId TenantId, params *RemoveTenantConfigurationValueParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRemoveTenantConfigurationValueRequestWithBody(c.Server, tenantId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RemoveTenantConfigurationValue(ctx context.Context, tenantId TenantId, params *RemoveTenantConfigurationValueParams, body RemoveTenantConfigurationValueJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRemoveTenantConfigurationValueRequest(c.Server, tenantId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SetTenantConfigurationValueWithBody(ctx context.Context, tenantId TenantId, params *SetTenantConfigurationValueParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetTenantConfigurationValueRequestWithBody(c.Server, tenantId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SetTenantConfigurationValue(ctx context.Context, tenantId TenantId, params *SetTenantConfigurationValueParams, body SetTenantConfigurationValueJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetTenantConfigurationValueRequest(c.Server, tenantId, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2163,6 +2290,18 @@ func (c *Client) CompleteJobWithLeaseWithBody(ctx context.Context, tenantId Tena
 
 func (c *Client) CompleteJobWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *CompleteJobWithLeaseParams, body CompleteJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCompleteJobWithLeaseRequest(c.Server, tenantId, jobId, leaseId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetConfigurationWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *GetConfigurationWithLeaseParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetConfigurationWithLeaseRequest(c.Server, tenantId, jobId, leaseId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -2629,6 +2768,164 @@ func NewPollWorkRequestWithBody(server string, contentType string, body io.Reade
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetTenantConfigurationRequest generates requests for GetTenantConfiguration
+func NewGetTenantConfigurationRequest(server string, tenantId TenantId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/configuration", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewRemoveTenantConfigurationValueRequest calls the generic RemoveTenantConfigurationValue builder with application/json body
+func NewRemoveTenantConfigurationValueRequest(server string, tenantId TenantId, params *RemoveTenantConfigurationValueParams, body RemoveTenantConfigurationValueJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRemoveTenantConfigurationValueRequestWithBody(server, tenantId, params, "application/json", bodyReader)
+}
+
+// NewRemoveTenantConfigurationValueRequestWithBody generates requests for RemoveTenantConfigurationValue with any type of body
+func NewRemoveTenantConfigurationValueRequestWithBody(server string, tenantId TenantId, params *RemoveTenantConfigurationValueParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/configuration/remove", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.IfMatch != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithLocation("simple", false, "If-Match", runtime.ParamLocationHeader, *params.IfMatch)
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("If-Match", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewSetTenantConfigurationValueRequest calls the generic SetTenantConfigurationValue builder with application/json body
+func NewSetTenantConfigurationValueRequest(server string, tenantId TenantId, params *SetTenantConfigurationValueParams, body SetTenantConfigurationValueJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetTenantConfigurationValueRequestWithBody(server, tenantId, params, "application/json", bodyReader)
+}
+
+// NewSetTenantConfigurationValueRequestWithBody generates requests for SetTenantConfigurationValue with any type of body
+func NewSetTenantConfigurationValueRequestWithBody(server string, tenantId TenantId, params *SetTenantConfigurationValueParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/configuration/set", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.IfMatch != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithLocation("simple", false, "If-Match", runtime.ParamLocationHeader, *params.IfMatch)
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("If-Match", headerParam0)
+		}
+
+	}
 
 	return req, nil
 }
@@ -3347,6 +3644,67 @@ func NewCompleteJobWithLeaseRequestWithBody(server string, tenantId TenantId, jo
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithLocation("simple", false, "X-JobDB-Lease-Token", runtime.ParamLocationHeader, params.XJobDBLeaseToken)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-JobDB-Lease-Token", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewGetConfigurationWithLeaseRequest generates requests for GetConfigurationWithLease
+func NewGetConfigurationWithLeaseRequest(server string, tenantId TenantId, jobId JobId, leaseId LeaseId, params *GetConfigurationWithLeaseParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "jobId", runtime.ParamLocationPath, jobId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithLocation("simple", false, "leaseId", runtime.ParamLocationPath, leaseId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs/%s/leases/%s/configuration", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	if params != nil {
 
@@ -4582,6 +4940,19 @@ type ClientWithResponsesInterface interface {
 
 	PollWorkWithResponse(ctx context.Context, body PollWorkJSONRequestBody, reqEditors ...RequestEditorFn) (*PollWorkHTTPResponse, error)
 
+	// GetTenantConfigurationWithResponse request
+	GetTenantConfigurationWithResponse(ctx context.Context, tenantId TenantId, reqEditors ...RequestEditorFn) (*GetTenantConfigurationHTTPResponse, error)
+
+	// RemoveTenantConfigurationValueWithBodyWithResponse request with any body
+	RemoveTenantConfigurationValueWithBodyWithResponse(ctx context.Context, tenantId TenantId, params *RemoveTenantConfigurationValueParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RemoveTenantConfigurationValueHTTPResponse, error)
+
+	RemoveTenantConfigurationValueWithResponse(ctx context.Context, tenantId TenantId, params *RemoveTenantConfigurationValueParams, body RemoveTenantConfigurationValueJSONRequestBody, reqEditors ...RequestEditorFn) (*RemoveTenantConfigurationValueHTTPResponse, error)
+
+	// SetTenantConfigurationValueWithBodyWithResponse request with any body
+	SetTenantConfigurationValueWithBodyWithResponse(ctx context.Context, tenantId TenantId, params *SetTenantConfigurationValueParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetTenantConfigurationValueHTTPResponse, error)
+
+	SetTenantConfigurationValueWithResponse(ctx context.Context, tenantId TenantId, params *SetTenantConfigurationValueParams, body SetTenantConfigurationValueJSONRequestBody, reqEditors ...RequestEditorFn) (*SetTenantConfigurationValueHTTPResponse, error)
+
 	// SubmitJobWithBodyWithResponse request with any body
 	SubmitJobWithBodyWithResponse(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SubmitJobHTTPResponse, error)
 
@@ -4638,6 +5009,9 @@ type ClientWithResponsesInterface interface {
 	CompleteJobWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *CompleteJobWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CompleteJobWithLeaseHTTPResponse, error)
 
 	CompleteJobWithLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *CompleteJobWithLeaseParams, body CompleteJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*CompleteJobWithLeaseHTTPResponse, error)
+
+	// GetConfigurationWithLeaseWithResponse request
+	GetConfigurationWithLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *GetConfigurationWithLeaseParams, reqEditors ...RequestEditorFn) (*GetConfigurationWithLeaseHTTPResponse, error)
 
 	// KeepAliveLeaseWithResponse request
 	KeepAliveLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *KeepAliveLeaseParams, reqEditors ...RequestEditorFn) (*KeepAliveLeaseHTTPResponse, error)
@@ -4748,6 +5122,90 @@ func (r PollWorkHTTPResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r PollWorkHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetTenantConfigurationHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ConfigurationSnapshot
+	JSON400      *ErrorResponse
+	JSON401      *ErrorResponse
+	JSON403      *ErrorResponse
+	JSON413      *ErrorResponse
+	JSON500      *ErrorResponse
+	JSON503      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r GetTenantConfigurationHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetTenantConfigurationHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type RemoveTenantConfigurationValueHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON400      *ErrorResponse
+	JSON401      *ErrorResponse
+	JSON403      *ErrorResponse
+	JSON412      *ErrorResponse
+	JSON413      *ErrorResponse
+	JSON500      *ErrorResponse
+	JSON503      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r RemoveTenantConfigurationValueHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RemoveTenantConfigurationValueHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type SetTenantConfigurationValueHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON400      *ErrorResponse
+	JSON401      *ErrorResponse
+	JSON403      *ErrorResponse
+	JSON412      *ErrorResponse
+	JSON413      *ErrorResponse
+	JSON500      *ErrorResponse
+	JSON503      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r SetTenantConfigurationValueHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetTenantConfigurationValueHTTPResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5030,6 +5488,35 @@ func (r CompleteJobWithLeaseHTTPResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r CompleteJobWithLeaseHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetConfigurationWithLeaseHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ConfigurationSnapshot
+	JSON400      *ErrorResponse
+	JSON401      *ErrorResponse
+	JSON403      *ErrorResponse
+	JSON409      *ErrorResponse
+	JSON413      *ErrorResponse
+	JSON500      *ErrorResponse
+	JSON503      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r GetConfigurationWithLeaseHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetConfigurationWithLeaseHTTPResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5497,6 +5984,49 @@ func (c *ClientWithResponses) PollWorkWithResponse(ctx context.Context, body Pol
 	return ParsePollWorkHTTPResponse(rsp)
 }
 
+// GetTenantConfigurationWithResponse request returning *GetTenantConfigurationHTTPResponse
+func (c *ClientWithResponses) GetTenantConfigurationWithResponse(ctx context.Context, tenantId TenantId, reqEditors ...RequestEditorFn) (*GetTenantConfigurationHTTPResponse, error) {
+	rsp, err := c.GetTenantConfiguration(ctx, tenantId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetTenantConfigurationHTTPResponse(rsp)
+}
+
+// RemoveTenantConfigurationValueWithBodyWithResponse request with arbitrary body returning *RemoveTenantConfigurationValueHTTPResponse
+func (c *ClientWithResponses) RemoveTenantConfigurationValueWithBodyWithResponse(ctx context.Context, tenantId TenantId, params *RemoveTenantConfigurationValueParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RemoveTenantConfigurationValueHTTPResponse, error) {
+	rsp, err := c.RemoveTenantConfigurationValueWithBody(ctx, tenantId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRemoveTenantConfigurationValueHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) RemoveTenantConfigurationValueWithResponse(ctx context.Context, tenantId TenantId, params *RemoveTenantConfigurationValueParams, body RemoveTenantConfigurationValueJSONRequestBody, reqEditors ...RequestEditorFn) (*RemoveTenantConfigurationValueHTTPResponse, error) {
+	rsp, err := c.RemoveTenantConfigurationValue(ctx, tenantId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRemoveTenantConfigurationValueHTTPResponse(rsp)
+}
+
+// SetTenantConfigurationValueWithBodyWithResponse request with arbitrary body returning *SetTenantConfigurationValueHTTPResponse
+func (c *ClientWithResponses) SetTenantConfigurationValueWithBodyWithResponse(ctx context.Context, tenantId TenantId, params *SetTenantConfigurationValueParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetTenantConfigurationValueHTTPResponse, error) {
+	rsp, err := c.SetTenantConfigurationValueWithBody(ctx, tenantId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetTenantConfigurationValueHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) SetTenantConfigurationValueWithResponse(ctx context.Context, tenantId TenantId, params *SetTenantConfigurationValueParams, body SetTenantConfigurationValueJSONRequestBody, reqEditors ...RequestEditorFn) (*SetTenantConfigurationValueHTTPResponse, error) {
+	rsp, err := c.SetTenantConfigurationValue(ctx, tenantId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetTenantConfigurationValueHTTPResponse(rsp)
+}
+
 // SubmitJobWithBodyWithResponse request with arbitrary body returning *SubmitJobHTTPResponse
 func (c *ClientWithResponses) SubmitJobWithBodyWithResponse(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SubmitJobHTTPResponse, error) {
 	rsp, err := c.SubmitJobWithBody(ctx, tenantId, contentType, body, reqEditors...)
@@ -5684,6 +6214,15 @@ func (c *ClientWithResponses) CompleteJobWithLeaseWithResponse(ctx context.Conte
 		return nil, err
 	}
 	return ParseCompleteJobWithLeaseHTTPResponse(rsp)
+}
+
+// GetConfigurationWithLeaseWithResponse request returning *GetConfigurationWithLeaseHTTPResponse
+func (c *ClientWithResponses) GetConfigurationWithLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *GetConfigurationWithLeaseParams, reqEditors ...RequestEditorFn) (*GetConfigurationWithLeaseHTTPResponse, error) {
+	rsp, err := c.GetConfigurationWithLease(ctx, tenantId, jobId, leaseId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetConfigurationWithLeaseHTTPResponse(rsp)
 }
 
 // KeepAliveLeaseWithResponse request returning *KeepAliveLeaseHTTPResponse
@@ -6014,6 +6553,210 @@ func ParsePollWorkHTTPResponse(rsp *http.Response) (*PollWorkHTTPResponse, error
 	return response, nil
 }
 
+// ParseGetTenantConfigurationHTTPResponse parses an HTTP response from a GetTenantConfigurationWithResponse call
+func ParseGetTenantConfigurationHTTPResponse(rsp *http.Response) (*GetTenantConfigurationHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetTenantConfigurationHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ConfigurationSnapshot
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRemoveTenantConfigurationValueHTTPResponse parses an HTTP response from a RemoveTenantConfigurationValueWithResponse call
+func ParseRemoveTenantConfigurationValueHTTPResponse(rsp *http.Response) (*RemoveTenantConfigurationValueHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RemoveTenantConfigurationValueHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 412:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON412 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetTenantConfigurationValueHTTPResponse parses an HTTP response from a SetTenantConfigurationValueWithResponse call
+func ParseSetTenantConfigurationValueHTTPResponse(rsp *http.Response) (*SetTenantConfigurationValueHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetTenantConfigurationValueHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 412:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON412 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseSubmitJobHTTPResponse parses an HTTP response from a SubmitJobWithResponse call
 func ParseSubmitJobHTTPResponse(rsp *http.Response) (*SubmitJobHTTPResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -6304,6 +7047,81 @@ func ParseCompleteJobWithLeaseHTTPResponse(rsp *http.Response) (*CompleteJobWith
 	response := &CompleteJobWithLeaseHTTPResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParseGetConfigurationWithLeaseHTTPResponse parses an HTTP response from a GetConfigurationWithLeaseWithResponse call
+func ParseGetConfigurationWithLeaseHTTPResponse(rsp *http.Response) (*GetConfigurationWithLeaseHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetConfigurationWithLeaseHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ConfigurationSnapshot
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
 	}
 
 	return response, nil
@@ -6859,6 +7677,15 @@ type ServerInterface interface {
 	// Poll work
 	// (POST /v1/jobs/poll)
 	PollWork(w http.ResponseWriter, r *http.Request)
+	// Read the complete tenant configuration
+	// (GET /v1/tenants/{tenantId}/configuration)
+	GetTenantConfiguration(w http.ResponseWriter, r *http.Request, tenantId TenantId)
+	// Remove one tenant configuration value
+	// (POST /v1/tenants/{tenantId}/configuration/remove)
+	RemoveTenantConfigurationValue(w http.ResponseWriter, r *http.Request, tenantId TenantId, params RemoveTenantConfigurationValueParams)
+	// Set one tenant configuration value
+	// (POST /v1/tenants/{tenantId}/configuration/set)
+	SetTenantConfigurationValue(w http.ResponseWriter, r *http.Request, tenantId TenantId, params SetTenantConfigurationValueParams)
 	// Submit job
 	// (POST /v1/tenants/{tenantId}/jobs)
 	SubmitJob(w http.ResponseWriter, r *http.Request, tenantId TenantId)
@@ -6898,6 +7725,9 @@ type ServerInterface interface {
 	// Complete job with lease
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/complete)
 	CompleteJobWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params CompleteJobWithLeaseParams)
+	// Read current tenant configuration using a live lease
+	// (GET /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/configuration)
+	GetConfigurationWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params GetConfigurationWithLeaseParams)
 	// Keep lease alive
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/keepalive)
 	KeepAliveLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params KeepAliveLeaseParams)
@@ -6967,6 +7797,24 @@ type Unimplemented struct{}
 // Poll work
 // (POST /v1/jobs/poll)
 func (_ Unimplemented) PollWork(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read the complete tenant configuration
+// (GET /v1/tenants/{tenantId}/configuration)
+func (_ Unimplemented) GetTenantConfiguration(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Remove one tenant configuration value
+// (POST /v1/tenants/{tenantId}/configuration/remove)
+func (_ Unimplemented) RemoveTenantConfigurationValue(w http.ResponseWriter, r *http.Request, tenantId TenantId, params RemoveTenantConfigurationValueParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set one tenant configuration value
+// (POST /v1/tenants/{tenantId}/configuration/set)
+func (_ Unimplemented) SetTenantConfigurationValue(w http.ResponseWriter, r *http.Request, tenantId TenantId, params SetTenantConfigurationValueParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -7045,6 +7893,12 @@ func (_ Unimplemented) AddChapterWithLease(w http.ResponseWriter, r *http.Reques
 // Complete job with lease
 // (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/complete)
 func (_ Unimplemented) CompleteJobWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params CompleteJobWithLeaseParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read current tenant configuration using a live lease
+// (GET /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/configuration)
+func (_ Unimplemented) GetConfigurationWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params GetConfigurationWithLeaseParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -7188,6 +8042,147 @@ func (siw *ServerInterfaceWrapper) PollWork(w http.ResponseWriter, r *http.Reque
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PollWork(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetTenantConfiguration operation middleware
+func (siw *ServerInterfaceWrapper) GetTenantConfiguration(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTenantConfiguration(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveTenantConfigurationValue operation middleware
+func (siw *ServerInterfaceWrapper) RemoveTenantConfigurationValue(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RemoveTenantConfigurationValueParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveTenantConfigurationValue(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetTenantConfigurationValue operation middleware
+func (siw *ServerInterfaceWrapper) SetTenantConfigurationValue(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SetTenantConfigurationValueParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetTenantConfigurationValue(w, r, tenantId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7817,6 +8812,83 @@ func (siw *ServerInterfaceWrapper) CompleteJobWithLease(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CompleteJobWithLease(w, r, tenantId, jobId, leaseId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetConfigurationWithLease operation middleware
+func (siw *ServerInterfaceWrapper) GetConfigurationWithLease(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "jobId" -------------
+	var jobId JobId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobId", chi.URLParam(r, "jobId"), &jobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "leaseId" -------------
+	var leaseId LeaseId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "leaseId", chi.URLParam(r, "leaseId"), &leaseId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "leaseId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetConfigurationWithLeaseParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-JobDB-Lease-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-JobDB-Lease-Token")]; found {
+		var XJobDBLeaseToken LeaseTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-JobDB-Lease-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-JobDB-Lease-Token", valueList[0], &XJobDBLeaseToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-JobDB-Lease-Token", Err: err})
+			return
+		}
+
+		params.XJobDBLeaseToken = XJobDBLeaseToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-JobDB-Lease-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-JobDB-Lease-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetConfigurationWithLease(w, r, tenantId, jobId, leaseId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -9004,6 +10076,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/v1/jobs/poll", wrapper.PollWork)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/tenants/{tenantId}/configuration", wrapper.GetTenantConfiguration)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/configuration/remove", wrapper.RemoveTenantConfigurationValue)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/configuration/set", wrapper.SetTenantConfigurationValue)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs", wrapper.SubmitJob)
 	})
 	r.Group(func(r chi.Router) {
@@ -9041,6 +10122,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/complete", wrapper.CompleteJobWithLease)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/configuration", wrapper.GetConfigurationWithLease)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/keepalive", wrapper.KeepAliveLease)
@@ -9123,6 +10207,425 @@ func (response PollWork200JSONResponse) VisitPollWorkResponse(w http.ResponseWri
 	w.WriteHeader(200)
 
 	return json.NewEncoder(w).Encode(response)
+}
+
+type GetTenantConfigurationRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+}
+
+type GetTenantConfigurationResponseObject interface {
+	VisitGetTenantConfigurationResponse(w http.ResponseWriter) error
+}
+
+type GetTenantConfiguration200ResponseHeaders struct {
+	CacheControl string
+	ETag         string
+}
+
+type GetTenantConfiguration200JSONResponse struct {
+	Body    ConfigurationSnapshot
+	Headers GetTenantConfiguration200ResponseHeaders
+}
+
+func (response GetTenantConfiguration200JSONResponse) VisitGetTenantConfigurationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetTenantConfiguration400ResponseHeaders struct {
+	CacheControl string
+}
+
+type GetTenantConfiguration400JSONResponse struct {
+	Body    ErrorResponse
+	Headers GetTenantConfiguration400ResponseHeaders
+}
+
+func (response GetTenantConfiguration400JSONResponse) VisitGetTenantConfigurationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetTenantConfiguration401ResponseHeaders struct {
+	CacheControl string
+}
+
+type GetTenantConfiguration401JSONResponse struct {
+	Body    ErrorResponse
+	Headers GetTenantConfiguration401ResponseHeaders
+}
+
+func (response GetTenantConfiguration401JSONResponse) VisitGetTenantConfigurationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetTenantConfiguration403ResponseHeaders struct {
+	CacheControl string
+}
+
+type GetTenantConfiguration403JSONResponse struct {
+	Body    ErrorResponse
+	Headers GetTenantConfiguration403ResponseHeaders
+}
+
+func (response GetTenantConfiguration403JSONResponse) VisitGetTenantConfigurationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetTenantConfiguration413ResponseHeaders struct {
+	CacheControl string
+}
+
+type GetTenantConfiguration413JSONResponse struct {
+	Body    ErrorResponse
+	Headers GetTenantConfiguration413ResponseHeaders
+}
+
+func (response GetTenantConfiguration413JSONResponse) VisitGetTenantConfigurationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(413)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetTenantConfiguration500ResponseHeaders struct {
+	CacheControl string
+}
+
+type GetTenantConfiguration500JSONResponse struct {
+	Body    ErrorResponse
+	Headers GetTenantConfiguration500ResponseHeaders
+}
+
+func (response GetTenantConfiguration500JSONResponse) VisitGetTenantConfigurationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetTenantConfiguration503ResponseHeaders struct {
+	CacheControl string
+}
+
+type GetTenantConfiguration503JSONResponse struct {
+	Body    ErrorResponse
+	Headers GetTenantConfiguration503ResponseHeaders
+}
+
+func (response GetTenantConfiguration503JSONResponse) VisitGetTenantConfigurationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RemoveTenantConfigurationValueRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Params   RemoveTenantConfigurationValueParams
+	Body     *RemoveTenantConfigurationValueJSONRequestBody
+}
+
+type RemoveTenantConfigurationValueResponseObject interface {
+	VisitRemoveTenantConfigurationValueResponse(w http.ResponseWriter) error
+}
+
+type RemoveTenantConfigurationValue204ResponseHeaders struct {
+	CacheControl string
+	ETag         string
+}
+
+type RemoveTenantConfigurationValue204Response struct {
+	Headers RemoveTenantConfigurationValue204ResponseHeaders
+}
+
+func (response RemoveTenantConfigurationValue204Response) VisitRemoveTenantConfigurationValueResponse(w http.ResponseWriter) error {
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(204)
+	return nil
+}
+
+type RemoveTenantConfigurationValue400ResponseHeaders struct {
+	CacheControl string
+}
+
+type RemoveTenantConfigurationValue400JSONResponse struct {
+	Body    ErrorResponse
+	Headers RemoveTenantConfigurationValue400ResponseHeaders
+}
+
+func (response RemoveTenantConfigurationValue400JSONResponse) VisitRemoveTenantConfigurationValueResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RemoveTenantConfigurationValue401ResponseHeaders struct {
+	CacheControl string
+}
+
+type RemoveTenantConfigurationValue401JSONResponse struct {
+	Body    ErrorResponse
+	Headers RemoveTenantConfigurationValue401ResponseHeaders
+}
+
+func (response RemoveTenantConfigurationValue401JSONResponse) VisitRemoveTenantConfigurationValueResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RemoveTenantConfigurationValue403ResponseHeaders struct {
+	CacheControl string
+}
+
+type RemoveTenantConfigurationValue403JSONResponse struct {
+	Body    ErrorResponse
+	Headers RemoveTenantConfigurationValue403ResponseHeaders
+}
+
+func (response RemoveTenantConfigurationValue403JSONResponse) VisitRemoveTenantConfigurationValueResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RemoveTenantConfigurationValue412ResponseHeaders struct {
+	CacheControl string
+}
+
+type RemoveTenantConfigurationValue412JSONResponse struct {
+	Body    ErrorResponse
+	Headers RemoveTenantConfigurationValue412ResponseHeaders
+}
+
+func (response RemoveTenantConfigurationValue412JSONResponse) VisitRemoveTenantConfigurationValueResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(412)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RemoveTenantConfigurationValue413ResponseHeaders struct {
+	CacheControl string
+}
+
+type RemoveTenantConfigurationValue413JSONResponse struct {
+	Body    ErrorResponse
+	Headers RemoveTenantConfigurationValue413ResponseHeaders
+}
+
+func (response RemoveTenantConfigurationValue413JSONResponse) VisitRemoveTenantConfigurationValueResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(413)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RemoveTenantConfigurationValue500ResponseHeaders struct {
+	CacheControl string
+}
+
+type RemoveTenantConfigurationValue500JSONResponse struct {
+	Body    ErrorResponse
+	Headers RemoveTenantConfigurationValue500ResponseHeaders
+}
+
+func (response RemoveTenantConfigurationValue500JSONResponse) VisitRemoveTenantConfigurationValueResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RemoveTenantConfigurationValue503ResponseHeaders struct {
+	CacheControl string
+}
+
+type RemoveTenantConfigurationValue503JSONResponse struct {
+	Body    ErrorResponse
+	Headers RemoveTenantConfigurationValue503ResponseHeaders
+}
+
+func (response RemoveTenantConfigurationValue503JSONResponse) VisitRemoveTenantConfigurationValueResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type SetTenantConfigurationValueRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Params   SetTenantConfigurationValueParams
+	Body     *SetTenantConfigurationValueJSONRequestBody
+}
+
+type SetTenantConfigurationValueResponseObject interface {
+	VisitSetTenantConfigurationValueResponse(w http.ResponseWriter) error
+}
+
+type SetTenantConfigurationValue204ResponseHeaders struct {
+	CacheControl string
+	ETag         string
+}
+
+type SetTenantConfigurationValue204Response struct {
+	Headers SetTenantConfigurationValue204ResponseHeaders
+}
+
+func (response SetTenantConfigurationValue204Response) VisitSetTenantConfigurationValueResponse(w http.ResponseWriter) error {
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(204)
+	return nil
+}
+
+type SetTenantConfigurationValue400ResponseHeaders struct {
+	CacheControl string
+}
+
+type SetTenantConfigurationValue400JSONResponse struct {
+	Body    ErrorResponse
+	Headers SetTenantConfigurationValue400ResponseHeaders
+}
+
+func (response SetTenantConfigurationValue400JSONResponse) VisitSetTenantConfigurationValueResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type SetTenantConfigurationValue401ResponseHeaders struct {
+	CacheControl string
+}
+
+type SetTenantConfigurationValue401JSONResponse struct {
+	Body    ErrorResponse
+	Headers SetTenantConfigurationValue401ResponseHeaders
+}
+
+func (response SetTenantConfigurationValue401JSONResponse) VisitSetTenantConfigurationValueResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type SetTenantConfigurationValue403ResponseHeaders struct {
+	CacheControl string
+}
+
+type SetTenantConfigurationValue403JSONResponse struct {
+	Body    ErrorResponse
+	Headers SetTenantConfigurationValue403ResponseHeaders
+}
+
+func (response SetTenantConfigurationValue403JSONResponse) VisitSetTenantConfigurationValueResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type SetTenantConfigurationValue412ResponseHeaders struct {
+	CacheControl string
+}
+
+type SetTenantConfigurationValue412JSONResponse struct {
+	Body    ErrorResponse
+	Headers SetTenantConfigurationValue412ResponseHeaders
+}
+
+func (response SetTenantConfigurationValue412JSONResponse) VisitSetTenantConfigurationValueResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(412)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type SetTenantConfigurationValue413ResponseHeaders struct {
+	CacheControl string
+}
+
+type SetTenantConfigurationValue413JSONResponse struct {
+	Body    ErrorResponse
+	Headers SetTenantConfigurationValue413ResponseHeaders
+}
+
+func (response SetTenantConfigurationValue413JSONResponse) VisitSetTenantConfigurationValueResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(413)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type SetTenantConfigurationValue500ResponseHeaders struct {
+	CacheControl string
+}
+
+type SetTenantConfigurationValue500JSONResponse struct {
+	Body    ErrorResponse
+	Headers SetTenantConfigurationValue500ResponseHeaders
+}
+
+func (response SetTenantConfigurationValue500JSONResponse) VisitSetTenantConfigurationValueResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type SetTenantConfigurationValue503ResponseHeaders struct {
+	CacheControl string
+}
+
+type SetTenantConfigurationValue503JSONResponse struct {
+	Body    ErrorResponse
+	Headers SetTenantConfigurationValue503ResponseHeaders
+}
+
+func (response SetTenantConfigurationValue503JSONResponse) VisitSetTenantConfigurationValueResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response.Body)
 }
 
 type SubmitJobRequestObject struct {
@@ -9403,6 +10906,155 @@ type CompleteJobWithLease204Response struct {
 func (response CompleteJobWithLease204Response) VisitCompleteJobWithLeaseResponse(w http.ResponseWriter) error {
 	w.WriteHeader(204)
 	return nil
+}
+
+type GetConfigurationWithLeaseRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	JobId    JobId    `json:"jobId"`
+	LeaseId  LeaseId  `json:"leaseId"`
+	Params   GetConfigurationWithLeaseParams
+}
+
+type GetConfigurationWithLeaseResponseObject interface {
+	VisitGetConfigurationWithLeaseResponse(w http.ResponseWriter) error
+}
+
+type GetConfigurationWithLease200ResponseHeaders struct {
+	CacheControl string
+	ETag         string
+}
+
+type GetConfigurationWithLease200JSONResponse struct {
+	Body    ConfigurationSnapshot
+	Headers GetConfigurationWithLease200ResponseHeaders
+}
+
+func (response GetConfigurationWithLease200JSONResponse) VisitGetConfigurationWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetConfigurationWithLease400ResponseHeaders struct {
+	CacheControl string
+}
+
+type GetConfigurationWithLease400JSONResponse struct {
+	Body    ErrorResponse
+	Headers GetConfigurationWithLease400ResponseHeaders
+}
+
+func (response GetConfigurationWithLease400JSONResponse) VisitGetConfigurationWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetConfigurationWithLease401ResponseHeaders struct {
+	CacheControl string
+}
+
+type GetConfigurationWithLease401JSONResponse struct {
+	Body    ErrorResponse
+	Headers GetConfigurationWithLease401ResponseHeaders
+}
+
+func (response GetConfigurationWithLease401JSONResponse) VisitGetConfigurationWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetConfigurationWithLease403ResponseHeaders struct {
+	CacheControl string
+}
+
+type GetConfigurationWithLease403JSONResponse struct {
+	Body    ErrorResponse
+	Headers GetConfigurationWithLease403ResponseHeaders
+}
+
+func (response GetConfigurationWithLease403JSONResponse) VisitGetConfigurationWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetConfigurationWithLease409ResponseHeaders struct {
+	CacheControl string
+}
+
+type GetConfigurationWithLease409JSONResponse struct {
+	Body    ErrorResponse
+	Headers GetConfigurationWithLease409ResponseHeaders
+}
+
+func (response GetConfigurationWithLease409JSONResponse) VisitGetConfigurationWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetConfigurationWithLease413ResponseHeaders struct {
+	CacheControl string
+}
+
+type GetConfigurationWithLease413JSONResponse struct {
+	Body    ErrorResponse
+	Headers GetConfigurationWithLease413ResponseHeaders
+}
+
+func (response GetConfigurationWithLease413JSONResponse) VisitGetConfigurationWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(413)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetConfigurationWithLease500ResponseHeaders struct {
+	CacheControl string
+}
+
+type GetConfigurationWithLease500JSONResponse struct {
+	Body    ErrorResponse
+	Headers GetConfigurationWithLease500ResponseHeaders
+}
+
+func (response GetConfigurationWithLease500JSONResponse) VisitGetConfigurationWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetConfigurationWithLease503ResponseHeaders struct {
+	CacheControl string
+}
+
+type GetConfigurationWithLease503JSONResponse struct {
+	Body    ErrorResponse
+	Headers GetConfigurationWithLease503ResponseHeaders
+}
+
+func (response GetConfigurationWithLease503JSONResponse) VisitGetConfigurationWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response.Body)
 }
 
 type KeepAliveLeaseRequestObject struct {
@@ -9868,6 +11520,15 @@ type StrictServerInterface interface {
 	// Poll work
 	// (POST /v1/jobs/poll)
 	PollWork(ctx context.Context, request PollWorkRequestObject) (PollWorkResponseObject, error)
+	// Read the complete tenant configuration
+	// (GET /v1/tenants/{tenantId}/configuration)
+	GetTenantConfiguration(ctx context.Context, request GetTenantConfigurationRequestObject) (GetTenantConfigurationResponseObject, error)
+	// Remove one tenant configuration value
+	// (POST /v1/tenants/{tenantId}/configuration/remove)
+	RemoveTenantConfigurationValue(ctx context.Context, request RemoveTenantConfigurationValueRequestObject) (RemoveTenantConfigurationValueResponseObject, error)
+	// Set one tenant configuration value
+	// (POST /v1/tenants/{tenantId}/configuration/set)
+	SetTenantConfigurationValue(ctx context.Context, request SetTenantConfigurationValueRequestObject) (SetTenantConfigurationValueResponseObject, error)
 	// Submit job
 	// (POST /v1/tenants/{tenantId}/jobs)
 	SubmitJob(ctx context.Context, request SubmitJobRequestObject) (SubmitJobResponseObject, error)
@@ -9907,6 +11568,9 @@ type StrictServerInterface interface {
 	// Complete job with lease
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/complete)
 	CompleteJobWithLease(ctx context.Context, request CompleteJobWithLeaseRequestObject) (CompleteJobWithLeaseResponseObject, error)
+	// Read current tenant configuration using a live lease
+	// (GET /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/configuration)
+	GetConfigurationWithLease(ctx context.Context, request GetConfigurationWithLeaseRequestObject) (GetConfigurationWithLeaseResponseObject, error)
 	// Keep lease alive
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/keepalive)
 	KeepAliveLease(ctx context.Context, request KeepAliveLeaseRequestObject) (KeepAliveLeaseResponseObject, error)
@@ -10022,6 +11686,100 @@ func (sh *strictHandler) PollWork(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PollWorkResponseObject); ok {
 		if err := validResponse.VisitPollWorkResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetTenantConfiguration operation middleware
+func (sh *strictHandler) GetTenantConfiguration(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
+	var request GetTenantConfigurationRequestObject
+
+	request.TenantId = tenantId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTenantConfiguration(ctx, request.(GetTenantConfigurationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTenantConfiguration")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetTenantConfigurationResponseObject); ok {
+		if err := validResponse.VisitGetTenantConfigurationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveTenantConfigurationValue operation middleware
+func (sh *strictHandler) RemoveTenantConfigurationValue(w http.ResponseWriter, r *http.Request, tenantId TenantId, params RemoveTenantConfigurationValueParams) {
+	var request RemoveTenantConfigurationValueRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	var body RemoveTenantConfigurationValueJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveTenantConfigurationValue(ctx, request.(RemoveTenantConfigurationValueRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveTenantConfigurationValue")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveTenantConfigurationValueResponseObject); ok {
+		if err := validResponse.VisitRemoveTenantConfigurationValueResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetTenantConfigurationValue operation middleware
+func (sh *strictHandler) SetTenantConfigurationValue(w http.ResponseWriter, r *http.Request, tenantId TenantId, params SetTenantConfigurationValueParams) {
+	var request SetTenantConfigurationValueRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	var body SetTenantConfigurationValueJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetTenantConfigurationValue(ctx, request.(SetTenantConfigurationValueRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetTenantConfigurationValue")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetTenantConfigurationValueResponseObject); ok {
+		if err := validResponse.VisitSetTenantConfigurationValueResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -10442,6 +12200,35 @@ func (sh *strictHandler) CompleteJobWithLease(w http.ResponseWriter, r *http.Req
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CompleteJobWithLeaseResponseObject); ok {
 		if err := validResponse.VisitCompleteJobWithLeaseResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetConfigurationWithLease operation middleware
+func (sh *strictHandler) GetConfigurationWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params GetConfigurationWithLeaseParams) {
+	var request GetConfigurationWithLeaseRequestObject
+
+	request.TenantId = tenantId
+	request.JobId = jobId
+	request.LeaseId = leaseId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetConfigurationWithLease(ctx, request.(GetConfigurationWithLeaseRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetConfigurationWithLease")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetConfigurationWithLeaseResponseObject); ok {
+		if err := validResponse.VisitGetConfigurationWithLeaseResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -6,11 +6,13 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
 )
 
 // Runtime owns JobDB workflow semantics and delegates durable state to its
 // backend ports. Its methods are being moved here from concrete runtimes.
 type Runtime struct {
+	*configuration.Service
 	secretProvider jobdb.SecretProvider
 	secretLimits   jobdb.SecretLimits
 	scheduler      Scheduler
@@ -31,6 +33,7 @@ func NewRuntime(cfg Config) (*Runtime, error) {
 		return nil, err
 	}
 	return &Runtime{
+		Service:        &configuration.Service{Store: cfg.Configurations, Limits: cfg.ConfigurationLimits},
 		scheduler:      cfg.Scheduler,
 		secretProvider: cfg.SecretProvider,
 		secretLimits:   cfg.SecretLimits,

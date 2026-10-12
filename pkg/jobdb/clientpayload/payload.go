@@ -176,11 +176,22 @@ func merge(target, patch any) any {
 // Digest identifies a JSON value independently of whitespace, object order and
 // equivalent decimal spellings. Absence is distinct from JSON null.
 func Digest(raw json.RawMessage) (string, error) {
+	return digestWithLimit(raw, MaxBytes, false)
+}
+
+// DigestWithLimit provides the same lossless JSON validation and equality with
+// a caller-selected byte limit. Unlike client payloads, arbitrary JSON strings
+// may contain U+0000. Nesting and Unicode validation remain bounded.
+func DigestWithLimit(raw json.RawMessage, maxBytes int) (string, error) {
+	return digestWithLimit(raw, maxBytes, true)
+}
+
+func digestWithLimit(raw json.RawMessage, maxBytes int, allowZero bool) (string, error) {
 	if raw == nil {
 		sum := sha256.Sum256([]byte("absent"))
 		return hex.EncodeToString(sum[:]), nil
 	}
-	v, err := parse(raw)
+	v, err := parseWithLimit(raw, maxBytes, allowZero)
 	if err != nil {
 		return "", err
 	}
@@ -255,7 +266,11 @@ func normalNumber(s string) string {
 }
 
 func parse(raw []byte) (any, error) {
-	if len(raw) > MaxBytes {
+	return parseWithLimit(raw, MaxBytes, false)
+}
+
+func parseWithLimit(raw []byte, maxBytes int, allowZero bool) (any, error) {
+	if len(raw) > maxBytes {
 		return nil, ErrTooLarge
 	}
 	if !utf8.Valid(raw) || !json.Valid(raw) {
@@ -276,7 +291,7 @@ func parse(raw []byte) (any, error) {
 			}
 			n, _ := strconv.ParseUint(string(raw[i+1:i+5]), 16, 16)
 			i += 4
-			if n == 0 {
+			if n == 0 && !allowZero {
 				return nil, fmt.Errorf("%w: U+0000 is unsupported", ErrInvalid)
 			}
 			if n >= 0xD800 && n <= 0xDBFF {

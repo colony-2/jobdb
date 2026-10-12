@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +26,7 @@ func (s *renewalTestScheduler) KeepAliveLease(_ context.Context, m runtimecore.L
 func TestCoreRenewReturnsAuthoritativeSnapshotWithoutAcquisition(t *testing.T) {
 	key := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 	scheduler := &renewalTestScheduler{snapshot: runtimecore.LeaseSnapshot{Identity: runtimecore.LeaseIdentity{JobKey: key, LeaseID: "lease", WorkerID: "owner", ExpiresAt: time.Now().Add(time.Minute)}, RouteJobType: "job", WorkKind: runtimecore.WorkKindTask, TaskWork: &runtimecore.TaskWork{TaskType: "task", ResumeJobType: "job", InputOrdinal: 2, OutputOrdinal: 3, InputHash: "hash"}, ClientPayload: json.RawMessage(`{"cursor":3}`), ClientPayloadRevision: 4, SchemaHash: "schema", Duration: time.Minute}}
-	runtime, err := runtimecore.NewRuntime(runtimecore.Config{Scheduler: scheduler, Chapters: readTestChapters{}, Schemas: readTestSchemas{}})
+	runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: scheduler, Chapters: readTestChapters{}, Schemas: readTestSchemas{}})
 	require.NoError(t, err)
 	lease, err := runtime.RenewExecutionLeaseByID(context.Background(), key, "lease", "owner", time.Minute)
 	require.NoError(t, err)

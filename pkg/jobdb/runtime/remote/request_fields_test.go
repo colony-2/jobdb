@@ -35,7 +35,10 @@ func TestRescheduleRejectsRemovedAndImmutableFields(t *testing.T) {
 
 // Embedding the interface lets this test panic if any runtime method is reached;
 // removed request fields must be rejected by HTTP validation before dispatch.
-type rejectCompletionPayloadRuntime struct{ jobdb.WorkflowRuntime }
+type rejectCompletionPayloadRuntime struct {
+	jobdb.WorkflowRuntime
+	jobdb.ConfigurationAdmin
+}
 
 func TestCommitIfWaitingRejectsClientPayloadUpdate(t *testing.T) {
 	handler := NewServer(rejectCompletionPayloadRuntime{})

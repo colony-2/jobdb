@@ -17,7 +17,8 @@ longer contains the worker SDK or engine builder.
 
 This includes task/job data APIs, artifact APIs, runtime request/response
 types, job lifecycle APIs, job-run inspection APIs, list-jobs APIs, first-class
-schedule APIs, error types, and the `WorkflowRuntime` interface used by runtime
+schedule APIs, tenant configuration requests/snapshots and administration,
+error types, and the `WorkflowRuntime` interface used by runtime
 adapters and advanced consumers.
 
 Routing uses `Route{JobType, TaskType}` throughout the public API. See the
@@ -44,6 +45,14 @@ built-in runtimes.
 Shared JSON update rules for runtime implementers: lossless RFC 7396 patches,
 reset/clear, revision checking, validation, and initial-value identity.
 
+### `github.com/colony-2/jobdb/pkg/jobdb/configuration`
+
+Public tenant configuration storage port, validation/service layer, and memory,
+SQLite, and Postgres implementations. External runtime implementations provide
+`configuration.Store` to `runtime/core.Config.Configurations`; the service
+provides `jobdb.ConfigurationAdmin`. `NewSQLStore` initializes the additive SQL
+snapshot table on a caller-owned database.
+
 ### `github.com/colony-2/jobdb/pkg/jobdb/chapterstore/postgres`
 
 Public Postgres chapter and artifact store implementing the runtime core's
@@ -54,7 +63,7 @@ chapter storage behavior without importing internal packages.
 
 Public backend boundary for external runtime implementers.
 
-This package defines the scheduler, chapter-log, and schema-store ports used
+This package wires scheduler, chapter-log, schema-store, and configuration-store ports used
 to keep runtime semantics in JobDB core while letting a backend own durable
 state, artifact persistence, and atomic lease mutations. The schema registry
 adapter in this package owns schema canonicalization and validation before it
@@ -170,6 +179,7 @@ The API snapshot should include:
 
 ```text
 github.com/colony-2/jobdb/pkg/jobdb
+github.com/colony-2/jobdb/pkg/jobdb/configuration
 github.com/colony-2/jobdb/pkg/jobdb/chapterstore/postgres
 github.com/colony-2/jobdb/pkg/jobdb/runtimetest
 github.com/colony-2/jobdb/pkg/jobdb/runtime/core

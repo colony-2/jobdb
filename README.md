@@ -126,6 +126,28 @@ runtime, err := remoteruntime.New("http://127.0.0.1:9047", nil)
 See [pkg/jobdb/README.md](pkg/jobdb/README.md) for the Go runtime API, data
 types, and runtime package reference.
 
+## Tenant Configuration
+
+Every backend provides a tenant configuration store and public administration API.
+Set or remove JSON values through a running server:
+
+```sh
+printf '%s' '{"region":"eu-west-1","parallelism":4}' | jobdb config set build.defaults -t tenant-a -f -
+jobdb config add build.defaults -t tenant-a -f ./defaults.json
+jobdb config remove build.defaults -t tenant-a
+```
+
+`--url` (`-u`) selects the server (default `http://127.0.0.1:9047`). Set
+`JOBDB_BEARER_TOKEN` if deployment authentication requires it. `--if-match`
+accepts a quoted ETag for conditional writes. Configuration is ordinary JSON
+application data; use the secrets API for credentials.
+
+Go workers call `ctx.GetConfiguration(context.Background())` on job or task
+contexts. Each explicit call fetches a fresh, complete tenant snapshot under the
+current lease. Nothing is prefetched or cached. See the
+[configuration contract](docs/SPEC-Tenant-Configuration-Store.md), including
+replay rules and the companion Postgres runtime upgrade.
+
 ## Go Workflow Workers
 
 Workflow workers are intentionally documented separately from the server. If you

@@ -1,0 +1,272 @@
+diff --git a/pkg/pgjobdb/runtime/integration/configuration_test.go b/pkg/pgjobdb/runtime/integration/configuration_test.go
+new file mode 100644
+index 0000000..119c63c
+--- /dev/null
++++ b/pkg/pgjobdb/runtime/integration/configuration_test.go
+@@ -0,0 +1,37 @@
++package integration_test
++
++import (
++	"context"
++	"database/sql"
++	"net/http/httptest"
++	"testing"
++
++	"github.com/colony-2/jobdb/pkg/jobdb"
++	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
++	"github.com/colony-2/jobdb/pkg/jobdb/runtimetest"
++	pgruntime "github.com/colony-2/pgjobdb/pkg/pgjobdb/runtime"
++)
++
++func TestTenantConfiguration(t *testing.T) {
++	for _, transport := range []string{"embedded", "http"} {
++		t.Run(transport, func(t *testing.T) {
++			runDatabaseTest(t, func(ctx context.Context, db *sql.DB) {
++				backend, err := pgruntime.NewSQLDB(ctx, db, pgruntime.Config{BlobStoreURI: "blobfs://" + t.TempDir()})
++				if err != nil {
++					t.Fatal(err)
++				}
++				defer backend.Close(ctx)
++				var runtime jobdb.WorkflowRuntime = backend
++				if transport == "http" {
++					server := httptest.NewServer(remote.NewServer(backend))
++					defer server.Close()
++					runtime, err = remote.New(server.URL, nil)
++					if err != nil {
++						t.Fatal(err)
++					}
++				}
++				runtimetest.RunConfigurationConformance(t, runtime)
++			})
++		})
++	}
++}
+diff --git a/pkg/pgjobdb/runtime/integration/internal/jobdbtest/harness.go b/pkg/pgjobdb/runtime/integration/internal/jobdbtest/harness.go
+index c2b8c48..bc1275f 100644
+--- a/pkg/pgjobdb/runtime/integration/internal/jobdbtest/harness.go
++++ b/pkg/pgjobdb/runtime/integration/internal/jobdbtest/harness.go
+@@ -800,3 +800,19 @@ func ExpectTaskType(t *testing.T, route jobdb.Route, want string) {
+ 		t.Fatalf("task type = %q; want %q", route.TaskType, want)
+ 	}
+ }
++
++func (r *tenantNamespacedRuntime) GetConfiguration(ctx context.Context, req jobdb.GetConfigurationRequest) (jobdb.ConfigurationSnapshot, error) {
++	req.JobKey = r.prefixJobKey(req.JobKey)
++	return r.runtime.GetConfiguration(ctx, req)
++}
++func (l *tenantNamespacedLease) GetConfiguration(ctx context.Context) (jobdb.ConfigurationSnapshot, error) {
++	return l.lease.GetConfiguration(ctx)
++}
++
++func (r *tenantNamespacedRuntime) ResolveSecrets(ctx context.Context, req jobdb.ResolveSecretsRequest) (jobdb.SecretResolveResult, error) {
++	req.JobKey = r.prefixJobKey(req.JobKey)
++	return r.runtime.ResolveSecrets(ctx, req)
++}
++func (l *tenantNamespacedLease) ResolveSecrets(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
++	return l.lease.ResolveSecrets(ctx, names)
++}
+diff --git a/pkg/pgjobdb/runtime/integration/native_runtime_core_cancel_test.go b/pkg/pgjobdb/runtime/integration/native_runtime_core_cancel_test.go
+index 0fb8ef9..6d2cd3e 100644
+--- a/pkg/pgjobdb/runtime/integration/native_runtime_core_cancel_test.go
++++ b/pkg/pgjobdb/runtime/integration/native_runtime_core_cancel_test.go
+@@ -25,7 +25,7 @@ func TestNativeRuntimeCoreCancelsJob(t *testing.T) {
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+-		runtime, err := runtimecore.NewRuntime(runtimecore.Config{
++		runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: newConfigurationStore(t, ctx, db),
+ 			Scheduler: runtimeadapter.Scheduler{DB: db}, Chapters: chapters,
+ 			Schemas: schemas,
+ 		})
+diff --git a/pkg/pgjobdb/runtime/integration/native_runtime_core_chapter_test.go b/pkg/pgjobdb/runtime/integration/native_runtime_core_chapter_test.go
+index 4ac4e2f..6280a39 100644
+--- a/pkg/pgjobdb/runtime/integration/native_runtime_core_chapter_test.go
++++ b/pkg/pgjobdb/runtime/integration/native_runtime_core_chapter_test.go
+@@ -30,7 +30,7 @@ func TestNativeRuntimeCorePutChapterRequiresCurrentLease(t *testing.T) {
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+-		runtime, err := runtimecore.NewRuntime(runtimecore.Config{
++		runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: newConfigurationStore(t, ctx, db),
+ 			Scheduler: runtimeadapter.Scheduler{DB: db}, Chapters: chapters,
+ 			Schemas: schemas,
+ 		})
+diff --git a/pkg/pgjobdb/runtime/integration/native_runtime_core_lease_test.go b/pkg/pgjobdb/runtime/integration/native_runtime_core_lease_test.go
+index 3f64bcd..8e0b0d8 100644
+--- a/pkg/pgjobdb/runtime/integration/native_runtime_core_lease_test.go
++++ b/pkg/pgjobdb/runtime/integration/native_runtime_core_lease_test.go
+@@ -28,7 +28,7 @@ func TestNativeRuntimeCoreLeaseRoutesAndCompletes(t *testing.T) {
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+-		runtime, err := runtimecore.NewRuntime(runtimecore.Config{
++		runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: newConfigurationStore(t, ctx, db),
+ 			Scheduler: runtimeadapter.Scheduler{DB: db}, Chapters: chapters,
+ 			Schemas: schemas,
+ 		})
+diff --git a/pkg/pgjobdb/runtime/integration/native_runtime_core_restart_test.go b/pkg/pgjobdb/runtime/integration/native_runtime_core_restart_test.go
+index bbd354c..1d720c4 100644
+--- a/pkg/pgjobdb/runtime/integration/native_runtime_core_restart_test.go
++++ b/pkg/pgjobdb/runtime/integration/native_runtime_core_restart_test.go
+@@ -28,7 +28,7 @@ func TestNativeRuntimeCoreRestartsFromChapterPrefix(t *testing.T) {
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+-		runtime, err := runtimecore.NewRuntime(runtimecore.Config{
++		runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: newConfigurationStore(t, ctx, db),
+ 			Scheduler: runtimeadapter.Scheduler{DB: db}, Chapters: chapters,
+ 			Schemas: schemas,
+ 		})
+diff --git a/pkg/pgjobdb/runtime/integration/native_runtime_core_schedule_preflight_test.go b/pkg/pgjobdb/runtime/integration/native_runtime_core_schedule_preflight_test.go
+index ccfe85d..b5ae929 100644
+--- a/pkg/pgjobdb/runtime/integration/native_runtime_core_schedule_preflight_test.go
++++ b/pkg/pgjobdb/runtime/integration/native_runtime_core_schedule_preflight_test.go
+@@ -26,7 +26,7 @@ func TestNativeRuntimeCoreSchedulePreflight(t *testing.T) {
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+-		runtime, err := runtimecore.NewRuntime(runtimecore.Config{
++		runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: newConfigurationStore(t, ctx, db),
+ 			Scheduler: runtimeadapter.Scheduler{DB: db}, Chapters: chapters, Schemas: schemas,
+ 		})
+ 		if err != nil {
+diff --git a/pkg/pgjobdb/runtime/integration/native_runtime_core_schedule_test.go b/pkg/pgjobdb/runtime/integration/native_runtime_core_schedule_test.go
+index 3ef08ca..9e7d61d 100644
+--- a/pkg/pgjobdb/runtime/integration/native_runtime_core_schedule_test.go
++++ b/pkg/pgjobdb/runtime/integration/native_runtime_core_schedule_test.go
+@@ -27,7 +27,7 @@ func TestNativeRuntimeCoreScheduleLifecycle(t *testing.T) {
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+-		runtime, err := runtimecore.NewRuntime(runtimecore.Config{
++		runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: newConfigurationStore(t, ctx, db),
+ 			Scheduler: runtimeadapter.Scheduler{DB: db}, Chapters: chapters, Schemas: schemas,
+ 		})
+ 		if err != nil {
+diff --git a/pkg/pgjobdb/runtime/integration/native_runtime_core_submit_test.go b/pkg/pgjobdb/runtime/integration/native_runtime_core_submit_test.go
+index 052daae..cc9759a 100644
+--- a/pkg/pgjobdb/runtime/integration/native_runtime_core_submit_test.go
++++ b/pkg/pgjobdb/runtime/integration/native_runtime_core_submit_test.go
+@@ -30,7 +30,7 @@ func TestNativeRuntimeCoreSubmitsAndReconcilesJob(t *testing.T) {
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+-		runtime, err := runtimecore.NewRuntime(runtimecore.Config{
++		runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: newConfigurationStore(t, ctx, db),
+ 			Scheduler: runtimeadapter.Scheduler{DB: db}, Chapters: chapters,
+ 			Schemas: schemas,
+ 		})
+diff --git a/pkg/pgjobdb/runtime/integration/native_runtime_core_task_test.go b/pkg/pgjobdb/runtime/integration/native_runtime_core_task_test.go
+index c5d992d..9dd892f 100644
+--- a/pkg/pgjobdb/runtime/integration/native_runtime_core_task_test.go
++++ b/pkg/pgjobdb/runtime/integration/native_runtime_core_task_test.go
+@@ -27,7 +27,7 @@ func TestNativeRuntimeCoreCompletesWaitingTask(t *testing.T) {
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+-		runtime, err := runtimecore.NewRuntime(runtimecore.Config{
++		runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: newConfigurationStore(t, ctx, db),
+ 			Scheduler: runtimeadapter.Scheduler{DB: db}, Chapters: chapters, Schemas: schemas,
+ 		})
+ 		if err != nil {
+diff --git a/pkg/pgjobdb/runtime/integration/task_completion_recovery_test.go b/pkg/pgjobdb/runtime/integration/task_completion_recovery_test.go
+index 0561bb6..c78195c 100644
+--- a/pkg/pgjobdb/runtime/integration/task_completion_recovery_test.go
++++ b/pkg/pgjobdb/runtime/integration/task_completion_recovery_test.go
+@@ -118,7 +118,7 @@ func TestTaskCompletionRecoveryWithIndependentChapterDatabase(t *testing.T) {
+ 				}
+ 				scheduler := &completionFaultScheduler{Scheduler: runtimeadapter.Scheduler{DB: db}}
+ 				chapterPort := &completionFaultChapters{ChapterLog: chapters}
+-				runtime, err := runtimecore.NewRuntime(runtimecore.Config{Scheduler: scheduler, Chapters: chapterPort, Schemas: schemas})
++				runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: newConfigurationStore(t, ctx, db), Scheduler: scheduler, Chapters: chapterPort, Schemas: schemas})
+ 				if err != nil {
+ 					t.Fatal(err)
+ 				}
+@@ -203,7 +203,7 @@ func TestTaskCompletionRecoveryWithIndependentChapterDatabase(t *testing.T) {
+ 				if err != nil {
+ 					t.Fatal(err)
+ 				}
+-				recovered, err := runtimecore.NewRuntime(runtimecore.Config{Scheduler: runtimeadapter.Scheduler{DB: reopenedDB}, Chapters: reopenedChapters, Schemas: reopenedSchemas})
++				recovered, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: newConfigurationStore(t, ctx, reopenedDB), Scheduler: runtimeadapter.Scheduler{DB: reopenedDB}, Chapters: reopenedChapters, Schemas: reopenedSchemas})
+ 				if err != nil {
+ 					t.Fatal(err)
+ 				}
+@@ -253,7 +253,7 @@ func TestTaskCompletionHTTPRejectsRemovedPayload(t *testing.T) {
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+-		runtime, err := runtimecore.NewRuntime(runtimecore.Config{Scheduler: runtimeadapter.Scheduler{DB: db}, Chapters: chapters, Schemas: schemas})
++		runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: newConfigurationStore(t, ctx, db), Scheduler: runtimeadapter.Scheduler{DB: db}, Chapters: chapters, Schemas: schemas})
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+@@ -283,7 +283,7 @@ func TestTaskCompletionClaimsBeforeAppending(t *testing.T) {
+ 		}
+ 		scheduler := &completionFaultScheduler{Scheduler: runtimeadapter.Scheduler{DB: db}}
+ 		port := &completionFaultChapters{ChapterLog: chapters}
+-		runtime, err := runtimecore.NewRuntime(runtimecore.Config{Scheduler: scheduler, Chapters: port, Schemas: schemas})
++		runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: newConfigurationStore(t, ctx, db), Scheduler: scheduler, Chapters: port, Schemas: schemas})
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+diff --git a/pkg/pgjobdb/runtime/integration/testsupport_test.go b/pkg/pgjobdb/runtime/integration/testsupport_test.go
+index cdde09c..f42cebb 100644
+--- a/pkg/pgjobdb/runtime/integration/testsupport_test.go
++++ b/pkg/pgjobdb/runtime/integration/testsupport_test.go
+@@ -4,6 +4,7 @@ import (
+ 	"context"
+ 	"database/sql"
+ 	"fmt"
++	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
+ 	"math/rand"
+ 	"path/filepath"
+ 	"testing"
+@@ -55,3 +56,12 @@ func withBareDatabase(t *testing.T, fn func(context.Context, *sql.DB)) {
+ 	t.Cleanup(cancel)
+ 	fn(ctx, sqlDB)
+ }
++
++func newConfigurationStore(t *testing.T, ctx context.Context, db *sql.DB) configuration.Store {
++	t.Helper()
++	store, err := configuration.NewSQLStore(ctx, db, configuration.Postgres)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return store
++}
+diff --git a/pkg/pgjobdb/runtime/runtime.go b/pkg/pgjobdb/runtime/runtime.go
+index 310d343..5fb797c 100644
+--- a/pkg/pgjobdb/runtime/runtime.go
++++ b/pkg/pgjobdb/runtime/runtime.go
+@@ -12,6 +12,7 @@ import (
+ 
+ 	"github.com/colony-2/jobdb/pkg/jobdb"
+ 	chapterpostgres "github.com/colony-2/jobdb/pkg/jobdb/chapterstore/postgres"
++	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
+ 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
+ 	schemapostgres "github.com/colony-2/jobdb/pkg/jobdb/schemastore/postgres"
+ 	"github.com/colony-2/pgjobdb/pkg/pgjobdb/installer"
+@@ -22,7 +23,8 @@ import (
+ 
+ // Config selects Postgres and artifact storage for the runtime.
+ type Config struct {
+-	PostgresDSN string
++	ConfigurationLimits jobdb.ConfigurationLimits
++	PostgresDSN         string
+ 	// BlobStoreURI is a blob bucket URL for large chapter artifacts.
+ 	// blobfs:// is supported by default. Other schemes require an explicit provider import.
+ 	BlobStoreURI           string
+@@ -94,7 +96,13 @@ func NewSQLDB(ctx context.Context, db *sql.DB, cfg Config) (*Runtime, error) {
+ 		_ = chapters.Close(ctx)
+ 		return nil, err
+ 	}
++	configurations, err := configuration.NewSQLStore(ctx, db, configuration.Postgres)
++	if err != nil {
++		_ = chapters.Close(ctx)
++		return nil, err
++	}
+ 	core, err := runtimecore.NewRuntime(runtimecore.Config{
++		Configurations: configurations, ConfigurationLimits: cfg.ConfigurationLimits,
+ 		Scheduler: runtimeadapter.Scheduler{DB: db}, Chapters: chapters, Schemas: schemas,
+ 	})
+ 	if err != nil {

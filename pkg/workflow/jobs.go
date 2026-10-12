@@ -9,6 +9,8 @@ import (
 )
 
 type JobContext interface {
+	// GetConfiguration reads a fresh tenant snapshot under this invocation's live lease.
+	GetConfiguration(context.Context) (ConfigurationSnapshot, error)
 	// ResolveSecrets retrieves allowed names under this invocation's live lease.
 	// Results are not recorded or cached. Offline replay rejects secret reads;
 	// use task-level resolution for workflows that must support offline replay.

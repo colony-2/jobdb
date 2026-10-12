@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/leaseauth"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 	"github.com/stretchr/testify/require"
@@ -22,7 +23,7 @@ func (s *secretScheduler) GetJob(context.Context, jobdb.JobKey) (runtimecore.Sto
 	return s.row, nil
 }
 func (s *secretScheduler) ValidateLease(_ context.Context, identity runtimecore.LeaseIdentity) (runtimecore.LeaseSnapshot, error) {
-	if s.row.Lease == nil || identity != *s.row.Lease || !time.Now().Before(identity.ExpiresAt) {
+	if s.row.Lease == nil || identity.JobKey != s.row.Lease.JobKey || identity.LeaseID != s.row.Lease.LeaseID || identity.WorkerID != s.row.Lease.WorkerID || !time.Now().Before(s.row.Lease.ExpiresAt) {
 		return runtimecore.LeaseSnapshot{}, jobdb.ErrExecutionLeaseLost
 	}
 	return runtimecore.LeaseSnapshot{Identity: identity}, nil
@@ -52,7 +53,7 @@ func TestCoreSecretsUseIndependentProvider(t *testing.T) {
 		}
 		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: fmt.Sprint(calls)}}}, nil
 	})
-	runtime, err := runtimecore.NewRuntime(runtimecore.Config{Scheduler: scheduler, Chapters: &readTestChapters{}, Schemas: readTestSchemas{}, SecretProvider: provider})
+	runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: scheduler, Chapters: &readTestChapters{}, Schemas: readTestSchemas{}, SecretProvider: provider})
 	require.NoError(t, err)
 	lease, err := runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "job"}}})
 	require.NoError(t, err)

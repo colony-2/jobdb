@@ -18,6 +18,8 @@ info:
 servers:
   - url: https://jobdb-runtime.example.com
 tags:
+  - name: configuration
+    description: Tenant configuration administration and lease-authorized reads.
   - name: jobs
     description: Job lifecycle and job-level read APIs.
   - name: schedules
@@ -33,6 +35,376 @@ tags:
 security:
   - bearerAuth: []
 paths:
+  /v1/tenants/{tenantId}/configuration:
+    get:
+      tags: [configuration]
+      operationId: getTenantConfiguration
+      summary: Read the complete tenant configuration
+      description: |
+        Always registered on every backend. Each read returns a coherent current
+        snapshot; no result caching, conditional GET, or pagination. All responses
+        use Cache-Control: no-store. Deployment authentication also applies.
+        Uses administrative authorization, not lease authority. Empty tenants
+        return a valid initial revision and values: {}.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Current snapshot
+          headers:
+            ETag:
+              required: true
+              schema: {type: string}
+              description: Quoted tenant revision.
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigurationSnapshot'
+        '400':
+          description: Invalid request
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Deployment authentication required
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Deployment authorization denied
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Configuration exceeds limits
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Configuration operation failed or stored snapshot exceeds read limits
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Configuration temporarily unavailable
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/tenants/{tenantId}/configuration/set:
+    post:
+      tags: [configuration]
+      operationId: setTenantConfigurationValue
+      summary: Set one tenant configuration value
+      description: |
+        Always registered on every backend. Each read returns a coherent current
+        snapshot; no result caching, conditional GET, or pagination. All responses
+        use Cache-Control: no-store. Deployment authentication also applies.
+        Writes commit atomically. If-Match optionally requires one exact strong
+        ETag for the whole tenant; mismatch returns 412 before mutation. No-op
+        writes preserve revision, including removal of an absent name. A present
+        JSON null is a value, not deletion. Duplicate JSON keys are rejected.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - in: header
+          name: If-Match
+          schema: {type: string}
+          description: One quoted revision ETag; weak tags, lists and wildcard are invalid.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetConfigurationBody'
+      responses:
+        '204':
+          description: Mutation committed
+          headers:
+            ETag:
+              required: true
+              schema: {type: string}
+              description: Quoted tenant revision.
+            Cache-Control:
+              schema: {type: string, const: no-store}
+        '400':
+          description: Invalid request
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Deployment authentication required
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Deployment authorization denied
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '412':
+          description: Configuration revision mismatch
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Configuration exceeds limits
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Configuration operation failed or stored snapshot exceeds read limits
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Configuration temporarily unavailable
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/tenants/{tenantId}/configuration/remove:
+    post:
+      tags: [configuration]
+      operationId: removeTenantConfigurationValue
+      summary: Remove one tenant configuration value
+      description: |
+        Always registered on every backend. Each read returns a coherent current
+        snapshot; no result caching, conditional GET, or pagination. All responses
+        use Cache-Control: no-store. Deployment authentication also applies.
+        Writes commit atomically. If-Match optionally requires one exact strong
+        ETag for the whole tenant; mismatch returns 412 before mutation. No-op
+        writes preserve revision, including removal of an absent name. A present
+        JSON null is a value, not deletion. Duplicate JSON keys are rejected.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - in: header
+          name: If-Match
+          schema: {type: string}
+          description: One quoted revision ETag; weak tags, lists and wildcard are invalid.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemoveConfigurationBody'
+      responses:
+        '204':
+          description: Mutation committed
+          headers:
+            ETag:
+              required: true
+              schema: {type: string}
+              description: Quoted tenant revision.
+            Cache-Control:
+              schema: {type: string, const: no-store}
+        '400':
+          description: Invalid request
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Deployment authentication required
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Deployment authorization denied
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '412':
+          description: Configuration revision mismatch
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Configuration exceeds limits
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Configuration operation failed or stored snapshot exceeds read limits
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Configuration temporarily unavailable
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/configuration:
+    get:
+      tags: [configuration]
+      operationId: getConfigurationWithLease
+      summary: Read current tenant configuration using a live lease
+      description: |
+        Always registered on every backend. Each read returns a coherent current
+        snapshot; no result caching, conditional GET, or pagination. All responses
+        use Cache-Control: no-store. Deployment authentication also applies.
+        The token must match tenant, job and lease. Current ownership and token
+        expiry are checked before and after storage I/O. No requested-name list.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      responses:
+        '200':
+          description: Current snapshot
+          headers:
+            ETag:
+              required: true
+              schema: {type: string}
+              description: Quoted tenant revision.
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigurationSnapshot'
+        '400':
+          description: Invalid request
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Deployment authentication required
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Deployment authorization denied
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Execution lease lost
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Configuration exceeds limits
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Configuration operation failed or stored snapshot exceeds read limits
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Configuration temporarily unavailable
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/tenants/{tenantId}/jobs:
     post:
       tags: [jobs]
@@ -929,6 +1301,30 @@ components:
       schema:
         type: string
   schemas:
+    ConfigurationSnapshot:
+      type: object
+      additionalProperties: false
+      required: [revision, values]
+      properties:
+        revision: {type: string, minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9_-]+$'}
+        values:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ApplicationPayload'
+    SetConfigurationBody:
+      type: object
+      additionalProperties: false
+      required: [name, value]
+      properties:
+        name: {type: string, minLength: 1}
+        value:
+          $ref: '#/components/schemas/ApplicationPayload'
+    RemoveConfigurationBody:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1}
     ResolveSecretsBody:
       type: object
       additionalProperties: false
@@ -966,6 +1362,12 @@ components:
     ErrorCode:
       type: string
       enum:
+        - invalid_configuration_request
+        - configuration_too_large
+        - configuration_read_too_large
+        - configuration_revision_mismatch
+        - configuration_unavailable
+        - configuration_failed
         - invalid_request
         - not_found
         - conflict

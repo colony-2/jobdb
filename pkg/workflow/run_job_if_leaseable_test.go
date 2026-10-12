@@ -328,3 +328,7 @@ func TestJobRunnableRunDoesNotBlockOnListener(t *testing.T) {
 func (*runJobIfLeaseableStubRuntime) ResolveSecrets(context.Context, jobdb.ResolveSecretsRequest) (jobdb.SecretResolveResult, error) {
 	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
 }
+
+func (*runJobIfLeaseableStubRuntime) GetConfiguration(context.Context, jobdb.GetConfigurationRequest) (jobdb.ConfigurationSnapshot, error) {
+	return jobdb.ConfigurationSnapshot{}, jobdb.ErrExecutionLeaseLost
+}

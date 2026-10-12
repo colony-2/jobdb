@@ -23,7 +23,7 @@ func (r *workerRunner) ResolveSecrets(ctx context.Context, names []string) (Secr
 	if r.lease == nil || r.rescheduled.Load() {
 		return SecretResolveResult{}, jobdb.ErrExecutionLeaseLost
 	}
-	callCtx, cancel := secretCallContext(ctx, r.ctx)
+	callCtx, cancel := invocationCallContext(ctx, r.ctx)
 	defer cancel()
 	if callCtx.Err() != nil {
 		return SecretResolveResult{}, jobdb.ErrSecretsUnavailable
@@ -36,27 +36,4 @@ func (r *workerRunner) ResolveSecrets(ctx context.Context, names []string) (Secr
 		return SecretResolveResult{}, jobdb.ErrSecretsUnavailable
 	}
 	return result, err
-}
-
-// Keep caller values and cancellation, while also bounding the call by the
-// enclosing worker invocation (even when the caller uses context.Background).
-func secretCallContext(ctx, invocation context.Context) (context.Context, context.CancelFunc) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	callCtx, cancel := context.WithCancel(ctx)
-	if invocation == nil {
-		return callCtx, cancel
-	}
-	if deadline, ok := invocation.Deadline(); ok {
-		var deadlineCancel context.CancelFunc
-		callCtx, deadlineCancel = context.WithDeadline(callCtx, deadline)
-		oldCancel := cancel
-		cancel = func() { deadlineCancel(); oldCancel() }
-	}
-	stop := context.AfterFunc(invocation, cancel)
-	if invocation.Err() != nil {
-		cancel()
-	}
-	return callCtx, func() { stop(); cancel() }
 }

@@ -400,3 +400,7 @@ func TestRuntimeEngineLoadsArtifactsThroughRuntimeStorage(t *testing.T) {
 func (*fakeWorkflowRuntime) ResolveSecrets(context.Context, jobdb.ResolveSecretsRequest) (jobdb.SecretResolveResult, error) {
 	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
 }
+
+func (*fakeWorkflowRuntime) GetConfiguration(context.Context, jobdb.GetConfigurationRequest) (jobdb.ConfigurationSnapshot, error) {
+	return jobdb.ConfigurationSnapshot{}, jobdb.ErrExecutionLeaseLost
+}

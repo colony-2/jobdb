@@ -193,6 +193,7 @@ func (l *testExecutionLease) LeaseExpiry() time.Time  { return l.expiresAt }
 func (l *testExecutionLease) LeaseSchemaHash() string { return l.schemaHash }
 
 type claimsCapturingRuntime struct {
+	jobdb.ConfigurationAdmin
 	req       jobdb.PutChapterRequest
 	claims    leaseauth.Claims
 	sawClaims bool
@@ -300,4 +301,12 @@ func (*claimsCapturingRuntime) ResolveSecrets(context.Context, jobdb.ResolveSecr
 
 func (*testExecutionLease) ResolveSecrets(context.Context, []string) (jobdb.SecretResolveResult, error) {
 	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
+}
+
+func (*claimsCapturingRuntime) GetConfiguration(context.Context, jobdb.GetConfigurationRequest) (jobdb.ConfigurationSnapshot, error) {
+	return jobdb.ConfigurationSnapshot{}, jobdb.ErrExecutionLeaseLost
+}
+
+func (*testExecutionLease) GetConfiguration(context.Context) (jobdb.ConfigurationSnapshot, error) {
+	return jobdb.ConfigurationSnapshot{}, jobdb.ErrExecutionLeaseLost
 }

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/blobstore"
 	sqliterowstore "github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/sqlite"
@@ -30,6 +31,7 @@ const (
 
 // Config describes a local SQLite-backed jobdb runtime.
 type Config struct {
+	ConfigurationLimits jobdb.ConfigurationLimits
 	// SecretProvider is independent of job storage and remains caller-owned.
 	SecretProvider jobdb.SecretProvider
 	// DevSecretsDB and DevSecretsKeyFile are a convenience for opening and owning
@@ -57,6 +59,7 @@ type Config struct {
 // Runtime is a SQLite WorkflowRuntime that composes scheduler rows, chapter
 // rows, and Go CDK blob artifact storage.
 type Runtime struct {
+	*configuration.Service
 	secretProvider jobdb.SecretProvider
 	devSecrets     *sqlitesecrets.Store
 	secretLimits   jobdb.SecretLimits
@@ -94,7 +97,13 @@ func New(db *sql.DB, opts ...Option) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	storeConfig, err := configuration.NewSQLStore(context.Background(), db, configuration.SQLite)
+	if err != nil {
+		_ = chapterStore.Close(context.Background())
+		return nil, err
+	}
 	rt := &Runtime{
+		Service:        &configuration.Service{Store: storeConfig, Limits: cfg.configurationLimits},
 		db:             db,
 		chapterStore:   chapterStore,
 		logger:         cfg.logger,
@@ -171,8 +180,17 @@ func NewFromConfig(ctx context.Context, cfg Config) (*Runtime, error) {
 			return nil, err
 		}
 	}
+	storeConfig, err := configuration.NewSQLStore(ctx, db, configuration.SQLite)
+	if err != nil {
+		_ = chapterStore.Close(ctx)
+		if store != nil {
+			_ = store.Close()
+		}
+		return nil, err
+	}
 	cleanupDB = false
 	rt := &Runtime{
+		Service:        &configuration.Service{Store: storeConfig, Limits: cfg.ConfigurationLimits},
 		db:             db,
 		ownsDB:         true,
 		chapterStore:   chapterStore,
@@ -213,6 +231,7 @@ func (r *Runtime) Close(ctx context.Context) error {
 }
 
 type runtimeOptions struct {
+	configurationLimits    jobdb.ConfigurationLimits
 	secretProvider         jobdb.SecretProvider
 	secretLimits           jobdb.SecretLimits
 	logger                 *slog.Logger
@@ -376,4 +395,9 @@ func WithSecretProvider(provider jobdb.SecretProvider) Option {
 // WithSecretLimits bounds provider calls and their results.
 func WithSecretLimits(limits jobdb.SecretLimits) Option {
 	return func(o *runtimeOptions) { o.secretLimits = limits }
+}
+
+// WithConfigurationLimits bounds tenant configuration reads and writes.
+func WithConfigurationLimits(limits jobdb.ConfigurationLimits) Option {
+	return func(o *runtimeOptions) { o.configurationLimits = limits }
 }

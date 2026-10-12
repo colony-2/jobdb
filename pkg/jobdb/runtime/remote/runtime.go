@@ -17,11 +17,21 @@ import (
 )
 
 type Runtime struct {
-	raw    *runtimeapi.Client
-	client *runtimeapi.ClientWithResponses
+	configurationLimits jobdb.ConfigurationLimits
+	raw                 *runtimeapi.Client
+	client              *runtimeapi.ClientWithResponses
 }
 
-func New(baseURL string, httpClient *http.Client) (*Runtime, error) {
+// Option configures the remote client.
+type Option func(*Runtime)
+
+// WithConfigurationLimits sets client-side configuration bounds; use the same
+// limits as the server when increasing the defaults.
+func WithConfigurationLimits(limits jobdb.ConfigurationLimits) Option {
+	return func(r *Runtime) { r.configurationLimits = limits }
+}
+
+func New(baseURL string, httpClient *http.Client, options ...Option) (*Runtime, error) {
 	opts := make([]runtimeapi.ClientOption, 0, 1)
 	if httpClient != nil {
 		opts = append(opts, runtimeapi.WithHTTPClient(httpClient))
@@ -34,10 +44,11 @@ func New(baseURL string, httpClient *http.Client) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Runtime{
-		raw:    raw,
-		client: client,
-	}, nil
+	runtime := &Runtime{raw: raw, client: client}
+	for _, option := range options {
+		option(runtime)
+	}
+	return runtime, nil
 }
 
 func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {

@@ -764,3 +764,11 @@ func (r *tenantNamespacedRuntime) ResolveSecrets(ctx context.Context, req jobdb.
 func (l *tenantNamespacedLease) ResolveSecrets(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
 	return l.lease.ResolveSecrets(ctx, names)
 }
+
+func (r *tenantNamespacedRuntime) GetConfiguration(ctx context.Context, req jobdb.GetConfigurationRequest) (jobdb.ConfigurationSnapshot, error) {
+	req.JobKey = r.prefixJobKey(req.JobKey)
+	return r.runtime.GetConfiguration(ctx, req)
+}
+func (l *tenantNamespacedLease) GetConfiguration(ctx context.Context) (jobdb.ConfigurationSnapshot, error) {
+	return l.lease.GetConfiguration(ctx)
+}

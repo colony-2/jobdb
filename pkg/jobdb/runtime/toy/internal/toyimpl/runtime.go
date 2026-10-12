@@ -14,6 +14,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
+	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/leaseauth"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
@@ -36,6 +37,7 @@ type workerTaskWait struct {
 
 // Runtime is an in-memory WorkflowRuntime used by the shared jobdb engine.
 type Runtime struct {
+	*configuration.Service
 	engine *ToyEngine
 }
 
@@ -43,7 +45,7 @@ var _ jobdb.WorkflowRuntime = (*Runtime)(nil)
 
 func New(opts ...Option) *Runtime {
 	engine := NewToyEngine(opts...)
-	return &Runtime{engine: engine}
+	return &Runtime{engine: engine, Service: &configuration.Service{Store: &configuration.MemoryStore{}, Limits: engine.configurationLimits}}
 }
 
 func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {

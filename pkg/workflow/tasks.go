@@ -27,13 +27,14 @@ type FindTasksWaitingRequest struct {
 }
 
 type TaskContext struct {
-	resolveSecrets func(context.Context, []string) (SecretResolveResult, error)
-	clientPayload  func() json.RawMessage
-	clientRevision func() int64
-	yield          func(context.Context, RescheduleExecutionRequest) error
-	JobKey         JobKey
-	Step           int64
-	Logger         *slog.Logger
+	getConfiguration func(context.Context) (ConfigurationSnapshot, error)
+	resolveSecrets   func(context.Context, []string) (SecretResolveResult, error)
+	clientPayload    func() json.RawMessage
+	clientRevision   func() int64
+	yield            func(context.Context, RescheduleExecutionRequest) error
+	JobKey           JobKey
+	Step             int64
+	Logger           *slog.Logger
 	// await is set by the runner so AwaitDuration can be engine-directed.
 	await            func(wakeAt time.Time) error
 	awaitJobs        func(jobIds ...string) error
@@ -102,12 +103,14 @@ func newTaskContextWithLeaseActions(
 	submitRestartJob func(context.Context, SubmitRestartJob) (JobKey, error),
 	clientPayload func() json.RawMessage, clientRevision func() int64, yield func(context.Context, RescheduleExecutionRequest) error,
 	resolveSecrets func(context.Context, []string) (SecretResolveResult, error),
+	getConfiguration func(context.Context) (ConfigurationSnapshot, error),
 ) TaskContext {
 	tc := NewTaskContext(jobKey, step, logger, await, awaitJobs)
 	tc.clientPayload = clientPayload
 	tc.clientRevision = clientRevision
 	tc.yield = yield
 	tc.resolveSecrets = resolveSecrets
+	tc.getConfiguration = getConfiguration
 	tc.submitJob = submitJob
 	tc.submitRestartJob = submitRestartJob
 	return tc

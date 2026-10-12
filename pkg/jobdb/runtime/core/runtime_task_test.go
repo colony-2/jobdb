@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 )
 
@@ -83,7 +84,7 @@ func TestTaskCompletionUsesIndependentSchedulerAndChapterOperations(t *testing.T
 		t.Run("fail_"+failAt, func(t *testing.T) {
 			scheduler := &taskCompletionScheduler{failAt: failAt, failure: errors.New("injected failure"), waiting: runtimecore.WaitingTaskSnapshot{JobType: "task-route", Task: runtimecore.TaskWork{TaskType: "external", ResumeJobType: "job-route", OutputOrdinal: 1, InputHash: "input"}}}
 			chapters := &taskCompletionChapters{scheduler: scheduler}
-			r, err := runtimecore.NewRuntime(runtimecore.Config{Scheduler: scheduler, Chapters: chapters, Schemas: newMemorySchemaStore(), Now: func() time.Time { return time.Unix(1700000000, 0) }})
+			r, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: scheduler, Chapters: chapters, Schemas: newMemorySchemaStore(), Now: func() time.Time { return time.Unix(1700000000, 0) }})
 			if err != nil {
 				t.Fatal(err)
 			}

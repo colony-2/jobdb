@@ -10,6 +10,9 @@ For worker processes, use [pkg/workflow](../workflow/README.md).
 ## What Lives Here
 
 - `WorkflowRuntime`: backend-agnostic runtime interface.
+- `ConfigurationSnapshot`, `GetConfigurationRequest`, and `ConfigurationAdmin`:
+  tenant configuration access. `ExecutionLease.GetConfiguration` reads a fresh
+  snapshot; the runtime transport method requires verified lease authority.
 - Job lifecycle requests: `SubmitJobRequest`, `SubmitRestartJobRequest`,
   `CancelJobRequest`, `JobHandle`, `JobKey`, and `JobInfo`.
 - Runtime work leasing: `PollWorkRequest`, `GetJobLeaseRequest`,

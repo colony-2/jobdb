@@ -1,0 +1,2 @@
+# Unified patch context prefixes intentionally precede Go indentation tabs.
+docs/pgjobdb-configuration.patch -whitespace

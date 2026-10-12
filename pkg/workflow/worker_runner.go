@@ -1062,23 +1062,23 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 			attemptInvocationDeadline = externalInvocationDeadline
 		}
 
-		secretDeadline := attemptInvocationDeadline
-		if secretDeadline.IsZero() || (!totalDeadline.IsZero() && totalDeadline.Before(secretDeadline)) {
-			secretDeadline = totalDeadline
+		readDeadline := attemptInvocationDeadline
+		if readDeadline.IsZero() || (!totalDeadline.IsZero() && totalDeadline.Before(readDeadline)) {
+			readDeadline = totalDeadline
 		}
-		secretCtx, secretCancel := context.WithCancel(ctx)
-		if !secretDeadline.IsZero() {
+		readCtx, readCancel := context.WithCancel(ctx)
+		if !readDeadline.IsZero() {
 			var deadlineCancel context.CancelFunc
-			secretCtx, deadlineCancel = context.WithDeadline(secretCtx, secretDeadline)
-			parentCancel := secretCancel
-			secretCancel = func() { deadlineCancel(); parentCancel() }
+			readCtx, deadlineCancel = context.WithDeadline(readCtx, readDeadline)
+			parentCancel := readCancel
+			readCancel = func() { deadlineCancel(); parentCancel() }
 		}
 
 		exitCh := make(chan struct{})
 		var exitOnce sync.Once
 		resultCh := make(chan taskResult, 1)
 		go func(attemptNum int) {
-			defer secretCancel()
+			defer readCancel()
 			var output TaskData
 			var taskErr error
 			func() {
@@ -1121,13 +1121,18 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 					r.SubmitRestartJob,
 					r.ClientPayload, r.ClientPayloadRevision, r.Yield,
 					func(callCtx context.Context, names []string) (SecretResolveResult, error) {
-						callCtx, cancel := secretCallContext(callCtx, secretCtx)
+						callCtx, cancel := invocationCallContext(callCtx, readCtx)
 						defer cancel()
 						return r.ResolveSecrets(callCtx, names)
 					},
+					func(callCtx context.Context) (ConfigurationSnapshot, error) {
+						callCtx, cancel := invocationCallContext(callCtx, readCtx)
+						defer cancel()
+						return r.GetConfiguration(callCtx)
+					},
 				), data)
 			}()
-			secretCancel()
+			readCancel()
 			resultCh <- taskResult{output: output, err: taskErr}
 		}(attempt)
 
@@ -1178,7 +1183,7 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 			}
 		}
 
-		secretCancel()
+		readCancel()
 
 		if err := context.Cause(ctx); err != nil {
 			return nil, err

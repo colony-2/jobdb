@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +29,7 @@ func TestCompletionSummaryUsesOnlyScheduler(t *testing.T) {
 				// A cancellation request is not evidence of terminal completion.
 				row.CancelRequested = true
 			}
-			rt, err := runtimecore.NewRuntime(runtimecore.Config{Scheduler: listTestScheduler{rows: []runtimecore.StoredJob{row}}, Chapters: noSummaryHistory{}, Schemas: readTestSchemas{}})
+			rt, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: listTestScheduler{rows: []runtimecore.StoredJob{row}}, Chapters: noSummaryHistory{}, Schemas: readTestSchemas{}})
 			require.NoError(t, err)
 			listed, err := rt.ListJobs(context.Background(), jobdb.ListJobsRequest{TenantIds: []string{"tenant"}})
 			require.NoError(t, err)
@@ -66,7 +67,7 @@ func TestRuntimeListJobsKeepsArchivedTaskSummary(t *testing.T) {
 		AvailableAt: created, ExpiresAt: &expiry, CreatedAt: created,
 		ArchivedAt: &archived, CancelRequested: false,
 	}
-	runtime, err := runtimecore.NewRuntime(runtimecore.Config{
+	runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{},
 		Scheduler: listTestScheduler{rows: []runtimecore.StoredJob{row}},
 		Chapters:  readTestChapters{}, Schemas: readTestSchemas{},
 	})

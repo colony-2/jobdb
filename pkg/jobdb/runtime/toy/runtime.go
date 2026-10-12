@@ -30,3 +30,8 @@ func WithSecretProvider(provider jobdb.SecretProvider) Option {
 
 // WithSecretLimits bounds provider calls and their results.
 func WithSecretLimits(limits jobdb.SecretLimits) Option { return toyimpl.WithSecretLimits(limits) }
+
+// WithConfigurationLimits bounds tenant configuration reads and writes.
+func WithConfigurationLimits(limits jobdb.ConfigurationLimits) Option {
+	return toyimpl.WithConfigurationLimits(limits)
+}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
+	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/leaseauth"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/runtimeapi"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/secretsutil"
@@ -33,10 +34,11 @@ type leaseRenewalRuntime interface {
 }
 
 type proxyServer struct {
-	runtime        jobdb.WorkflowRuntime
-	leaseOps       leaseOperationRuntime
-	schemaRegistry jobdb.JobSchemaRegistry
-	tokens         *leaseTokenSigner
+	configurationAdmin jobdb.ConfigurationAdmin
+	runtime            jobdb.WorkflowRuntime
+	leaseOps           leaseOperationRuntime
+	schemaRegistry     jobdb.JobSchemaRegistry
+	tokens             *leaseTokenSigner
 }
 
 // ServerOptions configures the JobDB runtime HTTP handler.
@@ -72,14 +74,23 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 	if tokens == nil {
 		return nil, errors.New("lease token signer is required")
 	}
+	admin, ok := runtime.(jobdb.ConfigurationAdmin)
+	if !ok {
+		return nil, errors.New("runtime configuration administration is required")
+	}
 	server := &proxyServer{
-		runtime:        runtime,
-		leaseOps:       runtimeLeaseOps(runtime),
-		schemaRegistry: runtimeSchemaRegistry(runtime),
-		tokens:         tokens,
+		configurationAdmin: admin,
+		runtime:            runtime,
+		leaseOps:           runtimeLeaseOps(runtime),
+		schemaRegistry:     runtimeSchemaRegistry(runtime),
+		tokens:             tokens,
 	}
 	strict := runtimeapi.NewStrictHandlerWithOptions(server, []runtimeapi.StrictMiddlewareFunc{strictRequestFields}, runtimeapi.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			if isConfigurationPath(r.URL.EscapedPath()) {
+				configuration.WriteError(w, jobdb.ErrInvalidConfigurationRequest)
+				return
+			}
 			if isSecretResolutionPath(r.URL.EscapedPath()) {
 				secretsutil.WriteError(w, jobdb.ErrInvalidSecretRequest)
 				return
@@ -87,6 +98,10 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		},
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			if isConfigurationPath(r.URL.EscapedPath()) {
+				configuration.WriteError(w, jobdb.ErrInvalidConfigurationRequest)
+				return
+			}
 			if isSecretResolutionPath(r.URL.EscapedPath()) {
 				secretsutil.WriteError(w, jobdb.ErrInvalidSecretRequest)
 				return
@@ -125,6 +140,9 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 	handler := runtimeapi.HandlerFromMux(strict, router)
 	devHandler := server.devSecretHandler()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isConfigurationPath(r.URL.EscapedPath()) && !server.prepareConfigurationRequest(w, r) {
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "/dev/v1/") {
 			w.Header().Set("Cache-Control", "no-store")
 			devHandler.ServeHTTP(w, r)

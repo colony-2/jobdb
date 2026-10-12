@@ -188,3 +188,7 @@ type ReplayRunRequest struct {
 func (r replayReadOnlyRuntime) ResolveSecrets(context.Context, jobdb.ResolveSecretsRequest) (jobdb.SecretResolveResult, error) {
 	return jobdb.SecretResolveResult{}, replayMutationError("resolve secrets")
 }
+
+func (r replayReadOnlyRuntime) GetConfiguration(context.Context, jobdb.GetConfigurationRequest) (jobdb.ConfigurationSnapshot, error) {
+	return jobdb.ConfigurationSnapshot{}, replayMutationError("get configuration")
+}

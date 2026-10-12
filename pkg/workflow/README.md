@@ -269,3 +269,31 @@ and a task append that commits before cancellation loses its acknowledgement.
 real timers through the public run API on toy, SQLite, and remote runtimes, then
 checks replay event order, unchanged history, and no task re-execution. CI also
 runs the workflow package with the race detector to check timeout/worker overlap.
+
+## Tenant configuration
+
+Both `JobContext` and `TaskContext` expose:
+
+```go
+snapshot, err := ctx.GetConfiguration(context.Background())
+if err != nil {
+    return nil, err
+}
+raw, present := snapshot.Values["build.defaults"]
+// Decode raw with json.Unmarshal into an application-owned type when present.
+_ = raw
+_ = present
+```
+
+Each call reads the current tenant snapshot from the backend/server; contexts do
+not cache or prefetch it. The caller owns the returned map and raw JSON bytes.
+Invocation cancellation and timeouts still apply when passing a background
+context, and saved contexts cannot read after their invocation ends. Read-only
+replay rejects live reads. Record settings that control durable workflow
+branching in normal job input or task results before relying on them during
+replay. See the [configuration contract](../../docs/SPEC-Tenant-Configuration-Store.md).
+
+Runtime implementers must add `GetConfiguration` to `WorkflowRuntime` and
+`ExecutionLease`, and custom job contexts must implement the matching method.
+Core runtimes must supply `Config.Configurations`; missing storage fails
+construction. HTTP servers require `jobdb.ConfigurationAdmin` as well.
