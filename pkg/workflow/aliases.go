@@ -9,6 +9,9 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
+type SecretResolveResult = jobdb.SecretResolveResult
+type SecretValue = jobdb.SecretValue
+
 type Data = jobdb.Data
 type Duration = jobdb.Duration
 type RetryPolicy = jobdb.RetryPolicy

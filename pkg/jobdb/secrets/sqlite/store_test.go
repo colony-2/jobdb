@@ -1,4 +1,4 @@
-package devsecrets
+package sqlitesecrets
 
 import (
 	"bytes"

@@ -1,6 +1,6 @@
 # Specification: Lease-Scoped Secret Resolution
 
-Status: Implemented for SQLite development storage; additional providers deferred.
+Status: Implemented, with first-class Go consumption and storage-independent provider configuration.
 
 This specifies the REST and provider APIs for
 [the original feature request](../FEATURE_REQUEST_JOBDB_LEASE_SCOPED_SECRETS.md).
@@ -22,10 +22,10 @@ recipes, or accept provider paths or credentials from the requester.
 calls the provider again. A provider may implement its own caching; freshness,
 rotation, and authorization consistency within that cache are its responsibility.
 
-A rudimentary development secret store is specified below for the SQLite
-backend only, including administrative HTTP endpoints and CLI commands. Other
-backends use their configured provider; they do not implement this development
-store or its administration API.
+A rudimentary SQLite development secret store is specified below, including
+administrative HTTP endpoints and CLI commands available in SQLite server mode.
+The provider is independent of workflow storage; other backend modes do not
+expose this development administration API.
 
 ## REST API
 
@@ -54,7 +54,7 @@ them as provider paths. There is no wildcard or list-all operation. An empty
 request is invalid, not a request for all secrets.
 
 The HTTP implementation must bound request and response sizes. Limits are
-configured through SQLite `Config.SecretLimits` (default 64 KiB requests, 1 MiB
+configured through runtime `SecretLimits` (default 64 KiB requests, 1 MiB
 responses, 10-second provider timeout) and checked
 before provider invocation for requests and before response transmission for
 results. Oversized requests receive `413`; oversized provider results fail as
@@ -290,10 +290,58 @@ Every holder of the lease credential, including Pulse, shares its authority to
 request secrets. Once a runner receives plaintext, this API cannot prevent that
 runner or executed code from copying it into output or artifacts.
 
+## Go consumption and composition
+
+`WorkflowRuntime.ResolveSecrets(ctx, ResolveSecretsRequest)` and
+`ExecutionLease.ResolveSecrets(ctx, names)` are required interface methods.
+The runtime operation is the verified transport entry point; embedded callers
+use the issued lease. There are no optional secret capabilities or helper
+functions that probe a runtime or lease by type assertion.
+
+`workflow.JobContext` and `workflow.TaskContext` both expose:
+
+```go
+ResolveSecrets(context.Context, []string) (jobdb.SecretResolveResult, error)
+```
+
+The contexts use the current execution lease and bound each call by the caller
+and worker invocation. A finished or timed-out invocation cannot retrieve
+secrets even if the job still has a live lease. Reads write no chapters and
+retain no provider output for replay. Offline replay rejects direct reads;
+resolving inside a task lets replay reuse the task outcome without calling the
+provider. Callers must check for required names in the returned subset.
+
+`SecretProvider` depends only on its request/result contract, never on a
+scheduler, chapter store, runtime, lease token, or storage-specific handle.
+Runtime code checks live leases and copies stored application metadata; the
+provider owns authorization policy and retrieval. Shared broker code applies
+limits, safe errors, and final lease checks consistently across backends.
+
+Provider configuration is independent of job storage:
+
+- SQLite accepts `Config.SecretProvider` or `WithSecretProvider`.
+- Runtime core accepts `Config.SecretProvider` alongside its storage ports.
+- The in-memory runtime accepts `toy.WithSecretProvider`.
+- Remote Go consumers use the provider configured on the server.
+
+Without a provider, every runtime returns `ErrNoSecretProvider` for an otherwise
+valid secret read. Invalid or lost leases are rejected first. Injected providers
+remain caller-owned; runtimes never close them. Applications can share a provider
+across runtimes or configure different providers over the same kind of storage.
+
+The SQLite secrets implementation is public in `pkg/jobdb/secrets/sqlite`.
+`sqlitesecrets.Open` returns an encrypted store implementing `SecretProvider`
+and offering `Set`, `Remove`, and `Close`. Its only database dependency is its
+own secrets file. The SQLite runtime's `DevSecretsDB` and `DevSecretsKeyFile`
+configuration is a convenience that creates and owns this provider. Supplying
+those paths together with an injected provider is a configuration error.
+
 ## SQLite development secret store
 
-This is an optional development/prototype provider available only with the
-SQLite JobDB backend. It supplies a simple way to populate tenant secrets and
+This is an optional development/prototype provider backed by a separate SQLite
+store. The CLI selects it only in SQLite mode. The Go provider is independent of
+workflow storage and can be injected into any supported runtime. It supplies a
+simple way to populate tenant secrets and
 exercise the normal lease-scoped resolution API. It is not a production secret
 manager or a required capability of other runtime implementations.
 
@@ -441,8 +489,9 @@ authentication; their separate specification marks their development scope.
 The main provider API stays backend-independent. The development store is a
 SQLite-specific implementation, and other providers need not expose any
 administrative HTTP surface. The SQLite routes and commands are implemented.
-Other backends currently return `no secret provider configured` for resolution.
-Additional providers are deferred.
+Other backend modes default to `no secret provider configured` for resolution.
+Library users can inject any provider independently of storage. Additional
+built-in providers are deferred.
 
 ## Acceptance criteria
 
@@ -493,3 +542,9 @@ Additional providers are deferred.
 - Development administration appears only in its separate OpenAPI document and
   is not required of other runtime backends. CLI and HTTP diagnostics never
   expose values or encryption keys.
+
+- Custom and SQLite secret providers work with SQLite and in-memory job storage,
+  through embedded and HTTP leases; runtime core accepts the same contract.
+- Job and task contexts resolve directly, enforce invocation lifetime, and do
+  not store values in history or retrieve them during replay.
+- Closing a runtime leaves its injected provider usable by its owner.

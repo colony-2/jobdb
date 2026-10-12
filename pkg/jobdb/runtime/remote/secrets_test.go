@@ -75,14 +75,14 @@ func TestSecretsHTTPAdministrationAndResolution(t *testing.T) {
 		require.Empty(t, raw)
 	}
 	l := secretsRemoteLease(t, client, "a")
-	result, err := jobdb.ResolveLeaseSecrets(ctx, l, []string{"token", "missing"})
+	result, err := l.ResolveSecrets(ctx, []string{"token", "missing"})
 	require.NoError(t, err)
 	require.Equal(t, "a-secret\n", result.Secrets["token"].Value)
 	require.Len(t, result.Secrets, 1)
 	// Empty values, removal, and rotation are immediately observable through HTTP.
 	status, _ := secretHTTP(t, server.URL, "/dev/v1/tenants/a/secrets/set", "", `{"name":"token","value":""}`)
 	require.Equal(t, 204, status)
-	result, err = jobdb.ResolveLeaseSecrets(ctx, l, []string{"token"})
+	result, err = l.ResolveSecrets(ctx, []string{"token"})
 	require.NoError(t, err)
 	value, ok := result.Secrets["token"]
 	require.True(t, ok)
@@ -95,7 +95,7 @@ func TestSecretsHTTPAdministrationAndResolution(t *testing.T) {
 	require.Equal(t, 200, status)
 	require.JSONEq(t, `{"secrets":{}}`, raw)
 	other := secretsRemoteLease(t, client, "b")
-	result, err = jobdb.ResolveLeaseSecrets(ctx, other, []string{"token"})
+	result, err = other.ResolveSecrets(ctx, []string{"token"})
 	require.NoError(t, err)
 	require.Equal(t, "b-secret\n", result.Secrets["token"].Value)
 	status, _ = secretHTTP(t, server.URL, secretsPath(other), l.(*remoteExecutionLease).LeaseToken(), `{"names":["token"]}`)
@@ -110,10 +110,10 @@ func TestSecretsHTTPAdministrationAndResolution(t *testing.T) {
 	status, _ = secretHTTP(t, server.URL, secretsPath(l), l.(*remoteExecutionLease).LeaseToken(), `{"names":["`+strings.Repeat("x", 65536)+`"]}`)
 	require.Equal(t, 413, status)
 	require.NoError(t, l.KeepAlive(ctx))
-	_, err = jobdb.ResolveLeaseSecrets(ctx, l, []string{"token"})
+	_, err = l.ResolveSecrets(ctx, []string{"token"})
 	require.NoError(t, err)
 	require.NoError(t, backend.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: l.Job().JobKey}))
-	_, err = jobdb.ResolveLeaseSecrets(ctx, l, []string{"token"})
+	_, err = l.ResolveSecrets(ctx, []string{"token"})
 	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
 }
 
@@ -144,7 +144,7 @@ func TestSignedSecretPrincipalAndRenewal(t *testing.T) {
 		token, err := signer.mintWithPrincipal(l.jobKey, l.leaseID, "worker", "", time.Now().Add(time.Minute), time.Minute, principal)
 		require.NoError(t, err)
 		l.leaseToken = token
-		_, err = jobdb.ResolveLeaseSecrets(context.Background(), l, []string{"missing"})
+		_, err = l.ResolveSecrets(context.Background(), []string{"missing"})
 		require.NoError(t, err)
 		require.Equal(t, principal, backend.principal)
 		require.NoError(t, l.KeepAlive(context.Background()))
@@ -158,7 +158,7 @@ func TestSignedSecretPrincipalAndRenewal(t *testing.T) {
 	require.NoError(t, err)
 	parts[0] = base64.RawURLEncoding.EncodeToString(bytes.ReplaceAll(raw, []byte("trusted"), []byte("forged")))
 	l.leaseToken = strings.Join(parts, ".")
-	_, err = jobdb.ResolveLeaseSecrets(context.Background(), l, []string{"missing"})
+	_, err = l.ResolveSecrets(context.Background(), []string{"missing"})
 	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
 	require.Equal(t, count, backend.calls)
 }
@@ -170,7 +170,7 @@ func TestSecretsUnavailableBackendsAndSafeClientErrors(t *testing.T) {
 	client, err := New(server.URL, server.Client())
 	require.NoError(t, err)
 	l := secretsRemoteLease(t, client, "a")
-	_, err = jobdb.ResolveLeaseSecrets(context.Background(), l, []string{"token"})
+	_, err = l.ResolveSecrets(context.Background(), []string{"token"})
 	require.ErrorIs(t, err, jobdb.ErrNoSecretProvider)
 	status, _ := secretHTTP(t, server.URL, "/dev/v1/tenants/a/secrets/set", "", `{"name":"token","value":"value"}`)
 	require.Equal(t, 404, status)

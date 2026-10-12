@@ -1062,10 +1062,23 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 			attemptInvocationDeadline = externalInvocationDeadline
 		}
 
+		secretDeadline := attemptInvocationDeadline
+		if secretDeadline.IsZero() || (!totalDeadline.IsZero() && totalDeadline.Before(secretDeadline)) {
+			secretDeadline = totalDeadline
+		}
+		secretCtx, secretCancel := context.WithCancel(ctx)
+		if !secretDeadline.IsZero() {
+			var deadlineCancel context.CancelFunc
+			secretCtx, deadlineCancel = context.WithDeadline(secretCtx, secretDeadline)
+			parentCancel := secretCancel
+			secretCancel = func() { deadlineCancel(); parentCancel() }
+		}
+
 		exitCh := make(chan struct{})
 		var exitOnce sync.Once
 		resultCh := make(chan taskResult, 1)
 		go func(attemptNum int) {
+			defer secretCancel()
 			var output TaskData
 			var taskErr error
 			func() {
@@ -1107,8 +1120,14 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 					r.SubmitJob,
 					r.SubmitRestartJob,
 					r.ClientPayload, r.ClientPayloadRevision, r.Yield,
+					func(callCtx context.Context, names []string) (SecretResolveResult, error) {
+						callCtx, cancel := secretCallContext(callCtx, secretCtx)
+						defer cancel()
+						return r.ResolveSecrets(callCtx, names)
+					},
 				), data)
 			}()
+			secretCancel()
 			resultCh <- taskResult{output: output, err: taskErr}
 		}(attempt)
 
@@ -1158,6 +1177,8 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 				}
 			}
 		}
+
+		secretCancel()
 
 		if err := context.Cause(ctx); err != nil {
 			return nil, err

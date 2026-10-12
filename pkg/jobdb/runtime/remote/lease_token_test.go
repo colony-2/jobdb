@@ -293,3 +293,11 @@ var _ jobdb.WorkflowRuntime = (*claimsCapturingRuntime)(nil)
 
 func (l *testExecutionLease) ClientPayloadRevision() int64         { return 0 }
 func (l *testExecutionLease) ExecutionState() jobdb.ExecutionState { return jobdb.ExecutionState{} }
+
+func (*claimsCapturingRuntime) ResolveSecrets(context.Context, jobdb.ResolveSecretsRequest) (jobdb.SecretResolveResult, error) {
+	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
+}
+
+func (*testExecutionLease) ResolveSecrets(context.Context, []string) (jobdb.SecretResolveResult, error) {
+	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
+}

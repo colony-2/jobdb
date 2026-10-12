@@ -52,7 +52,7 @@ func (s *proxyServer) ResolveSecretsWithLease(ctx context.Context, req runtimeap
 	if err != nil {
 		return secretResponse{err: jobdb.ErrExecutionLeaseLost}, nil
 	}
-	result, err := jobdb.ResolveJobSecrets(leaseauth.WithClaims(ctx, claims.leaseAuthClaims()), s.runtime, jobdb.ResolveSecretsRequest{
+	result, err := s.runtime.ResolveSecrets(leaseauth.WithClaims(ctx, claims.leaseAuthClaims()), jobdb.ResolveSecretsRequest{
 		JobKey: key, LeaseID: req.LeaseId, LeaseToken: req.Params.XJobDBLeaseToken, Names: req.Body.Names,
 	})
 	if err == nil {

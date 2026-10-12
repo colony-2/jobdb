@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type runJobIfLeaseableStubRuntime struct {
@@ -321,4 +323,8 @@ func TestJobRunnableRunDoesNotBlockOnListener(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("listener did not finish after being unblocked")
 	}
+}
+
+func (*runJobIfLeaseableStubRuntime) ResolveSecrets(context.Context, jobdb.ResolveSecretsRequest) (jobdb.SecretResolveResult, error) {
+	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
 }

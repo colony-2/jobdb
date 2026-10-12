@@ -236,7 +236,7 @@ func (s *leaseSession) ResolveSecrets(ctx context.Context, names []string) (jobd
 	callCtx, cancel := s.operationContext(ctx)
 	s.mu.Unlock()
 	defer cancel()
-	result, err := jobdb.ResolveLeaseSecrets(callCtx, lease, names)
+	result, err := lease.ResolveSecrets(callCtx, names)
 	if err != nil {
 		return jobdb.SecretResolveResult{}, err
 	}

@@ -43,6 +43,8 @@ func WithJobIDGenerator(gen JobIDGenerator) Option {
 
 // ToyEngine holds the in-memory state backing the toy WorkflowRuntime.
 type ToyEngine struct {
+	secretProvider   jobdb.SecretProvider
+	secretLimits     jobdb.SecretLimits
 	mu               sync.Mutex
 	jobRecords       map[jobdb.JobKey]*jobRecord
 	schemas          map[jobdb.JobSchemaKey]*toySchemaRecord
@@ -1027,4 +1029,11 @@ func cloneString(src string) *string {
 	}
 	value := src
 	return &value
+}
+
+func WithSecretProvider(provider jobdb.SecretProvider) Option {
+	return func(e *ToyEngine) { e.secretProvider = provider }
+}
+func WithSecretLimits(limits jobdb.SecretLimits) Option {
+	return func(e *ToyEngine) { e.secretLimits = limits }
 }

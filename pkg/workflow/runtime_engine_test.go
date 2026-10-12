@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"testing"
 	"time"
+
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type fakeWorkflowRuntime struct {
@@ -393,4 +395,8 @@ func TestRuntimeEngineLoadsArtifactsThroughRuntimeStorage(t *testing.T) {
 	if runtime.artifactRef.Name != "artifact.txt" || runtime.artifactRef.Ordinal != 7 {
 		t.Fatalf("unexpected artifact ref %+v", runtime.artifactRef)
 	}
+}
+
+func (*fakeWorkflowRuntime) ResolveSecrets(context.Context, jobdb.ResolveSecretsRequest) (jobdb.SecretResolveResult, error) {
+	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
 }

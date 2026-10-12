@@ -3,14 +3,19 @@ package runtimecore
 import (
 	"fmt"
 	"time"
+
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 // Config wires the durable backend ports used by runtime core.
 type Config struct {
-	Scheduler Scheduler
-	Chapters  ChapterLog
-	Schemas   SchemaStore
-	Now       func() time.Time
+	// SecretProvider is caller-owned and independent of scheduler and chapter storage.
+	SecretProvider jobdb.SecretProvider
+	SecretLimits   jobdb.SecretLimits
+	Scheduler      Scheduler
+	Chapters       ChapterLog
+	Schemas        SchemaStore
+	Now            func() time.Time
 }
 
 // ValidateConfig validates the public runtime-core backend wiring.

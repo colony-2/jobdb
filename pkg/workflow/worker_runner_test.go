@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type runnerTestRuntime struct {
@@ -433,7 +435,7 @@ func TestWorkerRunnerContextSubmitJobUsesLease(t *testing.T) {
 		t.Fatalf("child key = %+v", childKey)
 	}
 
-	taskCtx := newTaskContextWithLeaseActions(parent, 1, nil, nil, nil, runner.SubmitJob, runner.SubmitRestartJob, runner.ClientPayload, runner.ClientPayloadRevision, runner.Yield)
+	taskCtx := newTaskContextWithLeaseActions(parent, 1, nil, nil, nil, runner.SubmitJob, runner.SubmitRestartJob, runner.ClientPayload, runner.ClientPayloadRevision, runner.Yield, runner.ResolveSecrets)
 	restartKey, err := taskCtx.SubmitRestartJob(context.Background(), SubmitRestartJob{
 		JobID:          "child-restart",
 		PriorJobKey:    JobKey{JobId: "prior"},
@@ -1331,4 +1333,12 @@ func TestExplicitYieldOnlyReschedulesAndReplayDoesNotWrite(t *testing.T) {
 	if len(after) != 1 {
 		t.Fatal("replay rescheduled")
 	}
+}
+
+func (*runnerTestRuntime) ResolveSecrets(context.Context, jobdb.ResolveSecretsRequest) (jobdb.SecretResolveResult, error) {
+	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
+}
+
+func (*fakeExecutionLease) ResolveSecrets(context.Context, []string) (jobdb.SecretResolveResult, error) {
+	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
 }

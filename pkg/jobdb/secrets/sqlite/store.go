@@ -1,5 +1,6 @@
-// Package devsecrets implements the SQLite-only development secret provider.
-package devsecrets
+// Package sqlitesecrets implements an encrypted SQLite development secret provider.
+// It can be injected into a runtime regardless of that runtime's job storage.
+package sqlitesecrets
 
 import (
 	"context"
@@ -19,13 +20,18 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// Store encrypts tenant secret values in its own SQLite database.
+// Callers own its lifecycle and may share it across runtimes.
 type Store struct {
 	db               *sql.DB
 	aead             cipher.AEAD
 	maxResponseBytes int64
 }
 
-// Open creates only new stores; existing stores must authenticate their key check.
+var _ jobdb.SecretProvider = (*Store)(nil)
+
+// Open opens or creates a development secret store. Existing stores must
+// authenticate their key check. The caller must close the returned Store.
 func Open(ctx context.Context, path, keyFile string, limits jobdb.SecretLimits) (*Store, error) {
 	fail := errors.New("development secret store could not be opened; check its configuration and encryption key")
 	rawKey, err := os.ReadFile(keyFile)

@@ -9,6 +9,10 @@ import (
 )
 
 type JobContext interface {
+	// ResolveSecrets retrieves allowed names under this invocation's live lease.
+	// Results are not recorded or cached. Offline replay rejects secret reads;
+	// use task-level resolution for workflows that must support offline replay.
+	ResolveSecrets(context.Context, []string) (SecretResolveResult, error)
 	ClientPayload() json.RawMessage
 	ClientPayloadRevision() int64
 	// Yield reschedules and stops this invocation. It never writes a chapter.

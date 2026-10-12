@@ -49,7 +49,7 @@ func TestSecretResolutionContextFreshnessAndNoPersistence(t *testing.T) {
 	before, err := r.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: l.Job().JobKey})
 	require.NoError(t, err)
 	for i := 1; i <= 2; i++ {
-		result, err := jobdb.ResolveLeaseSecrets(ctx, l, []string{"token", "unknown"})
+		result, err := l.ResolveSecrets(ctx, []string{"token", "unknown"})
 		require.NoError(t, err)
 		require.Equal(t, fmt.Sprint(i), result.Secrets["token"].Value)
 		require.Len(t, result.Secrets, 1)
@@ -57,7 +57,7 @@ func TestSecretResolutionContextFreshnessAndNoPersistence(t *testing.T) {
 	after, err := r.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: l.Job().JobKey})
 	require.NoError(t, err)
 	require.Equal(t, before, after)
-	_, err = jobdb.ResolveLeaseSecrets(ctx, l, []string{"token", "token"})
+	_, err = l.ResolveSecrets(ctx, []string{"token", "token"})
 	require.ErrorIs(t, err, jobdb.ErrInvalidSecretRequest)
 	require.Equal(t, 2, calls)
 	_, err = r.ResolveSecrets(ctx, jobdb.ResolveSecretsRequest{JobKey: l.Job().JobKey, LeaseID: l.LeaseID(), Names: []string{"token"}})
@@ -91,10 +91,10 @@ func TestSecretResolutionRechecksExpiredTokenAndDoesNotCacheDenials(t *testing.T
 		}
 		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "new-value"}}}, nil
 	})
-	result, err := jobdb.ResolveLeaseSecrets(context.Background(), l, []string{"token"})
+	result, err := l.ResolveSecrets(context.Background(), []string{"token"})
 	require.NoError(t, err)
 	require.Empty(t, result.Secrets)
-	result, err = jobdb.ResolveLeaseSecrets(context.Background(), l, []string{"token"})
+	result, err = l.ResolveSecrets(context.Background(), []string{"token"})
 	require.NoError(t, err)
 	require.Equal(t, "new-value", result.Secrets["token"].Value)
 	ctx := leaseauth.WithClaims(context.Background(), leaseauth.Claims{TenantID: "tenant", JobID: "job", LeaseID: l.LeaseID(), WorkerID: "worker", ExpiresAt: time.Now().Add(200 * time.Millisecond)})
@@ -132,7 +132,7 @@ func TestSecretResolutionRejectsProviderFailures(t *testing.T) {
 				}
 				return result, nil
 			})
-			result, err := jobdb.ResolveLeaseSecrets(context.Background(), l, []string{"token"})
+			result, err := l.ResolveSecrets(context.Background(), []string{"token"})
 			require.Error(t, err)
 			require.Empty(t, result.Secrets)
 			require.NotContains(t, fmt.Sprintf("%+v %#v", err, err), "do-not-leak")
@@ -153,7 +153,7 @@ func TestSecretResolutionLeaseLossDuringLookup(t *testing.T) {
 				return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "do-not-return"}}}, nil
 			})
 			go func() {
-				result, err := jobdb.ResolveLeaseSecrets(ctx, l, []string{"token"})
+				result, err := l.ResolveSecrets(ctx, []string{"token"})
 				if len(result.Secrets) > 0 {
 					done <- errors.New("returned secrets after loss")
 				} else {

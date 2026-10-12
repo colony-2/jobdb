@@ -16,7 +16,12 @@ var (
 	ErrDevSecretsNotConfigured = errors.New("development secret store is not configured")
 )
 
-// SecretProvider owns authorization and retrieval. Core never caches its output.
+// SecretProvider owns authorization and retrieval, independently of job storage.
+// Return only allowed requested names; omit denied or unknown names. Any error
+// discards the entire result. Implementations must support concurrent calls and
+// honor context cancellation. Core never caches provider output or denials.
+// The caller owns provider configuration and lifecycle; runtimes do not close
+// injected providers. A provider may implement its own caching policy.
 type SecretProvider interface {
 	ResolveSecrets(context.Context, SecretResolveRequest) (SecretResolveResult, error)
 }
@@ -58,31 +63,6 @@ type ResolveSecretsRequest struct {
 func (ResolveSecretsRequest) String() string                 { return "secret request (capability redacted)" }
 func (r ResolveSecretsRequest) GoString() string             { return r.String() }
 func (r ResolveSecretsRequest) MarshalJSON() ([]byte, error) { return json.Marshal(r.String()) }
-
-// SecretResolver is an optional runtime capability. Unsupported runtimes return
-// ErrNoSecretProvider through ResolveJobSecrets.
-type SecretResolver interface {
-	ResolveSecrets(context.Context, ResolveSecretsRequest) (SecretResolveResult, error)
-}
-
-func ResolveJobSecrets(ctx context.Context, runtime WorkflowRuntime, req ResolveSecretsRequest) (SecretResolveResult, error) {
-	if r, ok := runtime.(SecretResolver); ok {
-		return r.ResolveSecrets(ctx, req)
-	}
-	return SecretResolveResult{}, ErrNoSecretProvider
-}
-
-// SecretResolvingLease is the embedded/remote worker capability for secret reads.
-type SecretResolvingLease interface {
-	ResolveSecrets(context.Context, []string) (SecretResolveResult, error)
-}
-
-func ResolveLeaseSecrets(ctx context.Context, lease ExecutionLease, names []string) (SecretResolveResult, error) {
-	if l, ok := lease.(SecretResolvingLease); ok {
-		return l.ResolveSecrets(ctx, names)
-	}
-	return SecretResolveResult{}, ErrNoSecretProvider
-}
 
 // SecretLimits bounds secret operations. Zero fields use defaults.
 type SecretLimits struct {

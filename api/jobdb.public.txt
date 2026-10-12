@@ -165,6 +165,7 @@ type ExecutionLease interface
   method KeepAlive func(ctx context.Context) error
   method LeaseID func() string
   method Reschedule func(ctx context.Context, req RescheduleExecutionRequest) error
+  method ResolveSecrets func(context.Context, []string) (SecretResolveResult, error)
   method Route func() Route
   method StopKeepAlive func()
   method SubmitJob func(ctx context.Context, req SubmitJobRequest) (JobHandle, error)
@@ -435,8 +436,6 @@ type RescheduleExecutionRequest struct
   field AlternateAfter *time.Duration
 func RescheduleTaskWait func(next Route, task *TaskWait) (*TaskWait, error)
 func ResolveJobSchemaSelector func(selector *JobSchemaSelector) (hash string, schema encoding/json.RawMessage, hasInline bool, err error)
-func ResolveJobSecrets func(ctx context.Context, runtime WorkflowRuntime, req ResolveSecretsRequest) (SecretResolveResult, error)
-func ResolveLeaseSecrets func(ctx context.Context, lease ExecutionLease, names []string) (SecretResolveResult, error)
 type ResolveSecretsRequest struct
   field JobKey JobKey
   field LeaseID string
@@ -565,10 +564,6 @@ type SecretResolveResult struct
   field Secrets map[string]SecretValue `json:"secrets"`
 method SecretResolveResult.GoString func() string
 method SecretResolveResult.String func() string
-type SecretResolver interface
-  method ResolveSecrets func(context.Context, ResolveSecretsRequest) (SecretResolveResult, error)
-type SecretResolvingLease interface
-  method ResolveSecrets func(context.Context, []string) (SecretResolveResult, error)
 type SecretValue struct
   field Value string `json:"value"`
   field Version string `json:"version,omitempty"`
@@ -754,6 +749,7 @@ type WorkflowRuntime interface
   method PauseSchedule func(ctx context.Context, req ScheduleMutationRequest) (ScheduleInfo, error)
   method PollWork func(ctx context.Context, req PollWorkRequest) ([]ExecutionLease, error)
   method PutChapter func(ctx context.Context, req PutChapterRequest) error
+  method ResolveSecrets func(context.Context, ResolveSecretsRequest) (SecretResolveResult, error)
   method ResumeSchedule func(ctx context.Context, req ScheduleMutationRequest) (ScheduleInfo, error)
   method SubmitJob func(ctx context.Context, req SubmitJobRequest) (JobHandle, error)
   method SubmitRestartJob func(ctx context.Context, req SubmitRestartJobRequest) (JobHandle, error)
@@ -861,6 +857,8 @@ type CompletionSnapshot struct
   field ErrorKind string
   field Retryable *bool
 type Config struct
+  field SecretProvider github.com/colony-2/jobdb/pkg/jobdb.SecretProvider
+  field SecretLimits github.com/colony-2/jobdb/pkg/jobdb.SecretLimits
   field Scheduler Scheduler
   field Chapters ChapterLog
   field Schemas SchemaStore
@@ -995,7 +993,9 @@ method Runtime.PollWork func(ctx context.Context, req github.com/colony-2/jobdb/
 method Runtime.PutChapter func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.PutChapterRequest) error
 method Runtime.RenewExecutionLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, duration time.Duration) (github.com/colony-2/jobdb/pkg/jobdb.RenewableExecutionLease, error)
 method Runtime.RescheduleJobWithLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.RescheduleExecutionRequest) error
+method Runtime.ResolveSecrets func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ResolveSecretsRequest) (github.com/colony-2/jobdb/pkg/jobdb.SecretResolveResult, error)
 method Runtime.ResumeSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ScheduleMutationRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
+method Runtime.SecretResolutionLimits func() github.com/colony-2/jobdb/pkg/jobdb.SecretLimits
 method Runtime.SubmitJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SubmitJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.SubmitJobWithLeaseByID func(ctx context.Context, parent github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.SubmitJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.SubmitRestartJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
@@ -1253,6 +1253,7 @@ type JobContext interface
   method DoTask func(policy RunPolicy, taskType string, data TaskData) (TaskData, error)
   method GetJobKey func() JobKey
   method Logger func() *log/slog.Logger
+  method ResolveSecrets func(context.Context, []string) (SecretResolveResult, error)
   method SubmitJob func(ctx context.Context, submit SubmitJob) (JobKey, error)
   method SubmitRestartJob func(ctx context.Context, restart SubmitRestartJob) (JobKey, error)
   method Yield func(context.Context, RescheduleExecutionRequest) error
@@ -1386,6 +1387,8 @@ type ScheduleState = github.com/colony-2/jobdb/pkg/jobdb.ScheduleState
 type ScheduleTarget = github.com/colony-2/jobdb/pkg/jobdb.ScheduleTarget
 type ScheduleTrigger = github.com/colony-2/jobdb/pkg/jobdb.ScheduleTrigger
 type ScheduleTriggerKind = github.com/colony-2/jobdb/pkg/jobdb.ScheduleTriggerKind
+type SecretResolveResult = github.com/colony-2/jobdb/pkg/jobdb.SecretResolveResult
+type SecretValue = github.com/colony-2/jobdb/pkg/jobdb.SecretValue
 func SetTaskInputStorageEnabled func(enabled bool)
 type SimpleTaskData = github.com/colony-2/jobdb/pkg/jobdb.SimpleTaskData
 type StoredArtifact = github.com/colony-2/jobdb/pkg/jobdb.StoredArtifact
@@ -1419,6 +1422,7 @@ method TaskContext.AwaitDuration func(waitFor Duration) error
 method TaskContext.AwaitJobs func(jobIds ...string) error
 method TaskContext.ClientPayload func() encoding/json.RawMessage
 method TaskContext.ClientPayloadRevision func() int64
+method TaskContext.ResolveSecrets func(ctx context.Context, names []string) (SecretResolveResult, error)
 method TaskContext.SubmitJob func(ctx context.Context, submit SubmitJob) (JobKey, error)
 method TaskContext.SubmitRestartJob func(ctx context.Context, restart SubmitRestartJob) (JobKey, error)
 method TaskContext.Yield func(ctx context.Context, req RescheduleExecutionRequest) error
@@ -1586,6 +1590,7 @@ type ServerOptions struct
 
 package github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite
 type Config struct
+  field SecretProvider github.com/colony-2/jobdb/pkg/jobdb.SecretProvider
   field DevSecretsDB string
   field DevSecretsKeyFile string
   field SecretLimits github.com/colony-2/jobdb/pkg/jobdb.SecretLimits
@@ -1643,6 +1648,8 @@ func StartEmbeddedRuntime func(ctx context.Context) (*EmbeddedRuntime, error)
 func WithBlobStoreURI func(uri string) Option
 func WithLogger func(logger *log/slog.Logger) Option
 func WithMaxInlineArtifactBytes func(limit int64) Option
+func WithSecretLimits func(limits github.com/colony-2/jobdb/pkg/jobdb.SecretLimits) Option
+func WithSecretProvider func(provider github.com/colony-2/jobdb/pkg/jobdb.SecretProvider) Option
 func WithWorkerID func(workerID string) Option
 
 package github.com/colony-2/jobdb/pkg/jobdb/runtime/toy
@@ -1652,6 +1659,8 @@ type Option = github.com/colony-2/jobdb/pkg/jobdb/runtime/toy/internal/toyimpl.O
 type Runtime = github.com/colony-2/jobdb/pkg/jobdb/runtime/toy/internal/toyimpl.Runtime
 func WithJobIDGenerator func(gen JobIDGenerator) Option
 func WithLogger func(logger *log/slog.Logger) Option
+func WithSecretLimits func(limits github.com/colony-2/jobdb/pkg/jobdb.SecretLimits) Option
+func WithSecretProvider func(provider github.com/colony-2/jobdb/pkg/jobdb.SecretProvider) Option
 
 package github.com/colony-2/jobdb/pkg/jobdb/clientpayload
 func Apply func(current encoding/json.RawMessage, revision int64, u *Update) (encoding/json.RawMessage, int64, error)
@@ -1669,3 +1678,12 @@ type Update struct
   field ExpectedRevision *int64 `json:"expectedRevision,omitempty,string"`
 method Update.UnmarshalJSON func(raw []byte) error
 func ValidateUpdate func(u *Update, initial bool) error
+
+package github.com/colony-2/jobdb/pkg/jobdb/secrets/sqlite
+func Open func(ctx context.Context, path string, keyFile string, limits github.com/colony-2/jobdb/pkg/jobdb.SecretLimits) (*Store, error)
+type Store struct
+method Store.Close func() error
+method Store.Remove func(ctx context.Context, tenant string, name string) error
+method Store.ResolveSecrets func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SecretResolveRequest) (github.com/colony-2/jobdb/pkg/jobdb.SecretResolveResult, error)
+method Store.Set func(ctx context.Context, tenant string, name string, value string) error
+method Store.String func() string

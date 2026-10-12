@@ -27,6 +27,7 @@ type FindTasksWaitingRequest struct {
 }
 
 type TaskContext struct {
+	resolveSecrets func(context.Context, []string) (SecretResolveResult, error)
 	clientPayload  func() json.RawMessage
 	clientRevision func() int64
 	yield          func(context.Context, RescheduleExecutionRequest) error
@@ -100,11 +101,13 @@ func newTaskContextWithLeaseActions(
 	submitJob func(context.Context, SubmitJob) (JobKey, error),
 	submitRestartJob func(context.Context, SubmitRestartJob) (JobKey, error),
 	clientPayload func() json.RawMessage, clientRevision func() int64, yield func(context.Context, RescheduleExecutionRequest) error,
+	resolveSecrets func(context.Context, []string) (SecretResolveResult, error),
 ) TaskContext {
 	tc := NewTaskContext(jobKey, step, logger, await, awaitJobs)
 	tc.clientPayload = clientPayload
 	tc.clientRevision = clientRevision
 	tc.yield = yield
+	tc.resolveSecrets = resolveSecrets
 	tc.submitJob = submitJob
 	tc.submitRestartJob = submitRestartJob
 	return tc

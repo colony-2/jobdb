@@ -1,8 +1,9 @@
 # SQLite development secrets
 
 JobDB's SQLite backend can store tenant secrets in a separate encrypted SQLite
-file. Other backends currently return `no secret provider configured` for secret
-resolution. The provider interface is available for future integrations.
+file. SQLite mode selects this development provider when its store and key are
+configured. Other backends default to `no secret provider configured`; library
+users can inject any `jobdb.SecretProvider` independently of job storage.
 
 Create an encryption key once and keep it outside database backups:
 
@@ -56,11 +57,26 @@ Content-Type: application/json
 {"secrets":{"github_token":{"value":"example"}}}
 ```
 
-Go workers holding an embedded or remote lease use:
+Job and task workers resolve secrets directly through their workflow context:
 
 ```go
-result, err := jobdb.ResolveLeaseSecrets(ctx, lease, []string{"github_token"})
+result, err := taskContext.ResolveSecrets(ctx, []string{"github_token"})
+if err != nil {
+    return nil, err
+}
+token, allowed := result.Secrets["github_token"]
+if !allowed {
+    return nil, errors.New("required credential unavailable")
+}
+// Use token.Value for the external call; keep it out of workflow output.
 ```
+
+`JobContext.ResolveSecrets` has the same signature. Workers holding an embedded
+or remote `ExecutionLease` can call `lease.ResolveSecrets(ctx, names)` directly.
+There are no optional capability assertions or resolution helper functions.
+Both context methods use the current lease, including renewal, and reject reads
+after their invocation ends. Offline replay rejects secret reads. Put reads
+inside tasks to allow replay to reuse task outcomes without retrieving secrets.
 
 The development provider permits any valid lease in the tenant to read that
 tenant's requested secrets. It does not apply per-principal or per-job policies.
@@ -81,3 +97,43 @@ SQLite library users configure `DevSecretsDB`, `DevSecretsKeyFile`, and optional
 10-second provider timeout. Remote Go clients currently use the same default
 request/response bounds. This is development/prototype storage, not a production
 secret manager.
+
+## Independent provider configuration
+
+Implement `jobdb.SecretProvider.ResolveSecrets(context.Context,
+jobdb.SecretResolveRequest) (jobdb.SecretResolveResult, error)` to supply another
+provider. It receives tenant, job, verified principal (or nil), stored application
+metadata, and requested names. It owns both access policy and retrieval. Return
+only the allowed subset; any error discards all values. Providers must honor
+cancellation and support concurrent calls. JobDB applies common request/result
+bounds, safe errors, and live-lease checks around every provider call.
+
+Inject a caller-owned provider with:
+
+- `sqlite.Config{SecretProvider: provider}` or `sqlite.WithSecretProvider(provider)`.
+- `toy.WithSecretProvider(provider)`.
+- `runtimecore.Config{SecretProvider: provider}` alongside the storage ports.
+
+Configure `SecretLimits` in either runtime config, or use
+`WithSecretLimits` for option-based constructors. Remote clients use the provider
+configured on their server, through the same lease and workflow context API.
+
+The encrypted SQLite provider is public at
+`github.com/colony-2/jobdb/pkg/jobdb/secrets/sqlite` (package `sqlitesecrets`):
+
+```go
+provider, err := sqlitesecrets.Open(ctx, "secrets.db", "secrets.key", jobdb.SecretLimits{})
+if err != nil {
+    return err
+}
+defer provider.Close()
+
+runtime := toy.New(toy.WithSecretProvider(provider))
+// The same provider can be injected into SQLite or runtime core.
+```
+
+Injected providers stay caller-owned: closing a runtime does not close them.
+The SQLite runtime's `DevSecretsDB`/`DevSecretsKeyFile` convenience configuration
+opens and owns a SQLite provider; it cannot be combined with `SecretProvider`.
+The CLI keeps its SQLite-only administration routes and does not configure a
+provider for other backend modes.

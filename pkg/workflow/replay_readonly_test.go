@@ -96,7 +96,7 @@ func TestReplayReadOnlyRuntimeRejectsMutations(t *testing.T) {
 	runtime := newRunnerTestRuntime()
 	replayRuntime := newReplayReadOnlyRuntime(runtime)
 	ctx := context.Background()
-	_, secretErr := jobdb.ResolveJobSecrets(ctx, replayRuntime, jobdb.ResolveSecretsRequest{})
+	_, secretErr := replayRuntime.ResolveSecrets(ctx, jobdb.ResolveSecretsRequest{})
 	if !errors.Is(secretErr, ErrReplayShouldNeverMutate) {
 		t.Fatalf("replay secret resolution: %v", secretErr)
 	}

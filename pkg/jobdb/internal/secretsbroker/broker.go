@@ -1,0 +1,95 @@
+// Package secretsbroker enforces the common lease boundary around providers.
+// Backends supply only live-lease validation and application metadata.
+package secretsbroker
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"time"
+
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/leaseauth"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/secretsutil"
+)
+
+// Access is constructed from verified transport claims or an issued local lease.
+type Access struct {
+	JobKey            jobdb.JobKey
+	LeaseID, WorkerID string
+	Principal         *string
+	TokenExpiry       time.Time
+}
+
+func FromRequest(ctx context.Context, req jobdb.ResolveSecretsRequest) (Access, error) {
+	authorized, err := leaseauth.Authorize(ctx, req.JobKey, req.LeaseID)
+	claims, _ := leaseauth.ClaimsFromContext(ctx)
+	if !authorized || err != nil || claims.WorkerID == "" {
+		return Access{}, jobdb.ErrExecutionLeaseLost
+	}
+	return Access{req.JobKey, req.LeaseID, claims.WorkerID, claims.Principal, claims.ExpiresAt}, nil
+}
+
+// Resolve never persists or caches results. validate must check the exact live
+// lease (including cancellation) on every call and return owned metadata bytes.
+func Resolve(ctx context.Context, provider jobdb.SecretProvider, limits jobdb.SecretLimits, access Access, names []string, validate func(context.Context) (json.RawMessage, error)) (jobdb.SecretResolveResult, error) {
+	limits = limits.WithDefaults()
+	if err := secretsutil.Names(names, limits.MaxRequestBytes); err != nil {
+		return jobdb.SecretResolveResult{}, err
+	}
+	if access.JobKey.Validate() != nil || access.LeaseID == "" || access.WorkerID == "" {
+		return jobdb.SecretResolveResult{}, jobdb.ErrExecutionLeaseLost
+	}
+	check := func() (json.RawMessage, error) {
+		if !access.TokenExpiry.IsZero() && !time.Now().Before(access.TokenExpiry) {
+			return nil, jobdb.ErrExecutionLeaseLost
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, secretsutil.SafeError(err)
+		}
+		metadata, err := validate(ctx)
+		if errors.Is(err, jobdb.ErrJobNotFound) {
+			err = jobdb.ErrExecutionLeaseLost
+		}
+		return metadata, secretsutil.SafeError(err)
+	}
+	metadata, err := check()
+	if err != nil {
+		return jobdb.SecretResolveResult{}, err
+	}
+	if provider == nil {
+		return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
+	}
+	deadline := time.Now().Add(limits.LookupTimeout)
+	if !access.TokenExpiry.IsZero() && access.TokenExpiry.Before(deadline) {
+		deadline = access.TokenExpiry
+	}
+	callCtx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	principal := access.Principal
+	if principal != nil {
+		p := *principal
+		principal = &p
+	}
+	result, providerErr := provider.ResolveSecrets(callCtx, jobdb.SecretResolveRequest{
+		TenantID: access.JobKey.TenantId, JobID: access.JobKey.JobId, Principal: principal,
+		AppMetadata: append(json.RawMessage(nil), metadata...), Names: append([]string(nil), names...),
+	})
+	if _, err := check(); err != nil {
+		return jobdb.SecretResolveResult{}, err
+	}
+	if err := callCtx.Err(); err != nil {
+		return jobdb.SecretResolveResult{}, secretsutil.SafeError(err)
+	}
+	if providerErr != nil {
+		return jobdb.SecretResolveResult{}, secretsutil.SafeError(providerErr)
+	}
+	result, err = secretsutil.Result(result, names, limits.MaxResponseBytes)
+	if err != nil {
+		return jobdb.SecretResolveResult{}, err
+	}
+	if _, err := check(); err != nil {
+		return jobdb.SecretResolveResult{}, err
+	}
+	return result, nil
+}

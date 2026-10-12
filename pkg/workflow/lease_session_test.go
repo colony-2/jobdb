@@ -64,7 +64,7 @@ func TestLeaseSessionSecretLookupAllowsRenewal(t *testing.T) {
 	defer session.close()
 	done := make(chan error, 1)
 	go func() {
-		_, err := jobdb.ResolveLeaseSecrets(context.Background(), session, []string{"token"})
+		_, err := session.ResolveSecrets(context.Background(), []string{"token"})
 		done <- err
 	}()
 	<-started

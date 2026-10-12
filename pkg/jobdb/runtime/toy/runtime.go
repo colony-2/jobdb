@@ -3,6 +3,7 @@ package toy
 import (
 	"log/slog"
 
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	toyimpl "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy/internal/toyimpl"
 )
 
@@ -21,3 +22,11 @@ func WithLogger(logger *slog.Logger) Option {
 func WithJobIDGenerator(gen JobIDGenerator) Option {
 	return toyimpl.WithJobIDGenerator(gen)
 }
+
+// WithSecretProvider sets a caller-owned provider independently of job storage.
+func WithSecretProvider(provider jobdb.SecretProvider) Option {
+	return toyimpl.WithSecretProvider(provider)
+}
+
+// WithSecretLimits bounds provider calls and their results.
+func WithSecretLimits(limits jobdb.SecretLimits) Option { return toyimpl.WithSecretLimits(limits) }

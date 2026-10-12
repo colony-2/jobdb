@@ -16,7 +16,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/blobstore"
 	sqliterowstore "github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/sqlite"
-	"github.com/colony-2/jobdb/pkg/jobdb/internal/devsecrets"
+	sqlitesecrets "github.com/colony-2/jobdb/pkg/jobdb/secrets/sqlite"
 	"github.com/segmentio/ksuid"
 	_ "modernc.org/sqlite"
 )
@@ -30,7 +30,10 @@ const (
 
 // Config describes a local SQLite-backed jobdb runtime.
 type Config struct {
-	// DevSecretsDB and DevSecretsKeyFile enable the SQLite development provider.
+	// SecretProvider is independent of job storage and remains caller-owned.
+	SecretProvider jobdb.SecretProvider
+	// DevSecretsDB and DevSecretsKeyFile are a convenience for opening and owning
+	// the SQLite development provider. They cannot be combined with SecretProvider.
 	DevSecretsDB      string
 	DevSecretsKeyFile string
 	SecretLimits      jobdb.SecretLimits
@@ -55,7 +58,7 @@ type Config struct {
 // rows, and Go CDK blob artifact storage.
 type Runtime struct {
 	secretProvider jobdb.SecretProvider
-	devSecrets     *devsecrets.Store
+	devSecrets     *sqlitesecrets.Store
 	secretLimits   jobdb.SecretLimits
 	db             *sql.DB
 	ownsDB         bool
@@ -92,10 +95,12 @@ func New(db *sql.DB, opts ...Option) (*Runtime, error) {
 		return nil, err
 	}
 	rt := &Runtime{
-		db:           db,
-		chapterStore: chapterStore,
-		logger:       cfg.logger,
-		workerID:     cfg.workerID,
+		db:             db,
+		chapterStore:   chapterStore,
+		logger:         cfg.logger,
+		workerID:       cfg.workerID,
+		secretProvider: cfg.secretProvider,
+		secretLimits:   cfg.secretLimits,
 	}
 	return rt, nil
 }
@@ -103,6 +108,9 @@ func New(db *sql.DB, opts ...Option) (*Runtime, error) {
 // NewFromConfig opens a SQLite database, creates a chapter store over the same
 // *sql.DB rowstore, and returns the composed runtime.
 func NewFromConfig(ctx context.Context, cfg Config) (*Runtime, error) {
+	if cfg.SecretProvider != nil && (cfg.DevSecretsDB != "" || cfg.DevSecretsKeyFile != "") {
+		return nil, fmt.Errorf("configure either SecretProvider or development secret store paths")
+	}
 	if (cfg.DevSecretsDB == "") != (cfg.DevSecretsKeyFile == "") {
 		return nil, fmt.Errorf("development secret store requires both a database path and encryption key file")
 	}
@@ -155,9 +163,9 @@ func NewFromConfig(ctx context.Context, cfg Config) (*Runtime, error) {
 	if workerID == "" {
 		workerID = defaultWorkerID()
 	}
-	var store *devsecrets.Store
+	var store *sqlitesecrets.Store
 	if cfg.DevSecretsDB != "" || cfg.DevSecretsKeyFile != "" {
-		store, err = devsecrets.Open(ctx, cfg.DevSecretsDB, cfg.DevSecretsKeyFile, cfg.SecretLimits)
+		store, err = sqlitesecrets.Open(ctx, cfg.DevSecretsDB, cfg.DevSecretsKeyFile, cfg.SecretLimits)
 		if err != nil {
 			_ = chapterStore.Close(ctx)
 			return nil, err
@@ -165,13 +173,14 @@ func NewFromConfig(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	cleanupDB = false
 	rt := &Runtime{
-		db:           db,
-		ownsDB:       true,
-		chapterStore: chapterStore,
-		logger:       logger,
-		workerID:     workerID,
-		devSecrets:   store,
-		secretLimits: cfg.SecretLimits,
+		db:             db,
+		ownsDB:         true,
+		chapterStore:   chapterStore,
+		logger:         logger,
+		workerID:       workerID,
+		devSecrets:     store,
+		secretProvider: cfg.SecretProvider,
+		secretLimits:   cfg.SecretLimits,
 	}
 	if store != nil {
 		rt.secretProvider = store
@@ -204,6 +213,8 @@ func (r *Runtime) Close(ctx context.Context) error {
 }
 
 type runtimeOptions struct {
+	secretProvider         jobdb.SecretProvider
+	secretLimits           jobdb.SecretLimits
 	logger                 *slog.Logger
 	workerID               string
 	blobStoreURI           string
@@ -355,4 +366,14 @@ func ctxOrBackground(ctx context.Context) context.Context {
 		return context.Background()
 	}
 	return ctx
+}
+
+// WithSecretProvider sets a caller-owned provider independently of job storage.
+func WithSecretProvider(provider jobdb.SecretProvider) Option {
+	return func(o *runtimeOptions) { o.secretProvider = provider }
+}
+
+// WithSecretLimits bounds provider calls and their results.
+func WithSecretLimits(limits jobdb.SecretLimits) Option {
+	return func(o *runtimeOptions) { o.secretLimits = limits }
 }

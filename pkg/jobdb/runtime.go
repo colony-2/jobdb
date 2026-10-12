@@ -10,6 +10,10 @@ import (
 // WorkflowRuntime is the backend-agnostic facade used to isolate jobdb from
 // concrete persistence, artifact storage, and lease-management backends.
 type WorkflowRuntime interface {
+	// ResolveSecrets resolves names using a verified lease capability. Embedded
+	// callers use ExecutionLease.ResolveSecrets; raw lease IDs are not authority.
+	ResolveSecrets(context.Context, ResolveSecretsRequest) (SecretResolveResult, error)
+
 	// Job lifecycle
 	SubmitJob(ctx context.Context, req SubmitJobRequest) (JobHandle, error)
 	SubmitRestartJob(ctx context.Context, req SubmitRestartJobRequest) (JobHandle, error)
@@ -51,6 +55,9 @@ type JobHandle struct {
 // ExecutionLease represents a leased unit of work returned by PollWork or
 // GetJobLease.
 type ExecutionLease interface {
+	// ResolveSecrets retrieves the allowed subset using this live lease.
+	ResolveSecrets(context.Context, []string) (SecretResolveResult, error)
+
 	LeaseID() string
 	Job() JobHandle
 	Route() Route
