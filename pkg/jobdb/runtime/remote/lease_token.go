@@ -22,15 +22,16 @@ const (
 )
 
 type leaseTokenClaims struct {
-	TenantID             string `json:"tenant_id"`
-	JobID                string `json:"job_id"`
-	LeaseID              string `json:"lease_id"`
-	WorkerID             string `json:"worker_id,omitempty"`
-	SchemaHash           string `json:"schema_hash,omitempty"`
-	LeaseDurationSeconds int64  `json:"lease_duration_seconds"`
-	IssuedAt             int64  `json:"iat"`
-	ExpiresAt            int64  `json:"exp"`
-	ExpiresAtNS          int64  `json:"exp_ns,omitempty"`
+	Principal            *string `json:"principal,omitempty"`
+	TenantID             string  `json:"tenant_id"`
+	JobID                string  `json:"job_id"`
+	LeaseID              string  `json:"lease_id"`
+	WorkerID             string  `json:"worker_id,omitempty"`
+	SchemaHash           string  `json:"schema_hash,omitempty"`
+	LeaseDurationSeconds int64   `json:"lease_duration_seconds"`
+	IssuedAt             int64   `json:"iat"`
+	ExpiresAt            int64   `json:"exp"`
+	ExpiresAtNS          int64   `json:"exp_ns,omitempty"`
 }
 
 type leaseTokenSigner struct {
@@ -64,6 +65,10 @@ func (s *leaseTokenSigner) mint(jobKey jobdb.JobKey, leaseID string, workerID st
 }
 
 func (s *leaseTokenSigner) mintForLeaseExpiry(jobKey jobdb.JobKey, leaseID string, workerID string, schemaHash string, leaseExpiresAt time.Time, ttl time.Duration) (string, error) {
+	return s.mintWithPrincipal(jobKey, leaseID, workerID, schemaHash, leaseExpiresAt, ttl, nil)
+}
+
+func (s *leaseTokenSigner) mintWithPrincipal(jobKey jobdb.JobKey, leaseID string, workerID string, schemaHash string, leaseExpiresAt time.Time, ttl time.Duration, principal *string) (string, error) {
 	if s == nil || len(s.key) == 0 {
 		return "", fmt.Errorf("lease token signer is required")
 	}
@@ -78,6 +83,7 @@ func (s *leaseTokenSigner) mintForLeaseExpiry(jobKey jobdb.JobKey, leaseID strin
 	}
 	tokenExpiresAt := leaseTokenExpiresAt(now, leaseExpiresAt, ttl)
 	payload, err := json.Marshal(leaseTokenClaims{
+		Principal:            principal,
 		TenantID:             jobKey.TenantId,
 		JobID:                jobKey.JobId,
 		LeaseID:              leaseID,
@@ -168,6 +174,7 @@ func (c leaseTokenClaims) leaseDuration() time.Duration {
 
 func (c leaseTokenClaims) leaseAuthClaims() leaseauth.Claims {
 	return leaseauth.Claims{
+		Principal:  c.Principal,
 		TenantID:   c.TenantID,
 		JobID:      c.JobID,
 		LeaseID:    c.LeaseID,

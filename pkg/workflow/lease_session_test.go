@@ -26,6 +26,57 @@ func newSessionTestLease() *sessionTestLease {
 	return &sessionTestLease{fakeExecutionLease: &fakeExecutionLease{leaseID: "lease", job: JobHandle{JobKey: JobKey{TenantId: "tenant", JobId: "job"}}}, expiry: time.Now().Add(time.Second)}
 }
 
+type secretSessionLease struct {
+	*sessionTestLease
+	resolve func(context.Context, []string) (jobdb.SecretResolveResult, error)
+}
+
+func (l *secretSessionLease) ResolveSecrets(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
+	return l.resolve(ctx, names)
+}
+
+func TestLeaseSessionSecretLookupAllowsRenewal(t *testing.T) {
+	base := newSessionTestLease()
+	started, renewed, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var count atomic.Int64
+	lease := &secretSessionLease{sessionTestLease: base}
+	lease.resolve = func(ctx context.Context, _ []string) (jobdb.SecretResolveResult, error) {
+		close(started)
+		select {
+		case <-release:
+			return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "value"}}}, nil
+		case <-ctx.Done():
+			return jobdb.SecretResolveResult{}, ctx.Err()
+		}
+	}
+	base.renew = func(context.Context) (jobdb.RenewableExecutionLease, error) {
+		n := count.Add(1)
+		copyBase := *base
+		copyBase.expiry = time.Now().Add(600 * time.Millisecond)
+		next := &secretSessionLease{sessionTestLease: &copyBase, resolve: lease.resolve}
+		if n == 2 {
+			close(renewed)
+		}
+		return next, nil
+	}
+	session, err := startLeaseSession(context.Background(), lease)
+	require.NoError(t, err)
+	defer session.close()
+	done := make(chan error, 1)
+	go func() {
+		_, err := jobdb.ResolveLeaseSecrets(context.Background(), session, []string{"token"})
+		done <- err
+	}()
+	<-started
+	select {
+	case <-renewed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("lookup blocked lease renewal")
+	}
+	close(release)
+	require.NoError(t, <-done)
+}
+
 func TestLeaseSessionRenewalTimeout(t *testing.T) {
 	lease := newSessionTestLease()
 	lease.expiry = time.Now().Add(30 * time.Millisecond)

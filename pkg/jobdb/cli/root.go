@@ -34,22 +34,35 @@ func newRootCmd() *cobra.Command {
 	var sqliteDSN string
 	var blobDir string
 	var blobStoreURI string
+	var dev devSecretFlags
 
 	cmd := &cobra.Command{
 		Use:          "jobdb",
 		Short:        "Run local jobdb runtime servers",
 		SilenceUsage: true,
 		Args:         cobra.NoArgs,
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			if cmd.Name() == "toy" && (dev.db != "" || dev.key != "") {
+				return fmt.Errorf("development secret storage requires the SQLite backend")
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runSQLite(cmd.Context(), listenAddr, sqliteConfigFromFlags(dbPath, sqliteDSN, blobDir, blobStoreURI))
+			cfg := sqliteConfigFromFlags(dbPath, sqliteDSN, blobDir, blobStoreURI)
+			cfg.DevSecretsDB = dev.db
+			cfg.DevSecretsKeyFile = dev.key
+			return runSQLite(cmd.Context(), listenAddr, cfg)
 		},
 	}
 
 	cmd.AddCommand(
-		newSQLiteCmd(&listenAddr, &dbPath, &sqliteDSN, &blobDir, &blobStoreURI),
+		newSQLiteCmd(&listenAddr, &dbPath, &sqliteDSN, &blobDir, &blobStoreURI, &dev),
+		newSecretsCmd(),
 		newToyCmd(&listenAddr),
 		newHealthcheckCmd(),
 	)
+	cmd.PersistentFlags().StringVarP(&dev.db, "dev-secrets-db", "s", "", "SQLite development secrets database path")
+	cmd.PersistentFlags().StringVarP(&dev.key, "dev-secrets-key-file", "k", "", "base64 encryption key file for SQLite development secrets")
 	cmd.PersistentFlags().StringVar(&listenAddr, "listen", defaultListenAddr, "listen address for the HTTP API")
 	cmd.PersistentFlags().StringVar(&dbPath, "db", "jobdb.db", "SQLite database path for the default embedded runtime")
 	cmd.PersistentFlags().StringVar(&sqliteDSN, "sqlite-dsn", "", "SQLite DSN for the default embedded runtime (overrides --db and "+sqliteDSNEnvVar+")")
@@ -59,13 +72,16 @@ func newRootCmd() *cobra.Command {
 	return cmd
 }
 
-func newSQLiteCmd(listenAddr *string, dbPath *string, sqliteDSN *string, blobDir *string, blobStoreURI *string) *cobra.Command {
+func newSQLiteCmd(listenAddr *string, dbPath *string, sqliteDSN *string, blobDir *string, blobStoreURI *string, dev *devSecretFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sqlite",
 		Short: "Run a SQLite-backed embedded workflow runtime over HTTP",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runSQLite(cmd.Context(), *listenAddr, sqliteConfigFromFlags(*dbPath, *sqliteDSN, *blobDir, *blobStoreURI))
+			cfg := sqliteConfigFromFlags(*dbPath, *sqliteDSN, *blobDir, *blobStoreURI)
+			cfg.DevSecretsDB = dev.db
+			cfg.DevSecretsKeyFile = dev.key
+			return runSQLite(cmd.Context(), *listenAddr, cfg)
 		},
 	}
 	return cmd

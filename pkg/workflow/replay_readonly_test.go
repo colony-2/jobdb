@@ -5,6 +5,8 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 func TestReplayJobRun_LocalTaskCacheMissDoesNotExecuteWorker(t *testing.T) {
@@ -94,6 +96,10 @@ func TestReplayReadOnlyRuntimeRejectsMutations(t *testing.T) {
 	runtime := newRunnerTestRuntime()
 	replayRuntime := newReplayReadOnlyRuntime(runtime)
 	ctx := context.Background()
+	_, secretErr := jobdb.ResolveJobSecrets(ctx, replayRuntime, jobdb.ResolveSecretsRequest{})
+	if !errors.Is(secretErr, ErrReplayShouldNeverMutate) {
+		t.Fatalf("replay secret resolution: %v", secretErr)
+	}
 
 	tests := []struct {
 		name string

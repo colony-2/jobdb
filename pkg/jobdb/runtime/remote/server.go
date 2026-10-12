@@ -9,12 +9,14 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/leaseauth"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/runtimeapi"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/secretsutil"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -77,10 +79,18 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 		tokens:         tokens,
 	}
 	strict := runtimeapi.NewStrictHandlerWithOptions(server, []runtimeapi.StrictMiddlewareFunc{strictRequestFields}, runtimeapi.StrictHTTPServerOptions{
-		RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
+		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			if isSecretResolutionPath(r.URL.EscapedPath()) {
+				secretsutil.WriteError(w, jobdb.ErrInvalidSecretRequest)
+				return
+			}
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		},
-		ResponseErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
+		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			if isSecretResolutionPath(r.URL.EscapedPath()) {
+				secretsutil.WriteError(w, jobdb.ErrInvalidSecretRequest)
+				return
+			}
 			if errors.Is(err, jobdb.ErrExistingJobMismatch) {
 				writeAPIError(w, http.StatusConflict, runtimeapi.ErrorResponse{
 					Code:    runtimeapi.ExistingJobMismatch,
@@ -113,7 +123,31 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 	})
 	router := chi.NewRouter()
 	handler := runtimeapi.HandlerFromMux(strict, router)
+	devHandler := server.devSecretHandler()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/dev/v1/") {
+			w.Header().Set("Cache-Control", "no-store")
+			devHandler.ServeHTTP(w, r)
+			return
+		}
+		if isSecretResolutionPath(r.URL.EscapedPath()) {
+			w.Header().Set("Cache-Control", "no-store")
+			if r.Header.Get("X-JobDB-Lease-Token") == "" {
+				secretsutil.WriteError(w, jobdb.ErrExecutionLeaseLost)
+				return
+			}
+			var body runtimeapi.ResolveSecretsBody
+			if r.Body == nil {
+				secretsutil.WriteError(w, jobdb.ErrInvalidSecretRequest)
+				return
+			}
+			if err := secretsutil.ReadJSON(r.Body, server.secretLimits().MaxRequestBytes, &body); err != nil {
+				secretsutil.WriteError(w, err)
+				return
+			}
+			raw, _ := json.Marshal(body)
+			r.Body = io.NopCloser(bytes.NewReader(raw))
+		}
 		if r.Body != nil {
 			raw, err := io.ReadAll(r.Body)
 			if err != nil {
@@ -879,6 +913,12 @@ func (s *proxyServer) KeepAliveLease(ctx context.Context, request runtimeapi.Kee
 		if err != nil {
 			return nil, err
 		}
+		if claims.Principal != nil {
+			snapshot.LeaseToken, err = s.tokens.mintWithPrincipal(jobKey, request.LeaseId, claims.WorkerID, claims.SchemaHash, lease.LeaseExpiry(), leaseDuration, claims.Principal)
+			if err != nil {
+				return nil, err
+			}
+		}
 		return runtimeapi.KeepAliveLease200JSONResponse{LeaseToken: snapshot.LeaseToken, Lease: &snapshot}, nil
 	}
 	leaseExpiresAt := time.Now().UTC().Add(leaseDuration)
@@ -893,7 +933,7 @@ func (s *proxyServer) KeepAliveLease(ctx context.Context, request runtimeapi.Kee
 			return nil, err
 		}
 	}
-	token, err := s.tokens.mintForLeaseExpiry(jobKey, request.LeaseId, claims.WorkerID, claims.SchemaHash, leaseExpiresAt, leaseDuration)
+	token, err := s.tokens.mintWithPrincipal(jobKey, request.LeaseId, claims.WorkerID, claims.SchemaHash, leaseExpiresAt, leaseDuration, claims.Principal)
 	if err != nil {
 		return nil, err
 	}

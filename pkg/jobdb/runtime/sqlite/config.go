@@ -16,6 +16,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/blobstore"
 	sqliterowstore "github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/sqlite"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/devsecrets"
 	"github.com/segmentio/ksuid"
 	_ "modernc.org/sqlite"
 )
@@ -29,6 +30,10 @@ const (
 
 // Config describes a local SQLite-backed jobdb runtime.
 type Config struct {
+	// DevSecretsDB and DevSecretsKeyFile enable the SQLite development provider.
+	DevSecretsDB      string
+	DevSecretsKeyFile string
+	SecretLimits      jobdb.SecretLimits
 	// DSN is passed to modernc.org/sqlite. If empty, DBPath is used.
 	DSN string
 	// DBPath is the durable SQLite database path used when DSN is empty.
@@ -49,11 +54,14 @@ type Config struct {
 // Runtime is a SQLite WorkflowRuntime that composes scheduler rows, chapter
 // rows, and Go CDK blob artifact storage.
 type Runtime struct {
-	db           *sql.DB
-	ownsDB       bool
-	chapterStore *chapterstore.Store
-	logger       *slog.Logger
-	workerID     string
+	secretProvider jobdb.SecretProvider
+	devSecrets     *devsecrets.Store
+	secretLimits   jobdb.SecretLimits
+	db             *sql.DB
+	ownsDB         bool
+	chapterStore   *chapterstore.Store
+	logger         *slog.Logger
+	workerID       string
 
 	closeOnce sync.Once
 	closeErr  error
@@ -95,6 +103,9 @@ func New(db *sql.DB, opts ...Option) (*Runtime, error) {
 // NewFromConfig opens a SQLite database, creates a chapter store over the same
 // *sql.DB rowstore, and returns the composed runtime.
 func NewFromConfig(ctx context.Context, cfg Config) (*Runtime, error) {
+	if (cfg.DevSecretsDB == "") != (cfg.DevSecretsKeyFile == "") {
+		return nil, fmt.Errorf("development secret store requires both a database path and encryption key file")
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -144,14 +155,28 @@ func NewFromConfig(ctx context.Context, cfg Config) (*Runtime, error) {
 	if workerID == "" {
 		workerID = defaultWorkerID()
 	}
+	var store *devsecrets.Store
+	if cfg.DevSecretsDB != "" || cfg.DevSecretsKeyFile != "" {
+		store, err = devsecrets.Open(ctx, cfg.DevSecretsDB, cfg.DevSecretsKeyFile, cfg.SecretLimits)
+		if err != nil {
+			_ = chapterStore.Close(ctx)
+			return nil, err
+		}
+	}
 	cleanupDB = false
-	return &Runtime{
+	rt := &Runtime{
 		db:           db,
 		ownsDB:       true,
 		chapterStore: chapterStore,
 		logger:       logger,
 		workerID:     workerID,
-	}, nil
+		devSecrets:   store,
+		secretLimits: cfg.SecretLimits,
+	}
+	if store != nil {
+		rt.secretProvider = store
+	}
+	return rt, nil
 }
 
 // Close releases resources owned by a runtime constructed with NewFromConfig.
@@ -164,6 +189,9 @@ func (r *Runtime) Close(ctx context.Context) error {
 	}
 	r.closeOnce.Do(func() {
 		var errs []error
+		if r.devSecrets != nil {
+			errs = append(errs, r.devSecrets.Close())
+		}
 		if r.chapterStore != nil {
 			errs = append(errs, r.chapterStore.Close(ctx))
 		}

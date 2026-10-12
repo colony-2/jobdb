@@ -12,6 +12,7 @@ type contextKey struct{}
 // Claims is the write capability material after a remote lease token has been
 // validated by the jobdb remote server.
 type Claims struct {
+	Principal  *string
 	TenantID   string
 	JobID      string
 	LeaseID    string

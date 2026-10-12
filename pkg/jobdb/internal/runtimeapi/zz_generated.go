@@ -654,6 +654,11 @@ type RescheduleExecutionRequest struct {
 	WaitUntil           *time.Time           `json:"waitUntil,omitempty"`
 }
 
+// ResolveSecretsBody defines model for ResolveSecretsBody.
+type ResolveSecretsBody struct {
+	Names []string `json:"names"`
+}
+
 // RestartExtraChapter defines model for RestartExtraChapter.
 type RestartExtraChapter struct {
 	Kind RestartExtraChapterKind `json:"kind"`
@@ -769,6 +774,24 @@ type ScheduleTrigger struct {
 
 // ScheduleTriggerKind defines model for ScheduleTriggerKind.
 type ScheduleTriggerKind string
+
+// SecretError defines model for SecretError.
+type SecretError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// SecretResolveResult defines model for SecretResolveResult.
+type SecretResolveResult struct {
+	Secrets map[string]SecretValue `json:"secrets"`
+}
+
+// SecretValue defines model for SecretValue.
+type SecretValue struct {
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+	Value     string     `json:"value"`
+	Version   *string    `json:"version,omitempty"`
+}
 
 // StoredArtifact defines model for StoredArtifact.
 type StoredArtifact struct {
@@ -994,6 +1017,11 @@ type RescheduleJobWithLeaseParams struct {
 	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
 }
 
+// ResolveSecretsWithLeaseParams defines parameters for ResolveSecretsWithLease.
+type ResolveSecretsWithLeaseParams struct {
+	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
+}
+
 // SubmitJobWithLeaseParams defines parameters for SubmitJobWithLease.
 type SubmitJobWithLeaseParams struct {
 	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
@@ -1051,6 +1079,9 @@ type CompleteJobWithLeaseJSONRequestBody = CompleteExecutionRequest
 
 // RescheduleJobWithLeaseJSONRequestBody defines body for RescheduleJobWithLease for application/json ContentType.
 type RescheduleJobWithLeaseJSONRequestBody = RescheduleExecutionRequest
+
+// ResolveSecretsWithLeaseJSONRequestBody defines body for ResolveSecretsWithLease for application/json ContentType.
+type ResolveSecretsWithLeaseJSONRequestBody = ResolveSecretsBody
 
 // PutRestartJobJSONRequestBody defines body for PutRestartJob for application/json ContentType.
 type PutRestartJobJSONRequestBody = SubmitRestartJobRequest
@@ -1771,6 +1802,11 @@ type ClientInterface interface {
 
 	RescheduleJobWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *RescheduleJobWithLeaseParams, body RescheduleJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ResolveSecretsWithLeaseWithBody request with any body
+	ResolveSecretsWithLeaseWithBody(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *ResolveSecretsWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ResolveSecretsWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *ResolveSecretsWithLeaseParams, body ResolveSecretsWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// PutRestartJobWithBody request with any body
 	PutRestartJobWithBody(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -2163,6 +2199,30 @@ func (c *Client) RescheduleJobWithLeaseWithBody(ctx context.Context, tenantId Te
 
 func (c *Client) RescheduleJobWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *RescheduleJobWithLeaseParams, body RescheduleJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewRescheduleJobWithLeaseRequest(c.Server, tenantId, jobId, leaseId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ResolveSecretsWithLeaseWithBody(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *ResolveSecretsWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResolveSecretsWithLeaseRequestWithBody(c.Server, tenantId, jobId, leaseId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ResolveSecretsWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *ResolveSecretsWithLeaseParams, body ResolveSecretsWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResolveSecretsWithLeaseRequest(c.Server, tenantId, jobId, leaseId, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3439,6 +3499,80 @@ func NewRescheduleJobWithLeaseRequestWithBody(server string, tenantId TenantId, 
 	return req, nil
 }
 
+// NewResolveSecretsWithLeaseRequest calls the generic ResolveSecretsWithLease builder with application/json body
+func NewResolveSecretsWithLeaseRequest(server string, tenantId TenantId, jobId JobId, leaseId LeaseId, params *ResolveSecretsWithLeaseParams, body ResolveSecretsWithLeaseJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewResolveSecretsWithLeaseRequestWithBody(server, tenantId, jobId, leaseId, params, "application/json", bodyReader)
+}
+
+// NewResolveSecretsWithLeaseRequestWithBody generates requests for ResolveSecretsWithLease with any type of body
+func NewResolveSecretsWithLeaseRequestWithBody(server string, tenantId TenantId, jobId JobId, leaseId LeaseId, params *ResolveSecretsWithLeaseParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "jobId", runtime.ParamLocationPath, jobId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithLocation("simple", false, "leaseId", runtime.ParamLocationPath, leaseId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs/%s/leases/%s/secrets/resolve", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithLocation("simple", false, "X-JobDB-Lease-Token", runtime.ParamLocationHeader, params.XJobDBLeaseToken)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-JobDB-Lease-Token", headerParam0)
+
+	}
+
+	return req, nil
+}
+
 // NewPutRestartJobRequest calls the generic PutRestartJob builder with application/json body
 func NewPutRestartJobRequest(server string, tenantId TenantId, jobId JobId, body PutRestartJobJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -4513,6 +4647,11 @@ type ClientWithResponsesInterface interface {
 
 	RescheduleJobWithLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *RescheduleJobWithLeaseParams, body RescheduleJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*RescheduleJobWithLeaseHTTPResponse, error)
 
+	// ResolveSecretsWithLeaseWithBodyWithResponse request with any body
+	ResolveSecretsWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *ResolveSecretsWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ResolveSecretsWithLeaseHTTPResponse, error)
+
+	ResolveSecretsWithLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *ResolveSecretsWithLeaseParams, body ResolveSecretsWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*ResolveSecretsWithLeaseHTTPResponse, error)
+
 	// PutRestartJobWithBodyWithResponse request with any body
 	PutRestartJobWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutRestartJobHTTPResponse, error)
 
@@ -4934,6 +5073,29 @@ func (r RescheduleJobWithLeaseHTTPResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r RescheduleJobWithLeaseHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ResolveSecretsWithLeaseHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *SecretResolveResult
+	JSONDefault  *SecretError
+}
+
+// Status returns HTTPResponse.Status
+func (r ResolveSecretsWithLeaseHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ResolveSecretsWithLeaseHTTPResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5548,6 +5710,23 @@ func (c *ClientWithResponses) RescheduleJobWithLeaseWithResponse(ctx context.Con
 		return nil, err
 	}
 	return ParseRescheduleJobWithLeaseHTTPResponse(rsp)
+}
+
+// ResolveSecretsWithLeaseWithBodyWithResponse request with arbitrary body returning *ResolveSecretsWithLeaseHTTPResponse
+func (c *ClientWithResponses) ResolveSecretsWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *ResolveSecretsWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ResolveSecretsWithLeaseHTTPResponse, error) {
+	rsp, err := c.ResolveSecretsWithLeaseWithBody(ctx, tenantId, jobId, leaseId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResolveSecretsWithLeaseHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) ResolveSecretsWithLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *ResolveSecretsWithLeaseParams, body ResolveSecretsWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*ResolveSecretsWithLeaseHTTPResponse, error) {
+	rsp, err := c.ResolveSecretsWithLease(ctx, tenantId, jobId, leaseId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResolveSecretsWithLeaseHTTPResponse(rsp)
 }
 
 // PutRestartJobWithBodyWithResponse request with arbitrary body returning *PutRestartJobHTTPResponse
@@ -6172,6 +6351,39 @@ func ParseRescheduleJobWithLeaseHTTPResponse(rsp *http.Response) (*RescheduleJob
 	return response, nil
 }
 
+// ParseResolveSecretsWithLeaseHTTPResponse parses an HTTP response from a ResolveSecretsWithLeaseWithResponse call
+func ParseResolveSecretsWithLeaseHTTPResponse(rsp *http.Response) (*ResolveSecretsWithLeaseHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ResolveSecretsWithLeaseHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SecretResolveResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest SecretError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParsePutRestartJobHTTPResponse parses an HTTP response from a PutRestartJobWithResponse call
 func ParsePutRestartJobHTTPResponse(rsp *http.Response) (*PutRestartJobHTTPResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -6692,6 +6904,9 @@ type ServerInterface interface {
 	// Reschedule job with lease
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/reschedule)
 	RescheduleJobWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params RescheduleJobWithLeaseParams)
+	// Resolve the allowed subset of requested job secrets
+	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/secrets/resolve)
+	ResolveSecretsWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params ResolveSecretsWithLeaseParams)
 	// Submit restart job with explicit job ID
 	// (PUT /v1/tenants/{tenantId}/jobs/{jobId}/restart)
 	PutRestartJob(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId)
@@ -6842,6 +7057,12 @@ func (_ Unimplemented) KeepAliveLease(w http.ResponseWriter, r *http.Request, te
 // Reschedule job with lease
 // (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/reschedule)
 func (_ Unimplemented) RescheduleJobWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params RescheduleJobWithLeaseParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Resolve the allowed subset of requested job secrets
+// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/secrets/resolve)
+func (_ Unimplemented) ResolveSecretsWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params ResolveSecretsWithLeaseParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -7750,6 +7971,83 @@ func (siw *ServerInterfaceWrapper) RescheduleJobWithLease(w http.ResponseWriter,
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RescheduleJobWithLease(w, r, tenantId, jobId, leaseId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResolveSecretsWithLease operation middleware
+func (siw *ServerInterfaceWrapper) ResolveSecretsWithLease(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "jobId" -------------
+	var jobId JobId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobId", chi.URLParam(r, "jobId"), &jobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "leaseId" -------------
+	var leaseId LeaseId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "leaseId", chi.URLParam(r, "leaseId"), &leaseId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "leaseId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ResolveSecretsWithLeaseParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-JobDB-Lease-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-JobDB-Lease-Token")]; found {
+		var XJobDBLeaseToken LeaseTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-JobDB-Lease-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-JobDB-Lease-Token", valueList[0], &XJobDBLeaseToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-JobDB-Lease-Token", Err: err})
+			return
+		}
+
+		params.XJobDBLeaseToken = XJobDBLeaseToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-JobDB-Lease-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-JobDB-Lease-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResolveSecretsWithLease(w, r, tenantId, jobId, leaseId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8751,6 +9049,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/reschedule", wrapper.RescheduleJobWithLease)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/secrets/resolve", wrapper.ResolveSecretsWithLease)
+	})
+	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/restart", wrapper.PutRestartJob)
 	})
 	r.Group(func(r chi.Router) {
@@ -9142,6 +9443,53 @@ type RescheduleJobWithLease204Response struct {
 func (response RescheduleJobWithLease204Response) VisitRescheduleJobWithLeaseResponse(w http.ResponseWriter) error {
 	w.WriteHeader(204)
 	return nil
+}
+
+type ResolveSecretsWithLeaseRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	JobId    JobId    `json:"jobId"`
+	LeaseId  LeaseId  `json:"leaseId"`
+	Params   ResolveSecretsWithLeaseParams
+	Body     *ResolveSecretsWithLeaseJSONRequestBody
+}
+
+type ResolveSecretsWithLeaseResponseObject interface {
+	VisitResolveSecretsWithLeaseResponse(w http.ResponseWriter) error
+}
+
+type ResolveSecretsWithLease200ResponseHeaders struct {
+	CacheControl string
+}
+
+type ResolveSecretsWithLease200JSONResponse struct {
+	Body    SecretResolveResult
+	Headers ResolveSecretsWithLease200ResponseHeaders
+}
+
+func (response ResolveSecretsWithLease200JSONResponse) VisitResolveSecretsWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ResolveSecretsWithLeasedefaultResponseHeaders struct {
+	CacheControl string
+}
+
+type ResolveSecretsWithLeasedefaultJSONResponse struct {
+	Body       SecretError
+	Headers    ResolveSecretsWithLeasedefaultResponseHeaders
+	StatusCode int
+}
+
+func (response ResolveSecretsWithLeasedefaultJSONResponse) VisitResolveSecretsWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
 }
 
 type PutRestartJobRequestObject struct {
@@ -9565,6 +9913,9 @@ type StrictServerInterface interface {
 	// Reschedule job with lease
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/reschedule)
 	RescheduleJobWithLease(ctx context.Context, request RescheduleJobWithLeaseRequestObject) (RescheduleJobWithLeaseResponseObject, error)
+	// Resolve the allowed subset of requested job secrets
+	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/secrets/resolve)
+	ResolveSecretsWithLease(ctx context.Context, request ResolveSecretsWithLeaseRequestObject) (ResolveSecretsWithLeaseResponseObject, error)
 	// Submit restart job with explicit job ID
 	// (PUT /v1/tenants/{tenantId}/jobs/{jobId}/restart)
 	PutRestartJob(ctx context.Context, request PutRestartJobRequestObject) (PutRestartJobResponseObject, error)
@@ -10156,6 +10507,42 @@ func (sh *strictHandler) RescheduleJobWithLease(w http.ResponseWriter, r *http.R
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RescheduleJobWithLeaseResponseObject); ok {
 		if err := validResponse.VisitRescheduleJobWithLeaseResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ResolveSecretsWithLease operation middleware
+func (sh *strictHandler) ResolveSecretsWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params ResolveSecretsWithLeaseParams) {
+	var request ResolveSecretsWithLeaseRequestObject
+
+	request.TenantId = tenantId
+	request.JobId = jobId
+	request.LeaseId = leaseId
+	request.Params = params
+
+	var body ResolveSecretsWithLeaseJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ResolveSecretsWithLease(ctx, request.(ResolveSecretsWithLeaseRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResolveSecretsWithLease")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ResolveSecretsWithLeaseResponseObject); ok {
+		if err := validResponse.VisitResolveSecretsWithLeaseResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

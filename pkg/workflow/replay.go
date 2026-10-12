@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type ReplayCacheMissReason string
@@ -181,4 +183,8 @@ type ReplayRunRequest struct {
 	// Optional job worker override for replay-time instrumentation.
 	// If nil, the registered job worker is used.
 	JobWorker JobWorker
+}
+
+func (r replayReadOnlyRuntime) ResolveSecrets(context.Context, jobdb.ResolveSecretsRequest) (jobdb.SecretResolveResult, error) {
+	return jobdb.SecretResolveResult{}, replayMutationError("resolve secrets")
 }

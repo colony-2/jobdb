@@ -157,3 +157,6 @@ Useful references:
 - [docs/MIGRATION-SWF-GO-TO-JOBDB.md](docs/MIGRATION-SWF-GO-TO-JOBDB.md): concise import migration from `swf-go`.
 - [docs/API-SURFACE.md](docs/API-SURFACE.md): supported public packages.
 - [docs/SPEC-OpenAPI-Runtime-Contract.md](docs/SPEC-OpenAPI-Runtime-Contract.md): runtime REST contract notes.
+
+See [SQLite development secrets](docs/GUIDE-SQLITE-SECRETS.md) for tenant secret
+storage, CLI administration, and lease-scoped secret resolution.

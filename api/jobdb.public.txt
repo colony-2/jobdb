@@ -138,8 +138,10 @@ type EnvelopedTaskData struct
 var ErrArtifactKeyUnavailable error
 var ErrChapterNotFound error
 var ErrConflict error
+var ErrDevSecretsNotConfigured error
 var ErrExecutionLeaseLost error
 var ErrExistingJobMismatch error
+var ErrInvalidSecretRequest error
 var ErrJobCancelled error
 var ErrJobFailed error
 var ErrJobNotComplete error
@@ -149,6 +151,10 @@ var ErrJobSchemaNotFound error
 var ErrJobSchemaValidation error
 var ErrLeaseRenewalUnsupported error
 var ErrMissingInputHash error
+var ErrNoSecretProvider error
+var ErrSecretRequestTooLarge error
+var ErrSecretResolutionFailed error
+var ErrSecretsUnavailable error
 var ErrWorkflowNotDeterministic error
 type ExecutionLease interface
   method ClientPayload func() encoding/json.RawMessage
@@ -429,6 +435,16 @@ type RescheduleExecutionRequest struct
   field AlternateAfter *time.Duration
 func RescheduleTaskWait func(next Route, task *TaskWait) (*TaskWait, error)
 func ResolveJobSchemaSelector func(selector *JobSchemaSelector) (hash string, schema encoding/json.RawMessage, hasInline bool, err error)
+func ResolveJobSecrets func(ctx context.Context, runtime WorkflowRuntime, req ResolveSecretsRequest) (SecretResolveResult, error)
+func ResolveLeaseSecrets func(ctx context.Context, lease ExecutionLease, names []string) (SecretResolveResult, error)
+type ResolveSecretsRequest struct
+  field JobKey JobKey
+  field LeaseID string
+  field LeaseToken string
+  field Names []string
+method ResolveSecretsRequest.GoString func() string
+method ResolveSecretsRequest.MarshalJSON func() ([]byte, error)
+method ResolveSecretsRequest.String func() string
 type RestartExtraChapter struct
   field Output ApplicationOutputBytes
 type RetryPolicy struct
@@ -532,6 +548,33 @@ type ScheduleTrigger struct
 const ScheduleTriggerCron ScheduleTriggerKind = "cron"
 const ScheduleTriggerInterval ScheduleTriggerKind = "interval"
 type ScheduleTriggerKind string
+type SecretLimits struct
+  field MaxRequestBytes int64
+  field MaxResponseBytes int64
+  field LookupTimeout time.Duration
+method SecretLimits.WithDefaults func() SecretLimits
+type SecretProvider interface
+  method ResolveSecrets func(context.Context, SecretResolveRequest) (SecretResolveResult, error)
+type SecretResolveRequest struct
+  field TenantID string
+  field JobID string
+  field Principal *string
+  field AppMetadata encoding/json.RawMessage
+  field Names []string
+type SecretResolveResult struct
+  field Secrets map[string]SecretValue `json:"secrets"`
+method SecretResolveResult.GoString func() string
+method SecretResolveResult.String func() string
+type SecretResolver interface
+  method ResolveSecrets func(context.Context, ResolveSecretsRequest) (SecretResolveResult, error)
+type SecretResolvingLease interface
+  method ResolveSecrets func(context.Context, []string) (SecretResolveResult, error)
+type SecretValue struct
+  field Value string `json:"value"`
+  field Version string `json:"version,omitempty"`
+  field ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+method SecretValue.GoString func() string
+method SecretValue.String func() string
 type SimpleTaskData struct
   field Data Data
   field Artifacts []Artifact
@@ -1477,11 +1520,36 @@ type LeaseCapability struct
 method LeaseCapability.Encode func() ([]byte, error)
 method LeaseCapability.GoString func() string
 method LeaseCapability.String func() string
+const LeaseFailureCancelled LeaseFailureCategory = "cancelled"
+type LeaseFailureCategory string
+const LeaseFailureDNS LeaseFailureCategory = "dns"
+const LeaseFailureDecode LeaseFailureCategory = "response_decode"
+const LeaseFailureHTTP LeaseFailureCategory = "http_rejection"
+type LeaseFailurePhase string
+const LeaseFailureRead LeaseFailureCategory = "response_read"
+const LeaseFailureRefused LeaseFailureCategory = "connection_refused"
+const LeaseFailureSnapshot LeaseFailureCategory = "invalid_snapshot"
+const LeaseFailureTLS LeaseFailureCategory = "tls"
+const LeaseFailureTimeout LeaseFailureCategory = "timeout"
+const LeaseFailureUnknown LeaseFailureCategory = "unknown"
+const LeaseFailureUnreachable LeaseFailureCategory = "unreachable"
+const LeaseFailureUnsupported LeaseFailureCategory = "unsupported"
+const LeasePhaseDecode LeaseFailurePhase = "response_decode"
+const LeasePhaseExchange LeaseFailurePhase = "exchange"
+const LeasePhaseRead LeaseFailurePhase = "response_read"
+const LeasePhaseRequest LeaseFailurePhase = "request"
+const LeasePhaseSnapshot LeaseFailurePhase = "snapshot"
 type LeaseTransportError struct
-  field StatusCode int
-  field Err error
+  field Operation string `json:"operation"`
+  field Phase LeaseFailurePhase `json:"phase"`
+  field Category LeaseFailureCategory `json:"category"`
+  field Destination string `json:"destination,omitempty"`
+  field ResponseReceived bool `json:"responseReceived"`
+  field StatusCode int `json:"statusCode,omitempty"`
+  field Err error `json:"-"`
 method LeaseTransportError.Error func() string
 method LeaseTransportError.GoString func() string
+method LeaseTransportError.SafeMessage func() string
 method LeaseTransportError.Unwrap func() error
 func New func(baseURL string, httpClient *net/http.Client) (*Runtime, error)
 func NewServer func(runtime github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime) net/http.Handler
@@ -1507,6 +1575,7 @@ method Runtime.PauseSchedule func(ctx context.Context, req github.com/colony-2/j
 method Runtime.PollWork func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.PollWorkRequest) ([]github.com/colony-2/jobdb/pkg/jobdb.ExecutionLease, error)
 method Runtime.PutChapter func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.PutChapterRequest) error
 method Runtime.RegisterJobSchema func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.RegisterJobSchemaRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobSchemaInfo, error)
+method Runtime.ResolveSecrets func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ResolveSecretsRequest) (github.com/colony-2/jobdb/pkg/jobdb.SecretResolveResult, error)
 method Runtime.ResumeSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ScheduleMutationRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.SubmitJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SubmitJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.SubmitRestartJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
@@ -1517,6 +1586,9 @@ type ServerOptions struct
 
 package github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite
 type Config struct
+  field DevSecretsDB string
+  field DevSecretsKeyFile string
+  field SecretLimits github.com/colony-2/jobdb/pkg/jobdb.SecretLimits
   field DSN string
   field DBPath string
   field BlobDir string
@@ -1554,9 +1626,13 @@ method Runtime.PauseSchedule func(ctx context.Context, req github.com/colony-2/j
 method Runtime.PollWork func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.PollWorkRequest) ([]github.com/colony-2/jobdb/pkg/jobdb.ExecutionLease, error)
 method Runtime.PutChapter func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.PutChapterRequest) error
 method Runtime.RegisterJobSchema func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.RegisterJobSchemaRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobSchemaInfo, error)
+method Runtime.RemoveDevSecret func(ctx context.Context, tenant string, name string) error
 method Runtime.RenewExecutionLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, duration time.Duration) (github.com/colony-2/jobdb/pkg/jobdb.RenewableExecutionLease, error)
 method Runtime.RescheduleJobWithLeaseByID func(ctx context.Context, jobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.RescheduleExecutionRequest) error
+method Runtime.ResolveSecrets func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ResolveSecretsRequest) (github.com/colony-2/jobdb/pkg/jobdb.SecretResolveResult, error)
 method Runtime.ResumeSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ScheduleMutationRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
+method Runtime.SecretResolutionLimits func() github.com/colony-2/jobdb/pkg/jobdb.SecretLimits
+method Runtime.SetDevSecret func(ctx context.Context, tenant string, name string, value string) error
 method Runtime.SubmitJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SubmitJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.SubmitJobWithLeaseByID func(ctx context.Context, parentJobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.SubmitJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.SubmitRestartJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)

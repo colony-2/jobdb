@@ -223,3 +223,27 @@ func (s *leaseSession) SubmitRestartJob(ctx context.Context, req SubmitRestartJo
 func (s *leaseSession) String() string               { return "execution lease (capability redacted)" }
 func (s *leaseSession) GoString() string             { return s.String() }
 func (s *leaseSession) MarshalJSON() ([]byte, error) { return json.Marshal(s.String()) }
+
+// ResolveSecrets snapshots the current capability without holding the renewal
+// lock during provider I/O. Slow lookups must not prevent heartbeats.
+func (s *leaseSession) ResolveSecrets(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
+	s.mu.Lock()
+	if err := s.check(); err != nil {
+		s.mu.Unlock()
+		return jobdb.SecretResolveResult{}, err
+	}
+	lease := s.current
+	callCtx, cancel := s.operationContext(ctx)
+	s.mu.Unlock()
+	defer cancel()
+	result, err := jobdb.ResolveLeaseSecrets(callCtx, lease, names)
+	if err != nil {
+		return jobdb.SecretResolveResult{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.check(); err != nil {
+		return jobdb.SecretResolveResult{}, err
+	}
+	return result, nil
+}
