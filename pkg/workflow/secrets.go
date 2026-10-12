@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"sort"
 	"time"
 	"unicode/utf8"
 
@@ -9,8 +10,9 @@ import (
 )
 
 // ResolveSecrets retrieves allowed names using the current task's live lease.
-// Values and omissions are cached by name for the live job attempt. Expired
-// values fail resolution without refreshing. Each result is a caller-owned copy.
+// Values and omissions are cached by name for the live job attempt. Requesting
+// a new name refreshes all previously available names together. Known omissions
+// are not retried. Each result is a caller-owned copy.
 // Results are never recorded in workflow history; do not include values in task
 // outputs, artifacts, or errors.
 func (tc TaskContext) ResolveSecrets(ctx context.Context, names []string) (SecretResolveResult, error) {
@@ -52,17 +54,35 @@ func (r *workerRunner) ResolveSecrets(ctx context.Context, names []string) (Secr
 			missing = append(missing, name)
 		}
 	}
-	for _, name := range names {
-		if value := r.secretCache.value[name]; value != nil && secretExpired(*value) {
-			return SecretResolveResult{}, jobdb.ErrSecretsUnavailable
-		}
-	}
-	var fetched SecretResolveResult
+	next := r.secretCache.value
 	if len(missing) > 0 {
-		var err error
-		fetched, err = r.lease.ResolveSecrets(callCtx, missing)
+		// An absent entry has never been retrieved; a nil entry is a known
+		// omission. Refresh every available value with the new names, while
+		// preserving omissions without asking the provider for them again.
+		lookup := append([]string(nil), missing...)
+		next = make(map[string]*SecretValue, len(r.secretCache.value)+len(missing))
+		for name, value := range r.secretCache.value {
+			if value == nil {
+				next[name] = nil
+			} else {
+				lookup = append(lookup, name)
+			}
+		}
+		sort.Strings(lookup)
+		fetched, err := r.lease.ResolveSecrets(callCtx, lookup)
 		if err != nil {
 			return SecretResolveResult{}, err
+		}
+		for _, name := range lookup {
+			var value *SecretValue
+			if secret, ok := fetched.Secrets[name]; ok {
+				if secretExpired(secret) {
+					return SecretResolveResult{}, jobdb.ErrSecretsUnavailable
+				}
+				copy := cloneSecret(secret)
+				value = &copy
+			}
+			next[name] = value
 		}
 	}
 	if r.rescheduled.Load() {
@@ -73,30 +93,15 @@ func (r *workerRunner) ResolveSecrets(ctx context.Context, names []string) (Secr
 	}
 	result := SecretResolveResult{Secrets: make(map[string]SecretValue)}
 	for _, name := range names {
-		value, cached := r.secretCache.value[name]
-		if !cached {
-			if secret, ok := fetched.Secrets[name]; ok {
-				value = &secret
-			}
-		}
-		if value != nil {
+		if value := next[name]; value != nil {
 			if secretExpired(*value) {
 				return SecretResolveResult{}, jobdb.ErrSecretsUnavailable
 			}
 			result.Secrets[name] = cloneSecret(*value)
 		}
 	}
-	if r.secretCache.value == nil {
-		r.secretCache.value = make(map[string]*SecretValue)
-	}
-	for _, name := range missing {
-		var value *SecretValue
-		if secret, ok := result.Secrets[name]; ok {
-			copy := cloneSecret(secret)
-			value = &copy
-		}
-		r.secretCache.value[name] = value
-	}
+	// Publish the whole refresh only after validation and cancellation checks.
+	r.secretCache.value = next
 	return result, nil
 }
 

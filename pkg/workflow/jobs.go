@@ -14,7 +14,8 @@ type JobContext interface {
 	GetConfiguration(context.Context) (ConfigurationSnapshot, error)
 	// ResolveSecrets retrieves allowed names under this invocation's live lease.
 	// Values and omissions are cached by name for this live job attempt, never
-	// recorded. Expired values fail without refreshing. Offline replay rejects reads;
+	// recorded. New names refresh all cached available names together; known omissions
+	// are not retried. Offline replay rejects reads;
 	// use task-level resolution for workflows that must support offline replay.
 	ResolveSecrets(context.Context, []string) (SecretResolveResult, error)
 	ClientPayload() json.RawMessage

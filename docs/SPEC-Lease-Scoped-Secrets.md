@@ -269,10 +269,12 @@ cache internally, so this contract does not guarantee that repeated requests
 observe rotation immediately. Expiration metadata never authorizes core caching.
 
 Workflow `JobContext` and `TaskContext` cache values and omissions by name for
-one live job attempt. They request only unresolved names from the lease/provider,
-share successful concurrent reads, and never cache failed calls. Whole-job retries
-and resumptions start fresh. Expired cached values fail without refreshing in the
-same attempt. See the [workflow cache contract](MIGRATION-Workflow-Read-Caching.md).
+one live job attempt. A new name triggers one lease/provider request for that name
+and all cached available names. Replace the cache atomically on success; previously
+omitted names are not retried. Concurrent reads share the cache, and failures leave
+it unchanged. Whole-job retries and resumptions start fresh. Expiration alone does
+not trigger a refresh; cache-only reads of expired values fail. See the
+[workflow cache contract](MIGRATION-Workflow-Read-Caching.md).
 
 Responses bypass chapters, task inputs/results, client payloads, artifacts,
 job inspection, exports, and replay history. The read-only replay runtime

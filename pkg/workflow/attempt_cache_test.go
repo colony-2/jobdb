@@ -156,12 +156,16 @@ func TestAttemptSecretsCacheNamesOmissionsCopiesAndExpiry(t *testing.T) {
 	*first.Secrets["a"].ExpiresAt = time.Now().Add(-time.Hour)
 	first.Secrets["a"] = SecretValue{Value: "modified"}
 	first.Secrets["denied"] = SecretValue{Value: "forged"}
+	cached, err := runner.ResolveSecrets(context.Background(), []string{"a", "denied"})
+	require.NoError(t, err)
+	require.Equal(t, "1", cached.Secrets["a"].Value)
+	require.NotContains(t, cached.Secrets, "denied")
 	second, err := runner.ResolveSecrets(context.Background(), []string{"b", "denied", "a"})
 	require.NoError(t, err)
-	require.Equal(t, "1", second.Secrets["a"].Value)
+	require.Equal(t, "2", second.Secrets["a"].Value)
 	require.Equal(t, "2", second.Secrets["b"].Value)
 	require.NotContains(t, second.Secrets, "denied")
-	require.Equal(t, [][]string{{"a", "denied"}, {"b"}}, requests)
+	require.Equal(t, [][]string{{"a", "denied"}, {"a", "b"}}, requests)
 	subset, err := runner.ResolveSecrets(context.Background(), []string{"a"})
 	require.NoError(t, err)
 	require.Len(t, subset.Secrets, 1)
@@ -177,6 +181,114 @@ func TestAttemptSecretsCacheNamesOmissionsCopiesAndExpiry(t *testing.T) {
 	require.ErrorIs(t, err, jobdb.ErrSecretsUnavailable)
 	require.Empty(t, result.Secrets)
 	require.Len(t, requests, 2, "expiration must not silently rotate an attempt's value")
+	_, err = runner.ResolveSecrets(context.Background(), []string{"c"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"a", "b", "c"}, requests[2])
+	refreshed, err := runner.ResolveSecrets(context.Background(), []string{"a", "b", "c"})
+	require.NoError(t, err)
+	for _, value := range refreshed.Secrets {
+		require.Equal(t, "3", value.Value)
+	}
+	require.Len(t, requests, 3)
+}
+
+func TestSecretCacheExpansionRefreshesAvailableNames(t *testing.T) {
+	var requests [][]string
+	fail, omitFoo := false, false
+	runner := &workerRunner{lease: &cacheTestLease{secrets: func(_ context.Context, names []string) (SecretResolveResult, error) {
+		requests = append(requests, append([]string(nil), names...))
+		result := SecretResolveResult{Secrets: map[string]SecretValue{}}
+		for _, name := range names {
+			if name != "denied" && !(name == "foo" && omitFoo) {
+				result.Secrets[name] = SecretValue{Value: fmt.Sprint(len(requests))}
+			}
+		}
+		if fail {
+			return result, jobdb.ErrSecretsUnavailable
+		}
+		return result, nil
+	}}}
+	ctx := context.Background()
+	first, err := runner.ResolveSecrets(ctx, []string{"foo", "denied"})
+	require.NoError(t, err)
+	require.Equal(t, "1", first.Secrets["foo"].Value)
+
+	fail = true
+	result, err := runner.ResolveSecrets(ctx, []string{"bar"})
+	require.ErrorIs(t, err, jobdb.ErrSecretsUnavailable)
+	require.Empty(t, result.Secrets)
+	cached, err := runner.ResolveSecrets(ctx, []string{"foo", "denied"})
+	require.NoError(t, err)
+	require.Equal(t, "1", cached.Secrets["foo"].Value)
+	require.NotContains(t, cached.Secrets, "denied")
+	require.Len(t, requests, 2)
+
+	fail = false
+	result, err = runner.ResolveSecrets(ctx, []string{"bar"})
+	require.NoError(t, err)
+	require.Len(t, result.Secrets, 1, "return only the caller's requested names")
+	require.Equal(t, "3", result.Secrets["bar"].Value)
+	cached, err = runner.ResolveSecrets(ctx, []string{"foo", "bar", "denied"})
+	require.NoError(t, err)
+	require.Equal(t, "3", cached.Secrets["foo"].Value)
+	require.Equal(t, "3", cached.Secrets["bar"].Value)
+	require.NotContains(t, cached.Secrets, "denied")
+	require.Equal(t, "1", first.Secrets["foo"].Value, "earlier caller-owned results stay unchanged")
+	require.Len(t, requests, 3)
+
+	omitFoo = true
+	_, err = runner.ResolveSecrets(ctx, []string{"baz"})
+	require.NoError(t, err)
+	omitFoo = false // A previously omitted name stays omitted, even if now allowed.
+	_, err = runner.ResolveSecrets(ctx, []string{"qux"})
+	require.NoError(t, err)
+	cached, err = runner.ResolveSecrets(ctx, []string{"foo", "denied"})
+	require.NoError(t, err)
+	require.Empty(t, cached.Secrets)
+	require.Equal(t, [][]string{
+		{"denied", "foo"}, {"bar", "foo"}, {"bar", "foo"},
+		{"bar", "baz", "foo"}, {"bar", "baz", "qux"},
+	}, requests)
+}
+
+func TestSecretCacheExpansionRejectsIncompleteRefresh(t *testing.T) {
+	for _, failure := range []string{"canceled", "expired"} {
+		t.Run(failure, func(t *testing.T) {
+			callCtx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			calls := 0
+			runner := &workerRunner{lease: &cacheTestLease{secrets: func(_ context.Context, names []string) (SecretResolveResult, error) {
+				calls++
+				result := SecretResolveResult{Secrets: map[string]SecretValue{}}
+				for _, name := range names {
+					result.Secrets[name] = SecretValue{Value: fmt.Sprint(calls)}
+				}
+				if calls == 2 {
+					if failure == "canceled" {
+						cancel()
+					} else {
+						expired := time.Now().Add(-time.Hour)
+						value := result.Secrets["foo"]
+						value.ExpiresAt = &expired
+						result.Secrets["foo"] = value
+					}
+				}
+				return result, nil
+			}}}
+			_, err := runner.ResolveSecrets(context.Background(), []string{"foo"})
+			require.NoError(t, err)
+			result, err := runner.ResolveSecrets(callCtx, []string{"bar"})
+			require.ErrorIs(t, err, jobdb.ErrSecretsUnavailable)
+			require.Empty(t, result.Secrets)
+			cached, err := runner.ResolveSecrets(context.Background(), []string{"foo"})
+			require.NoError(t, err)
+			require.Equal(t, "1", cached.Secrets["foo"].Value)
+			require.Equal(t, 2, calls)
+			_, err = runner.ResolveSecrets(context.Background(), []string{"bar"})
+			require.NoError(t, err)
+			require.Equal(t, 3, calls, "failed fetch must not mark new names as unavailable")
+		})
+	}
 }
 
 type cacheTestJob struct {

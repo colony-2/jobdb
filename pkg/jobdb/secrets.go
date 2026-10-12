@@ -23,7 +23,8 @@ var (
 // The caller owns provider configuration and lifecycle; runtimes do not close
 // injected providers. A provider may implement its own caching policy.
 // Workflow job/task contexts separately cache resolutions by name for one live
-// job attempt, so providers receive only names not yet resolved in that scope.
+// job attempt. Requesting a new name also refreshes all cached available names
+// in the same provider request; previously omitted names are not requested again.
 type SecretProvider interface {
 	ResolveSecrets(context.Context, SecretResolveRequest) (SecretResolveResult, error)
 }
