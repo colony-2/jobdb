@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -21,10 +20,8 @@ import (
 
 func TestSecretsCLIEndToEnd(t *testing.T) {
 	dir := t.TempDir()
-	key := filepath.Join(dir, "key")
-	require.NoError(t, os.WriteFile(key, []byte(base64.StdEncoding.EncodeToString(make([]byte, 32))), 0600))
 	ctx := context.Background()
-	r, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(dir, "jobs.db"), DevSecretsDB: filepath.Join(dir, "secrets.db"), DevSecretsKeyFile: key})
+	r, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(dir, "jobs.db")})
 	require.NoError(t, err)
 	defer r.Close(ctx)
 	server := httptest.NewServer(remote.NewServer(r))
@@ -64,15 +61,12 @@ func TestSecretsCLIEndToEnd(t *testing.T) {
 }
 
 func TestSecretsCLIConfigurationAndSafeFailures(t *testing.T) {
-	cmd := NewRootCmd()
-	cmd.SetArgs([]string{"toy", "-s", "store", "-k", "key"})
-	require.ErrorContains(t, cmd.Execute(), "SQLite")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		fmt.Fprint(w, "do-not-leak-provider-response")
 	}))
 	defer server.Close()
-	cmd = NewRootCmd()
+	cmd := NewRootCmd()
 	var output bytes.Buffer
 	cmd.SetOut(&output)
 	cmd.SetErr(&output)

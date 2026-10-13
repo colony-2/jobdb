@@ -2,11 +2,14 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/secretsbroker"
+	sqlitesecrets "github.com/colony-2/jobdb/pkg/jobdb/secrets/sqlite"
 )
 
 func (r *Runtime) SecretResolutionLimits() jobdb.SecretLimits { return r.secretLimits.WithDefaults() }
@@ -61,4 +64,30 @@ func (r *Runtime) RemoveDevSecret(ctx context.Context, tenant, name string) erro
 		return jobdb.ErrDevSecretsNotConfigured
 	}
 	return r.devSecrets.Remove(ctx, tenant, name)
+}
+
+// Ask SQLite for the actual main file so URI DSNs and caller-owned handles
+// follow the same naming rule. In-memory and temporary databases have no file.
+func openDefaultSecrets(ctx context.Context, db *sql.DB, limits jobdb.SecretLimits) (*sqlitesecrets.Store, error) {
+	rows, err := db.QueryContext(ctx, "PRAGMA database_list")
+	if err != nil {
+		return nil, errors.New("could not locate SQLite database for development secrets")
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var seq int
+		var name, path string
+		if err := rows.Scan(&seq, &name, &path); err != nil {
+			return nil, errors.New("could not locate SQLite database for development secrets")
+		}
+		if name == "main" {
+			if path == "" {
+				path = ":memory:"
+			} else {
+				path += ".secrets.db"
+			}
+			return sqlitesecrets.Open(ctx, path, limits)
+		}
+	}
+	return nil, errors.New("could not locate SQLite database for development secrets")
 }

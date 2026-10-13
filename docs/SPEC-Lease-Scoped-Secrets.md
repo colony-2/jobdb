@@ -338,45 +338,31 @@ remain caller-owned; runtimes never close them. Applications can share a provide
 across runtimes or configure different providers over the same kind of storage.
 
 The SQLite secrets implementation is public in `pkg/jobdb/secrets/sqlite`.
-`sqlitesecrets.Open` returns an encrypted store implementing `SecretProvider`
-and offering `Set`, `Remove`, and `Close`. Its only database dependency is its
-own secrets file. The SQLite runtime's `DevSecretsDB` and `DevSecretsKeyFile`
-configuration is a convenience that creates and owns this provider. Supplying
-those paths together with an injected provider is a configuration error.
+`sqlitesecrets.Open(ctx, path, limits)` returns a plaintext store implementing
+`SecretProvider` and offering `Set`, `Remove`, and `Close`. Its only database
+dependency is its own secrets file. SQLite runtimes automatically create and own
+this provider unless a caller-owned provider is injected.
 
 ## SQLite development secret store
 
-This is an optional development/prototype provider backed by a separate SQLite
-store. The CLI selects it only in SQLite mode. The Go provider is independent of
-workflow storage and can be injected into any supported runtime. It supplies a
-simple way to populate tenant secrets and
-exercise the normal lease-scoped resolution API. It is not a production secret
-manager or a required capability of other runtime implementations.
+This development/prototype provider uses a separate SQLite store. SQLite mode
+selects it automatically. The Go provider is independent of workflow storage and
+can be injected into any supported runtime. It supplies a simple way to populate
+tenant secrets and exercise the normal lease-scoped resolution API.
 
 ### Storage and provider behavior
 
-Store values in a dedicated SQLite file configured with `--dev-secrets-db` (`-s`).
-This file is separate from the workflow database and is not part of job exports
-or workflow backups. Selecting the SQLite workflow backend alone does not enable
-the provider; the secret-store configuration must be explicit. This storage
-configuration does not control registration of the administration routes, which
-are always available in SQLite mode.
+Open `<main database>.secrets.db` automatically alongside the actual main SQLite
+file, including when configured through a DSN or caller-owned database handle.
+For in-memory or temporary databases without a filename, use an in-memory secrets
+store scoped to the runtime. No separate path or key configuration is required.
+The secrets database is separate from the workflow database and is not part of
+job exports or workflow backups.
 
-Each entry is keyed by `(tenant_id, name)` and contains an encrypted UTF-8 value.
-Use authenticated encryption with a fresh nonce per write and bind ciphertext
-to tenant and name as authenticated associated data. The encryption key comes
-from `--dev-secrets-key-file` (`-k`), containing a base64-encoded 32-byte key managed
-outside the SQLite file and its backups. The key is required, never generated
-implicitly on startup, and must not be stored in the secret database. Use
-AES-256-GCM for this initial implementation. Encrypt values before passing them
-to SQLite so journal/WAL files do not receive plaintext values. Tenant IDs and
-names are not encrypted.
-
-Create the store with owner-only file access. Initialization must detect a wrong
-key, including for an empty initialized store, using an authenticated format/key
-check record. A missing or wrong key fails startup or the operation safely; it
-must not silently recreate the store. Key rotation tooling and historical secret
-versions are outside this first implementation.
+Each entry is keyed by `(tenant_id, name)` and contains a plaintext UTF-8 value.
+Create the store with owner-only file access. There is no encryption or key
+management. Existing encrypted development stores are rejected without mutation;
+users repopulate the new store from their original values.
 
 The development provider's authorization policy is deliberately simple:
 **any valid lease for a job in a tenant may resolve the requested secrets stored
@@ -386,7 +372,7 @@ There are no per-job or per-principal grants in this provider.
 
 The provider returns existing requested names for `TenantID` and omits missing
 names. Empty stored values are valid. It never queries another tenant's values
-and never returns unrequested names. A storage or decryption failure fails the
+and never returns unrequested names. A storage failure fails the
 whole resolution call without partial values. This provider does not cache:
 each call reads committed store state. A lookup begun after a successful set or
 remove observes the change; an overlapping lookup may observe the previous
@@ -428,12 +414,9 @@ in the CLI. They require neither an admin token nor a lease token. Any caller
 that can reach this development API can set or remove values for the named
 tenant. The normal resolution endpoint continues to require a valid lease.
 
-On a non-SQLite runtime, these routes return `404`. Supplying development-store
-flags to a non-SQLite backend fails startup instead of being ignored. In SQLite
-mode, routes remain registered even when secret storage is not configured;
-operations then return `503` with a fixed `dev_secrets_not_configured` error and
-perform no mutation. Store/key configuration remains a storage prerequisite,
-not an API enablement or authentication requirement.
+On a non-SQLite runtime, these routes return `404`. SQLite initializes its default
+store automatically. If a library user injects a provider instead, the routes
+return `503 dev_secrets_not_configured`; provider administration is caller-owned.
 
 Tenant and name must be nonempty; names follow the resolution API's opaque,
 case-sensitive semantics. `value` must be present and a UTF-8 JSON string, with
@@ -480,7 +463,7 @@ jobdb secrets remove github_token -t tenant-a
 
 CLI help must label these commands as SQLite development/prototype utilities.
 Show both long and single-letter options in help. The CLI needs neither an admin
-token nor the store's encryption key.
+token nor storage configuration.
 
 ### OpenAPI and compatibility boundary
 
@@ -533,23 +516,22 @@ built-in providers are deferred.
   public errors, logs, traces, or stored workflow failures.
 - Resolution performs no workflow persistence. Replay makes zero provider calls.
 - REST and embedded adapters obey the same provider and lease contract.
-- The SQLite development store persists encrypted values across restarts;
-  missing/wrong keys fail safely, and plaintext values never reach SQLite files,
-  including journals and WAL files.
+- The SQLite development store opens automatically next to the main database
+  and persists plaintext values across restarts without key configuration.
+  In-memory runtime stores are ephemeral and isolated.
 - CLI set/add and remove operate through the development HTTP API for the named
   tenant. Replacement, empty values, exact newline preservation, idempotent
   removal, tenant isolation, and fresh reads after committed changes are tested.
 - Development administration routes are registered automatically in SQLite mode,
   including default CLI mode, without an enablement flag or admin token. Other
-  backends return `404`; unconfigured SQLite secret storage returns a sanitized
-  `503` without mutation. Resolution still requires a valid lease.
-- CLI short options (`-t`, `-u`, `-f`) behave identically to their long forms;
-  SQLite storage options also provide `-s` and `-k` aliases.
+  backends return `404`; injected providers without development administration
+  return `503`. Resolution still requires a valid lease.
+- CLI short options (`-t`, `-u`, `-f`) behave identically to their long forms.
 - The development provider's tenant-wide access policy is explicit in its help
   and documentation; principal and metadata do not grant narrower protection.
 - Development administration appears only in its separate OpenAPI document and
   is not required of other runtime backends. CLI and HTTP diagnostics never
-  expose values or encryption keys.
+  expose secret values.
 
 - Custom and SQLite secret providers work with SQLite and in-memory job storage,
   through embedded and HTTP leases; runtime core accepts the same contract.

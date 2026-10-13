@@ -3,7 +3,7 @@ package sqlitesecrets
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,15 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestEncryptedStoreIsolationRotationAndReopen(t *testing.T) {
+func TestStoreIsolationRotationAndReopen(t *testing.T) {
 	ctx := context.Background()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "secrets.db")
-	key := filepath.Join(dir, "key")
-	require.NoError(t, os.WriteFile(key, []byte(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))), 0600))
-	s, err := Open(ctx, path, key, jobdb.SecretLimits{})
+	path := filepath.Join(t.TempDir(), "nested", "secrets ?#.db")
+	s, err := Open(ctx, path, jobdb.SecretLimits{})
 	require.NoError(t, err)
-	const secret = "credential-that-must-never-be-written-in-plaintext\n"
+	t.Cleanup(func() { _ = s.Close() })
+	const secret = "development-credential\n"
 	require.NoError(t, s.Set(ctx, "a", "token", secret))
 	require.NoError(t, s.Set(ctx, "b", "token", "other"))
 	require.NoError(t, s.Set(ctx, "a", "empty", ""))
@@ -28,28 +26,14 @@ func TestEncryptedStoreIsolationRotationAndReopen(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result.Secrets, 2)
 	require.Equal(t, secret, result.Secrets["token"].Value)
-	var first, second []byte
-	require.NoError(t, s.db.QueryRow("SELECT value FROM secrets WHERE tenant_id='a' AND name='token'").Scan(&first))
-	require.NoError(t, s.Set(ctx, "a", "token", secret))
-	require.NoError(t, s.db.QueryRow("SELECT value FROM secrets WHERE tenant_id='a' AND name='token'").Scan(&second))
-	require.NotEqual(t, first, second)
-	// A ciphertext copied to another tenant is not decryptable there.
-	_, err = s.db.Exec("UPDATE secrets SET value=? WHERE tenant_id='b'", first)
-	require.NoError(t, err)
-	result, err = s.ResolveSecrets(ctx, jobdb.SecretResolveRequest{TenantID: "b", Names: []string{"token"}})
-	require.ErrorIs(t, err, jobdb.ErrSecretResolutionFailed)
-	require.Empty(t, result.Secrets)
+	require.Contains(t, result.Secrets, "empty")
+	require.Empty(t, result.Secrets["empty"].Value)
+	var stored string
+	require.NoError(t, s.db.QueryRow("SELECT value FROM secrets WHERE tenant_id='a' AND name='token'").Scan(&stored))
+	require.Equal(t, secret, stored)
 	require.NoError(t, s.Close())
-	files, err := filepath.Glob(path + "*")
+	s, err = Open(ctx, path, jobdb.SecretLimits{})
 	require.NoError(t, err)
-	for _, file := range files {
-		raw, err := os.ReadFile(file)
-		require.NoError(t, err)
-		require.NotContains(t, string(raw), secret)
-	}
-	s, err = Open(ctx, path, key, jobdb.SecretLimits{})
-	require.NoError(t, err)
-	defer s.Close()
 	result, err = s.ResolveSecrets(ctx, jobdb.SecretResolveRequest{TenantID: "a", Names: []string{"token"}})
 	require.NoError(t, err)
 	require.Equal(t, secret, result.Secrets["token"].Value)
@@ -62,34 +46,41 @@ func TestEncryptedStoreIsolationRotationAndReopen(t *testing.T) {
 	result, err = s.ResolveSecrets(ctx, jobdb.SecretResolveRequest{TenantID: "a", Names: []string{"token"}})
 	require.NoError(t, err)
 	require.Empty(t, result.Secrets)
-	require.NoError(t, os.WriteFile(key, []byte(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{8}, 32))), 0600))
-	_, err = Open(ctx, path, key, jobdb.SecretLimits{})
-	require.Error(t, err)
+	result, err = s.ResolveSecrets(ctx, jobdb.SecretResolveRequest{TenantID: "b", Names: []string{"token", "empty"}})
+	require.NoError(t, err)
+	require.Equal(t, map[string]jobdb.SecretValue{"token": {Value: "other"}}, result.Secrets)
 	info, err := os.Stat(path)
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0600), info.Mode().Perm())
 }
 
-func TestEmptyStoreRejectsWrongOrMissingKey(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "store.db")
-	key := filepath.Join(dir, "key")
-	require.NoError(t, os.WriteFile(key, []byte(base64.StdEncoding.EncodeToString(make([]byte, 32))), 0600))
-	s, err := Open(context.Background(), path, key, jobdb.SecretLimits{})
+func TestStoreInitializesExistingEmptyFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "store.db")
+	require.NoError(t, os.WriteFile(path, nil, 0600))
+	s, err := Open(context.Background(), path, jobdb.SecretLimits{})
 	require.NoError(t, err)
 	require.NoError(t, s.Close())
-	require.NoError(t, os.WriteFile(key, []byte(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32))), 0600))
-	_, err = Open(context.Background(), path, key, jobdb.SecretLimits{})
-	require.Error(t, err)
-	_, err = Open(context.Background(), path, key+"missing", jobdb.SecretLimits{})
-	require.Error(t, err)
+}
+
+func TestStoreRejectsLegacyEncryptionWithoutChangingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "store.db")
+	db, err := sql.Open("sqlite", path)
+	require.NoError(t, err)
+	_, err = db.Exec("CREATE TABLE format (id INTEGER PRIMARY KEY, check_value BLOB); INSERT INTO format VALUES (1, x'010203')")
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+	before, err := os.ReadFile(path)
+	require.NoError(t, err)
+	s, err := Open(context.Background(), path, jobdb.SecretLimits{})
+	require.ErrorContains(t, err, "encrypted development secret stores are no longer supported")
+	require.Nil(t, s)
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
 }
 
 func TestStoreBoundsBatchOutput(t *testing.T) {
-	dir := t.TempDir()
-	key := filepath.Join(dir, "key")
-	require.NoError(t, os.WriteFile(key, []byte(base64.StdEncoding.EncodeToString(make([]byte, 32))), 0600))
-	s, err := Open(context.Background(), filepath.Join(dir, "store.db"), key, jobdb.SecretLimits{MaxResponseBytes: 128})
+	s, err := Open(context.Background(), ":memory:", jobdb.SecretLimits{MaxResponseBytes: 128})
 	require.NoError(t, err)
 	defer s.Close()
 	require.NoError(t, s.Set(context.Background(), "tenant", "one", string(bytes.Repeat([]byte{'x'}, 80))))

@@ -1,13 +1,10 @@
 package remote
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -53,10 +50,8 @@ func TestSecretProvidersIndependentOfJobStorage(t *testing.T) {
 					var store *sqlitesecrets.Store
 					if providerType == "sqlite" {
 						dir := t.TempDir()
-						key := filepath.Join(dir, "key")
-						require.NoError(t, os.WriteFile(key, []byte(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{8}, 32))), 0600))
 						var err error
-						store, err = sqlitesecrets.Open(ctx, filepath.Join(dir, "secrets.db"), key, jobdb.SecretLimits{})
+						store, err = sqlitesecrets.Open(ctx, filepath.Join(dir, "secrets.db"), jobdb.SecretLimits{})
 						require.NoError(t, err)
 						t.Cleanup(func() { require.NoError(t, store.Close()) })
 						provider = store

@@ -18,8 +18,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type devSecretFlags struct{ db, key string }
-
 func newSecretsCmd() *cobra.Command {
 	var tenant, baseURL string
 	root := &cobra.Command{Use: "secrets", Short: "Manage SQLite development/prototype secrets", Args: cobra.NoArgs}

@@ -1591,8 +1591,6 @@ type ServerOptions struct
 package github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite
 type Config struct
   field SecretProvider github.com/colony-2/jobdb/pkg/jobdb.SecretProvider
-  field DevSecretsDB string
-  field DevSecretsKeyFile string
   field SecretLimits github.com/colony-2/jobdb/pkg/jobdb.SecretLimits
   field DSN string
   field DBPath string
@@ -1680,7 +1678,7 @@ method Update.UnmarshalJSON func(raw []byte) error
 func ValidateUpdate func(u *Update, initial bool) error
 
 package github.com/colony-2/jobdb/pkg/jobdb/secrets/sqlite
-func Open func(ctx context.Context, path string, keyFile string, limits github.com/colony-2/jobdb/pkg/jobdb.SecretLimits) (*Store, error)
+func Open func(ctx context.Context, path string, limits github.com/colony-2/jobdb/pkg/jobdb.SecretLimits) (*Store, error)
 type Store struct
 method Store.Close func() error
 method Store.Remove func(ctx context.Context, tenant string, name string) error

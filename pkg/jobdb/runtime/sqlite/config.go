@@ -33,12 +33,9 @@ const (
 type Config struct {
 	ConfigurationLimits jobdb.ConfigurationLimits
 	// SecretProvider is independent of job storage and remains caller-owned.
+	// If nil, a development store opens at <main database>.secrets.db (or in memory).
 	SecretProvider jobdb.SecretProvider
-	// DevSecretsDB and DevSecretsKeyFile are a convenience for opening and owning
-	// the SQLite development provider. They cannot be combined with SecretProvider.
-	DevSecretsDB      string
-	DevSecretsKeyFile string
-	SecretLimits      jobdb.SecretLimits
+	SecretLimits   jobdb.SecretLimits
 	// DSN is passed to modernc.org/sqlite. If empty, DBPath is used.
 	DSN string
 	// DBPath is the durable SQLite database path used when DSN is empty.
@@ -111,18 +108,20 @@ func New(db *sql.DB, opts ...Option) (*Runtime, error) {
 		secretProvider: cfg.secretProvider,
 		secretLimits:   cfg.secretLimits,
 	}
+	if rt.secretProvider == nil {
+		rt.devSecrets, err = openDefaultSecrets(context.Background(), db, cfg.secretLimits)
+		if err != nil {
+			_ = chapterStore.Close(context.Background())
+			return nil, err
+		}
+		rt.secretProvider = rt.devSecrets
+	}
 	return rt, nil
 }
 
 // NewFromConfig opens a SQLite database, creates a chapter store over the same
 // *sql.DB rowstore, and returns the composed runtime.
 func NewFromConfig(ctx context.Context, cfg Config) (*Runtime, error) {
-	if cfg.SecretProvider != nil && (cfg.DevSecretsDB != "" || cfg.DevSecretsKeyFile != "") {
-		return nil, fmt.Errorf("configure either SecretProvider or development secret store paths")
-	}
-	if (cfg.DevSecretsDB == "") != (cfg.DevSecretsKeyFile == "") {
-		return nil, fmt.Errorf("development secret store requires both a database path and encryption key file")
-	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -173,8 +172,8 @@ func NewFromConfig(ctx context.Context, cfg Config) (*Runtime, error) {
 		workerID = defaultWorkerID()
 	}
 	var store *sqlitesecrets.Store
-	if cfg.DevSecretsDB != "" || cfg.DevSecretsKeyFile != "" {
-		store, err = sqlitesecrets.Open(ctx, cfg.DevSecretsDB, cfg.DevSecretsKeyFile, cfg.SecretLimits)
+	if cfg.SecretProvider == nil {
+		store, err = openDefaultSecrets(ctx, db, cfg.SecretLimits)
 		if err != nil {
 			_ = chapterStore.Close(ctx)
 			return nil, err
@@ -206,7 +205,8 @@ func NewFromConfig(ctx context.Context, cfg Config) (*Runtime, error) {
 	return rt, nil
 }
 
-// Close releases resources owned by a runtime constructed with NewFromConfig.
+// Close releases runtime-owned resources, including the default secrets store.
+// Caller-supplied database handles and secret providers remain open.
 func (r *Runtime) Close(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()

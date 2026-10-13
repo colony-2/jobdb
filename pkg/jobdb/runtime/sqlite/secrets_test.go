@@ -2,9 +2,13 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -178,6 +182,119 @@ func TestSecretResolutionLeaseLossDuringLookup(t *testing.T) {
 			}
 			close(release)
 			require.ErrorIs(t, <-done, jobdb.ErrExecutionLeaseLost)
+		})
+	}
+}
+
+func TestDefaultSecretStoreLocationAndPersistence(t *testing.T) {
+	for _, constructor := range []string{"path", "dsn", "handle"} {
+		t.Run(constructor, func(t *testing.T) {
+			ctx := context.Background()
+			dir := t.TempDir()
+			path := filepath.Join(dir, "jobs.db")
+			if constructor != "path" {
+				path = filepath.Join(dir, "jobs ?#.db")
+			}
+			dsn := (&url.URL{Scheme: "file", Path: path}).String() + "?mode=rwc"
+			var db *sql.DB
+			open := func() *Runtime {
+				t.Helper()
+				var r *Runtime
+				var err error
+				switch constructor {
+				case "path":
+					r, err = NewFromConfig(ctx, Config{DBPath: path})
+				case "dsn":
+					r, err = NewFromConfig(ctx, Config{DSN: dsn, BlobDir: filepath.Join(dir, "blobs")})
+				case "handle":
+					if db == nil {
+						db, err = sql.Open("sqlite", dsn)
+						require.NoError(t, err)
+						db.SetMaxOpenConns(1)
+						t.Cleanup(func() { require.NoError(t, db.Close()) })
+					}
+					r, err = New(db, WithBlobStoreURI("blobfs://"+filepath.Join(dir, "blobs")))
+				}
+				require.NoError(t, err)
+				t.Cleanup(func() { require.NoError(t, r.Close(ctx)) })
+				return r
+			}
+			r := open()
+			require.NoError(t, r.SetDevSecret(ctx, "tenant", "token", "stored-value"))
+			require.FileExists(t, path+".secrets.db")
+			var count int
+			require.NoError(t, r.db.QueryRow("SELECT count(*) FROM sqlite_master WHERE name='secrets'").Scan(&count))
+			require.Zero(t, count)
+			provider := r.secretProvider
+			require.NoError(t, r.Close(ctx))
+			_, err := provider.ResolveSecrets(ctx, jobdb.SecretResolveRequest{TenantID: "tenant", Names: []string{"token"}})
+			require.Error(t, err)
+			if db != nil {
+				require.NoError(t, db.PingContext(ctx))
+			}
+			r = open()
+			result, err := r.secretProvider.ResolveSecrets(ctx, jobdb.SecretResolveRequest{TenantID: "tenant", Names: []string{"token"}})
+			require.NoError(t, err)
+			require.Equal(t, "stored-value", result.Secrets["token"].Value)
+		})
+	}
+}
+
+func TestDefaultMemorySecretStoreIsolation(t *testing.T) {
+	ctx := context.Background()
+	for _, constructor := range []string{"config", "handle"} {
+		t.Run(constructor, func(t *testing.T) {
+			for i := 0; i < 2; i++ {
+				var r *Runtime
+				var err error
+				blobURI := "blobfs://" + t.TempDir()
+				if constructor == "config" {
+					r, err = NewFromConfig(ctx, Config{DSN: ":memory:", BlobStoreURI: blobURI})
+				} else {
+					db, openErr := sql.Open("sqlite", ":memory:")
+					require.NoError(t, openErr)
+					db.SetMaxOpenConns(1)
+					t.Cleanup(func() { require.NoError(t, db.Close()) })
+					r, err = New(db, WithBlobStoreURI(blobURI))
+				}
+				require.NoError(t, err)
+				t.Cleanup(func() { require.NoError(t, r.Close(ctx)) })
+				result, err := r.secretProvider.ResolveSecrets(ctx, jobdb.SecretResolveRequest{TenantID: "tenant", Names: []string{"token"}})
+				require.NoError(t, err)
+				require.Empty(t, result.Secrets)
+				require.NoError(t, r.SetDevSecret(ctx, "tenant", "token", "value"))
+			}
+		})
+	}
+}
+
+func TestInjectedProviderOverridesDefaultStore(t *testing.T) {
+	ctx := context.Background()
+	for _, constructor := range []string{"config", "handle"} {
+		t.Run(constructor, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "jobs.db")
+			// An unusable sidecar must not affect an explicitly supplied provider.
+			require.NoError(t, os.Mkdir(path+".secrets.db", 0700))
+			provider := secretProviderFunc(func(context.Context, jobdb.SecretResolveRequest) (jobdb.SecretResolveResult, error) {
+				return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "custom"}}}, nil
+			})
+			var r *Runtime
+			var err error
+			if constructor == "config" {
+				r, err = NewFromConfig(ctx, Config{DBPath: path, SecretProvider: provider})
+			} else {
+				db, openErr := sql.Open("sqlite", path)
+				require.NoError(t, openErr)
+				db.SetMaxOpenConns(1)
+				defer db.Close()
+				r, err = New(db, WithSecretProvider(provider), WithBlobStoreURI("blobfs://"+t.TempDir()))
+			}
+			require.NoError(t, err)
+			defer r.Close(ctx)
+			require.Nil(t, r.devSecrets)
+			result, err := r.secretProvider.ResolveSecrets(ctx, jobdb.SecretResolveRequest{})
+			require.NoError(t, err)
+			require.Equal(t, "custom", result.Secrets["token"].Value)
 		})
 	}
 }

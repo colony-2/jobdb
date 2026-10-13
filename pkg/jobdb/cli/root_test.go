@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -17,9 +18,14 @@ func TestRootCommandDefaultsToSQLite(t *testing.T) {
 
 	called := 0
 	var gotListenAddr string
-	serveHTTPFunc = func(ctx context.Context, listenAddr string, _ http.Handler, cleanup func(context.Context) error) error {
+	serveHTTPFunc = func(ctx context.Context, listenAddr string, handler http.Handler, cleanup func(context.Context) error) error {
 		called++
 		gotListenAddr = listenAddr
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/dev/v1/tenants/tenant/secrets/set", strings.NewReader(`{"name":"token","value":"local-value"}`)))
+		if recorder.Code != http.StatusNoContent {
+			t.Fatalf("default SQLite secret administration status = %d: %s", recorder.Code, recorder.Body.String())
+		}
 		if cleanup != nil {
 			if err := cleanup(ctx); err != nil {
 				t.Fatalf("cleanup returned error: %v", err)

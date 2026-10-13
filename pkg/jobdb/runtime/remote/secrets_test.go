@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -25,9 +24,7 @@ import (
 func secretsSQLite(t *testing.T) *sqliteruntime.Runtime {
 	t.Helper()
 	dir := t.TempDir()
-	key := filepath.Join(dir, "key")
-	require.NoError(t, os.WriteFile(key, []byte(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{4}, 32))), 0600))
-	r, err := sqliteruntime.NewFromConfig(context.Background(), sqliteruntime.Config{DBPath: filepath.Join(dir, "jobs.db"), DevSecretsDB: filepath.Join(dir, "secrets.db"), DevSecretsKeyFile: key})
+	r, err := sqliteruntime.NewFromConfig(context.Background(), sqliteruntime.Config{DBPath: filepath.Join(dir, "jobs.db")})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, r.Close(context.Background())) })
 	return r
@@ -179,9 +176,8 @@ func TestSecretsUnavailableBackendsAndSafeClientErrors(t *testing.T) {
 	defer embedded.Shutdown()
 	local := httptest.NewServer(NewServer(embedded.Runtime))
 	defer local.Close()
-	status, raw := secretHTTP(t, local.URL, "/dev/v1/tenants/a/secrets/set", "", `{"name":"token","value":"value"}`)
-	require.Equal(t, 503, status)
-	require.Contains(t, raw, "dev_secrets_not_configured")
+	status, _ = secretHTTP(t, local.URL, "/dev/v1/tenants/a/secrets/set", "", `{"name":"token","value":"value"}`)
+	require.Equal(t, 204, status)
 	for _, body := range []string{`secret-provider-password`, `{"secrets":{"token":{}}}`, `{"secrets":null}`, `{"secrets":{"extra":{"value":"secret-provider-password"}}}`} {
 		bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, body) }))
 		c, err := New(bad.URL, bad.Client())
