@@ -375,6 +375,10 @@ func classifyJobRunWithoutLease(ctx context.Context, runtime WorkflowRuntime, jo
 }
 
 func classifyJobRunAfterRun(ctx context.Context, runtime WorkflowRuntime, jobKey JobKey, supportedRoutes map[Route]struct{}, directOutput JobData, runErr error) (JobRunOutcome, error) {
+	var historyConflict *recordedHistoryConflict
+	if errors.As(runErr, &historyConflict) {
+		return JobRunOutcome{}, runErr
+	}
 	var renewalErr *jobdb.LeaseRenewalError
 	if errors.As(runErr, &renewalErr) || errors.Is(runErr, ErrExecutionLeaseLost) || (ctx.Err() != nil && errors.Is(runErr, ctx.Err())) {
 		return JobRunOutcome{}, runErr

@@ -354,11 +354,14 @@ func (e *workerEngine) runLease(ctx context.Context, lease ExecutionLease, worke
 		e.logger.Error("no workset found for route", "route", lease.Route(), "job", lease.Job().JobKey)
 		return
 	}
-	_, _ = runClaimedJobLease(ctx, e.runtime, workset, lease, claimedJobRunOptions{
+	_, err := runClaimedJobLease(ctx, e.runtime, workset, lease, claimedJobRunOptions{
 		Logger:         e.logger,
 		WorkerID:       workerID,
 		AwaitThreshold: e.awaitThreshold,
 	})
+	if err != nil {
+		e.logger.Error("job execution failed", "job", lease.Job().JobKey, "route", lease.Route(), "worker", workerID, "error", err)
+	}
 }
 
 type replayWorkSet struct {

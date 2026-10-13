@@ -625,7 +625,7 @@ func TestGetJobRunSynthesizedNextAttemptOnDirectRuntime(t *testing.T) {
 func TestRestartWithExtraOutputDeterminismErrorOnDirectRuntime(t *testing.T) {
 	for _, harness := range jobdbtest.BuiltInRuntimeHarnesses() {
 		harness := harness
-		if harness.Name != "direct" {
+		if !harness.SupportsLeases {
 			continue
 		}
 		t.Run(harness.Name, func(t *testing.T) {

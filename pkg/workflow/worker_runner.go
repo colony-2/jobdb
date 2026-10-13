@@ -122,8 +122,8 @@ func (r *workerRunner) markStoryOrdinalConsumed(ordinal int64) {
 	}
 }
 
-// Timeout recovery must account for a task append that committed even when its
-// acknowledgement was lost to cancellation. Only the durable log owns ordinals.
+// Failure recovery must account for occupied task/restart chapters, including
+// an append whose acknowledgement was lost. Only the durable log owns ordinals.
 func (r *workerRunner) seekJobOutcome(ctx context.Context) (bool, error) {
 	for {
 		chapter, _, err := r.getChapter(ctx, r.storyCounter)
@@ -137,7 +137,7 @@ func (r *workerRunner) seekJobOutcome(ctx context.Context) (bool, error) {
 			return true, nil
 		}
 		if !chapterIs(chapter, chapterTypeTaskAttemptOutcome) && !chapterIs(chapter, chapterTypeRestartExtra) {
-			return false, fmt.Errorf("%w: unexpected chapter at ordinal %d during timeout recovery", ErrWorkflowNotDeterministic, r.storyCounter)
+			return false, fmt.Errorf("%w: unexpected chapter at ordinal %d during failure recovery", ErrWorkflowNotDeterministic, r.storyCounter)
 		}
 		r.markStoryOrdinalConsumed(r.storyCounter)
 	}
@@ -631,6 +631,7 @@ func (r *workerRunner) completeJobOutcome(ctx context.Context, ordinal int64, pa
 		InputRef:   inputRef,
 		StartedAt:  startedAt,
 		FinishedAt: finishedAt,
+		Retryable:  new(bool), // Completion is terminal, even if the error loses its Go type in storage.
 	}
 	chapter, uploads, err := prepareTaskDataChapterWrite(ctx, ref, r.worker.JobWorker.Name(), chapterTypeJobAttemptOutcome, payloadKind, inputHash, time.Now().UTC(), meta, payload, artifacts)
 	if err != nil {
@@ -652,6 +653,70 @@ func (r *workerRunner) completeJobOutcome(ctx context.Context, ordinal int64, pa
 		return nil, nil
 	}
 	return chapterToTaskData(r.runtime, r.GetJobKey(), chapter)
+}
+
+// recordedHistoryConflict keeps the current mismatch visible to synchronous
+// callers when reconciliation must retain a different, already durable result.
+type recordedHistoryConflict struct{ cause error }
+
+func (e *recordedHistoryConflict) Error() string { return e.cause.Error() }
+func (e *recordedHistoryConflict) Unwrap() error { return e.cause }
+
+// A live history mismatch cannot be retried as ordinary work. Preserve all
+// recorded chapters and finish at an unoccupied ordinal. If completion already
+// committed before a crash, reconcile that outcome without replacing it or
+// hiding the current mismatch from the caller.
+func (r *workerRunner) completeHistoryFailure(ctx context.Context, jobErr error, config jobExecutionConfig, attempt int, input JobData, startedAt time.Time) (JobData, error) {
+	for {
+		found, err := r.seekJobOutcome(ctx)
+		if err != nil {
+			return nil, errors.Join(jobErr, err)
+		}
+		if !found {
+			break
+		}
+		chapter, meta, err := r.getChapter(ctx, r.storyCounter)
+		if err != nil {
+			return nil, errors.Join(jobErr, err)
+		}
+		_, recordedErr := chapterToTaskData(r.runtime, r.GetJobKey(), chapter)
+		priorAttempt := meta.Attempt
+		if priorAttempt <= 0 {
+			priorAttempt = 1
+		}
+		if jobOutcomeTerminal(meta, recordedErr, config.retryCfg) {
+			if err := r.completeLeaseWithChapter(ctx, chapter, recordedErr); err != nil {
+				return nil, errors.Join(jobErr, err)
+			}
+			r.markStoryOrdinalConsumed(chapter.Ordinal)
+			r.emitJobEnd(attempt, nil, jobErr, time.Now().UTC())
+			return nil, &recordedHistoryConflict{cause: jobErr}
+		}
+		// A recorded retry outcome belongs to the previous attempt. Never
+		// overwrite it or rerun its work just to record the current failure.
+		r.markStoryOrdinalConsumed(chapter.Ordinal)
+		attempt = max(attempt, priorAttempt+1)
+	}
+	finishedAt := time.Now().UTC()
+	payload, artifacts, kind, err := r.prepareJobResultPayload(nil, jobErr, config.inputRef)
+	if err != nil {
+		return nil, errors.Join(jobErr, err)
+	}
+	if _, err := r.completeJobOutcome(ctx, r.storyCounter, payload, artifacts, kind, config.inputRef.Hash, attempt, config.inputRef, &startedAt, &finishedAt, jobErr); err != nil {
+		return nil, errors.Join(jobErr, err)
+	}
+	r.markStoryOrdinalConsumed(r.storyCounter)
+	cleanupArtifacts(artifacts, r.logger)
+	if inputArtifacts, _ := input.GetArtifacts(); len(inputArtifacts) > 0 {
+		cleanupArtifacts(inputArtifacts, r.logger)
+	}
+	r.emitJobEnd(attempt, nil, jobErr, finishedAt)
+	return nil, jobErr
+}
+
+func jobOutcomeTerminal(meta chapterMeta, err error, policy RetryPolicy) bool {
+	return err == nil || (meta.Retryable != nil && !*meta.Retryable) ||
+		!isRetryable(err, policy) || max(meta.Attempt, 1) >= int(policy.MaximumAttempts)
 }
 
 func (r *workerRunner) currentLeaseID() string {
@@ -782,7 +847,7 @@ func (r *workerRunner) checkCachedJobResult(ctx context.Context, ordinal int64, 
 		return output, nextAttempt, true, true, nil, nil, &endAt, &endAt
 	}
 
-	if !isRetryable(payloadErr, retryCfg) || priorAttempt >= int(retryCfg.MaximumAttempts) {
+	if jobOutcomeTerminal(meta, payloadErr, retryCfg) {
 		return nil, nextAttempt, true, true, payloadErr, nil, &endAt, &endAt
 	}
 
@@ -899,6 +964,7 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 			r.emitTaskStart(taskType, ordinal, attempt, data, metaStartAt(meta))
 			if chapterIs(chapter, chapterTypeRestartExtra) && r.shouldCheckPrerequisites() && len(meta.Prerequisites) > 0 {
 				if err := r.checkPrerequisites(ctx, meta); err != nil {
+					r.markStoryOrdinalConsumed(ordinal)
 					r.emitTaskEnd(taskType, ordinal, attempt, nil, err, metaEndAt(meta))
 					return nil, err
 				}
@@ -1490,9 +1556,10 @@ func (r *workerRunner) DoJob(ctx context.Context) (output JobData, runErr error)
 			return nil, jobErr
 		}
 		if errors.Is(jobErr, ErrWorkflowNotDeterministic) || errors.Is(jobErr, ErrMissingInputHash) {
-			// Do not replace the original mismatch with a second cache lookup
-			// error, or hide it behind a recorded outcome at the same ordinal.
-			return nil, jobErr
+			if r.replay {
+				return nil, jobErr
+			}
+			return r.completeHistoryFailure(ctx, jobErr, config, attempt, inputData, attemptStartAt)
 		}
 		var timeout TimeoutError
 		if !r.replay && errors.As(jobErr, &timeout) && timeout.Payload.Kind == "job" {
