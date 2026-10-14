@@ -46,7 +46,12 @@ func TestSecretsCLIEndToEnd(t *testing.T) {
 	result, err := l.ResolveSecrets(ctx, []string{"token"})
 	require.NoError(t, err)
 	require.Equal(t, "unique-secret-content\n", result.Secrets["token"].Value)
-	file := filepath.Join(dir, "value")
+	file := filepath.Join(dir, "codex.key")
+	require.NoError(t, os.WriteFile(file, []byte("unique-secret-content-from-file\n"), 0600))
+	run("", "set", "codex_api_key", "-t", "a", "-u", server.URL, "-f", file)
+	result, err = l.ResolveSecrets(ctx, []string{"codex_api_key"})
+	require.NoError(t, err)
+	require.Equal(t, "unique-secret-content-from-file\n", result.Secrets["codex_api_key"].Value)
 	require.NoError(t, os.WriteFile(file, []byte(""), 0600))
 	run("", "set", "token", "--tenant", "a", "--url", server.URL, "--value-file", file)
 	result, err = l.ResolveSecrets(ctx, []string{"token"})
@@ -73,11 +78,53 @@ func TestSecretsCLIConfigurationAndSafeFailures(t *testing.T) {
 	cmd.SetArgs([]string{"secrets", "remove", "token", "-t", "a", "-u", server.URL})
 	err := cmd.Execute()
 	require.ErrorIs(t, err, jobdb.ErrSecretResolutionFailed)
+	require.ErrorContains(t, err, "server returned HTTP 500")
 	require.NotContains(t, output.String(), "do-not-leak")
 	require.NotContains(t, err.Error(), "do-not-leak")
-	for _, args := range [][]string{{"secrets", "set", "token", "-t", "a"}, {"secrets", "remove", "token"}} {
-		cmd = NewRootCmd()
-		cmd.SetArgs(args)
-		require.Error(t, cmd.Execute())
+}
+
+// Invalid local input must explain what to fix without reading secret values
+// into diagnostics or making an HTTP request.
+func TestSecretsCLILocalValidationDiagnostics(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("invalid local input reached the server")
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	invalidUTF8 := "do-not-leak-secret" + string([]byte{255})
+	for _, tc := range []struct {
+		name           string
+		args           []string
+		stdin          string
+		message        string
+		invalidRequest bool
+	}{
+		{"set missing tenant", []string{"set", "codex_api_key", "-f", "codex.key"}, "", "--tenant (-t) is required", true},
+		{"add missing tenant", []string{"add", "token", "-f", "-"}, "", "--tenant (-t) is required", true},
+		{"remove missing tenant", []string{"remove", "token"}, "", "--tenant (-t) is required", true},
+		{"empty tenant", []string{"set", "token", "-t", "", "-f", "-"}, "", "--tenant (-t) is required", true},
+		{"invalid tenant", []string{"remove", "token", "-t", invalidUTF8}, "", "--tenant (-t) must be valid UTF-8", true},
+		{"empty name", []string{"remove", "", "-t", "a"}, "", "secret name must be nonempty UTF-8", true},
+		{"invalid name", []string{"remove", invalidUTF8, "-t", "a"}, "", "secret name must be nonempty UTF-8", true},
+		{"missing file option", []string{"set", "token", "-t", "a"}, "", "--value-file (-f) is required", true},
+		{"missing file", []string{"set", "token", "-t", "a", "-f", filepath.Join(t.TempDir(), "missing")}, "", "secret value file could not be opened", false},
+		{"invalid value", []string{"set", "token", "-t", "a", "-f", "-"}, invalidUTF8, "secret value must be valid UTF-8", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			cmd.SetArgs(append([]string{"secrets", "-u", server.URL}, tc.args...))
+			cmd.SetIn(strings.NewReader(tc.stdin))
+			var output bytes.Buffer
+			cmd.SetOut(&output)
+			cmd.SetErr(&output)
+			err := cmd.Execute()
+			require.ErrorContains(t, err, tc.message)
+			if tc.invalidRequest {
+				require.ErrorIs(t, err, jobdb.ErrInvalidSecretRequest)
+			}
+			require.Contains(t, output.String(), tc.message)
+			require.NotContains(t, output.String(), "do-not-leak-secret")
+			require.NotContains(t, err.Error(), "do-not-leak-secret")
+		})
 	}
 }

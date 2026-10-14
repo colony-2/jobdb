@@ -31,19 +31,25 @@ func newSecretsCmd() *cobra.Command {
 			cmd.Flags().StringVarP(&valueFile, "value-file", "f", "", "UTF-8 value file, or - for stdin (required)")
 		}
 		cmd.RunE = func(cmd *cobra.Command, args []string) error {
-			if tenant == "" || args[0] == "" || !utf8.ValidString(tenant) || !utf8.ValidString(args[0]) {
-				return jobdb.ErrInvalidSecretRequest
+			if tenant == "" {
+				return fmt.Errorf("--tenant (-t) is required: %w", jobdb.ErrInvalidSecretRequest)
+			}
+			if !utf8.ValidString(tenant) {
+				return fmt.Errorf("--tenant (-t) must be valid UTF-8: %w", jobdb.ErrInvalidSecretRequest)
+			}
+			if args[0] == "" || !utf8.ValidString(args[0]) {
+				return fmt.Errorf("secret name must be nonempty UTF-8: %w", jobdb.ErrInvalidSecretRequest)
 			}
 			body := map[string]string{"name": args[0]}
 			if op == "set" {
 				if valueFile == "" {
-					return fmt.Errorf("--value-file (-f) is required")
+					return fmt.Errorf("--value-file (-f) is required: %w", jobdb.ErrInvalidSecretRequest)
 				}
 				var reader io.Reader = cmd.InOrStdin()
 				if valueFile != "-" {
 					file, err := os.Open(valueFile)
 					if err != nil {
-						return fmt.Errorf("secret value file could not be opened")
+						return fmt.Errorf("secret value file could not be opened; check --value-file (-f), file existence, and read permissions")
 					}
 					defer file.Close()
 					reader = file
@@ -51,13 +57,13 @@ func newSecretsCmd() *cobra.Command {
 				limit := (jobdb.SecretLimits{}).WithDefaults().MaxResponseBytes
 				value, err := io.ReadAll(io.LimitReader(reader, limit+1))
 				if err != nil {
-					return fmt.Errorf("secret value could not be read")
+					return fmt.Errorf("secret value could not be read; check --value-file (-f) or stdin")
 				}
 				if int64(len(value)) > limit {
 					return jobdb.ErrSecretRequestTooLarge
 				}
 				if !utf8.Valid(value) {
-					return jobdb.ErrInvalidSecretRequest
+					return fmt.Errorf("secret value must be valid UTF-8: %w", jobdb.ErrInvalidSecretRequest)
 				}
 				body["value"] = string(value)
 			}
@@ -80,11 +86,11 @@ func newSecretsCmd() *cobra.Command {
 			client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 			resp, err := client.Do(req)
 			if err != nil {
-				return secretsutil.SafeError(err)
+				return fmt.Errorf("secret administration request could not complete; check --url (-u) and server availability: %w", secretsutil.SafeError(err))
 			}
 			defer resp.Body.Close()
 			if resp.StatusCode != http.StatusNoContent {
-				return secretsutil.StatusError(resp.StatusCode)
+				return fmt.Errorf("secret administration server returned HTTP %d: %w", resp.StatusCode, secretsutil.StatusError(resp.StatusCode))
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s secret %q for tenant %q\n", op, args[0], tenant)
 			return err

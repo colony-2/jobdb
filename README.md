@@ -129,13 +129,17 @@ types, and runtime package reference.
 ## Tenant Configuration
 
 Every backend provides a tenant configuration store and public administration API.
-Set or remove JSON values through a running server:
+Set strings by default, or use `--json` (`-j`) for JSON values, through a running server:
 
 ```sh
-printf '%s' '{"region":"eu-west-1","parallelism":4}' | jobdb config set build.defaults -t tenant-a -f -
-jobdb config add build.defaults -t tenant-a -f ./defaults.json
+jobdb config set codex_api_base_url -t tenant-a -f ./codex.url
+printf '%s' '{"region":"eu-west-1","parallelism":4}' | jobdb config set build.defaults -t tenant-a -f - -j
+jobdb config add build.defaults -t tenant-a -f ./defaults.json --json
 jobdb config remove build.defaults -t tenant-a
 ```
+
+String input preserves whitespace, including trailing newlines. Existing commands
+that supply JSON must now include `--json` (`-j`).
 
 `--url` (`-u`) selects the server (default `http://127.0.0.1:9047`). Set
 `JOBDB_BEARER_TOKEN` if deployment authentication requires it. `--if-match`

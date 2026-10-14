@@ -137,6 +137,22 @@ secrets store and closes it with the runtime. An injected provider takes precede
 The CLI keeps its SQLite-only administration routes and does not configure a
 provider for other backend modes.
 
+## CLI troubleshooting
+
+Every set/add/remove command requires `--tenant` (`-t`), matching the job's tenant:
+
+```sh
+jobdb secrets set codex_api_key -t tenant-a -f codex.key
+jobdb secrets set --help
+```
+
+Local validation errors identify missing options, invalid UTF-8, and file access
+problems. These happen before the HTTP request. Connection failures suggest
+checking `--url` (`-u`) and the running server. Server rejections include the HTTP
+status and a sanitized error; raw response bodies and secret values are excluded.
+There is no secrets CLI debug/verbose flag. Older versions report a missing
+tenant as only `invalid secret request`.
+
 ## Moving from the encrypted development store
 
 Remove `--dev-secrets-db` / `-s` and `--dev-secrets-key-file` / `-k` from server

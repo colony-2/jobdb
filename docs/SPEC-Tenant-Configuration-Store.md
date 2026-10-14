@@ -129,12 +129,14 @@ They work with a running server on any supported backend and do not open or
 modify database files directly.
 
 ```sh
+jobdb config set codex_api_base_url -t tenant-a -f ./codex.url
+
 jobdb config set build.defaults --tenant tenant-a \
-  --value-file ./build-defaults.json
+  --value-file ./build-defaults.json --json
 
-jobdb config add build.defaults -t tenant-a -f ./build-defaults.json
+jobdb config add build.defaults -t tenant-a -f ./build-defaults.json -j
 
-printf '%s' 'false' | jobdb config set enablePreview -t tenant-a -f -
+printf '%s' 'false' | jobdb config set enablePreview -t tenant-a -f - -j
 
 jobdb config remove build.defaults -t tenant-a
 ```
@@ -145,11 +147,16 @@ jobdb config remove build.defaults -t tenant-a
 - `--tenant` (`-t`) is required for both commands.
 - `--url` (`-u`) defaults to `http://127.0.0.1:9047` and selects the runtime server.
 - `set` requires `--value-file PATH` (`-f PATH`); `--value-file -` reads stdin.
-  Parse exactly one UTF-8 JSON value, not a request envelope or a map of entries.
-  Unlike the secrets CLI's raw string input, a configuration string must be
-  JSON-quoted. `false`, `0`, `null`, and `""` retain their distinct JSON types.
-  Reject empty input, trailing non-whitespace data, and invalid or duplicate-key
-  JSON before sending a mutation; preserve numbers without floating-point loss.
+  By default, store the exact UTF-8 input as a JSON string, preserving whitespace
+  and newlines; empty input is an empty string. Do not infer types from content:
+  `false`, `0`, `null`, and JSON-looking text are all strings without `--json`.
+- `set --json` (`-j`) parses exactly one UTF-8 JSON value, not a request envelope
+  or a map of entries. Strings in this mode must be JSON-quoted. Reject empty
+  input, trailing non-whitespace data, and invalid or duplicate-key JSON before
+  sending a mutation; preserve numbers without floating-point loss.
+- Enforce value size limits on the JSON encoding, including string escaping.
+  Existing JSON-input CLI commands must add `--json` (`-j`); the REST and Go
+  configuration APIs continue to accept JSON values unchanged.
 - Both commands accept optional `--if-match ETAG`, passing the quoted ETag
   unchanged to `If-Match`. A revision conflict fails without an automatic
   unconditional retry.
@@ -159,8 +166,8 @@ jobdb config remove build.defaults -t tenant-a
   but does not print the value. Failures return a nonzero exit status with
   sanitized diagnostics, including for unexpected server responses.
 
-CLI help must show both long and short flags and explain JSON input with string,
-boolean, and object examples. These are standard commands on all backends, not
+CLI help must show both long and short flags and explain default string input
+and explicit JSON input with boolean and object examples. These are standard commands on all backends, not
 SQLite development utilities.
 
 ## Lease-scoped worker read
