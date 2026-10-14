@@ -54,7 +54,7 @@ func TestExecutionProducerArtifactReferences(t *testing.T) {
 					attempts = append(attempts, c.AttemptNumber)
 					n := runs.Add(1)
 					if n <= int32(yields) {
-						return nil, c.Yield(c.Context(), jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: w.Name()}})
+						return nil, c.Yield(c.Context(), wf.YieldRequest{Reschedule: jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: w.Name()}}})
 					}
 					if n == 1 && mode == "local-wait" {
 						if err := c.AwaitDuration(jobdb.Duration(200 * time.Millisecond)); err != nil {

@@ -378,7 +378,7 @@ func TestAttemptCacheLifecycle(t *testing.T) {
 						return nil, AppError{Payload: AppErrorPayload{Message: "retry", Level: "error"}}
 					}
 					if mode == "resume" {
-						return nil, ctx.Yield(context.Background(), RescheduleExecutionRequest{NextRoute: Route{JobType: "cache-job"}})
+						return nil, ctx.Yield(context.Background(), YieldRequest{Reschedule: RescheduleExecutionRequest{NextRoute: Route{JobType: "cache-job"}}})
 					}
 				} else {
 					if _, err := readCacheVersion(old); err == nil {

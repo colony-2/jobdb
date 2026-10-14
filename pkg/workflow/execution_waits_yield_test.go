@@ -55,6 +55,7 @@ func TestExecutionChildWaitDeadlineAndRecovery(t *testing.T) {
 						require.NoError(t, err)
 						out, err := r.Run(nil)
 						require.NoError(t, err)
+						require.Nil(t, out.Handoff, "child waits are not explicit handoffs")
 						return out
 					}
 					require.Equal(t, wf.JobRunSuspended, run("original").Status)
@@ -93,7 +94,8 @@ func TestExecutionChildWaitDeadlineAndRecovery(t *testing.T) {
 // after the underlying runtime has committed the handoff.
 type yieldFaultRuntime struct {
 	jobdb.WorkflowRuntime
-	mode string
+	mode        string
+	afterCommit func() error
 }
 
 func (r yieldFaultRuntime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
@@ -101,12 +103,13 @@ func (r yieldFaultRuntime) GetJobLease(ctx context.Context, req jobdb.GetJobLeas
 	if err != nil || l == nil {
 		return l, err
 	}
-	return yieldFaultLease{RenewableExecutionLease: l.(jobdb.RenewableExecutionLease), mode: r.mode}, nil
+	return yieldFaultLease{RenewableExecutionLease: l.(jobdb.RenewableExecutionLease), mode: r.mode, afterCommit: r.afterCommit}, nil
 }
 
 type yieldFaultLease struct {
 	jobdb.RenewableExecutionLease
-	mode string
+	mode        string
+	afterCommit func() error
 }
 
 func (l yieldFaultLease) LeaseToken() string {
@@ -121,7 +124,7 @@ func (l yieldFaultLease) Renew(ctx context.Context) (jobdb.RenewableExecutionLea
 	if err != nil {
 		return nil, err
 	}
-	return yieldFaultLease{RenewableExecutionLease: next, mode: l.mode}, nil
+	return yieldFaultLease{RenewableExecutionLease: next, mode: l.mode, afterCommit: l.afterCommit}, nil
 }
 
 func (l yieldFaultLease) Reschedule(ctx context.Context, req jobdb.RescheduleExecutionRequest) error {
@@ -138,7 +141,13 @@ func (l yieldFaultLease) Reschedule(ctx context.Context, req jobdb.RescheduleExe
 		}
 		return errors.New("transport response unavailable after commit")
 	default:
-		return l.RenewableExecutionLease.Reschedule(ctx, req)
+		if err := l.RenewableExecutionLease.Reschedule(ctx, req); err != nil {
+			return err
+		}
+		if l.afterCommit != nil {
+			return l.afterCommit()
+		}
+		return nil
 	}
 }
 
@@ -151,13 +160,13 @@ func TestExecutionYieldConfirmation(t *testing.T) {
 					rt := yieldFaultRuntime{WorkflowRuntime: base, mode: mode}
 					observed := make(chan error, 1)
 					var notifications atomic.Int32
-					perform := func(ctx context.Context, yield func(context.Context, jobdb.RescheduleExecutionRequest) error) error {
+					perform := func(ctx context.Context, yield func(context.Context, wf.YieldRequest) error) error {
 						if mode == "cancelled" {
 							var cancel context.CancelFunc
 							ctx, cancel = context.WithCancel(ctx)
 							cancel()
 						}
-						err := yield(ctx, jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "receiver"}})
+						err := yield(ctx, wf.YieldRequest{Reschedule: jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "receiver"}}})
 						wrapped := fmt.Errorf("handoff: %w", err)
 						if wf.IsExecutionSuspended(wrapped) {
 							notifications.Add(1)
@@ -176,6 +185,14 @@ func TestExecutionYieldConfirmation(t *testing.T) {
 					}}
 					key := submitExecutionTest(t, base, worker)
 					out, runErr := runExecutionTest(t, rt, key, worker, task)
+					// The receipt must be available immediately; do not wait for user
+					// code after Yield before asserting the Run contract.
+					if mode == "accepted" {
+						require.NotNil(t, out.Handoff)
+						require.Equal(t, jobdb.Route{JobType: "receiver"}, out.Handoff.NextRoute)
+					} else {
+						require.Nil(t, out.Handoff)
+					}
 					var err error
 					select {
 					case err = <-observed:

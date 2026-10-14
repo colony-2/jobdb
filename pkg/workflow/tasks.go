@@ -32,7 +32,7 @@ type TaskContext struct {
 	resolveSecrets   func(context.Context, []string) (SecretResolveResult, error)
 	clientPayload    func() json.RawMessage
 	clientRevision   func() int64
-	yield            func(context.Context, RescheduleExecutionRequest) error
+	yield            func(context.Context, YieldRequest) error
 	JobKey           JobKey
 	// Step is the outcome ordinal for this call to Run. In the versioned
 	// engine it remains valid across in-process waits. Suspension or lease loss
@@ -112,7 +112,7 @@ func newTaskContextWithLeaseActions(
 	awaitJobs func(...string) error,
 	submitJob func(context.Context, SubmitJob) (JobKey, error),
 	submitRestartJob func(context.Context, SubmitRestartJob) (JobKey, error),
-	clientPayload func() json.RawMessage, clientRevision func() int64, yield func(context.Context, RescheduleExecutionRequest) error,
+	clientPayload func() json.RawMessage, clientRevision func() int64, yield func(context.Context, YieldRequest) error,
 	resolveSecrets func(context.Context, []string) (SecretResolveResult, error),
 	getConfiguration func(context.Context) (ConfigurationSnapshot, error),
 ) TaskContext {
@@ -164,7 +164,10 @@ func (tc TaskContext) ClientPayloadRevision() int64 {
 	}
 	return tc.clientRevision()
 }
-func (tc TaskContext) Yield(ctx context.Context, req RescheduleExecutionRequest) error {
+
+// Yield reschedules and stops execution. Use JobRunOutcome.Handoff to report
+// the confirmed transition; code following Yield may run after Run returns.
+func (tc TaskContext) Yield(ctx context.Context, req YieldRequest) error {
 	if tc.yield == nil {
 		return fmt.Errorf("yield requires an execution lease")
 	}

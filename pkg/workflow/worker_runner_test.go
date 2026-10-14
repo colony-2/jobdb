@@ -1307,12 +1307,12 @@ func (l *fakeExecutionLease) ExecutionState() ExecutionState { return ExecutionS
 
 func TestExplicitYieldOnlyReschedulesAndReplayDoesNotWrite(t *testing.T) {
 	lease := &fakeExecutionLease{job: JobHandle{JobKey: JobKey{TenantId: "tenant", JobId: "yield"}}, payload: json.RawMessage(`{"cursor":1}`)}
-	runner := &workerRunner{lease: lease, jobKey: lease.Job().JobKey}
+	runner := &workerRunner{lease: lease, jobKey: lease.Job().JobKey, handoff: &handoffState{}}
 	update := &ClientPayloadUpdate{Mode: "patch", Value: json.RawMessage(`{"cursor":2}`), ExpectedRevision: new(int64)}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		if err := runner.Yield(context.Background(), RescheduleExecutionRequest{NextRoute: Route{JobType: "job"}, ClientPayloadUpdate: update}); err != nil {
+		if err := runner.Yield(context.Background(), YieldRequest{Reschedule: RescheduleExecutionRequest{NextRoute: Route{JobType: "job"}, ClientPayloadUpdate: update}}); err != nil {
 			t.Error(err)
 		}
 		t.Error("successful yield returned to caller")
@@ -1326,7 +1326,7 @@ func TestExplicitYieldOnlyReschedulesAndReplayDoesNotWrite(t *testing.T) {
 	if runner.ClientPayload() != nil {
 		t.Fatal("replay exposed live payload")
 	}
-	if err := runner.Yield(context.Background(), RescheduleExecutionRequest{NextRoute: Route{JobType: "job"}, ClientPayloadUpdate: update}); err == nil {
+	if err := runner.Yield(context.Background(), YieldRequest{Reschedule: RescheduleExecutionRequest{NextRoute: Route{JobType: "job"}, ClientPayloadUpdate: update}}); err == nil {
 		t.Fatal("replay accepted yield")
 	}
 	_, _, _, after := lease.snapshot()

@@ -131,7 +131,7 @@ func TestTimedOutAttemptCannotWriteIntoRetry(t *testing.T) {
 			_, taskErr := ctx.DoTask(RunPolicy{}, task.Name(), in)
 			_, submitErr := ctx.SubmitJob(context.Background(), SubmitJob{})
 			_, restartErr := ctx.SubmitRestartJob(context.Background(), SubmitRestartJob{})
-			yieldErr := ctx.Yield(context.Background(), RescheduleExecutionRequest{})
+			yieldErr := ctx.Yield(context.Background(), YieldRequest{Reschedule: RescheduleExecutionRequest{}})
 			jobExited <- []error{taskErr, submitErr, restartErr, yieldErr}
 		}
 		return out, err

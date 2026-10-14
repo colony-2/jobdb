@@ -40,7 +40,9 @@ type ExecutionContext interface {
 	ClientPayloadRevision() int64
 	SubmitJob(context.Context, SubmitJob) (JobKey, error)
 	SubmitRestartJob(context.Context, SubmitRestartJob) (JobKey, error)
-	Yield(context.Context, RescheduleExecutionRequest) error
+	// Yield reschedules and stops execution. Read JobRunOutcome.Handoff after
+	// Run returns for confirmation; post-Yield user code may still be running.
+	Yield(context.Context, YieldRequest) error
 }
 
 type TaskCall struct {
@@ -102,10 +104,9 @@ func copyConsumerVersions(in map[string]string) (map[string]string, error) {
 
 func (w ExecutionWorker) executionDefinition() ExecutionWorker { return w }
 
-// IsExecutionSuspended recognizes a confirmed successful suspension, including
-// through wrapped errors. After Yield, callers may use it to send a handoff
-// notification, then must propagate the error to stop execution. Cancellation,
-// lease loss, and failed or uncertain reschedule responses are not confirmation.
+// IsExecutionSuspended recognizes the suspension control error through wrappers.
+// Propagate it to stop task execution. It does not order post-Yield code before
+// Run returns; use JobRunOutcome.Handoff to publish handoff notifications.
 func IsExecutionSuspended(err error) bool {
 	return errors.Is(err, errExecutionSuspended)
 }

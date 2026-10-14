@@ -50,6 +50,9 @@ type GetJobForRunRequest struct {
 }
 
 type JobRunOutcome struct {
+	// Handoff is set only for an explicit Yield acknowledged during this Run.
+	// Read it after Run returns; no task callback needs to finish first.
+	Handoff       *Handoff
 	Status        JobRunStatus
 	LeaseAcquired bool
 
@@ -60,7 +63,8 @@ type JobRunOutcome struct {
 	JobError error
 
 	// Best-effort job state details, mainly useful when Status == SUSPENDED
-	// or NOT_LEASEABLE.
+	// or NOT_LEASEABLE. For a confirmed handoff, NextRoute is the acknowledged
+	// route; these fields are not refreshed from the scheduler.
 	JobStatus     *JobStatus
 	NextRoute     *Route
 	WaitForJobIDs []string
@@ -276,7 +280,7 @@ func (r *JobRunnable) Run(listener JobRunListener) (JobRunOutcome, error) {
 		observer = asyncListener
 	}
 
-	output, runErr := runClaimedJobLease(ctx, runtime, workset, lease, claimedJobRunOptions{
+	output, handoff, runErr := runClaimedJobLease(ctx, runtime, workset, lease, claimedJobRunOptions{
 		Logger:         logger,
 		WorkerID:       workerID,
 		AwaitThreshold: awaitThreshold,
@@ -287,7 +291,15 @@ func (r *JobRunnable) Run(listener JobRunListener) (JobRunOutcome, error) {
 		asyncListener.Close()
 	}
 
-	outcome, err := classifyJobRunAfterRun(ctx, runtime, jobKey, supportedRoutes, output, runErr)
+	var outcome JobRunOutcome
+	var err error
+	if handoff != nil {
+		// The next worker may already have changed the scheduler state. The
+		// acknowledged transition is authoritative for this invocation.
+		outcome = JobRunOutcome{Status: JobRunSuspended, LeaseAcquired: true, Handoff: handoff, NextRoute: cloneRoute(&handoff.NextRoute)}
+	} else {
+		outcome, err = classifyJobRunAfterRun(ctx, runtime, jobKey, supportedRoutes, output, runErr)
+	}
 
 	r.mu.Lock()
 	r.running = false
@@ -334,7 +346,7 @@ func workSetRoutes(workset *WorkSet) []Route {
 	return routes
 }
 
-func runClaimedJobLease(ctx context.Context, runtime WorkflowRuntime, workset *WorkSet, lease ExecutionLease, opts claimedJobRunOptions) (JobData, error) {
+func runClaimedJobLease(ctx context.Context, runtime WorkflowRuntime, workset *WorkSet, lease ExecutionLease, opts claimedJobRunOptions) (JobData, *Handoff, error) {
 	logger := opts.Logger
 	if logger == nil {
 		logger = slog.Default()
@@ -351,7 +363,12 @@ func runClaimedJobLease(ctx context.Context, runtime WorkflowRuntime, workset *W
 		BeforeRun:      opts.BeforeRun,
 		AwaitThreshold: opts.AwaitThreshold,
 	})
-	return runner.DoJob(ctx)
+	output, err := runner.DoJob(ctx)
+	handoff := runner.handoff.close()
+	if handoff != nil {
+		return nil, handoff, nil
+	}
+	return output, nil, err
 }
 
 func classifyJobRunWithoutLease(ctx context.Context, runtime WorkflowRuntime, jobKey JobKey, supportedRoutes map[Route]struct{}) (JobRunOutcome, error) {
@@ -491,6 +508,7 @@ func getJobSummaryForJobRun(ctx context.Context, runtime WorkflowRuntime, jobKey
 
 func cloneJobRunOutcome(outcome JobRunOutcome) JobRunOutcome {
 	cloned := outcome
+	cloned.Handoff = cloneHandoff(outcome.Handoff)
 	cloned.JobStatus = cloneJobStatusPtr(outcome.JobStatus)
 	cloned.NextRoute = cloneRoute(outcome.NextRoute)
 	cloned.WaitForJobIDs = append([]string(nil), outcome.WaitForJobIDs...)

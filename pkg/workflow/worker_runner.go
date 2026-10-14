@@ -26,6 +26,7 @@ type workerRunnerOptions struct {
 }
 
 type workerRunner struct {
+	handoff   *handoffState
 	beforeRun func(context.Context, ExecutionLease) error
 	runtime   WorkflowRuntime
 	worker    *WorkSet
@@ -87,6 +88,7 @@ func newWorkerRunner(runtime WorkflowRuntime, ws *WorkSet, lease ExecutionLease,
 		jobKey = opts.JobKey
 	}
 	return &workerRunner{
+		handoff:        &handoffState{},
 		runtime:        runtime,
 		beforeRun:      opts.BeforeRun,
 		worker:         ws,
@@ -1537,6 +1539,7 @@ func (r *workerRunner) DoJob(ctx context.Context) (output JobData, runErr error)
 			Logger: r.logger, Observer: r.observer, Replay: r.replay, AwaitThreshold: r.awaitThreshold,
 		})
 		attemptCtx, stopAttempt := context.WithCancel(ctx)
+		attemptRunner.handoff = r.handoff
 		attemptRunner.ctx = attemptCtx
 		attemptRunner.storyCounter = r.storyCounter
 		attemptRunner.currentJobAttemptStartAt = startAt
@@ -1751,7 +1754,7 @@ func (r *workerRunner) ClientPayloadRevision() int64 {
 
 // Yield publishes an explicit scheduler transition. Callers must avoid repeating
 // the yield after resumption, for example by checking a persisted cursor.
-func (r *workerRunner) Yield(ctx context.Context, req RescheduleExecutionRequest) error {
+func (r *workerRunner) Yield(ctx context.Context, req YieldRequest) error {
 	if r.ctx != nil && context.Cause(r.ctx) != nil {
 		return context.Cause(r.ctx)
 	}
@@ -1764,8 +1767,18 @@ func (r *workerRunner) Yield(ctx context.Context, req RescheduleExecutionRequest
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if err := r.lease.Reschedule(ctx, req); err != nil {
+	handoff, err := prepareHandoff(req)
+	if err != nil {
 		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := r.lease.Reschedule(ctx, req.Reschedule); err != nil {
+		return err
+	}
+	if !r.handoff.confirm(handoff) {
+		return context.Canceled
 	}
 	r.rescheduled.Store(true)
 	prematureCloseOut()

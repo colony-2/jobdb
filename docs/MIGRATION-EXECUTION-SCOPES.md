@@ -203,25 +203,57 @@ nested scope/task retries do not reset these caches. Whole-job retries do.
 
 ## Confirming a handoff
 
-Both `ExecutionContext.Yield` and `TaskContext.Yield` return a suspension control
-error after an acknowledged reschedule. Recognize it with the public predicate,
-then propagate it:
+`ExecutionContext.Yield`, `TaskContext.Yield`, and the legacy `JobContext.Yield`
+now accept `workflow.YieldRequest`. Wrap the existing scheduling request in
+`Reschedule`; optionally include consumer JSON in `Metadata`:
 
 ```go
-err := ctx.Yield(ctx.Context(), request)
-if workflow.IsExecutionSuspended(err) {
-    emitEnvironmentRequired() // Notify only after confirmed acceptance.
-}
-return nil, err
+return nil, ctx.Yield(ctx.Context(), workflow.YieldRequest{
+    Reschedule: jobdb.RescheduleExecutionRequest{
+        NextRoute: nextRoute,
+        ClientPayloadUpdate: update,
+    },
+    Metadata: json.RawMessage(`{"kind":"environment_required","environment":"gpu"}`),
+})
 ```
 
-The predicate supports wrapped errors. Rejected requests, lease loss,
-cancellation, and uncertain transport responses are not confirmation, including
-a lost response after storage committed the reschedule. Yield does not complete
-the task or record its result. Do not convert its control error to success.
-Suspension cancels execution contexts; notification delivery must not depend on
-that cancelled context. The predicate confirms rescheduling, not durable delivery
-of the consumer's notification.
+Emit notifications from the run outcome. Remove notification writes following
+Yield and the shared notification variables previously read after Run:
+
+```go
+outcome, err := runnable.Run(listener)
+if err != nil {
+    return err
+}
+if outcome.Handoff != nil {
+    emitEnvironmentRequired(outcome.Handoff.Metadata)
+}
+```
+
+`Handoff` contains the acknowledged next route and a copy of the metadata. JobDB
+captures it before suspending execution; it is available when Run returns even
+if the Yield caller is still unwinding or never returns. It remains available
+through `runnable.Outcome()` and repeated `Run` calls on that runnable. These
+return copies of the same receipt, not new notifications.
+
+Rejected requests, lease loss, cancellation without a captured acknowledgement,
+and uncertain responses (including a lost response after commit) do not produce
+a handoff.
+Acknowledgement and run closure are synchronized: once the run is closed, late
+responses cannot change its outcome. An acknowledgement captured before closure
+remains confirmed even if cancellation follows. A confirmed handoff returns
+`SUSPENDED` without querying scheduler state, which may already have changed.
+
+Only explicit context Yield produces this receipt. Ordinary waits, unacquired
+jobs, and direct lease Reschedule calls do not. Metadata must be valid JSON and
+is local to this invocation; it is not stored, replayed, or sent over REST.
+Persist any state needed by the next worker through the scheduling request.
+Recovered executions can acknowledge new handoffs; replay of completed tasks
+skips their Yield calls. Yield never records a completed task outcome.
+
+`IsExecutionSuspended` still recognizes the control error, but does not guarantee
+that code following Yield runs before Run returns. Propagate that error. The
+handoff receipt confirms rescheduling, not durable delivery of a notification.
 
 ## External work and restart patches
 

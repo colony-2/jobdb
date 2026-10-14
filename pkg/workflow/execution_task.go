@@ -274,7 +274,7 @@ func (c *executionContext) SubmitRestartJob(ctx context.Context, req SubmitResta
 	defer cancel()
 	return c.run.r.SubmitRestartJob(callCtx, req)
 }
-func (c *executionContext) Yield(ctx context.Context, req RescheduleExecutionRequest) error {
+func (c *executionContext) Yield(ctx context.Context, req YieldRequest) error {
 	if err := context.Cause(c.ctx); err != nil {
 		return err
 	}
@@ -286,8 +286,15 @@ func (c *executionContext) Yield(ctx context.Context, req RescheduleExecutionReq
 	if err := callCtx.Err(); err != nil {
 		return c.run.control(err)
 	}
-	if err := c.run.r.lease.Reschedule(callCtx, req); err != nil {
+	handoff, err := prepareHandoff(req)
+	if err != nil {
+		return err
+	}
+	if err := c.run.r.lease.Reschedule(callCtx, req.Reschedule); err != nil {
 		return c.run.control(err)
+	}
+	if !c.run.r.handoff.confirm(handoff) {
+		return context.Canceled
 	}
 	return c.run.suspend()
 }
