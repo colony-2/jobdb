@@ -93,6 +93,11 @@ func EncodeChapter(meta ChapterMeta, chapterType string, payloadKind string, pay
 		return nil, err
 	}
 	switch chapterType {
+	case "Execution":
+		if payloadKind != PayloadKindApp {
+			return nil, fmt.Errorf("invalid execution payload kind")
+		}
+		builder.Execution = storagepb.ExecutionChapter_builder{RecordJson: payload}.Build()
 	case ChapterTypeJobStart:
 		if payloadKind != PayloadKindApp {
 			return nil, fmt.Errorf("%s chapters require %s payloads", chapterType, PayloadKindApp)
@@ -139,6 +144,8 @@ func DecodeChapter(body []byte) (ChapterEnvelope, error) {
 		return ChapterEnvelope{}, err
 	}
 	switch record.WhichChapter() {
+	case storagepb.ChapterRecord_Execution_case:
+		return ChapterEnvelope{ChapterType: "Execution", Meta: meta, PayloadKind: PayloadKindApp, Payload: cloneJSON(record.GetExecution().GetRecordJson())}, nil
 	case storagepb.ChapterRecord_JobStart_case:
 		ch := record.GetJobStart()
 		return ChapterEnvelope{

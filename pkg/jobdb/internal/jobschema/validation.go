@@ -417,6 +417,15 @@ func chapterMetaFromChapter(chapter jobdb.Chapter) (runtimecodec.ChapterMeta, er
 
 func chapterBodyDocument(body jobdb.ChapterBody) (map[string]any, error) {
 	switch body := body.(type) {
+	case jobdb.ExecutionChapter:
+		record, err := jsonValue(body.Record)
+		return map[string]any{"kind": "execution", "record": record}, err
+	case *jobdb.ExecutionChapter:
+		if body == nil {
+			return nil, fmt.Errorf("chapter body is required")
+		}
+		return chapterBodyDocument(*body)
+
 	case jobdb.JobStartChapter:
 		input, err := jsonValue(body.Input.Data)
 		if err != nil {

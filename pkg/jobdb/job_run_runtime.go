@@ -125,6 +125,28 @@ func GetJobRun(ctx context.Context, runtime WorkflowRuntime, req GetJobRunReques
 			continue
 		}
 
+		if body, ok := chapter.Body.(ExecutionChapter); ok {
+			record, err := DecodeExecutionRecord(body.Record)
+			if err != nil {
+				return GetJobRunResponse{}, err
+			}
+			if !includeInputs {
+				record.Input = nil
+			}
+			if !includeOutputs {
+				record.Output = nil
+			}
+			if !includeArtifacts {
+				if record.Input != nil {
+					record.Input.Artifacts = nil
+				}
+				if record.Output != nil {
+					record.Output.Artifacts = nil
+				}
+			}
+			resp.Execution = append(resp.Execution, ExecutionHistoryEntry{Ordinal: chapter.Ordinal, Record: record})
+			continue
+		}
 		isJobAttemptOutcome := chapterIs(chapter, chapterTypeJobAttemptOutcome)
 		attempt, err := buildStoredTaskAttempt(req.JobKey, chapter, meta, chapterByOrdinal, includeInputs, includeOutputs || isJobAttemptOutcome, includeArtifacts, includeAttemptInputs)
 		if err != nil {

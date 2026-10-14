@@ -13,10 +13,16 @@ type GetJobRunRequest struct {
 	IncludeAttemptInputs bool
 }
 
+type ExecutionHistoryEntry struct {
+	Ordinal int64
+	Record  ExecutionRecord
+}
+
 type GetJobRunResponse struct {
-	Job      JobRunSummary
-	Start    JobStart
-	Attempts []JobAttempt
+	Execution []ExecutionHistoryEntry
+	Job       JobRunSummary
+	Start     JobStart
+	Attempts  []JobAttempt
 }
 
 type JobRunSummary struct {

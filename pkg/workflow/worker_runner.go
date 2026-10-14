@@ -1416,6 +1416,9 @@ func (r *workerRunner) DoJob(ctx context.Context) (output JobData, runErr error)
 	if err != nil {
 		return nil, err
 	}
+	if worker, ok := r.worker.JobWorker.(interface{ executionDefinition() ExecutionWorker }); ok {
+		return r.runExecution(ctx, worker.executionDefinition(), inputData, meta)
+	}
 	config, err := r.setupJobExecutionConfig(ctx, inputData, meta)
 	if err != nil {
 		return nil, err

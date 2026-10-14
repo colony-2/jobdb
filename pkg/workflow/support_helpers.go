@@ -110,6 +110,11 @@ func chapterIs(chapter Chapter, want string) bool {
 
 func chapterBodyFromWire(chapterType string, payloadKind string, data json.RawMessage) (ChapterBody, error) {
 	switch chapterType {
+	case "Execution":
+		if payloadKind != "App" || !json.Valid(data) {
+			return nil, fmt.Errorf("invalid execution record")
+		}
+		return ExecutionChapter{Record: cloneRawMessage(data)}, nil
 	case chapterTypeJobStart:
 		if payloadKind != payloadKindApp {
 			return nil, fmt.Errorf("%s chapters require %s payloads", chapterType, payloadKindApp)
@@ -166,6 +171,13 @@ func chapterOutcomeFromWire(payloadKind string, data json.RawMessage) (ChapterOu
 
 func chapterBodyToWire(body ChapterBody) (string, string, json.RawMessage, error) {
 	switch body := body.(type) {
+	case ExecutionChapter:
+		return "Execution", "App", cloneRawMessage(body.Record), nil
+	case *ExecutionChapter:
+		if body == nil {
+			return "", "", nil, fmt.Errorf("chapter body is required")
+		}
+		return "Execution", "App", cloneRawMessage(body.Record), nil
 	case JobStartChapter:
 		return chapterTypeJobStart, payloadKindApp, cloneRawMessage(body.Input.Data), nil
 	case *JobStartChapter:
@@ -428,6 +440,16 @@ func int64Ptr(v int64) *int64 {
 
 func cloneChapterBody(body ChapterBody) ChapterBody {
 	switch body := body.(type) {
+	case ExecutionChapter:
+		body.Record = cloneRawMessage(body.Record)
+		return body
+	case *ExecutionChapter:
+		if body == nil {
+			return nil
+		}
+		copied := *body
+		copied.Record = cloneRawMessage(body.Record)
+		return &copied
 	case JobStartChapter:
 		body.Input.Data = cloneRawMessage(body.Input.Data)
 		return body

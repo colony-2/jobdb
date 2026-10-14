@@ -964,6 +964,19 @@ func timeoutOutcomeToAPI(payload jobdb.TimeoutPayload) (runtimeapi.TaskOutcome, 
 func chapterBodyToAPI(body jobdb.ChapterBody) (runtimeapi.ChapterBody, error) {
 	var out runtimeapi.ChapterBody
 	switch body := body.(type) {
+	case jobdb.ExecutionChapter:
+		payload, err := applicationPayloadRequired(body.Record)
+		if err != nil {
+			return out, err
+		}
+		err = out.FromExecutionChapter(runtimeapi.ExecutionChapter{Record: payload})
+		return out, err
+	case *jobdb.ExecutionChapter:
+		if body == nil {
+			return out, fmt.Errorf("chapter body is required")
+		}
+		return chapterBodyToAPI(*body)
+
 	case jobdb.JobStartChapter:
 		input, err := applicationPayloadRequired(body.Input.Data)
 		if err != nil {
@@ -1023,6 +1036,17 @@ func chapterBodyFromAPI(body runtimeapi.ChapterBody) (jobdb.ChapterBody, error) 
 		return nil, err
 	}
 	switch discriminator {
+	case "execution":
+		converted, err := body.AsExecutionChapter()
+		if err != nil {
+			return nil, err
+		}
+		raw, err := applicationPayloadToRaw(converted.Record)
+		if err != nil {
+			return nil, err
+		}
+		return jobdb.ExecutionChapter{Record: raw}, nil
+
 	case "jobStart":
 		converted, err := body.AsJobStartChapter()
 		if err != nil {

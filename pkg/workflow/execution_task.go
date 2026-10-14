@@ -1,0 +1,260 @@
+package workflow
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/colony-2/jobdb/pkg/jobdb"
+)
+
+func (c *executionContext) DoTask(call TaskCall, build func(context.Context) (TaskData, error)) (TaskData, error) {
+	id, err := c.occurrence("task", call.Site)
+	if err != nil {
+		return nil, err
+	}
+	defer c.calls.Unlock()
+	if call.TaskType == "" || call.ContractVersion == 0 || build == nil {
+		return nil, fmt.Errorf("task type, contract version and input builder are required")
+	}
+	call.Command, err = canonicalJSON(call.Command)
+	if err != nil {
+		return nil, err
+	}
+	p, err := makeExecutionPolicy(ScopeOptions{TotalTimeout: durationPtrToDuration(call.Policy.TotalTimeout), AttemptTimeout: durationPtrToDuration(call.Policy.InvocationTimeout), Retry: call.Policy.Retry, Catch: call.Catch})
+	if err != nil {
+		return nil, err
+	}
+	descriptor, _ := json.Marshal(struct {
+		Call   TaskCall        `json:"call"`
+		Policy executionPolicy `json:"policy"`
+	}{call, p})
+	entry, err := c.event("task", id, func() *jobdb.ExecutionRecord {
+		return &jobdb.ExecutionRecord{Descriptor: descriptor, TotalDeadline: deadlineFrom(time.Now().UTC(), p.TotalTimeout)}
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err = c.match(entry, descriptor); err != nil {
+		return nil, err
+	}
+	total := earlier(entry.TotalDeadline, c.deadline)
+	var input *jobdb.ExecutionSnapshot
+	for attempt := 1; ; attempt++ {
+		aid := fmt.Sprintf("%s/attempt:%d", id, attempt)
+		start, err := c.event("attempt", aid, func() *jobdb.ExecutionRecord {
+			return &jobdb.ExecutionRecord{Attempt: attempt, Deadline: earlier(deadlineFrom(time.Now().UTC(), p.AttemptTimeout), total), TotalDeadline: total}
+		})
+		if err != nil {
+			return nil, err
+		}
+		var rec jobdb.ExecutionRecord
+		if next := c.run.peek(); next != nil && next.record.Kind == "result" && next.record.ID == aid {
+			rec, err = c.event("result", aid, func() *jobdb.ExecutionRecord { return nil })
+		} else if next := c.run.peek(); next != nil && next.record.Kind == "wait" && next.record.ID == aid {
+			rec, err = c.externalTask(call, aid, next.record.Input, start.Deadline, total)
+		} else if next := c.run.peek(); next != nil {
+			_, err = c.event("result", aid, func() *jobdb.ExecutionRecord { return nil })
+			return nil, err
+		} else if c.run.r.replay {
+			return nil, ReplayCacheMissError{JobKey: c.GetJobKey(), Ordinal: c.run.nextOrdinal(), Reason: ReplayCacheMissTaskResultMissing}
+		} else {
+			child := c.child(aid, start.Deadline, total)
+			var out TaskData
+			var taskErr error
+			if input == nil {
+				out, taskErr = child.invoke(func() (TaskData, error) { return build(child.ctx) })
+				if taskErr == nil {
+					input, taskErr = executionSnapshot(child.ctx, out)
+				}
+			}
+			if taskErr == nil {
+				worker, ok := c.run.r.worker.TaskWorkers[call.TaskType]
+				if !ok {
+					child.close()
+					rec, err = c.externalTask(call, aid, input, start.Deadline, total)
+					if err != nil {
+						return nil, err
+					}
+					out, taskErr = resultData(rec)
+				}
+				if ok {
+					tc := child.taskContext()
+
+					workerInput := snapshotData(input)
+					out, taskErr = child.invoke(func() (TaskData, error) { return worker.Run(tc, workerInput) })
+				}
+			}
+			child.close()
+			rec, err = c.finishBody("result", aid, out, taskErr, input, p.Retry)
+		}
+		if err != nil {
+			return nil, err
+		}
+		c.run.emitTask(call, aid, attempt, start.At, rec)
+		if rec.Input != nil {
+			input = rec.Input
+		}
+		out, taskErr := resultData(rec)
+		out, taskErr, retry, err := c.handleFailure(aid, total, p, call.Catch, attempt, out, taskErr, rec.Retryable)
+		if err != nil {
+			return nil, err
+		}
+		if !retry {
+			end, err := c.finishBody("end", id, out, taskErr, nil)
+			if err != nil {
+				return nil, err
+			}
+			return resultData(end)
+		}
+	}
+}
+func (c *executionContext) taskContext() TaskContext {
+	tc := newTaskContextWithLeaseActions(c.GetJobKey(), c.run.nextOrdinal(), c.Logger(), func(at time.Time) error { return c.waitUntil(at, c.deadline) }, c.awaitTaskJobs, c.SubmitJob, c.SubmitRestartJob, c.ClientPayload, c.ClientPayloadRevision, c.Yield, c.ResolveSecrets, c.GetConfiguration)
+	tc.executionContext = c.ctx
+	return tc
+}
+func (c *executionContext) Context() context.Context { return c.ctx }
+func (c *executionContext) GetJobKey() JobKey        { return c.run.r.jobKey }
+func (c *executionContext) Logger() *slog.Logger     { return c.run.r.logger }
+func (c *executionContext) cacheOwner() *workerRunner {
+	for p := c; p != nil; p = p.parent {
+		if p.cache != nil {
+			return p.cache
+		}
+	}
+	return c.run.r
+}
+func (c *executionContext) GetConfiguration(ctx context.Context) (ConfigurationSnapshot, error) {
+	if err := context.Cause(c.ctx); err != nil {
+		return ConfigurationSnapshot{}, err
+	}
+	return c.cacheOwner().GetConfiguration(ctx)
+}
+func (c *executionContext) ResolveSecrets(ctx context.Context, names []string) (SecretResolveResult, error) {
+	if err := context.Cause(c.ctx); err != nil {
+		return SecretResolveResult{}, err
+	}
+	return c.cacheOwner().ResolveSecrets(ctx, names)
+}
+func (c *executionContext) ClientPayload() json.RawMessage { return c.run.r.ClientPayload() }
+func (c *executionContext) ClientPayloadRevision() int64   { return c.run.r.ClientPayloadRevision() }
+func (c *executionContext) SubmitJob(ctx context.Context, req SubmitJob) (JobKey, error) {
+	if err := context.Cause(c.ctx); err != nil {
+		return JobKey{}, err
+	}
+	if c.run.r.replay {
+		return JobKey{}, ErrReplayShouldNeverMutate
+	}
+	callCtx, cancel := invocationCallContext(ctx, c.ctx)
+	defer cancel()
+	return c.run.r.SubmitJob(callCtx, req)
+}
+func (c *executionContext) AwaitDuration(d Duration) error {
+	id, err := c.occurrence("sleep", "wait")
+	if err != nil {
+		return err
+	}
+	defer c.calls.Unlock()
+	descriptor, _ := json.Marshal(d)
+	rec, err := c.event("sleep", id, func() *jobdb.ExecutionRecord {
+		return &jobdb.ExecutionRecord{WakeAt: time.Now().UTC().Add(time.Duration(d)), Descriptor: descriptor}
+	})
+	if err == nil {
+		err = c.match(rec, descriptor)
+	}
+	if err != nil {
+		return err
+	}
+	return c.waitUntil(rec.WakeAt, c.deadline)
+}
+func (c *executionContext) AwaitJobs(ids ...string) error {
+	id, err := c.occurrence("join", "jobs")
+	if err != nil {
+		return err
+	}
+	defer c.calls.Unlock()
+	desc, _ := json.Marshal(ids)
+	rec, err := c.event("join", id, func() *jobdb.ExecutionRecord { return &jobdb.ExecutionRecord{Descriptor: desc} })
+	if err != nil {
+		return err
+	}
+	if err = c.match(rec, desc); err != nil {
+		return err
+	}
+	if c.run.peek() != nil {
+		result, err := c.event("join_result", id, func() *jobdb.ExecutionRecord { return nil })
+		if err != nil {
+			return err
+		}
+		_, err = resultData(result)
+		return err
+	}
+	if c.run.r.replay {
+		return ReplayCacheMissError{JobKey: c.GetJobKey(), Ordinal: c.run.nextOrdinal(), Reason: ReplayCacheMissAwaitJobsPending}
+	}
+	done, waitErr := c.run.r.awaitJobsComplete(c.ctx, ids)
+	if done || waitErr != nil {
+		rec, err := c.finishBody("join_result", id, NewTaskDataOrPanic(true), waitErr, nil)
+		if err != nil {
+			return err
+		}
+		_, err = resultData(rec)
+		return err
+	}
+	return c.suspendForJobs(ids)
+}
+func (c *executionContext) awaitTaskJobs(ids ...string) error {
+	if err := context.Cause(c.ctx); err != nil {
+		return err
+	}
+	done, err := c.run.r.awaitJobsComplete(c.ctx, ids)
+	if err != nil {
+		return err
+	}
+	if done {
+		return nil
+	}
+	return c.suspendForJobs(ids)
+}
+func (c *executionContext) suspendForJobs(ids []string) error {
+	err := c.run.r.lease.Reschedule(c.ctx, RescheduleExecutionRequest{NextRoute: Route{JobType: c.run.r.worker.JobWorker.Name()}, WaitForJobIDs: ids, WaitUntil: nonzeroTime(c.deadline)})
+	if err != nil {
+		return c.run.control(err)
+	}
+	return c.run.suspend()
+}
+func nonzeroTime(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
+}
+
+func (c *executionContext) SubmitRestartJob(ctx context.Context, req SubmitRestartJob) (JobKey, error) {
+	if err := context.Cause(c.ctx); err != nil {
+		return JobKey{}, err
+	}
+	if c.run.r.replay {
+		return JobKey{}, ErrReplayShouldNeverMutate
+	}
+	callCtx, cancel := invocationCallContext(ctx, c.ctx)
+	defer cancel()
+	return c.run.r.SubmitRestartJob(callCtx, req)
+}
+func (c *executionContext) Yield(ctx context.Context, req RescheduleExecutionRequest) error {
+	if err := context.Cause(c.ctx); err != nil {
+		return err
+	}
+	if c.run.r.replay {
+		return ErrReplayShouldNeverMutate
+	}
+	callCtx, cancel := invocationCallContext(ctx, c.ctx)
+	defer cancel()
+	if err := c.run.r.lease.Reschedule(callCtx, req); err != nil {
+		return c.run.control(err)
+	}
+	return c.run.suspend()
+}

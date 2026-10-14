@@ -32,6 +32,7 @@ message ChapterRecord {
     JobAttemptOutcomeChapter job_attempt_outcome = 31;
     TaskAttemptOutcomeChapter task_attempt_outcome = 32;
     RestartExtraChapter restart_extra = 33;
+    ExecutionChapter execution = 34;
   }
 }
 
@@ -159,3 +160,6 @@ message TaskWait {
 message WaitForJobs {
   repeated string job_ids = 1;
 }
+
+// Versioned execution-pattern record, encoded by the strict execution codec.
+message ExecutionChapter { bytes record_json = 1; }

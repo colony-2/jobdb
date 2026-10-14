@@ -1,0 +1,53 @@
+package jobdb
+
+import (
+	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestExecutionRecordValidation(t *testing.T) {
+	good := ExecutionRecord{Version: ExecutionPatternVersion, Kind: "result", ID: "task/1", At: time.Now().UTC(), Output: &ExecutionSnapshot{Data: json.RawMessage(`{"value":1}`)}}
+	raw, err := json.Marshal(good)
+	require.NoError(t, err)
+	decoded, err := DecodeExecutionRecord(raw)
+	require.NoError(t, err)
+	require.Equal(t, good, decoded)
+	for _, test := range []struct {
+		name   string
+		change func(*ExecutionRecord)
+	}{
+		{"missing version", func(r *ExecutionRecord) { r.Version = 0 }},
+		{"future version", func(r *ExecutionRecord) { r.Version = 99 }},
+		{"unknown kind", func(r *ExecutionRecord) { r.Kind = "future" }},
+		{"missing id", func(r *ExecutionRecord) { r.ID = "" }},
+		{"missing outcome", func(r *ExecutionRecord) { r.Output = nil }},
+		{"ambiguous outcome", func(r *ExecutionRecord) { r.ErrorKind = "AppError"; r.Error = json.RawMessage(`{"message":"bad"}`) }},
+		{"unknown error", func(r *ExecutionRecord) { r.Output = nil; r.ErrorKind = "FutureError"; r.Error = json.RawMessage(`{}`) }},
+		{"missing input", func(r *ExecutionRecord) { r.Kind = "wait" }},
+		{"missing descriptor", func(r *ExecutionRecord) { r.Kind = "scope" }},
+		{"invalid attempt", func(r *ExecutionRecord) { r.Kind = "attempt"; r.Attempt = -1 }},
+		{"invalid disposition", func(r *ExecutionRecord) { r.Disposition = "unknown" }},
+		{"missing versions", func(r *ExecutionRecord) { r.Kind = "header" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			r := good
+			test.change(&r)
+			raw, err := json.Marshal(r)
+			require.NoError(t, err)
+			_, err = DecodeExecutionRecord(raw)
+			require.Error(t, err)
+		})
+	}
+	_, err = DecodeExecutionRecord(append(raw, []byte(` {}`)...))
+	require.Error(t, err)
+	var fields map[string]any
+	require.NoError(t, json.Unmarshal(raw, &fields))
+	fields["unknown_field"] = true
+	raw, err = json.Marshal(fields)
+	require.NoError(t, err)
+	_, err = DecodeExecutionRecord(raw)
+	require.Error(t, err)
+}

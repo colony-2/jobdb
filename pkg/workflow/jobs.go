@@ -55,7 +55,8 @@ type EngineBuilder struct {
 }
 
 type WorkRegistrationOptions struct {
-	MetadataFilter MetadataFilter
+	ConsumerVersions map[string]string
+	MetadataFilter   MetadataFilter
 }
 
 type WorkSet struct {
@@ -112,6 +113,12 @@ func AsWorkSet(jobWorker JobWorker, taskWorkers ...TaskWorker) (*WorkSet, error)
 }
 
 func AsWorkSetWithOptions(jobWorker JobWorker, opts WorkRegistrationOptions, taskWorkers ...TaskWorker) (*WorkSet, error) {
+	versions, err := copyConsumerVersions(opts.ConsumerVersions)
+	if err != nil {
+		return nil, err
+	}
+	opts.ConsumerVersions = versions
+
 	if err := validateIdentifier(jobWorker.Name()); err != nil {
 		return nil, fmt.Errorf("job type: %w", err)
 	}

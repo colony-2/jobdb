@@ -661,6 +661,16 @@ func submitRestartJobRequestFromAPI(body runtimeapi.SubmitRestartJobRequest, ten
 		return jobdb.SubmitRestartJobRequest{}, fmt.Errorf("priorJobKey tenantId must match path tenantId")
 	}
 	job.PriorJobKey.TenantId = tenantID
+	if body.Job.ExecutionRestart != nil {
+		job.ExecutionRestart = &jobdb.ExecutionRestart{ScopeID: body.Job.ExecutionRestart.ScopeId}
+		if body.Job.ExecutionRestart.Payload != nil {
+			raw, err := applicationPayloadToRaw(*body.Job.ExecutionRestart.Payload)
+			if err != nil {
+				return jobdb.SubmitRestartJobRequest{}, err
+			}
+			job.ExecutionRestart.Payload = raw
+		}
+	}
 	if body.Job.ExtraTaskInput != nil {
 		data, err := taskDataFromAPIWrite(*body.Job.ExtraTaskInput)
 		if err != nil {

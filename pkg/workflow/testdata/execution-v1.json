@@ -1,0 +1,338 @@
+[
+  {
+    "version": 1,
+    "kind": "header",
+    "activation": "3KfEcVcDEfm3qG0aGxEoyajZuac",
+    "versions": {
+      "execution_pattern_version": 1,
+      "jobdb_version": "(devel)",
+      "consumer_versions": {
+        "c2j": "X",
+        "pulse": "Y"
+      }
+    },
+    "at": "2026-01-01T00:00:00Z",
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 1,
+    "kind": "activation",
+    "activation": "3KfEcVcDEfm3qG0aGxEoyajZuac",
+    "versions": {
+      "execution_pattern_version": 1,
+      "jobdb_version": "(devel)",
+      "consumer_versions": {
+        "c2j": "X",
+        "pulse": "Y"
+      }
+    },
+    "at": "2026-01-01T00:00:00.000064375Z",
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 1,
+    "kind": "scope",
+    "id": "/scope:\"$job\"#1",
+    "activation": "3KfEcVcDEfm3qG0aGxEoyajZuac",
+    "at": "2026-01-01T00:00:00.000069334Z",
+    "descriptor": {
+      "total_timeout": 0,
+      "attempt_timeout": 0,
+      "retry": {
+        "InitialInterval": 0,
+        "BackoffCoefficient": 1,
+        "MaximumInterval": 0,
+        "MaximumAttempts": 1,
+        "NonRetryableErrorTypes": null
+      }
+    },
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 1,
+    "kind": "attempt",
+    "id": "/scope:\"$job\"#1/attempt:1",
+    "activation": "3KfEcVcDEfm3qG0aGxEoyajZuac",
+    "at": "2026-01-01T00:00:00.000078209Z",
+    "attempt": 1,
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 1,
+    "kind": "scope",
+    "id": "/scope:\"$job\"#1/attempt:1/scope:\"sequence\"#1",
+    "activation": "3KfEcVcDEfm3qG0aGxEoyajZuac",
+    "at": "2026-01-01T00:00:00.00009525Z",
+    "descriptor": {
+      "total_timeout": 2000000000,
+      "attempt_timeout": 0,
+      "retry": {
+        "InitialInterval": 0,
+        "BackoffCoefficient": 1,
+        "MaximumInterval": 0,
+        "MaximumAttempts": 1,
+        "NonRetryableErrorTypes": null
+      }
+    },
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "2026-01-01T00:00:02.000095167Z",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 1,
+    "kind": "attempt",
+    "id": "/scope:\"$job\"#1/attempt:1/scope:\"sequence\"#1/attempt:1",
+    "activation": "3KfEcVcDEfm3qG0aGxEoyajZuac",
+    "at": "2026-01-01T00:00:00.000099959Z",
+    "attempt": 1,
+    "deadline": "2026-01-01T00:00:02.000095167Z",
+    "total_deadline": "2026-01-01T00:00:02.000095167Z",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 1,
+    "kind": "task",
+    "id": "/scope:\"$job\"#1/attempt:1/scope:\"sequence\"#1/attempt:1/task:\"compile\"#1",
+    "activation": "3KfEcVcDEfm3qG0aGxEoyajZuac",
+    "at": "2026-01-01T00:00:00.00012175Z",
+    "descriptor": {
+      "call": {
+        "site": "compile",
+        "task_type": "echo",
+        "contract_version": 1,
+        "command": {
+          "operation": "echo"
+        },
+        "policy": {
+          "Retry": {
+            "InitialInterval": 0,
+            "BackoffCoefficient": 0,
+            "MaximumInterval": 0,
+            "MaximumAttempts": 2,
+            "NonRetryableErrorTypes": null
+          },
+          "InvocationTimeout": null,
+          "TotalTimeout": null
+        }
+      },
+      "policy": {
+        "total_timeout": 0,
+        "attempt_timeout": 0,
+        "retry": {
+          "InitialInterval": 0,
+          "BackoffCoefficient": 1,
+          "MaximumInterval": 0,
+          "MaximumAttempts": 2,
+          "NonRetryableErrorTypes": null
+        },
+        "rules": [
+          "retry"
+        ]
+      }
+    },
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 1,
+    "kind": "attempt",
+    "id": "/scope:\"$job\"#1/attempt:1/scope:\"sequence\"#1/attempt:1/task:\"compile\"#1/attempt:1",
+    "activation": "3KfEcVcDEfm3qG0aGxEoyajZuac",
+    "at": "2026-01-01T00:00:00.000129334Z",
+    "attempt": 1,
+    "deadline": "2026-01-01T00:00:02.000095167Z",
+    "total_deadline": "2026-01-01T00:00:02.000095167Z",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 1,
+    "kind": "result",
+    "id": "/scope:\"$job\"#1/attempt:1/scope:\"sequence\"#1/attempt:1/task:\"compile\"#1/attempt:1",
+    "activation": "3KfEcVcDEfm3qG0aGxEoyajZuac",
+    "at": "2026-01-01T00:00:00.000150292Z",
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "input": {
+      "data": "frozen"
+    },
+    "error_kind": "AppError",
+    "error": {
+      "message": "retry",
+      "level": "error"
+    },
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 1,
+    "kind": "catch",
+    "id": "/scope:\"$job\"#1/attempt:1/scope:\"sequence\"#1/attempt:1/task:\"compile\"#1/attempt:1",
+    "activation": "3KfEcVcDEfm3qG0aGxEoyajZuac",
+    "at": "2026-01-01T00:00:00.000162459Z",
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "rule": "retry",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 1,
+    "kind": "handled",
+    "id": "/scope:\"$job\"#1/attempt:1/scope:\"sequence\"#1/attempt:1/task:\"compile\"#1/attempt:1",
+    "activation": "3KfEcVcDEfm3qG0aGxEoyajZuac",
+    "at": "2026-01-01T00:00:00.000194375Z",
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "error_kind": "AppError",
+    "error": {
+      "message": "retry",
+      "level": "error"
+    },
+    "disposition": "continue",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 1,
+    "kind": "decision",
+    "id": "/scope:\"$job\"#1/attempt:1/scope:\"sequence\"#1/attempt:1/task:\"compile\"#1/attempt:1",
+    "activation": "3KfEcVcDEfm3qG0aGxEoyajZuac",
+    "at": "2026-01-01T00:00:00.000200625Z",
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "disposition": "continue",
+    "retry": true,
+    "wake_at": "2026-01-01T00:00:00.0002005Z"
+  },
+  {
+    "version": 1,
+    "kind": "attempt",
+    "id": "/scope:\"$job\"#1/attempt:1/scope:\"sequence\"#1/attempt:1/task:\"compile\"#1/attempt:2",
+    "activation": "3KfEcVcDEfm3qG0aGxEoyajZuac",
+    "at": "2026-01-01T00:00:00.000208459Z",
+    "attempt": 2,
+    "deadline": "2026-01-01T00:00:02.000095167Z",
+    "total_deadline": "2026-01-01T00:00:02.000095167Z",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 1,
+    "kind": "result",
+    "id": "/scope:\"$job\"#1/attempt:1/scope:\"sequence\"#1/attempt:1/task:\"compile\"#1/attempt:2",
+    "activation": "3KfEcVcDEfm3qG0aGxEoyajZuac",
+    "at": "2026-01-01T00:00:00.000215542Z",
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "input": {
+      "data": "frozen"
+    },
+    "output": {
+      "data": "frozen"
+    },
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 1,
+    "kind": "decision",
+    "id": "/scope:\"$job\"#1/attempt:1/scope:\"sequence\"#1/attempt:1/task:\"compile\"#1/attempt:2",
+    "activation": "3KfEcVcDEfm3qG0aGxEoyajZuac",
+    "at": "2026-01-01T00:00:00.000223334Z",
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "disposition": "continue",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 1,
+    "kind": "end",
+    "id": "/scope:\"$job\"#1/attempt:1/scope:\"sequence\"#1/attempt:1/task:\"compile\"#1",
+    "activation": "3KfEcVcDEfm3qG0aGxEoyajZuac",
+    "at": "2026-01-01T00:00:00.000226459Z",
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "output": {
+      "data": "frozen"
+    },
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 1,
+    "kind": "result",
+    "id": "/scope:\"$job\"#1/attempt:1/scope:\"sequence\"#1/attempt:1",
+    "activation": "3KfEcVcDEfm3qG0aGxEoyajZuac",
+    "at": "2026-01-01T00:00:00.000236542Z",
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "output": {
+      "data": "frozen"
+    },
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 1,
+    "kind": "decision",
+    "id": "/scope:\"$job\"#1/attempt:1/scope:\"sequence\"#1/attempt:1",
+    "activation": "3KfEcVcDEfm3qG0aGxEoyajZuac",
+    "at": "2026-01-01T00:00:00.000250125Z",
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "disposition": "continue",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 1,
+    "kind": "end",
+    "id": "/scope:\"$job\"#1/attempt:1/scope:\"sequence\"#1",
+    "activation": "3KfEcVcDEfm3qG0aGxEoyajZuac",
+    "at": "2026-01-01T00:00:00.000253834Z",
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "output": {
+      "data": "frozen"
+    },
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 1,
+    "kind": "result",
+    "id": "/scope:\"$job\"#1/attempt:1",
+    "activation": "3KfEcVcDEfm3qG0aGxEoyajZuac",
+    "at": "2026-01-01T00:00:00.000262792Z",
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "output": {
+      "data": "frozen"
+    },
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 1,
+    "kind": "decision",
+    "id": "/scope:\"$job\"#1/attempt:1",
+    "activation": "3KfEcVcDEfm3qG0aGxEoyajZuac",
+    "at": "2026-01-01T00:00:00.000266792Z",
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "disposition": "continue",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 1,
+    "kind": "end",
+    "id": "/scope:\"$job\"#1",
+    "activation": "3KfEcVcDEfm3qG0aGxEoyajZuac",
+    "at": "2026-01-01T00:00:00.000270167Z",
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "output": {
+      "data": "frozen"
+    },
+    "wake_at": "0001-01-01T00:00:00Z"
+  }
+]

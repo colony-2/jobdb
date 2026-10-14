@@ -27,6 +27,7 @@ type FindTasksWaitingRequest struct {
 }
 
 type TaskContext struct {
+	executionContext context.Context
 	getConfiguration func(context.Context) (ConfigurationSnapshot, error)
 	resolveSecrets   func(context.Context, []string) (SecretResolveResult, error)
 	clientPayload    func() json.RawMessage
@@ -158,4 +159,12 @@ func (tc TaskContext) Yield(ctx context.Context, req RescheduleExecutionRequest)
 		return fmt.Errorf("yield requires an execution lease")
 	}
 	return tc.yield(ctx, req)
+}
+
+// Context is canceled when this execution attempt ends or loses its lease.
+func (tc TaskContext) Context() context.Context {
+	if tc.executionContext != nil {
+		return tc.executionContext
+	}
+	return context.Background()
 }

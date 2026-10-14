@@ -48,6 +48,11 @@ const (
 	WorkflowNotDeterministic      ErrorCode = "workflow_not_deterministic"
 )
 
+// Defines values for ExecutionChapterKind.
+const (
+	Execution ExecutionChapterKind = "execution"
+)
+
 // Defines values for JobAttemptOutcomeChapterKind.
 const (
 	JobAttemptOutcome JobAttemptOutcomeChapterKind = "jobAttemptOutcome"
@@ -302,6 +307,20 @@ type ErrorResponse struct {
 	Message string    `json:"message"`
 }
 
+// ExecutionChapter defines model for ExecutionChapter.
+type ExecutionChapter struct {
+	Kind ExecutionChapterKind `json:"kind"`
+
+	// Record Caller-owned application JSON payload embedded directly in REST
+	// requests and responses. This value is any valid JSON value: object,
+	// array, string, number, boolean, or null. It is never base64-encoded and
+	// never wrapped in a protobuf `Any`-style envelope on the REST boundary.
+	Record ApplicationPayload `json:"record"`
+}
+
+// ExecutionChapterKind defines model for ExecutionChapter.Kind.
+type ExecutionChapterKind string
+
 // ExecutionLease defines model for ExecutionLease.
 type ExecutionLease struct {
 	ClientPayload         json.RawMessage `json:"clientPayload,omitempty"`
@@ -316,6 +335,16 @@ type ExecutionLease struct {
 	Route      Route          `json:"route"`
 	SchemaHash *JobSchemaHash `json:"schemaHash,omitempty"`
 	WorkerId   *string        `json:"workerId,omitempty"`
+}
+
+// ExecutionRestart defines model for ExecutionRestart.
+type ExecutionRestart struct {
+	// Payload Caller-owned application JSON payload embedded directly in REST
+	// requests and responses. This value is any valid JSON value: object,
+	// array, string, number, boolean, or null. It is never base64-encoded and
+	// never wrapped in a protobuf `Any`-style envelope on the REST boundary.
+	Payload *ApplicationPayload `json:"payload,omitempty"`
+	ScopeId string              `json:"scopeId"`
 }
 
 // ExecutionState defines model for ExecutionState.
@@ -856,6 +885,7 @@ type SubmitJobRequest struct {
 // SubmitRestartJob defines model for SubmitRestartJob.
 type SubmitRestartJob struct {
 	ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
+	ExecutionRestart    *ExecutionRestart    `json:"executionRestart,omitempty"`
 	ExtraTaskInput      *TaskDataWrite       `json:"extraTaskInput,omitempty"`
 	ExtraTaskOutput     *TaskDataWrite       `json:"extraTaskOutput,omitempty"`
 	LastStepToKeep      int64                `json:"lastStepToKeep"`
@@ -1285,6 +1315,34 @@ func (t *ChapterBody) MergeRestartExtraChapter(v RestartExtraChapter) error {
 	return err
 }
 
+// AsExecutionChapter returns the union data inside the ChapterBody as a ExecutionChapter
+func (t ChapterBody) AsExecutionChapter() (ExecutionChapter, error) {
+	var body ExecutionChapter
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromExecutionChapter overwrites any union data inside the ChapterBody as the provided ExecutionChapter
+func (t *ChapterBody) FromExecutionChapter(v ExecutionChapter) error {
+	v.Kind = "execution"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeExecutionChapter performs a merge with any union data inside the ChapterBody, using the provided ExecutionChapter
+func (t *ChapterBody) MergeExecutionChapter(v ExecutionChapter) error {
+	v.Kind = "execution"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t ChapterBody) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"kind"`
@@ -1299,6 +1357,8 @@ func (t ChapterBody) ValueByDiscriminator() (interface{}, error) {
 		return nil, err
 	}
 	switch discriminator {
+	case "execution":
+		return t.AsExecutionChapter()
 	case "jobAttemptOutcome":
 		return t.AsJobAttemptOutcomeChapter()
 	case "jobStart":

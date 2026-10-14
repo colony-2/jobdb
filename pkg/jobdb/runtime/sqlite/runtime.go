@@ -128,7 +128,11 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if err := clientpayload.ValidateUpdate(req.Job.ClientPayloadUpdate, true); err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	job := req.Job
+	job, executionRestart, err := runtimecore.ResolveExecutionRestart(ctx, r, req.Job)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	req.Job = job
 	if job.LastStepToKeep < 0 {
 		return jobdb.JobHandle{}, fmt.Errorf("LastStepToKeep must be >= 0 for restart")
 	}
@@ -182,7 +186,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if nextAttempt == 0 {
 		nextAttempt = 1
 	}
-	if nextAttempt > 1 {
+	if executionRestart == nil && nextAttempt > 1 {
 		return jobdb.JobHandle{}, fmt.Errorf("LastStepToKeep %d cuts into retry chain: next ordinal %d is attempt %d of %s", job.LastStepToKeep, nextOrdinal, nextAttempt, nextEnv.Meta.TaskType)
 	}
 
@@ -191,6 +195,12 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		return jobdb.JobHandle{}, err
 	}
 	createOptions := story.CreateOptions{RequestID: ksuid.New().String()}
+	if executionRestart != nil {
+		createOptions, err = taskDataToCreateOptions(jobdb.NewTaskDataOrPanic(executionRestart), nextOrdinal, "__execution__", r.requestWorkerID(req.WorkerID), "Execution", payloadKindApp, "execution-restart", time.Now().UTC(), chapterMetadata{})
+		if err != nil {
+			return jobdb.JobHandle{}, err
+		}
+	}
 	if job.ExtraTaskOutput != nil {
 		hashInput := job.ExtraTaskInput
 		if hashInput == nil {
@@ -1164,7 +1174,25 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	if taskType == "" {
 		return fmt.Errorf("task type not found in route")
 	}
-	chapter, err := taskDataToChapter(req.Data, tw.OutputStep, taskType, r.workerID, chapterTypeTaskAttemptOutcome, payloadKindApp, tw.InputHash, time.Now().UTC(), meta)
+	completion, err := runtimecore.ExecutionCompletion(ctx, r, req, tw.InputStep)
+	if err != nil {
+		return err
+	}
+	completionData := req.Data
+	completionType := chapterTypeTaskAttemptOutcome
+	if completion != nil {
+		raw, err := json.Marshal(completion)
+		if err != nil {
+			return err
+		}
+		artifacts, err := req.Data.GetArtifacts()
+		if err != nil {
+			return err
+		}
+		completionData = &jobdb.SimpleTaskData{Data: raw, Artifacts: artifacts}
+		completionType = "Execution"
+	}
+	chapter, err := taskDataToChapter(completionData, tw.OutputStep, taskType, r.workerID, completionType, payloadKindApp, tw.InputHash, time.Now().UTC(), meta)
 	if err != nil {
 		return err
 	}

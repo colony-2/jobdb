@@ -250,6 +250,15 @@ func (x *ChapterRecord) GetRestartExtra() *RestartExtraChapter {
 	return nil
 }
 
+func (x *ChapterRecord) GetExecution() *ExecutionChapter {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Chapter.(*chapterRecord_Execution); ok {
+			return x.Execution
+		}
+	}
+	return nil
+}
+
 func (x *ChapterRecord) SetOrdinal(v int64) {
 	x.xxx_hidden_Ordinal = v
 	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 19)
@@ -361,6 +370,14 @@ func (x *ChapterRecord) SetRestartExtra(v *RestartExtraChapter) {
 		return
 	}
 	x.xxx_hidden_Chapter = &chapterRecord_RestartExtra{v}
+}
+
+func (x *ChapterRecord) SetExecution(v *ExecutionChapter) {
+	if v == nil {
+		x.xxx_hidden_Chapter = nil
+		return
+	}
+	x.xxx_hidden_Chapter = &chapterRecord_Execution{v}
 }
 
 func (x *ChapterRecord) HasOrdinal() bool {
@@ -521,6 +538,14 @@ func (x *ChapterRecord) HasRestartExtra() bool {
 	return ok
 }
 
+func (x *ChapterRecord) HasExecution() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Chapter.(*chapterRecord_Execution)
+	return ok
+}
+
 func (x *ChapterRecord) ClearOrdinal() {
 	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
 	x.xxx_hidden_Ordinal = 0
@@ -626,11 +651,18 @@ func (x *ChapterRecord) ClearRestartExtra() {
 	}
 }
 
+func (x *ChapterRecord) ClearExecution() {
+	if _, ok := x.xxx_hidden_Chapter.(*chapterRecord_Execution); ok {
+		x.xxx_hidden_Chapter = nil
+	}
+}
+
 const ChapterRecord_Chapter_not_set_case case_ChapterRecord_Chapter = 0
 const ChapterRecord_JobStart_case case_ChapterRecord_Chapter = 30
 const ChapterRecord_JobAttemptOutcome_case case_ChapterRecord_Chapter = 31
 const ChapterRecord_TaskAttemptOutcome_case case_ChapterRecord_Chapter = 32
 const ChapterRecord_RestartExtra_case case_ChapterRecord_Chapter = 33
+const ChapterRecord_Execution_case case_ChapterRecord_Chapter = 34
 
 func (x *ChapterRecord) WhichChapter() case_ChapterRecord_Chapter {
 	if x == nil {
@@ -645,6 +677,8 @@ func (x *ChapterRecord) WhichChapter() case_ChapterRecord_Chapter {
 		return ChapterRecord_TaskAttemptOutcome_case
 	case *chapterRecord_RestartExtra:
 		return ChapterRecord_RestartExtra_case
+	case *chapterRecord_Execution:
+		return ChapterRecord_Execution_case
 	default:
 		return ChapterRecord_Chapter_not_set_case
 	}
@@ -676,6 +710,7 @@ type ChapterRecord_builder struct {
 	JobAttemptOutcome  *JobAttemptOutcomeChapter
 	TaskAttemptOutcome *TaskAttemptOutcomeChapter
 	RestartExtra       *RestartExtraChapter
+	Execution          *ExecutionChapter
 	// -- end of xxx_hidden_Chapter
 }
 
@@ -740,6 +775,9 @@ func (b0 ChapterRecord_builder) Build() *ChapterRecord {
 	if b.RestartExtra != nil {
 		x.xxx_hidden_Chapter = &chapterRecord_RestartExtra{b.RestartExtra}
 	}
+	if b.Execution != nil {
+		x.xxx_hidden_Chapter = &chapterRecord_Execution{b.Execution}
+	}
 	return m0
 }
 
@@ -773,6 +811,10 @@ type chapterRecord_RestartExtra struct {
 	RestartExtra *RestartExtraChapter `protobuf:"bytes,33,opt,name=restart_extra,json=restartExtra,oneof"`
 }
 
+type chapterRecord_Execution struct {
+	Execution *ExecutionChapter `protobuf:"bytes,34,opt,name=execution,oneof"`
+}
+
 func (*chapterRecord_JobStart) isChapterRecord_Chapter() {}
 
 func (*chapterRecord_JobAttemptOutcome) isChapterRecord_Chapter() {}
@@ -780,6 +822,8 @@ func (*chapterRecord_JobAttemptOutcome) isChapterRecord_Chapter() {}
 func (*chapterRecord_TaskAttemptOutcome) isChapterRecord_Chapter() {}
 
 func (*chapterRecord_RestartExtra) isChapterRecord_Chapter() {}
+
+func (*chapterRecord_Execution) isChapterRecord_Chapter() {}
 
 type JobStartChapter struct {
 	state            protoimpl.MessageState `protogen:"opaque.v1"`
@@ -3506,11 +3550,91 @@ func (b0 WaitForJobs_builder) Build() *WaitForJobs {
 	return m0
 }
 
+// Versioned execution-pattern record, encoded by the strict execution codec.
+type ExecutionChapter struct {
+	state                  protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_RecordJson  []byte                 `protobuf:"bytes,1,opt,name=record_json,json=recordJson"`
+	XXX_raceDetectHookData protoimpl.RaceDetectHookData
+	XXX_presence           [1]uint32
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *ExecutionChapter) Reset() {
+	*x = ExecutionChapter{}
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecutionChapter) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecutionChapter) ProtoMessage() {}
+
+func (x *ExecutionChapter) ProtoReflect() protoreflect.Message {
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ExecutionChapter) GetRecordJson() []byte {
+	if x != nil {
+		return x.xxx_hidden_RecordJson
+	}
+	return nil
+}
+
+func (x *ExecutionChapter) SetRecordJson(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.xxx_hidden_RecordJson = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 1)
+}
+
+func (x *ExecutionChapter) HasRecordJson() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+}
+
+func (x *ExecutionChapter) ClearRecordJson() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
+	x.xxx_hidden_RecordJson = nil
+}
+
+type ExecutionChapter_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	RecordJson []byte
+}
+
+func (b0 ExecutionChapter_builder) Build() *ExecutionChapter {
+	m0 := &ExecutionChapter{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.RecordJson != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 1)
+		x.xxx_hidden_RecordJson = b.RecordJson
+	}
+	return m0
+}
+
 var File_jobdb_storage_v1_storage_proto protoreflect.FileDescriptor
 
 const file_jobdb_storage_v1_storage_proto_rawDesc = "" +
 	"\n" +
-	"\x1ejobdb/storage/v1/storage.proto\x12\x10jobdb.storage.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc6\t\n" +
+	"\x1ejobdb/storage/v1/storage.proto\x12\x10jobdb.storage.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x8a\n" +
+	"\n" +
 	"\rChapterRecord\x12\x18\n" +
 	"\aordinal\x18\x01 \x01(\x03R\aordinal\x12\x1b\n" +
 	"\ttask_type\x18\x02 \x01(\tR\btaskType\x12\x1b\n" +
@@ -3539,7 +3663,8 @@ const file_jobdb_storage_v1_storage_proto_rawDesc = "" +
 	"\tjob_start\x18\x1e \x01(\v2!.jobdb.storage.v1.JobStartChapterH\x00R\bjobStart\x12\\\n" +
 	"\x13job_attempt_outcome\x18\x1f \x01(\v2*.jobdb.storage.v1.JobAttemptOutcomeChapterH\x00R\x11jobAttemptOutcome\x12_\n" +
 	"\x14task_attempt_outcome\x18  \x01(\v2+.jobdb.storage.v1.TaskAttemptOutcomeChapterH\x00R\x12taskAttemptOutcome\x12L\n" +
-	"\rrestart_extra\x18! \x01(\v2%.jobdb.storage.v1.RestartExtraChapterH\x00R\frestartExtraB\t\n" +
+	"\rrestart_extra\x18! \x01(\v2%.jobdb.storage.v1.RestartExtraChapterH\x00R\frestartExtra\x12B\n" +
+	"\texecution\x18\" \x01(\v2\".jobdb.storage.v1.ExecutionChapterH\x00R\texecutionB\t\n" +
 	"\achapter\"P\n" +
 	"\x0fJobStartChapter\x12=\n" +
 	"\x05input\x18\x01 \x01(\v2'.jobdb.storage.v1.ApplicationInputBytesR\x05input\"S\n" +
@@ -3643,9 +3768,12 @@ const file_jobdb_storage_v1_storage_proto_rawDesc = "" +
 	"\n" +
 	"input_hash\x18\x04 \x01(\tR\tinputHash\"&\n" +
 	"\vWaitForJobs\x12\x17\n" +
-	"\ajob_ids\x18\x01 \x03(\tR\x06jobIdsB?Z=github.com/colony-2/jobdb/pkg/internal/storagepb/v1;storagepbb\beditionsp\xe9\a"
+	"\ajob_ids\x18\x01 \x03(\tR\x06jobIds\"3\n" +
+	"\x10ExecutionChapter\x12\x1f\n" +
+	"\vrecord_json\x18\x01 \x01(\fR\n" +
+	"recordJsonB?Z=github.com/colony-2/jobdb/pkg/internal/storagepb/v1;storagepbb\beditionsp\xe9\a"
 
-var file_jobdb_storage_v1_storage_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_jobdb_storage_v1_storage_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_jobdb_storage_v1_storage_proto_goTypes = []any{
 	(*ChapterRecord)(nil),             // 0: jobdb.storage.v1.ChapterRecord
 	(*JobStartChapter)(nil),           // 1: jobdb.storage.v1.JobStartChapter
@@ -3669,19 +3797,20 @@ var file_jobdb_storage_v1_storage_proto_goTypes = []any{
 	(*SchedulerPayload)(nil),          // 19: jobdb.storage.v1.SchedulerPayload
 	(*TaskWait)(nil),                  // 20: jobdb.storage.v1.TaskWait
 	(*WaitForJobs)(nil),               // 21: jobdb.storage.v1.WaitForJobs
-	nil,                               // 22: jobdb.storage.v1.Metadata.FieldsEntry
-	nil,                               // 23: jobdb.storage.v1.MetadataMap.FieldsEntry
-	nil,                               // 24: jobdb.storage.v1.AppErrorPayload.AttrsEntry
-	(*timestamppb.Timestamp)(nil),     // 25: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),       // 26: google.protobuf.Duration
+	(*ExecutionChapter)(nil),          // 22: jobdb.storage.v1.ExecutionChapter
+	nil,                               // 23: jobdb.storage.v1.Metadata.FieldsEntry
+	nil,                               // 24: jobdb.storage.v1.MetadataMap.FieldsEntry
+	nil,                               // 25: jobdb.storage.v1.AppErrorPayload.AttrsEntry
+	(*timestamppb.Timestamp)(nil),     // 26: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),       // 27: google.protobuf.Duration
 }
 var file_jobdb_storage_v1_storage_proto_depIdxs = []int32{
-	25, // 0: jobdb.storage.v1.ChapterRecord.created_at:type_name -> google.protobuf.Timestamp
-	25, // 1: jobdb.storage.v1.ChapterRecord.started_at:type_name -> google.protobuf.Timestamp
-	25, // 2: jobdb.storage.v1.ChapterRecord.finished_at:type_name -> google.protobuf.Timestamp
+	26, // 0: jobdb.storage.v1.ChapterRecord.created_at:type_name -> google.protobuf.Timestamp
+	26, // 1: jobdb.storage.v1.ChapterRecord.started_at:type_name -> google.protobuf.Timestamp
+	26, // 2: jobdb.storage.v1.ChapterRecord.finished_at:type_name -> google.protobuf.Timestamp
 	8,  // 3: jobdb.storage.v1.ChapterRecord.metadata:type_name -> jobdb.storage.v1.Metadata
 	6,  // 4: jobdb.storage.v1.ChapterRecord.input:type_name -> jobdb.storage.v1.ApplicationInputBytes
-	25, // 5: jobdb.storage.v1.ChapterRecord.next_attempt_at:type_name -> google.protobuf.Timestamp
+	26, // 5: jobdb.storage.v1.ChapterRecord.next_attempt_at:type_name -> google.protobuf.Timestamp
 	15, // 6: jobdb.storage.v1.ChapterRecord.input_ref:type_name -> jobdb.storage.v1.InputReference
 	17, // 7: jobdb.storage.v1.ChapterRecord.run_policy:type_name -> jobdb.storage.v1.RunPolicy
 	18, // 8: jobdb.storage.v1.ChapterRecord.prerequisites:type_name -> jobdb.storage.v1.JobPrerequisite
@@ -3689,39 +3818,40 @@ var file_jobdb_storage_v1_storage_proto_depIdxs = []int32{
 	2,  // 10: jobdb.storage.v1.ChapterRecord.job_attempt_outcome:type_name -> jobdb.storage.v1.JobAttemptOutcomeChapter
 	3,  // 11: jobdb.storage.v1.ChapterRecord.task_attempt_outcome:type_name -> jobdb.storage.v1.TaskAttemptOutcomeChapter
 	4,  // 12: jobdb.storage.v1.ChapterRecord.restart_extra:type_name -> jobdb.storage.v1.RestartExtraChapter
-	6,  // 13: jobdb.storage.v1.JobStartChapter.input:type_name -> jobdb.storage.v1.ApplicationInputBytes
-	5,  // 14: jobdb.storage.v1.JobAttemptOutcomeChapter.outcome:type_name -> jobdb.storage.v1.TaskOutcome
-	5,  // 15: jobdb.storage.v1.TaskAttemptOutcomeChapter.outcome:type_name -> jobdb.storage.v1.TaskOutcome
-	7,  // 16: jobdb.storage.v1.RestartExtraChapter.output:type_name -> jobdb.storage.v1.ApplicationOutputBytes
-	7,  // 17: jobdb.storage.v1.TaskOutcome.app_output:type_name -> jobdb.storage.v1.ApplicationOutputBytes
-	12, // 18: jobdb.storage.v1.TaskOutcome.app_error:type_name -> jobdb.storage.v1.AppErrorPayload
-	13, // 19: jobdb.storage.v1.TaskOutcome.system_error:type_name -> jobdb.storage.v1.SystemErrorPayload
-	14, // 20: jobdb.storage.v1.TaskOutcome.timeout:type_name -> jobdb.storage.v1.TimeoutPayload
-	22, // 21: jobdb.storage.v1.Metadata.fields:type_name -> jobdb.storage.v1.Metadata.FieldsEntry
-	10, // 22: jobdb.storage.v1.MetadataValue.list_value:type_name -> jobdb.storage.v1.MetadataList
-	11, // 23: jobdb.storage.v1.MetadataValue.map_value:type_name -> jobdb.storage.v1.MetadataMap
-	9,  // 24: jobdb.storage.v1.MetadataList.values:type_name -> jobdb.storage.v1.MetadataValue
-	23, // 25: jobdb.storage.v1.MetadataMap.fields:type_name -> jobdb.storage.v1.MetadataMap.FieldsEntry
-	24, // 26: jobdb.storage.v1.AppErrorPayload.attrs:type_name -> jobdb.storage.v1.AppErrorPayload.AttrsEntry
-	15, // 27: jobdb.storage.v1.AppErrorPayload.input_ref:type_name -> jobdb.storage.v1.InputReference
-	15, // 28: jobdb.storage.v1.SystemErrorPayload.input_ref:type_name -> jobdb.storage.v1.InputReference
-	26, // 29: jobdb.storage.v1.TimeoutPayload.after:type_name -> google.protobuf.Duration
-	15, // 30: jobdb.storage.v1.TimeoutPayload.input_ref:type_name -> jobdb.storage.v1.InputReference
-	26, // 31: jobdb.storage.v1.RetryPolicy.initial_interval:type_name -> google.protobuf.Duration
-	26, // 32: jobdb.storage.v1.RetryPolicy.maximum_interval:type_name -> google.protobuf.Duration
-	16, // 33: jobdb.storage.v1.RunPolicy.retry:type_name -> jobdb.storage.v1.RetryPolicy
-	26, // 34: jobdb.storage.v1.RunPolicy.invocation_timeout:type_name -> google.protobuf.Duration
-	26, // 35: jobdb.storage.v1.RunPolicy.total_timeout:type_name -> google.protobuf.Duration
-	17, // 36: jobdb.storage.v1.SchedulerPayload.run_policy:type_name -> jobdb.storage.v1.RunPolicy
-	20, // 37: jobdb.storage.v1.SchedulerPayload.task_wait:type_name -> jobdb.storage.v1.TaskWait
-	9,  // 38: jobdb.storage.v1.Metadata.FieldsEntry.value:type_name -> jobdb.storage.v1.MetadataValue
-	9,  // 39: jobdb.storage.v1.MetadataMap.FieldsEntry.value:type_name -> jobdb.storage.v1.MetadataValue
-	9,  // 40: jobdb.storage.v1.AppErrorPayload.AttrsEntry.value:type_name -> jobdb.storage.v1.MetadataValue
-	41, // [41:41] is the sub-list for method output_type
-	41, // [41:41] is the sub-list for method input_type
-	41, // [41:41] is the sub-list for extension type_name
-	41, // [41:41] is the sub-list for extension extendee
-	0,  // [0:41] is the sub-list for field type_name
+	22, // 13: jobdb.storage.v1.ChapterRecord.execution:type_name -> jobdb.storage.v1.ExecutionChapter
+	6,  // 14: jobdb.storage.v1.JobStartChapter.input:type_name -> jobdb.storage.v1.ApplicationInputBytes
+	5,  // 15: jobdb.storage.v1.JobAttemptOutcomeChapter.outcome:type_name -> jobdb.storage.v1.TaskOutcome
+	5,  // 16: jobdb.storage.v1.TaskAttemptOutcomeChapter.outcome:type_name -> jobdb.storage.v1.TaskOutcome
+	7,  // 17: jobdb.storage.v1.RestartExtraChapter.output:type_name -> jobdb.storage.v1.ApplicationOutputBytes
+	7,  // 18: jobdb.storage.v1.TaskOutcome.app_output:type_name -> jobdb.storage.v1.ApplicationOutputBytes
+	12, // 19: jobdb.storage.v1.TaskOutcome.app_error:type_name -> jobdb.storage.v1.AppErrorPayload
+	13, // 20: jobdb.storage.v1.TaskOutcome.system_error:type_name -> jobdb.storage.v1.SystemErrorPayload
+	14, // 21: jobdb.storage.v1.TaskOutcome.timeout:type_name -> jobdb.storage.v1.TimeoutPayload
+	23, // 22: jobdb.storage.v1.Metadata.fields:type_name -> jobdb.storage.v1.Metadata.FieldsEntry
+	10, // 23: jobdb.storage.v1.MetadataValue.list_value:type_name -> jobdb.storage.v1.MetadataList
+	11, // 24: jobdb.storage.v1.MetadataValue.map_value:type_name -> jobdb.storage.v1.MetadataMap
+	9,  // 25: jobdb.storage.v1.MetadataList.values:type_name -> jobdb.storage.v1.MetadataValue
+	24, // 26: jobdb.storage.v1.MetadataMap.fields:type_name -> jobdb.storage.v1.MetadataMap.FieldsEntry
+	25, // 27: jobdb.storage.v1.AppErrorPayload.attrs:type_name -> jobdb.storage.v1.AppErrorPayload.AttrsEntry
+	15, // 28: jobdb.storage.v1.AppErrorPayload.input_ref:type_name -> jobdb.storage.v1.InputReference
+	15, // 29: jobdb.storage.v1.SystemErrorPayload.input_ref:type_name -> jobdb.storage.v1.InputReference
+	27, // 30: jobdb.storage.v1.TimeoutPayload.after:type_name -> google.protobuf.Duration
+	15, // 31: jobdb.storage.v1.TimeoutPayload.input_ref:type_name -> jobdb.storage.v1.InputReference
+	27, // 32: jobdb.storage.v1.RetryPolicy.initial_interval:type_name -> google.protobuf.Duration
+	27, // 33: jobdb.storage.v1.RetryPolicy.maximum_interval:type_name -> google.protobuf.Duration
+	16, // 34: jobdb.storage.v1.RunPolicy.retry:type_name -> jobdb.storage.v1.RetryPolicy
+	27, // 35: jobdb.storage.v1.RunPolicy.invocation_timeout:type_name -> google.protobuf.Duration
+	27, // 36: jobdb.storage.v1.RunPolicy.total_timeout:type_name -> google.protobuf.Duration
+	17, // 37: jobdb.storage.v1.SchedulerPayload.run_policy:type_name -> jobdb.storage.v1.RunPolicy
+	20, // 38: jobdb.storage.v1.SchedulerPayload.task_wait:type_name -> jobdb.storage.v1.TaskWait
+	9,  // 39: jobdb.storage.v1.Metadata.FieldsEntry.value:type_name -> jobdb.storage.v1.MetadataValue
+	9,  // 40: jobdb.storage.v1.MetadataMap.FieldsEntry.value:type_name -> jobdb.storage.v1.MetadataValue
+	9,  // 41: jobdb.storage.v1.AppErrorPayload.AttrsEntry.value:type_name -> jobdb.storage.v1.MetadataValue
+	42, // [42:42] is the sub-list for method output_type
+	42, // [42:42] is the sub-list for method input_type
+	42, // [42:42] is the sub-list for extension type_name
+	42, // [42:42] is the sub-list for extension extendee
+	0,  // [0:42] is the sub-list for field type_name
 }
 
 func init() { file_jobdb_storage_v1_storage_proto_init() }
@@ -3734,6 +3864,7 @@ func file_jobdb_storage_v1_storage_proto_init() {
 		(*chapterRecord_JobAttemptOutcome)(nil),
 		(*chapterRecord_TaskAttemptOutcome)(nil),
 		(*chapterRecord_RestartExtra)(nil),
+		(*chapterRecord_Execution)(nil),
 	}
 	file_jobdb_storage_v1_storage_proto_msgTypes[5].OneofWrappers = []any{
 		(*taskOutcome_AppOutput)(nil),
@@ -3756,7 +3887,7 @@ func file_jobdb_storage_v1_storage_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_jobdb_storage_v1_storage_proto_rawDesc), len(file_jobdb_storage_v1_storage_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   25,
+			NumMessages:   26,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

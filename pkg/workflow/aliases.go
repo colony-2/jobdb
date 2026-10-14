@@ -255,3 +255,5 @@ type Route = jobdb.Route
 
 func cloneRoute(route *Route) *Route        { return jobdb.CloneRoute(route) }
 func validateIdentifier(value string) error { return jobdb.ValidateIdentifier(value) }
+
+type ExecutionChapter = jobdb.ExecutionChapter

@@ -30,7 +30,10 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	job := req.Job
+	job, executionRestart, err := ResolveExecutionRestart(ctx, r, req.Job)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
 	initial, revision, err := clientpayload.Initial(job.ClientPayloadUpdate)
 	if err != nil {
 		return jobdb.JobHandle{}, err
@@ -98,7 +101,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	if nextMeta.Attempt > 1 {
+	if executionRestart == nil && nextMeta.Attempt > 1 {
 		return jobdb.JobHandle{}, fmt.Errorf("LastStepToKeep %d cuts into retry chain", job.LastStepToKeep)
 	}
 	workerID := req.WorkerID
@@ -111,6 +114,17 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	}
 	var extra *EncodedChapter
 	var outputArtifacts []jobdb.Artifact
+	if executionRestart != nil {
+		raw, err := json.Marshal(executionRestart)
+		if err != nil {
+			return jobdb.JobHandle{}, err
+		}
+		encoded, err := EncodeChapter(EncodeChapterRequest{Chapter: jobdb.Chapter{Ordinal: nextOrdinal, TaskType: "__execution__", CreatedAt: createdAt.UTC(), Body: jobdb.ExecutionChapter{Record: raw}}})
+		if err != nil {
+			return jobdb.JobHandle{}, err
+		}
+		extra = &encoded
+	}
 	if job.ExtraTaskOutput != nil {
 		hashInput := job.ExtraTaskInput
 		if hashInput == nil {

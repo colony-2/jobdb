@@ -2,6 +2,7 @@ package runtimecore
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -59,11 +60,27 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 		return fmt.Errorf("%w: job is not waiting for an unheld external task", jobdb.ErrConflict)
 	}
 	var inherited runtimecodec.ChapterMeta
+	var executionWait *jobdb.ExecutionRecord
 	if task.InputOrdinal > 0 {
 		input, err := r.GetChapter(ctx, jobdb.ChapterRef{JobKey: req.JobKey,
 			Ordinal: task.InputOrdinal})
 		if err != nil {
 			return err
+		}
+		if body, ok := input.Body.(jobdb.ExecutionChapter); ok {
+			record, decodeErr := jobdb.DecodeExecutionRecord(body.Record)
+			if decodeErr != nil {
+				return decodeErr
+			}
+			if record.Kind != "wait" || record.Input == nil {
+				return fmt.Errorf("invalid execution wait")
+			}
+			raw, _ := json.Marshal(record)
+			digest := fmt.Sprintf("%x", sha256.Sum256(raw))
+			if req.InputHash != digest || req.InputOrdinal != task.InputOrdinal {
+				return fmt.Errorf("%w: execution wait generation differs", jobdb.ErrConflict)
+			}
+			executionWait = &record
 		}
 		inherited, err = initialChapterMetadata(input.Metadata)
 		if err != nil {
@@ -102,6 +119,17 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 		}},
 		InputHash: task.InputHash, CreatedAt: meta.CreatedAt,
 		Metadata: chapterMetadata, Artifacts: descriptors,
+	}
+	if executionWait != nil {
+		record, err := ExecutionCompletion(ctx, r, req, task.InputOrdinal)
+		if err != nil {
+			return err
+		}
+		raw, err := json.Marshal(record)
+		if err != nil {
+			return err
+		}
+		chapter.Body = jobdb.ExecutionChapter{Record: raw}
 	}
 	if err := ValidateOrdinaryChapter(ctx, r.schemas,
 		jobdb.JobSchemaKey{TenantId: req.JobKey.TenantId,

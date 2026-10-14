@@ -127,6 +127,16 @@ func (r *Runtime) compareRestartStoryPrefix(ctx context.Context, job jobdb.Submi
 	if err != nil {
 		return jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s chapter %d could not be decoded: %v", targetJobKey, nextOrdinal, err))
 	}
+	if job.ExecutionRestart != nil {
+		if env.ChapterType != "Execution" {
+			return jobdb.NewExistingJobMismatchError("execution restart record differs")
+		}
+		record, err := jobdb.DecodeExecutionRecord(env.Payload)
+		if err != nil || record.Kind != "restart" || record.ID != job.ExecutionRestart.ScopeID || record.Source == nil || *record.Source != job.PriorJobKey || !bytes.Equal(record.Payload, job.ExecutionRestart.Payload) {
+			return jobdb.NewExistingJobMismatchError("execution restart payload differs")
+		}
+		return nil
+	}
 	if !extra.Present {
 		if env.ChapterType == chapterTypeRestartExtra {
 			return jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with restart extra output that was not requested", targetJobKey))

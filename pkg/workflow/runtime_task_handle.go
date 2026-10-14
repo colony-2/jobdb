@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"time"
 )
 
@@ -145,6 +146,16 @@ func (h *runtimeListedTaskHandle) Data() (TaskData, error) {
 	})
 	if err != nil {
 		return nil, err
+	}
+	if body, ok := chapter.Body.(ExecutionChapter); ok {
+		record, err := jobdb.DecodeExecutionRecord(body.Record)
+		if err != nil {
+			return nil, err
+		}
+		if record.Kind != "wait" || record.Input == nil {
+			return nil, fmt.Errorf("waiting task has no input snapshot")
+		}
+		return snapshotData(record.Input), nil
 	}
 	return chapterToTaskData(h.runtime, h.jobKey, chapter)
 }

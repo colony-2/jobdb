@@ -33,6 +33,7 @@ const (
 )
 
 type GetJobForRunRequest struct {
+	ConsumerVersions map[string]string
 	// BeforeRun runs under the validated, renewing lease before application work.
 	// It may reschedule the supplied lease to reject execution admission.
 	BeforeRun     func(context.Context, ExecutionLease) error
@@ -103,7 +104,7 @@ func GetJobForRun(ctx context.Context, runtime WorkflowRuntime, req GetJobForRun
 		return nil, fmt.Errorf("job worker is required")
 	}
 
-	workset, err := AsWorkSet(req.JobWorker, req.TaskWorkers...)
+	workset, err := AsWorkSetWithOptions(req.JobWorker, WorkRegistrationOptions{ConsumerVersions: req.ConsumerVersions}, req.TaskWorkers...)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +187,7 @@ func GetJobForRunWithLease(ctx context.Context, runtime WorkflowRuntime, lease E
 	if req.WorkerID != "" && req.WorkerID != renewable.LeaseWorkerID() {
 		return nil, jobdb.ErrExecutionLeaseLost
 	}
-	ws, err := AsWorkSet(req.JobWorker, req.TaskWorkers...)
+	ws, err := AsWorkSetWithOptions(req.JobWorker, WorkRegistrationOptions{ConsumerVersions: req.ConsumerVersions}, req.TaskWorkers...)
 	if err != nil {
 		return nil, err
 	}

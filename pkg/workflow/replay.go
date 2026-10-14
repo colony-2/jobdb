@@ -149,6 +149,7 @@ type JobStartEvent struct {
 }
 
 type TaskStartEvent struct {
+	InvocationID  string
 	JobKey        JobKey
 	TaskType      string
 	Ordinal       int64
@@ -158,6 +159,7 @@ type TaskStartEvent struct {
 }
 
 type TaskEndEvent struct {
+	InvocationID  string
 	JobKey        JobKey
 	TaskType      string
 	Ordinal       int64

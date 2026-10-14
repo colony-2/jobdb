@@ -2090,6 +2090,8 @@ components:
           $ref: '#/components/schemas/ClientPayloadUpdate'
         priorJobKey:
           $ref: '#/components/schemas/JobKey'
+        executionRestart:
+          $ref: '#/components/schemas/ExecutionRestart'
         lastStepToKeep:
           type: integer
           format: int64
@@ -2378,6 +2380,7 @@ components:
         - $ref: '#/components/schemas/JobAttemptOutcomeChapter'
         - $ref: '#/components/schemas/TaskAttemptOutcomeChapter'
         - $ref: '#/components/schemas/RestartExtraChapter'
+        - $ref: '#/components/schemas/ExecutionChapter'
       discriminator:
         propertyName: kind
         mapping:
@@ -2385,6 +2388,7 @@ components:
           jobAttemptOutcome: '#/components/schemas/JobAttemptOutcomeChapter'
           taskAttemptOutcome: '#/components/schemas/TaskAttemptOutcomeChapter'
           restartExtra: '#/components/schemas/RestartExtraChapter'
+          execution: '#/components/schemas/ExecutionChapter'
     JobStartChapter:
       type: object
       required: [kind, input]
@@ -2424,6 +2428,16 @@ components:
           type: string
           enum: [restartExtra]
         output:
+          $ref: '#/components/schemas/ApplicationPayload'
+    ExecutionChapter:
+      type: object
+      required: [kind, record]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [execution]
+        record:
           $ref: '#/components/schemas/ApplicationPayload'
     ChapterRecord:
       type: object
@@ -2686,3 +2700,13 @@ components:
         expectedRevision:
           type: string
           pattern: '^[0-9]+$'
+
+    ExecutionRestart:
+      type: object
+      required: [scopeId]
+      additionalProperties: false
+      properties:
+        scopeId:
+          type: string
+        payload:
+          $ref: '#/components/schemas/ApplicationPayload'

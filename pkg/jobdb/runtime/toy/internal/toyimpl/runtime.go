@@ -247,6 +247,11 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 }
 
 func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.SubmitRestartJobRequest, parentJobID string) (jobdb.JobHandle, error) {
+	job, executionRestart, resolveErr := runtimecore.ResolveExecutionRestart(ctx, r, req.Job)
+	if resolveErr != nil {
+		return jobdb.JobHandle{}, resolveErr
+	}
+	req.Job = job
 	initial, initialRevision, err := clientpayload.Initial(req.Job.ClientPayloadUpdate)
 	if err != nil {
 		return jobdb.JobHandle{}, err
@@ -306,7 +311,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	if nextAttempt > 1 {
+	if executionRestart == nil && nextAttempt > 1 {
 		taskType := nextChapter.TaskType
 		if taskType == "" {
 			if chap0, ok := sourceChapters[0]; ok {
@@ -321,6 +326,10 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 			continue
 		}
 		targetChapters[ordinal] = cloneChapter(chapter)
+	}
+	if executionRestart != nil {
+		raw, _ := json.Marshal(executionRestart)
+		targetChapters[nextOrdinal] = jobdb.Chapter{Ordinal: nextOrdinal, TaskType: "__execution__", Body: jobdb.ExecutionChapter{Record: raw}}
 	}
 	if _, ok := targetChapters[0]; !ok {
 		return jobdb.JobHandle{}, jobdb.ErrJobNotFound
@@ -420,6 +429,13 @@ func (r *Runtime) existingEquivalentRestartJob(jobKey jobdb.JobKey, job jobdb.Su
 		}
 		if !reflect.DeepEqual(cloneChapter(got), cloneChapter(want)) {
 			return jobdb.JobHandle{}, false, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different restart history at ordinal %d", jobKey, ordinal))
+		}
+	}
+	if job.ExecutionRestart != nil {
+		got, ok := existing[job.LastStepToKeep+1]
+		want := expected[job.LastStepToKeep+1]
+		if !ok || !reflect.DeepEqual(got.Body, want.Body) {
+			return jobdb.JobHandle{}, false, jobdb.NewExistingJobMismatchError("execution restart payload differs")
 		}
 	}
 	if next, ok := existing[job.LastStepToKeep+1]; ok && runtimecodec.ChapterIs(next, runtimecodec.ChapterTypeRestartExtra) && job.ExtraTaskOutput == nil {
@@ -1367,14 +1383,38 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 		return fmt.Errorf("%w: waiting input hash does not match requested input hash", jobdb.ErrConflict)
 	}
 
-	td, storedArtifacts, err := r.materializeTaskData(ctx, req.JobKey, wait.OutputStep, req.Data)
+	if req.Data == nil {
+		return fmt.Errorf("task data is required")
+	}
+	dataPayload, err := req.Data.GetData()
 	if err != nil {
 		return err
 	}
-	dataPayload, err := td.GetData()
+	if !json.Valid(dataPayload) {
+		return fmt.Errorf("task data must be valid JSON")
+	}
+	artifacts, err := req.Data.GetArtifacts()
 	if err != nil {
 		return err
 	}
+	pendingArtifacts := map[string][]byte{}
+	defer cleanupArtifacts(ctx, artifacts, r.engine.logger)
+	var storedArtifacts []jobdb.StoredArtifact
+	for _, artifact := range artifacts {
+		if artifact.Name() == "" {
+			return fmt.Errorf("artifact name is required")
+		}
+		if _, exists := pendingArtifacts[artifact.Name()]; exists {
+			return fmt.Errorf("duplicate artifact name")
+		}
+		data, err := artifact.Bytes(ctx)
+		if err != nil {
+			return err
+		}
+		pendingArtifacts[artifact.Name()] = append([]byte(nil), data...)
+		storedArtifacts = append(storedArtifacts, jobdb.StoredArtifact{Name: artifact.Name(), Size: int64(len(data)), Digest: fmt.Sprintf("%x", sha256.Sum256(data))})
+	}
+
 	metadata, err := marshalChapterMetadata(map[string]any{
 		"version":    1,
 		"ordinal":    wait.OutputStep,
@@ -1402,24 +1442,55 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 		}},
 		Artifacts: storedArtifacts,
 	}
+	completion, err := runtimecore.ExecutionCompletion(ctx, r, req, wait.InputStep)
+	if err != nil {
+		return err
+	}
+	if completion != nil {
+		raw, _ := json.Marshal(completion)
+		chapter.Body = jobdb.ExecutionChapter{Record: raw}
+	}
 	record.mu.Lock()
 	schemaHash := jobmetadata.SchemaHashFromStoredMetadata(record.metadata)
 	record.mu.Unlock()
 	if err := runtimecore.ValidateOrdinaryChapter(ctx, r, jobdb.JobSchemaKey{TenantId: req.JobKey.TenantId, SchemaHash: schemaHash}, chapter); err != nil {
 		return err
 	}
-	if err := r.storeRuntimeChapter(req.JobKey, wait.OutputStep, chapter); err != nil {
+	td, err := r.taskDataFromChapter(req.JobKey, chapter)
+	if err != nil {
 		return err
 	}
-	record = r.engine.getJobRecord(req.JobKey)
+	// Publication and the scheduler transition share one critical section. A
+	// losing completion must not leave either a chapter or overwritten artifacts.
+	r.engine.mu.Lock()
+	defer r.engine.mu.Unlock()
+	record = r.engine.jobRecords[req.JobKey]
 	if record == nil {
 		return jobdb.ErrJobNotFound
 	}
 	record.mu.Lock()
 	defer record.mu.Unlock()
-	if record.currentStatus(time.Now().UTC()) != jobdb.JobStatusReady || record.archived != nil || record.cancelled || record.route != currentRoute || !bytes.Equal(record.payload, payload) {
+	r.advanceRecordStateLocked(req.JobKey.TenantId, time.Now().UTC(), record)
+	if record.leased || record.currentStatus(time.Now().UTC()) != jobdb.JobStatusReady || record.archived != nil || record.cancelled || record.route != currentRoute || !bytes.Equal(record.payload, payload) {
 		return fmt.Errorf("%w: waiting task changed", jobdb.ErrConflict)
 	}
+	chapters := r.engine.runtimeChapters[req.JobKey]
+	if chapters == nil {
+		return jobdb.ErrJobNotFound
+	}
+	if _, exists := chapters[wait.OutputStep]; exists {
+		return fmt.Errorf("%w: task output already exists", jobdb.ErrConflict)
+	}
+	if _, exists := chapters[wait.OutputStep-1]; !exists {
+		return fmt.Errorf("%w: task output is not appendable", jobdb.ErrConflict)
+	}
+	chapters[wait.OutputStep] = cloneChapter(chapter)
+	for name, data := range pendingArtifacts {
+		r.engine.runtimeArtifacts[runtimeArtifactKey{jobKey: req.JobKey, ordinal: wait.OutputStep, name: name}] = data
+	}
+	record.chapters[wait.OutputStep] = &toyChapter{TaskType: chapter.TaskType, CreatedAt: chapter.CreatedAt, Input: td, Output: td, Attempt: 1}
+	assignToyArtifactKeys(artifacts, req.JobKey.JobId, wait.OutputStep)
+
 	resumeJobType := wait.Next
 	if req.ResumeJobType != "" {
 		resumeJobType = req.ResumeJobType

@@ -151,6 +151,16 @@ func submitRestartJobRequestToAPI(ctx context.Context, req jobdb.SubmitRestartJo
 		RequestTime: timePtr(req.RequestTime),
 		WorkerId:    stringPtrOrNil(req.WorkerID),
 	}
+	if req.Job.ExecutionRestart != nil {
+		body.Job.ExecutionRestart = &runtimeapi.ExecutionRestart{ScopeId: req.Job.ExecutionRestart.ScopeID}
+		if len(req.Job.ExecutionRestart.Payload) > 0 {
+			payload, err := applicationPayloadRequired(req.Job.ExecutionRestart.Payload)
+			if err != nil {
+				return body, err
+			}
+			body.Job.ExecutionRestart.Payload = &payload
+		}
+	}
 	if req.Job.ExtraTaskInput != nil {
 		input, err := taskDataToAPIWrite(ctx, req.Job.ExtraTaskInput)
 		if err != nil {

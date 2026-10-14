@@ -84,6 +84,11 @@ func (e *workerEngine) RegisterWorkers(workset *WorkSet) error {
 		return fmt.Errorf("worker poll tenantId is required when workers are registered")
 	}
 	clone := *workset
+	versions, err := copyConsumerVersions(clone.Options.ConsumerVersions)
+	if err != nil {
+		return err
+	}
+	clone.Options.ConsumerVersions = versions
 	predicates, err := MetadataPredicates(clone.Options.MetadataFilter)
 	if err != nil {
 		return err
