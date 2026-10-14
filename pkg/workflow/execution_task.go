@@ -19,6 +19,16 @@ func (c *executionContext) DoTask(call TaskCall, build func(context.Context) (Ta
 	if call.TaskType == "" || call.ContractVersion == 0 || build == nil {
 		return nil, fmt.Errorf("task type, contract version and input builder are required")
 	}
+	if call.Alternate != nil {
+		alternate := *call.Alternate
+		call.Alternate = &alternate
+		if alternate.TaskType == "" || alternate.TaskType == call.TaskType || alternate.After < 0 {
+			return nil, fmt.Errorf("alternate requires a different nonempty task type and nonnegative delay")
+		}
+		if c.run.initialVersions.ExecutionPatternVersion < 2 {
+			return nil, c.run.control(fmt.Errorf("%w: task alternates require execution version 2", ErrWorkflowNotDeterministic))
+		}
+	}
 	call.Command, err = canonicalJSON(call.Command)
 	if err != nil {
 		return nil, err
@@ -42,6 +52,7 @@ func (c *executionContext) DoTask(call TaskCall, build func(context.Context) (Ta
 	}
 	total := earlier(entry.TotalDeadline, c.deadline)
 	var input *jobdb.ExecutionSnapshot
+	dispatch := taskDispatchState{taskType: call.TaskType}
 	for attempt := 1; ; attempt++ {
 		aid := fmt.Sprintf("%s/attempt:%d", id, attempt)
 		start, err := c.event("attempt", aid, func() *jobdb.ExecutionRecord {
@@ -54,7 +65,7 @@ func (c *executionContext) DoTask(call TaskCall, build func(context.Context) (Ta
 		if next := c.run.peek(); next != nil && next.record.Kind == "result" && next.record.ID == aid {
 			rec, err = c.event("result", aid, func() *jobdb.ExecutionRecord { return nil })
 		} else if next := c.run.peek(); next != nil && next.record.Kind == "wait" && next.record.ID == aid {
-			rec, err = c.externalTask(call, aid, next.record.Input, start.Deadline, total)
+			rec, err = c.externalTask(call, aid, next.record.Input, start.Deadline, total, &dispatch)
 		} else if next := c.run.peek(); next != nil {
 			_, err = c.event("result", aid, func() *jobdb.ExecutionRecord { return nil })
 			return nil, err
@@ -70,25 +81,19 @@ func (c *executionContext) DoTask(call TaskCall, build func(context.Context) (Ta
 					input, taskErr = executionSnapshot(child.ctx, out)
 				}
 			}
-			if taskErr == nil {
-				worker, ok := c.run.r.worker.TaskWorkers[call.TaskType]
-				if !ok {
-					child.close()
-					rec, err = c.externalTask(call, aid, input, start.Deadline, total)
-					if err != nil {
-						return nil, err
-					}
-					out, taskErr = resultData(rec)
-				}
-				if ok {
+			worker, local := c.run.r.worker.TaskWorkers[dispatch.taskType]
+			if taskErr == nil && !local {
+				child.close()
+				rec, err = c.externalTask(call, aid, input, start.Deadline, total, &dispatch)
+			} else {
+				if taskErr == nil {
 					tc := child.taskContext()
-
 					workerInput := snapshotData(input)
 					out, taskErr = child.invoke(func() (TaskData, error) { return worker.Run(tc, workerInput) })
 				}
+				child.close()
+				rec, err = c.finishBody("result", aid, out, taskErr, input, p.Retry)
 			}
-			child.close()
-			rec, err = c.finishBody("result", aid, out, taskErr, input, p.Retry)
 		}
 		if err != nil {
 			return nil, err

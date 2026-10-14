@@ -43,12 +43,23 @@ type ExecutionContext interface {
 }
 
 type TaskCall struct {
-	Site            string          `json:"site"`
-	TaskType        string          `json:"task_type"`
-	ContractVersion uint32          `json:"contract_version"`
-	Command         json.RawMessage `json:"command"`
-	Policy          RunPolicy       `json:"policy"`
-	Catch           []CatchRule     `json:"-"`
+	Site            string              `json:"site"`
+	TaskType        string              `json:"task_type"`
+	ContractVersion uint32              `json:"contract_version"`
+	Command         json.RawMessage     `json:"command"`
+	Policy          RunPolicy           `json:"policy"`
+	Catch           []CatchRule         `json:"-"`
+	Alternate       *TaskAlternateAfter `json:"alternate,omitempty"`
+}
+
+// TaskAlternateAfter makes another implementation eligible after a durable
+// external wait. A locally registered primary still executes immediately.
+// After starts at the first wait and is preserved across recovery. Acquisition
+// of the alternate commits its selection for subsequent task retries. The due
+// time is not a strict cutoff for external answers; normal lease fencing applies.
+type TaskAlternateAfter struct {
+	TaskType string        `json:"task_type"`
+	After    time.Duration `json:"after"`
 }
 
 type ScopeOptions struct {

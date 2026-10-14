@@ -1,0 +1,528 @@
+package workflow_test
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	wf "github.com/colony-2/jobdb/pkg/workflow"
+	"github.com/stretchr/testify/require"
+)
+
+func executionRecords(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey) []jobdb.ExecutionRecord {
+	t.Helper()
+	chapters, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+	require.NoError(t, err)
+	var records []jobdb.ExecutionRecord
+	for _, chapter := range chapters {
+		if body, ok := chapter.Body.(jobdb.ExecutionChapter); ok {
+			record, err := jobdb.DecodeExecutionRecord(body.Record)
+			require.NoError(t, err)
+			records = append(records, record)
+		}
+	}
+	return records
+}
+
+func executionWait(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey) jobdb.ExecutionRecord {
+	t.Helper()
+	for _, record := range executionRecords(t, rt, key) {
+		if record.Kind == "wait" {
+			return record
+		}
+	}
+	t.Fatal("missing durable wait")
+	return jobdb.ExecutionRecord{}
+}
+
+func TestExecutionAlternateLifecycle(t *testing.T) {
+	for _, backend := range []string{"toy", "sqlite", "remote"} {
+		for _, mode := range []string{"fallback", "local-primary", "leased-primary", "human-before", "human-late", "claimed-crash", "primary-lease-expired", "retry"} {
+			t.Run(backend+"/"+mode, func(t *testing.T) {
+				ctx := context.Background()
+				rt := alternateRuntime(t, backend)
+				var builds, primaryRuns, fallbackRuns atomic.Int32
+				call := invocation("answer")
+				call.Alternate = &wf.TaskAlternateAfter{TaskType: "fallback", After: 150 * time.Millisecond}
+				if mode == "human-before" || mode == "leased-primary" {
+					call.Alternate.After = time.Hour
+				}
+				if mode == "retry" {
+					call.Policy.Retry.MaximumAttempts = 2
+				}
+				w := wf.ExecutionWorker{JobType: "timed-answer", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
+					return c.DoTask(call, func(context.Context) (jobdb.TaskData, error) {
+						builds.Add(1)
+						return jobdb.NewTaskDataOrPanic("original"), nil
+					})
+				}}
+				primary := executionTestTask{"echo", func(_ wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
+					primaryRuns.Add(1)
+					return jobdb.NewTaskDataOrPanic("primary"), nil
+				}}
+				fallback := executionTestTask{"fallback", func(_ wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
+					raw, err := in.GetData()
+					require.NoError(t, err)
+					require.JSONEq(t, `"original"`, string(raw))
+					if fallbackRuns.Add(1) == 1 && mode == "retry" {
+						return nil, errors.New("try again")
+					}
+					return jobdb.NewTaskDataOrPanic("fallback"), nil
+				}}
+				key := submitExecutionTest(t, rt, w)
+				expected := "fallback"
+				if mode == "local-primary" {
+					out, err := runExecutionTest(t, rt, key, w, primary, fallback)
+					require.NoError(t, err)
+					require.Equal(t, wf.JobRunCompleted, out.Status)
+					expected = "primary"
+					for _, record := range executionRecords(t, rt, key) {
+						require.NotEqual(t, "wait", record.Kind)
+					}
+				} else {
+					out, err := runExecutionTest(t, rt, key, w, fallback)
+					require.NoError(t, err)
+					require.Equal(t, wf.JobRunSuspended, out.Status)
+					wait := executionWait(t, rt, key)
+					require.NotNil(t, wait.AlternateAt)
+					require.Equal(t, "echo", wait.ExecutionTaskType)
+					require.WithinDuration(t, wait.At.Add(call.Alternate.After), *wait.AlternateAt, 100*time.Millisecond)
+					engine, err := wf.NewEngineBuilder().WithRuntime(rt).BuildEngine()
+					require.NoError(t, err)
+					pending, err := engine.GetWaitingTask(ctx, key)
+					require.NoError(t, err)
+					require.Equal(t, "echo", pending.TaskType())
+					finish := func() error { return pending.Finish(ctx, jobdb.NewTaskDataOrPanic("human")) }
+					before := executionRecords(t, rt, key)
+					_, err = replayExecutionTest(t, rt, key, w, primary, fallback)
+					var miss wf.ReplayCacheMissError
+					require.ErrorAs(t, err, &miss)
+					require.Equal(t, before, executionRecords(t, rt, key))
+					require.Zero(t, primaryRuns.Load())
+					require.Zero(t, fallbackRuns.Load())
+					tasks := []wf.TaskWorker{fallback}
+					switch mode {
+					case "human-before":
+						require.NoError(t, finish())
+						expected = "human"
+					case "leased-primary":
+						tasks = []wf.TaskWorker{primary}
+						expected = "primary"
+					case "primary-lease-expired":
+						lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "primary", Routes: []jobdb.Route{{JobType: w.Name(), TaskType: "echo"}}, LeaseDuration: 200 * time.Millisecond})
+						require.NoError(t, err)
+						require.NotNil(t, lease)
+						require.Error(t, finish())
+						waitAlternate(time.Now().Add(250 * time.Millisecond))
+					default:
+						waitAlternate(*wait.AlternateAt)
+						if mode == "human-late" {
+							require.NoError(t, finish())
+							expected = "human"
+						}
+						if mode == "claimed-crash" || mode == "retry" {
+							lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "crashed", Routes: []jobdb.Route{{JobType: w.Name(), TaskType: "fallback"}}, LeaseDuration: 80 * time.Millisecond})
+							require.NoError(t, err)
+							require.NotNil(t, lease)
+							require.Error(t, finish())
+							waitAlternate(time.Now().Add(120 * time.Millisecond))
+							// The committed B route must survive both lease loss and retries,
+							// even when A becomes available in this worker process.
+							tasks = []wf.TaskWorker{primary, fallback}
+						}
+					}
+					out, err = runExecutionTest(t, rt, key, w, tasks...)
+					require.NoError(t, err)
+					require.Equal(t, wf.JobRunCompleted, out.Status)
+					require.Equal(t, wait, executionWait(t, rt, key))
+					require.Error(t, finish(), "old answer cannot replace the committed outcome")
+				}
+				before := executionRecords(t, rt, key)
+				// Replay needs neither A nor B and must not rebuild input.
+				value, err := replayExecutionTest(t, rt, key, w)
+				require.NoError(t, err)
+				raw, err := value.GetData()
+				require.NoError(t, err)
+				require.JSONEq(t, fmt.Sprintf("%q", expected), string(raw))
+				require.Equal(t, before, executionRecords(t, rt, key))
+				require.EqualValues(t, 1, builds.Load())
+				wantPrimary, wantFallback := int32(0), int32(0)
+				if expected == "primary" {
+					wantPrimary = 1
+				}
+				if expected == "fallback" {
+					wantFallback = 1
+				}
+				if mode == "retry" {
+					wantFallback = 2
+				}
+				require.Equal(t, wantPrimary, primaryRuns.Load())
+				require.Equal(t, wantFallback, fallbackRuns.Load())
+				original := *call.Alternate
+				for _, changed := range []wf.TaskAlternateAfter{{TaskType: "other", After: original.After}, {TaskType: original.TaskType, After: original.After + time.Second}} {
+					call.Alternate = &changed
+					_, err = replayExecutionTest(t, rt, key, w)
+					require.ErrorIs(t, err, jobdb.ErrWorkflowNotDeterministic)
+				}
+			})
+		}
+	}
+}
+
+func TestExecutionAlternatePendingRecovery(t *testing.T) {
+	for _, backend := range []string{"toy", "sqlite", "remote"} {
+		t.Run(backend, func(t *testing.T) {
+			ctx := context.Background()
+			rt := alternateRuntime(t, backend)
+			var builds atomic.Int32
+			call := invocation("answer")
+			call.Alternate = &wf.TaskAlternateAfter{TaskType: "fallback", After: time.Hour}
+			w := wf.ExecutionWorker{JobType: "pending-recovery", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
+				return c.DoTask(call, func(context.Context) (jobdb.TaskData, error) { builds.Add(1); return in, nil })
+			}}
+			fallback := executionTestTask{"fallback", func(wf.TaskContext, jobdb.TaskData) (jobdb.TaskData, error) {
+				t.Error("fallback ran early")
+				return nil, errors.New("early")
+			}}
+			key := submitExecutionTest(t, rt, w)
+			out, err := runExecutionTest(t, rt, key, w, fallback)
+			require.NoError(t, err)
+			require.Equal(t, wf.JobRunSuspended, out.Status)
+			wait := executionWait(t, rt, key)
+			out, err = runExecutionTest(t, rt, key, w, fallback)
+			require.NoError(t, err)
+			require.False(t, out.LeaseAcquired)
+			// Re-admit orchestration after a scheduler handoff. Replaying the
+			// pending wait must not move the due time or rebuild its input.
+			lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "handoff", Routes: []jobdb.Route{{JobType: w.Name(), TaskType: "echo"}}, LeaseDuration: time.Second})
+			require.NoError(t, err)
+			require.NotNil(t, lease)
+			require.NoError(t, lease.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: w.Name()}}))
+			out, err = runExecutionTest(t, rt, key, w, fallback)
+			require.NoError(t, err)
+			require.Equal(t, wf.JobRunSuspended, out.Status)
+			require.Equal(t, wait, executionWait(t, rt, key))
+			require.EqualValues(t, 1, builds.Load())
+			engine, err := wf.NewEngineBuilder().WithRuntime(rt).BuildEngine()
+			require.NoError(t, err)
+			pending, err := engine.GetWaitingTask(ctx, key)
+			require.NoError(t, err)
+			require.NoError(t, pending.Finish(ctx, jobdb.NewTaskDataOrPanic("answer")))
+			out, err = runExecutionTest(t, rt, key, w, fallback)
+			require.NoError(t, err)
+			require.Equal(t, wf.JobRunCompleted, out.Status)
+		})
+	}
+}
+
+func TestExecutionAlternateBackoffRecovery(t *testing.T) {
+	for _, backend := range []string{"toy", "sqlite", "remote"} {
+		t.Run(backend, func(t *testing.T) {
+			rt := alternateRuntime(t, backend)
+			var builds, runs atomic.Int32
+			call := invocation("answer")
+			call.Alternate = &wf.TaskAlternateAfter{TaskType: "fallback"}
+			call.Policy.Retry = jobdb.RetryPolicy{MaximumAttempts: 2, InitialInterval: jobdb.Duration(200 * time.Millisecond)}
+			w := wf.ExecutionWorker{JobType: "alternate-backoff", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
+				return c.DoTask(call, func(context.Context) (jobdb.TaskData, error) { builds.Add(1); return in, nil })
+			}}
+			fallback := executionTestTask{"fallback", func(_ wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
+				if runs.Add(1) == 1 {
+					return nil, errors.New("retry")
+				}
+				return in, nil
+			}}
+			primary := executionTestTask{"echo", func(wf.TaskContext, jobdb.TaskData) (jobdb.TaskData, error) {
+				t.Error("retried A after selecting B")
+				return nil, errors.New("wrong implementation")
+			}}
+			key := submitExecutionTest(t, rt, w)
+			out, err := runExecutionTest(t, rt, key, w, fallback)
+			require.NoError(t, err)
+			require.Equal(t, wf.JobRunSuspended, out.Status)
+			run, err := wf.GetJobForRun(context.Background(), rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{fallback}, WorkerID: "backoff", LeaseDuration: time.Second, AwaitThreshold: time.Millisecond})
+			require.NoError(t, err)
+			out, err = run.Run(nil)
+			require.NoError(t, err)
+			require.Equal(t, wf.JobRunSuspended, out.Status)
+			require.Eventually(t, func() bool {
+				out, err = runExecutionTest(t, rt, key, w, primary, fallback)
+				require.NoError(t, err)
+				return out.Status == wf.JobRunCompleted || out.Status == wf.JobRunFailed
+			}, 3*time.Second, 25*time.Millisecond)
+			require.Equal(t, wf.JobRunCompleted, out.Status)
+			require.EqualValues(t, 2, runs.Load())
+			require.EqualValues(t, 1, builds.Load())
+			_, err = replayExecutionTest(t, rt, key, w)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestExecutionAlternateDeadlines(t *testing.T) {
+	for _, backend := range []string{"toy", "sqlite", "remote"} {
+		for _, mode := range []string{"deadline-first", "alternate-first", "scope", "completed"} {
+			t.Run(backend+"/"+mode, func(t *testing.T) {
+				rt := alternateRuntime(t, backend)
+				call := invocation("answer")
+				call.Alternate = &wf.TaskAlternateAfter{TaskType: "fallback", After: time.Hour}
+				call.Policy.TotalTimeout = jobdb.AsDuration(250 * time.Millisecond)
+				if mode == "alternate-first" {
+					call.Alternate.After = 0
+				}
+				if mode == "scope" {
+					call.Policy.TotalTimeout = nil
+				}
+				w := wf.ExecutionWorker{JobType: "alternate-deadline", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
+					task := func(c wf.ExecutionContext) (jobdb.JobData, error) {
+						return c.DoTask(call, func(context.Context) (jobdb.TaskData, error) { return in, nil })
+					}
+					if mode == "scope" {
+						return c.DoScope("budget", wf.ScopeOptions{TotalTimeout: 250 * time.Millisecond}, task)
+					}
+					return task(c)
+				}}
+				fallback := executionTestTask{"fallback", func(wf.TaskContext, jobdb.TaskData) (jobdb.TaskData, error) {
+					t.Error("expired task executed")
+					return nil, errors.New("expired")
+				}}
+				key := submitExecutionTest(t, rt, w)
+				out, err := runExecutionTest(t, rt, key, w, fallback)
+				require.NoError(t, err)
+				if out.Status == wf.JobRunSuspended {
+					wait := executionWait(t, rt, key)
+					engine, err := wf.NewEngineBuilder().WithRuntime(rt).BuildEngine()
+					require.NoError(t, err)
+					pending, err := engine.GetWaitingTask(context.Background(), key)
+					require.NoError(t, err)
+					if mode == "completed" {
+						require.NoError(t, pending.Finish(context.Background(), jobdb.NewTaskDataOrPanic("answered")))
+					}
+					waitAlternate(wait.Deadline.Add(time.Millisecond))
+					if mode != "completed" {
+						require.Error(t, pending.Finish(context.Background(), jobdb.NewTaskDataOrPanic("too late")))
+					}
+					tasks := []wf.TaskWorker{}
+					if mode == "alternate-first" {
+						tasks = append(tasks, fallback)
+					}
+					out, err = runExecutionTest(t, rt, key, w, tasks...)
+					require.NoError(t, err)
+				}
+				if mode == "completed" {
+					require.Equal(t, wf.JobRunCompleted, out.Status)
+					_, err = replayExecutionTest(t, rt, key, w)
+					require.NoError(t, err)
+				} else {
+					require.Equal(t, wf.JobRunFailed, out.Status)
+					var timeout jobdb.TimeoutError
+					require.ErrorAs(t, out.JobError, &timeout)
+					_, err = replayExecutionTest(t, rt, key, w)
+					require.ErrorAs(t, err, &timeout)
+				}
+			})
+		}
+	}
+}
+
+func TestExecutionAlternateInvalidDeclarations(t *testing.T) {
+	for _, alternate := range []wf.TaskAlternateAfter{{}, {TaskType: "echo"}, {TaskType: "fallback", After: -time.Second}} {
+		t.Run(fmt.Sprintf("%+v", alternate), func(t *testing.T) {
+			rt := alternateRuntime(t, "toy")
+			call := invocation("answer")
+			call.Alternate = &alternate
+			w := wf.ExecutionWorker{JobType: "invalid-alternate", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
+				return c.DoTask(call, func(context.Context) (jobdb.TaskData, error) {
+					t.Error("invalid declaration built inputs")
+					return in, nil
+				})
+			}}
+			key := submitExecutionTest(t, rt, w)
+			out, err := runExecutionTest(t, rt, key, w)
+			require.NoError(t, err)
+			require.Equal(t, wf.JobRunFailed, out.Status)
+			require.ErrorContains(t, out.JobError, "alternate requires")
+		})
+	}
+}
+
+func TestExecutionAlternateCompletionRace(t *testing.T) {
+	for _, backend := range []string{"toy", "sqlite", "remote"} {
+		t.Run(backend, func(t *testing.T) {
+			rt := alternateRuntime(t, backend)
+			var runs atomic.Int32
+			call := invocation("answer")
+			call.Alternate = &wf.TaskAlternateAfter{TaskType: "fallback"}
+			w := wf.ExecutionWorker{JobType: "answer-race", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
+				return c.DoTask(call, func(context.Context) (jobdb.TaskData, error) { return in, nil })
+			}}
+			fallback := executionTestTask{"fallback", func(_ wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
+				runs.Add(1)
+				return jobdb.NewTaskDataOrPanic("fallback"), nil
+			}}
+			key := submitExecutionTest(t, rt, w)
+			out, err := runExecutionTest(t, rt, key, w, fallback)
+			require.NoError(t, err)
+			require.Equal(t, wf.JobRunSuspended, out.Status)
+			engine, err := wf.NewEngineBuilder().WithRuntime(rt).BuildEngine()
+			require.NoError(t, err)
+			pending, err := engine.GetWaitingTask(context.Background(), key)
+			require.NoError(t, err)
+			answered := make(chan error, 1)
+			go func() { answered <- pending.Finish(context.Background(), jobdb.NewTaskDataOrPanic("human")) }()
+			_, err = runExecutionTest(t, rt, key, w, fallback)
+			require.NoError(t, err)
+			humanErr := <-answered
+			_, err = runExecutionTest(t, rt, key, w, fallback)
+			require.NoError(t, err)
+			value, err := replayExecutionTest(t, rt, key, w)
+			require.NoError(t, err)
+			raw, err := value.GetData()
+			require.NoError(t, err)
+			if humanErr == nil {
+				require.JSONEq(t, `"human"`, string(raw))
+				require.Zero(t, runs.Load())
+			} else {
+				require.JSONEq(t, `"fallback"`, string(raw))
+				require.EqualValues(t, 1, runs.Load())
+			}
+		})
+	}
+}
+
+func TestExecutionAlternateExpiredAttemptKeepsSelection(t *testing.T) {
+	for _, backend := range []string{"toy", "sqlite", "remote"} {
+		t.Run(backend, func(t *testing.T) {
+			rt := alternateRuntime(t, backend)
+			var builds, runs atomic.Int32
+			call := invocation("answer")
+			call.Alternate = &wf.TaskAlternateAfter{TaskType: "fallback"}
+			call.Policy.InvocationTimeout = jobdb.AsDuration(time.Second)
+			call.Policy.Retry.MaximumAttempts = 2
+			w := wf.ExecutionWorker{JobType: "expired-at-pickup", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
+				return c.DoTask(call, func(context.Context) (jobdb.TaskData, error) { builds.Add(1); return in, nil })
+			}}
+			primary := executionTestTask{"echo", func(wf.TaskContext, jobdb.TaskData) (jobdb.TaskData, error) {
+				t.Error("timeout returned selection to A")
+				return nil, errors.New("wrong implementation")
+			}}
+			fallback := executionTestTask{"fallback", func(_ wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) { runs.Add(1); return in, nil }}
+			key := submitExecutionTest(t, rt, w)
+			out, err := runExecutionTest(t, rt, key, w, fallback)
+			require.NoError(t, err)
+			require.Equal(t, wf.JobRunSuspended, out.Status)
+			waitAlternate(executionWait(t, rt, key).Deadline.Add(time.Millisecond))
+			out, err = runExecutionTest(t, rt, key, w, primary, fallback)
+			require.NoError(t, err)
+			require.Equal(t, wf.JobRunCompleted, out.Status)
+			require.EqualValues(t, 1, builds.Load())
+			require.EqualValues(t, 1, runs.Load())
+			_, err = replayExecutionTest(t, rt, key, w)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestExecutionAlternateCancellation(t *testing.T) {
+	for _, backend := range []string{"toy", "sqlite", "remote"} {
+		for _, claimed := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/claimed=%v", backend, claimed), func(t *testing.T) {
+				ctx := context.Background()
+				rt := alternateRuntime(t, backend)
+				call := invocation("answer")
+				call.Alternate = &wf.TaskAlternateAfter{TaskType: "fallback"}
+				w := wf.ExecutionWorker{JobType: "cancel-alternate", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
+					return c.DoTask(call, func(context.Context) (jobdb.TaskData, error) { return in, nil })
+				}}
+				fallback := executionTestTask{"fallback", func(wf.TaskContext, jobdb.TaskData) (jobdb.TaskData, error) {
+					t.Error("cancelled task executed")
+					return nil, errors.New("cancelled")
+				}}
+				key := submitExecutionTest(t, rt, w)
+				out, err := runExecutionTest(t, rt, key, w, fallback)
+				require.NoError(t, err)
+				require.Equal(t, wf.JobRunSuspended, out.Status)
+				engine, err := wf.NewEngineBuilder().WithRuntime(rt).BuildEngine()
+				require.NoError(t, err)
+				pending, err := engine.GetWaitingTask(ctx, key)
+				require.NoError(t, err)
+				var lease jobdb.ExecutionLease
+				if claimed {
+					lease, err = rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "claimed", Routes: []jobdb.Route{{JobType: w.Name(), TaskType: "fallback"}}, LeaseDuration: time.Second})
+					require.NoError(t, err)
+					require.NotNil(t, lease)
+				}
+				require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: key}))
+				require.Error(t, pending.Finish(ctx, jobdb.NewTaskDataOrPanic("too late")))
+				if claimed {
+					require.Error(t, lease.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: w.Name()}}))
+				}
+				out, err = runExecutionTest(t, rt, key, w, fallback)
+				require.NoError(t, err)
+				require.False(t, out.LeaseAcquired)
+			})
+		}
+	}
+}
+
+func TestExecutionAlternateDispatchRecovery(t *testing.T) {
+	for _, backend := range []string{"toy", "sqlite", "remote"} {
+		for _, mode := range []string{"dispatch-uncommitted", "dispatch-committed", "dispatch-ack-lost", "result-uncommitted", "result-committed"} {
+			t.Run(backend+"/"+mode, func(t *testing.T) {
+				base := alternateRuntime(t, backend)
+				var builds, runs atomic.Int32
+				call := invocation("answer")
+				call.Alternate = &wf.TaskAlternateAfter{TaskType: "fallback"}
+				w := wf.ExecutionWorker{JobType: "dispatch-recovery", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
+					return c.DoTask(call, func(context.Context) (jobdb.TaskData, error) { builds.Add(1); return in, nil })
+				}}
+				fallback := executionTestTask{"fallback", func(_ wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) { runs.Add(1); return in, nil }}
+				key := submitExecutionTest(t, base, w)
+				out, err := runExecutionTest(t, base, key, w, fallback)
+				require.NoError(t, err)
+				require.Equal(t, wf.JobRunSuspended, out.Status)
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				kind := strings.Split(mode, "-")[0]
+				fault := &executionFaultRuntime{WorkflowRuntime: base, after: strings.HasSuffix(mode, "-committed") || mode == "dispatch-ack-lost", fail: func(r jobdb.ExecutionRecord) bool { return r.Kind == kind && strings.Contains(r.ID, "task:") }}
+				if mode != "dispatch-ack-lost" {
+					fault.cancel = cancel
+				}
+				run, err := wf.GetJobForRun(ctx, fault, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{fallback}, WorkerID: "interrupted", LeaseDuration: 100 * time.Millisecond})
+				require.NoError(t, err)
+				out, err = run.Run(nil)
+				require.True(t, fault.fired.Load())
+				if mode == "dispatch-ack-lost" {
+					require.NoError(t, err)
+				} else {
+					require.Error(t, err)
+					before := executionRecords(t, base, key)
+					_, err = replayExecutionTest(t, base, key, w, fallback)
+					var miss wf.ReplayCacheMissError
+					require.ErrorAs(t, err, &miss)
+					require.Equal(t, before, executionRecords(t, base, key))
+					require.Eventually(t, func() bool {
+						out, err = runExecutionTest(t, base, key, w, fallback)
+						require.NoError(t, err)
+						return out.Status != wf.JobRunNotLeaseable
+					}, 3*time.Second, 25*time.Millisecond)
+				}
+				require.Equal(t, wf.JobRunCompleted, out.Status)
+				require.EqualValues(t, 1, builds.Load())
+				wantRuns := int32(1)
+				if mode == "result-uncommitted" {
+					wantRuns = 2
+				}
+				require.Equal(t, wantRuns, runs.Load())
+				_, err = replayExecutionTest(t, base, key, w)
+				require.NoError(t, err)
+				require.Equal(t, wantRuns, runs.Load())
+			})
+		}
+	}
+}

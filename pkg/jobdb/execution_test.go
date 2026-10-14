@@ -51,3 +51,37 @@ func TestExecutionRecordValidation(t *testing.T) {
 	_, err = DecodeExecutionRecord(raw)
 	require.Error(t, err)
 }
+
+func TestExecutionDispatchVersion(t *testing.T) {
+	for _, version := range []uint32{1, 2} {
+		t.Run(string(rune('0'+version)), func(t *testing.T) {
+			r := ExecutionRecord{Version: version, Kind: "dispatch", ID: "task/attempt:1", ExecutionTaskType: "fallback"}
+			raw, err := json.Marshal(r)
+			require.NoError(t, err)
+			_, err = DecodeExecutionRecord(raw)
+			if version == 1 {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			r.ExecutionTaskType = ""
+			raw, err = json.Marshal(r)
+			require.NoError(t, err)
+			_, err = DecodeExecutionRecord(raw)
+			require.Error(t, err)
+		})
+	}
+	for _, field := range []string{"alternate_at", "execution_task_type"} {
+		r := ExecutionRecord{Version: 1, Kind: "wait", ID: "task/attempt:1", Descriptor: json.RawMessage(`"primary"`), Input: &ExecutionSnapshot{Data: json.RawMessage(`null`)}}
+		if field == "alternate_at" {
+			at := time.Now().UTC()
+			r.AlternateAt = &at
+		} else {
+			r.ExecutionTaskType = "fallback"
+		}
+		raw, err := json.Marshal(r)
+		require.NoError(t, err)
+		_, err = DecodeExecutionRecord(raw)
+		require.Error(t, err)
+	}
+}

@@ -243,7 +243,7 @@ func (c *executionContext) event(kind, id string, build func() *jobdb.ExecutionR
 	return *rec, nil
 }
 func (e *executionRun) appendLocked(rec *jobdb.ExecutionRecord) error {
-	rec.Version = jobdb.ExecutionPatternVersion
+	rec.Version = e.initialVersions.ExecutionPatternVersion
 	rec.Activation = e.activation
 	if rec.At.IsZero() {
 		rec.At = time.Now().UTC()
@@ -430,6 +430,12 @@ func (r *workerRunner) runExecution(ctx context.Context, w ExecutionWorker, inpu
 		}
 		e.cursor = 1
 		e.initialVersions = *e.events[0].record.Versions
+		e.versions.ExecutionPatternVersion = e.initialVersions.ExecutionPatternVersion
+		for _, event := range e.events {
+			if event.record.Version != e.initialVersions.ExecutionPatternVersion {
+				return nil, fmt.Errorf("%w: execution record version differs from pinned header", ErrWorkflowNotDeterministic)
+			}
+		}
 	}
 	if len(meta.Prerequisites) > 0 {
 		admission, err := root.event("admission", "$job", func() *jobdb.ExecutionRecord {

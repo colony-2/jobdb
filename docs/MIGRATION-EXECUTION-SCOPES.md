@@ -41,7 +41,9 @@ Direct and supplied-lease callers set `GetJobForRunRequest.ConsumerVersions`.
 Registration copies the map and rejects empty names or values. JobDB fills its
 own release/build identifier and execution-pattern version automatically.
 
-Execution-pattern version 1 is pinned before application orchestration starts.
+Execution-pattern version 2 is pinned before application orchestration starts
+for new jobs. Version 1 histories can still replay and continue under their
+original version; timed task alternates require version 2.
 A worker rejects missing/unsupported versions without invoking the workflow or
 advancing its history. Consumer release strings are provenance, not compatibility
 constraints. Keep logical call contracts stable across compatible releases.
@@ -84,6 +86,10 @@ allowed. Completed work never reconstructs inputs during read-only replay.
 cancellation in workers, subprocesses, and tool adapters. A timeout fences late
 JobDB calls/results; it cannot roll back external effects or forcibly stop Go
 code that ignores cancellation. Keep external operations idempotent.
+
+For external waits that become eligible for another implementation after a
+delay, set `TaskCall.Alternate`. See the [c2j timed-alternate guide](GUIDE-C2J-TIMED-TASK-ALTERNATES.md)
+for registration, late-answer semantics, retries, and replay.
 
 ## Scopes, catches, and retries
 

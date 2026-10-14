@@ -32,6 +32,7 @@ func ResolveExecutionRestart(ctx context.Context, r executionHistoryReader, job 
 		return job, nil, err
 	}
 	found, header := false, false
+	var version uint32
 	for _, chapter := range chapters {
 		body, ok := chapter.Body.(jobdb.ExecutionChapter)
 		if !ok {
@@ -43,6 +44,7 @@ func ResolveExecutionRestart(ctx context.Context, r executionHistoryReader, job 
 		}
 		if record.Kind == "header" {
 			header = true
+			version = record.Version
 		}
 		if record.Kind == "scope" && record.ID == target.ScopeID {
 			if found {
@@ -64,7 +66,7 @@ func ResolveExecutionRestart(ctx context.Context, r executionHistoryReader, job 
 	if !header || !found {
 		return job, nil, fmt.Errorf("execution restart boundary not found")
 	}
-	return job, &jobdb.ExecutionRecord{Version: jobdb.ExecutionPatternVersion, Kind: "restart", ID: target.ScopeID, Source: &job.PriorJobKey, Payload: append(json.RawMessage(nil), target.Payload...), Prerequisites: append([]jobdb.JobPrerequisite(nil), job.Prerequisites...)}, nil
+	return job, &jobdb.ExecutionRecord{Version: version, Kind: "restart", ID: target.ScopeID, Source: &job.PriorJobKey, Payload: append(json.RawMessage(nil), target.Payload...), Prerequisites: append([]jobdb.JobPrerequisite(nil), job.Prerequisites...)}, nil
 }
 
 // ExecutionCompletion preserves a wait's explicit invocation/input association.
@@ -106,5 +108,5 @@ func ExecutionCompletion(ctx context.Context, r executionHistoryReader, req jobd
 		}
 		snapshot.Artifacts = append(snapshot.Artifacts, jobdb.ExecutionArtifact{Name: art.Name(), Data: data, Key: &jobdb.ArtifactKey{JobId: req.JobKey.JobId, TaskOrdinal: req.OutputOrdinal, Name: art.Name(), SizeBytes: int64(len(data))}})
 	}
-	return &jobdb.ExecutionRecord{Version: jobdb.ExecutionPatternVersion, Kind: "result", ID: wait.ID, Activation: wait.Activation, At: time.Now().UTC(), Input: wait.Input, Output: snapshot}, nil
+	return &jobdb.ExecutionRecord{Version: wait.Version, Kind: "result", ID: wait.ID, Activation: wait.Activation, At: time.Now().UTC(), Input: wait.Input, Output: snapshot}, nil
 }

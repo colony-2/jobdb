@@ -10,7 +10,7 @@ import (
 )
 
 // ExecutionPatternVersion pins the semantics of the client execution protocol.
-const ExecutionPatternVersion uint32 = 1
+const ExecutionPatternVersion uint32 = 2
 
 type ExecutionVersions struct {
 	ExecutionPatternVersion uint32            `json:"execution_pattern_version"`
@@ -30,31 +30,33 @@ type ExecutionArtifact struct {
 	Data []byte       `json:"data"`
 }
 
-// ExecutionRecord is the version-1 execution history wire contract. Unknown
+// ExecutionRecord is the versioned execution history wire contract. Unknown
 // fields and kinds are rejected rather than interpreted as a different event.
 type ExecutionRecord struct {
-	Version       uint32             `json:"version"`
-	Kind          string             `json:"kind"`
-	ID            string             `json:"id,omitempty"`
-	Activation    string             `json:"activation,omitempty"`
-	Versions      *ExecutionVersions `json:"versions,omitempty"`
-	At            time.Time          `json:"at"`
-	Descriptor    json.RawMessage    `json:"descriptor,omitempty"`
-	Attempt       int                `json:"attempt,omitempty"`
-	Deadline      time.Time          `json:"deadline,omitempty"`
-	TotalDeadline time.Time          `json:"total_deadline,omitempty"`
-	Input         *ExecutionSnapshot `json:"input,omitempty"`
-	Output        *ExecutionSnapshot `json:"output,omitempty"`
-	ErrorKind     string             `json:"error_kind,omitempty"`
-	Error         json.RawMessage    `json:"error,omitempty"`
-	Rule          string             `json:"rule,omitempty"`
-	Disposition   string             `json:"disposition,omitempty"`
-	Retryable     *bool              `json:"retryable,omitempty"`
-	Retry         bool               `json:"retry,omitempty"`
-	WakeAt        time.Time          `json:"wake_at,omitempty"`
-	Source        *JobKey            `json:"source,omitempty"`
-	Payload       json.RawMessage    `json:"payload,omitempty"`
-	Prerequisites []JobPrerequisite  `json:"prerequisites,omitempty"`
+	Version           uint32             `json:"version"`
+	Kind              string             `json:"kind"`
+	ID                string             `json:"id,omitempty"`
+	Activation        string             `json:"activation,omitempty"`
+	Versions          *ExecutionVersions `json:"versions,omitempty"`
+	At                time.Time          `json:"at"`
+	Descriptor        json.RawMessage    `json:"descriptor,omitempty"`
+	Attempt           int                `json:"attempt,omitempty"`
+	Deadline          time.Time          `json:"deadline,omitempty"`
+	TotalDeadline     time.Time          `json:"total_deadline,omitempty"`
+	Input             *ExecutionSnapshot `json:"input,omitempty"`
+	Output            *ExecutionSnapshot `json:"output,omitempty"`
+	ErrorKind         string             `json:"error_kind,omitempty"`
+	Error             json.RawMessage    `json:"error,omitempty"`
+	Rule              string             `json:"rule,omitempty"`
+	Disposition       string             `json:"disposition,omitempty"`
+	Retryable         *bool              `json:"retryable,omitempty"`
+	Retry             bool               `json:"retry,omitempty"`
+	WakeAt            time.Time          `json:"wake_at,omitempty"`
+	Source            *JobKey            `json:"source,omitempty"`
+	Payload           json.RawMessage    `json:"payload,omitempty"`
+	Prerequisites     []JobPrerequisite  `json:"prerequisites,omitempty"`
+	AlternateAt       *time.Time         `json:"alternate_at,omitempty"`
+	ExecutionTaskType string             `json:"execution_task_type,omitempty"`
 }
 
 func DecodeExecutionRecord(raw []byte) (ExecutionRecord, error) {
@@ -67,15 +69,18 @@ func DecodeExecutionRecord(raw []byte) (ExecutionRecord, error) {
 	if err := d.Decode(new(any)); err != io.EOF {
 		return r, fmt.Errorf("trailing execution data")
 	}
-	if r.Version != ExecutionPatternVersion {
+	if r.Version != 1 && r.Version != ExecutionPatternVersion {
 		return r, fmt.Errorf("unsupported execution version %d (current %d)", r.Version, ExecutionPatternVersion)
+	}
+	if r.Version == 1 && (r.Kind == "dispatch" || r.AlternateAt != nil || r.ExecutionTaskType != "") {
+		return r, fmt.Errorf("task dispatch records require execution version 2")
 	}
 	switch r.Kind {
 	case "header", "activation":
 		if r.Versions == nil || r.Versions.ExecutionPatternVersion != r.Version || r.Versions.JobDBVersion == "" {
 			return r, fmt.Errorf("invalid execution versions")
 		}
-	case "join_result", "admission", "scope", "task", "attempt", "result", "catch", "handled", "decision", "end", "wait", "restart", "continuation", "sleep", "join":
+	case "dispatch", "join_result", "admission", "scope", "task", "attempt", "result", "catch", "handled", "decision", "end", "wait", "restart", "continuation", "sleep", "join":
 		if r.ID == "" {
 			return r, fmt.Errorf("execution %s requires identity", r.Kind)
 		}
@@ -90,6 +95,10 @@ func DecodeExecutionRecord(raw []byte) (ExecutionRecord, error) {
 		}
 	}
 	switch r.Kind {
+	case "dispatch":
+		if r.ExecutionTaskType == "" {
+			return r, fmt.Errorf("execution dispatch requires task type")
+		}
 	case "scope", "task":
 		if !json.Valid(r.Descriptor) {
 			return r, fmt.Errorf("execution %s requires a descriptor", r.Kind)

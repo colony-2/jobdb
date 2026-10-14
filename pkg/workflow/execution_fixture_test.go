@@ -67,3 +67,63 @@ func TestExecutionVersionOneFixture(t *testing.T) {
 		})
 	}
 }
+
+// New clients can continue v1 histories, but must not silently insert v2
+// records or enable v2 dispatch semantics in those histories.
+func TestExecutionVersionOneContinuation(t *testing.T) {
+	raw, err := os.ReadFile("testdata/execution-v1.json")
+	require.NoError(t, err)
+	var records []jobdb.ExecutionRecord
+	require.NoError(t, json.Unmarshal(raw, &records))
+	header := records[0]
+	require.Equal(t, "header", header.Kind)
+	for _, backend := range []string{"toy", "sqlite", "remote"} {
+		t.Run(backend, func(t *testing.T) {
+			ctx := context.Background()
+			rt := alternateRuntime(t, backend)
+			var builds atomic.Int32
+			w := executionFixtureWorker(&builds)
+			key := submitExecutionTest(t, rt, w)
+			lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "fixture", Routes: []jobdb.Route{{JobType: w.Name()}}, LeaseDuration: time.Second})
+			require.NoError(t, err)
+			require.NotNil(t, lease)
+			token := ""
+			if transport, ok := lease.(interface{ LeaseToken() string }); ok {
+				token = transport.LeaseToken()
+			}
+			raw, err := json.Marshal(header)
+			require.NoError(t, err)
+			require.NoError(t, rt.PutChapter(ctx, jobdb.PutChapterRequest{LeaseID: lease.LeaseID(), LeaseToken: token, Ref: jobdb.ChapterRef{JobKey: key, Ordinal: 1}, Chapter: jobdb.Chapter{Ordinal: 1, TaskType: "__execution__", CreatedAt: header.At, Body: jobdb.ExecutionChapter{Record: raw}}}))
+			require.NoError(t, lease.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: w.Name()}}))
+			complete := func(key jobdb.JobKey) {
+				out, err := runExecutionTest(t, rt, key, w)
+				require.NoError(t, err)
+				require.Equal(t, wf.JobRunSuspended, out.Status)
+				engine, err := wf.NewEngineBuilder().WithRuntime(rt).BuildEngine()
+				require.NoError(t, err)
+				pending, err := engine.GetWaitingTask(ctx, key)
+				require.NoError(t, err)
+				require.NoError(t, pending.Finish(ctx, jobdb.NewTaskDataOrPanic("frozen")))
+				out, err = runExecutionTest(t, rt, key, w)
+				require.NoError(t, err)
+				require.Equal(t, wf.JobRunCompleted, out.Status)
+				_, err = replayExecutionTest(t, rt, key, w)
+				require.NoError(t, err)
+				for _, record := range executionRecords(t, rt, key) {
+					require.EqualValues(t, 1, record.Version)
+				}
+			}
+			complete(key)
+			var scopeID string
+			for _, record := range executionRecords(t, rt, key) {
+				if record.Kind == "scope" && record.ID != "$job" {
+					scopeID = record.ID
+				}
+			}
+			require.NotEmpty(t, scopeID)
+			restart, err := rt.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: key, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: scopeID}}})
+			require.NoError(t, err)
+			complete(restart.JobKey)
+		})
+	}
+}
