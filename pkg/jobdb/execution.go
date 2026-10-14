@@ -69,7 +69,7 @@ func DecodeExecutionRecord(raw []byte) (ExecutionRecord, error) {
 	if err := d.Decode(new(any)); err != io.EOF {
 		return r, fmt.Errorf("trailing execution data")
 	}
-	if r.Version != 1 && r.Version != ExecutionPatternVersion {
+	if r.Version < 1 || r.Version > ExecutionPatternVersion {
 		return r, fmt.Errorf("unsupported execution version %d (current %d)", r.Version, ExecutionPatternVersion)
 	}
 	if r.Version == 1 && (r.Kind == "dispatch" || r.AlternateAt != nil || r.ExecutionTaskType != "") {
@@ -108,8 +108,11 @@ func DecodeExecutionRecord(raw []byte) (ExecutionRecord, error) {
 			return r, fmt.Errorf("execution attempt must be positive")
 		}
 	case "join_result", "admission", "result", "handled", "end":
-		if (r.Output == nil) == (r.ErrorKind == "") {
-			return r, fmt.Errorf("execution outcome requires exactly one output or error")
+		if r.Output == nil && r.ErrorKind == "" {
+			return r, fmt.Errorf("execution outcome requires output or error")
+		}
+		if r.Version < 2 && r.Output != nil && r.ErrorKind != "" {
+			return r, fmt.Errorf("execution diagnostics alongside errors require version 2")
 		}
 	case "wait":
 		if r.Input == nil || !json.Valid(r.Descriptor) {

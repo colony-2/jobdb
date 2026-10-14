@@ -41,6 +41,13 @@ func (c *executionContext) externalTask(call TaskCall, id string, input *jobdb.E
 		}
 	}
 	outputPositions := map[int64]bool{ordinal + 1: true}
+	for _, event := range c.run.events {
+		if event.ordinal > ordinal && event.record.Kind == "activation" {
+			// A task may yield and later re-enter external waiting. Its pending
+			// output then follows the activation that ran the suspended worker.
+			outputPositions[event.ordinal+1] = true
+		}
+	}
 	dispatched := false
 	for next := c.run.peek(); next != nil && next.record.Kind == "dispatch" && next.record.ID == id; next = c.run.peek() {
 		dispatch, err := c.event("dispatch", id, func() *jobdb.ExecutionRecord { return nil })
@@ -106,8 +113,7 @@ func (c *executionContext) externalTask(call TaskCall, id string, input *jobdb.E
 	if execute {
 		child := c.child(id, rec.Deadline, total)
 		worker := c.run.r.worker.TaskWorkers[state.taskType]
-		tc, workerInput := child.taskContext(), snapshotData(rec.Input)
-		out, taskErr := child.invoke(func() (TaskData, error) { return worker.Run(tc, workerInput) })
+		out, taskErr := child.invokeTask(worker, snapshotData(rec.Input))
 		child.close()
 		return c.finishBody("result", id, out, taskErr, rec.Input, call.Policy.Retry)
 	}

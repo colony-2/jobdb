@@ -126,9 +126,14 @@ func TestExecutionAlternateLifecycle(t *testing.T) {
 							expected = "human"
 						}
 						if mode == "claimed-crash" || mode == "retry" {
-							lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "crashed", Routes: []jobdb.Route{{JobType: w.Name(), TaskType: "fallback"}}, LeaseDuration: 80 * time.Millisecond})
-							require.NoError(t, err)
-							require.NotNil(t, lease)
+							// The scheduler applies the relative delay after transport and
+							// storage latency. Observe eligibility rather than assuming the
+							// first request at the client's due time must acquire a lease.
+							require.Eventually(t, func() bool {
+								lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "crashed", Routes: []jobdb.Route{{JobType: w.Name(), TaskType: "fallback"}}, LeaseDuration: 80 * time.Millisecond})
+								require.NoError(t, err)
+								return lease != nil
+							}, 3*time.Second, 25*time.Millisecond)
 							require.Error(t, finish())
 							waitAlternate(time.Now().Add(120 * time.Millisecond))
 							// The committed B route must survive both lease loss and retries,
@@ -136,8 +141,11 @@ func TestExecutionAlternateLifecycle(t *testing.T) {
 							tasks = []wf.TaskWorker{primary, fallback}
 						}
 					}
-					out, err = runExecutionTest(t, rt, key, w, tasks...)
-					require.NoError(t, err)
+					require.Eventually(t, func() bool {
+						out, err = runExecutionTest(t, rt, key, w, tasks...)
+						require.NoError(t, err)
+						return out.Status == wf.JobRunCompleted || out.Status == wf.JobRunFailed
+					}, 3*time.Second, 25*time.Millisecond)
 					require.Equal(t, wf.JobRunCompleted, out.Status)
 					require.Equal(t, wait, executionWait(t, rt, key))
 					require.Error(t, finish(), "old answer cannot replace the committed outcome")

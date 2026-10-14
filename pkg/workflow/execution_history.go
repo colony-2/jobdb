@@ -227,12 +227,8 @@ func (c *executionContext) event(kind, id string, build func() *jobdb.ExecutionR
 	if err := c.liveLocked(); err != nil {
 		return jobdb.ExecutionRecord{}, err
 	}
-	if !e.activated {
-		activation := jobdb.ExecutionRecord{Kind: "activation", Versions: &e.versions, Activation: e.activation}
-		if err := e.appendLocked(&activation); err != nil {
-			return jobdb.ExecutionRecord{}, err
-		}
-		e.activated = true
+	if err := e.activateLocked(); err != nil {
+		return jobdb.ExecutionRecord{}, err
 	}
 	rec := build()
 	rec.Kind = kind
@@ -242,14 +238,41 @@ func (c *executionContext) event(kind, id string, build func() *jobdb.ExecutionR
 	}
 	return *rec, nil
 }
+
+func (e *executionRun) activateLocked() error {
+	if e.activated {
+		return nil
+	}
+	activation := jobdb.ExecutionRecord{Kind: "activation", Versions: &e.versions, Activation: e.activation}
+	if err := e.appendLocked(&activation); err != nil {
+		return err
+	}
+	e.activated = true
+	return nil
+}
+
 func (e *executionRun) appendLocked(rec *jobdb.ExecutionRecord) error {
 	rec.Version = e.initialVersions.ExecutionPatternVersion
+	if rec.Version < 2 && rec.ErrorKind != "" {
+		// Retained histories keep their original outcome contract.
+		rec.Output = nil
+	}
 	rec.Activation = e.activation
 	if rec.At.IsZero() {
 		rec.At = time.Now().UTC()
 	}
 	var uploads []ArtifactUpload
-	for label, snapshot := range map[string]*jobdb.ExecutionSnapshot{"input": rec.Input, "output": rec.Output} {
+	usedNames := map[string]bool{}
+	if rec.Output != nil && rec.Version >= 2 {
+		for _, art := range rec.Output.Artifacts {
+			usedNames[art.Name] = true
+		}
+	}
+	for _, item := range []struct {
+		label    string
+		snapshot *jobdb.ExecutionSnapshot
+	}{{"output", rec.Output}, {"input", rec.Input}} {
+		label, snapshot := item.label, item.snapshot
 		if snapshot == nil {
 			continue
 		}
@@ -259,6 +282,16 @@ func (e *executionRun) appendLocked(rec *jobdb.ExecutionRecord) error {
 				continue
 			}
 			name := fmt.Sprintf("execution-%s-%d-%s", label, i, art.Name)
+			if rec.Version >= 2 {
+				if label == "output" {
+					name = art.Name
+				} else {
+					for suffix := 1; usedNames[name]; suffix++ {
+						name = fmt.Sprintf("execution-input-%d-%d-%s", i, suffix, art.Name)
+					}
+				}
+				usedNames[name] = true
+			}
 			art.Key = &ArtifactKey{JobId: e.r.jobKey.JobId, TaskOrdinal: e.ordinal, Name: name, SizeBytes: int64(len(art.Data))}
 			data := append([]byte(nil), art.Data...)
 			uploads = append(uploads, ArtifactUpload{Name: name, Size: int64(len(data)), Open: func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(data)), nil }})
@@ -358,7 +391,9 @@ func recordResult(ctx context.Context, out TaskData, err error) (*jobdb.Executio
 		}
 		rec.Error = raw
 		rec.ErrorKind = kind
-		return rec, nil
+		if out == nil {
+			return rec, nil
+		}
 	}
 	s, e := executionSnapshot(ctx, out)
 	rec.Output = s
@@ -367,7 +402,7 @@ func recordResult(ctx context.Context, out TaskData, err error) (*jobdb.Executio
 func resultData(rec jobdb.ExecutionRecord) (TaskData, error) {
 	if rec.ErrorKind != "" {
 		_, err := envelopeToTaskData(chapterEnvelope{PayloadKind: rec.ErrorKind, Payload: rec.Error}, nil)
-		return nil, err
+		return snapshotData(rec.Output), err
 	}
 	return snapshotData(rec.Output), nil
 }
@@ -488,6 +523,11 @@ func (r *workerRunner) runExecution(ctx context.Context, w ExecutionWorker, inpu
 			if completeErr := r.completeLeaseWithChapter(ctx, *e.final, recordErr); completeErr != nil {
 				return nil, completeErr
 			}
+		}
+		if e.initialVersions.ExecutionPatternVersion >= 2 {
+			// The legacy terminal chapter carries the error status, but cannot
+			// carry diagnostic JSON with it. The consumed scope end has both.
+			return out, err
 		}
 		return recorded, recordErr
 	}

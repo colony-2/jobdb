@@ -34,8 +34,18 @@ type TaskContext struct {
 	clientRevision   func() int64
 	yield            func(context.Context, RescheduleExecutionRequest) error
 	JobKey           JobKey
-	Step             int64
-	Logger           *slog.Logger
+	// Step is the outcome ordinal for this call to Run. In the versioned
+	// engine it remains valid across in-process waits. Suspension or lease loss
+	// ends the call; a resumed Run gets a new context and may have a new Step.
+	Step int64
+	// InvocationID identifies the logical task within JobKey in the versioned
+	// engine. It survives task retries and recovery, but changes when an enclosing
+	// scope or whole job retries. It is empty for the legacy JobWorker engine.
+	InvocationID string
+	// AttemptNumber is one-based in the versioned engine. Recovery of unfinished
+	// work retains the attempt; a task retry increments it. Legacy contexts use 0.
+	AttemptNumber int
+	Logger        *slog.Logger
 	// await is set by the runner so AwaitDuration can be engine-directed.
 	await            func(wakeAt time.Time) error
 	awaitJobs        func(jobIds ...string) error

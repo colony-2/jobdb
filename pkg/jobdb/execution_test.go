@@ -24,7 +24,11 @@ func TestExecutionRecordValidation(t *testing.T) {
 		{"unknown kind", func(r *ExecutionRecord) { r.Kind = "future" }},
 		{"missing id", func(r *ExecutionRecord) { r.ID = "" }},
 		{"missing outcome", func(r *ExecutionRecord) { r.Output = nil }},
-		{"ambiguous outcome", func(r *ExecutionRecord) { r.ErrorKind = "AppError"; r.Error = json.RawMessage(`{"message":"bad"}`) }},
+		{"ambiguous v1 outcome", func(r *ExecutionRecord) {
+			r.Version = 1
+			r.ErrorKind = "AppError"
+			r.Error = json.RawMessage(`{"message":"bad"}`)
+		}},
 		{"unknown error", func(r *ExecutionRecord) { r.Output = nil; r.ErrorKind = "FutureError"; r.Error = json.RawMessage(`{}`) }},
 		{"missing input", func(r *ExecutionRecord) { r.Kind = "wait" }},
 		{"missing descriptor", func(r *ExecutionRecord) { r.Kind = "scope" }},
@@ -50,6 +54,25 @@ func TestExecutionRecordValidation(t *testing.T) {
 	require.NoError(t, err)
 	_, err = DecodeExecutionRecord(raw)
 	require.Error(t, err)
+}
+
+func TestExecutionDiagnosticOutcomeVersion(t *testing.T) {
+	for _, version := range []uint32{1, 2} {
+		r := ExecutionRecord{Version: version, Kind: "result", ID: "task/attempt:1", ErrorKind: "AppError", Error: json.RawMessage(`{"message":"failed"}`), Output: &ExecutionSnapshot{Data: json.RawMessage(`{"diagnostic":"sanitized"}`)}}
+		raw, err := json.Marshal(r)
+		require.NoError(t, err)
+		_, err = DecodeExecutionRecord(raw)
+		if version < 2 {
+			require.Error(t, err)
+		} else {
+			require.NoError(t, err)
+		}
+		r.Output = nil
+		raw, err = json.Marshal(r)
+		require.NoError(t, err)
+		_, err = DecodeExecutionRecord(raw)
+		require.NoError(t, err)
+	}
 }
 
 func TestExecutionDispatchVersion(t *testing.T) {

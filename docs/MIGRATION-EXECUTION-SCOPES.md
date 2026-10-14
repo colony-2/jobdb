@@ -91,6 +91,60 @@ For external waits that become eligible for another implementation after a
 delay, set `TaskCall.Alternate`. See the [c2j timed-alternate guide](GUIDE-C2J-TIMED-TASK-ALTERNATES.md)
 for registration, late-answer semantics, retries, and replay.
 
+## Artifact references and task identity
+
+Execution v2 preserves names of newly returned output artifacts. A task can
+include its artifact reference directly in its JSON:
+
+```go
+func (task) Run(ctx workflow.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
+    content := []byte("data")
+    reference := jobdb.ArtifactKey{
+        JobId:       ctx.JobKey.JobId,
+        TaskOrdinal: ctx.Step,
+        Name:        "result.txt",
+        SizeBytes:   int64(len(content)),
+    }
+    return jobdb.NewTaskData(map[string]any{"reference": reference},
+        jobdb.NewArtifactFromBytes("result.txt", content))
+}
+```
+
+The reference becomes durable when the outcome commits. Input snapshot artifacts
+use separate storage names, including when an input and output have the same
+logical name. Consumers must not construct those internal input names; obtain
+the persisted artifact's `ArtifactKey()` when forwarding an existing reference.
+
+`TaskContext.Step` identifies the outcome for the current call to `Run`, including
+in-process waits and child-job submissions. If a wait or lease action suspends
+the task, return its error. Recovery calls `Run` with a new context whose `Step`
+may differ; construct new output references from that context. Do not use `Step`
+as an idempotency key or publish uncommitted artifact references as durable data.
+
+Versioned workers also receive:
+
+| Field | Contract |
+| --- | --- |
+| `InvocationID` | Opaque logical task ID within `JobKey`. Stable across task retries, suspension, and lease recovery; changes for new invocations in enclosing-scope or whole-job retries. |
+| `AttemptNumber` | One-based task attempt. Increments on task retry; unchanged when unfinished work resumes. |
+
+For child-job submission and external side effects, use tenant/job identity plus
+`InvocationID` as the idempotency key. Include `AttemptNumber` only when the
+effect should repeat for a new task attempt. A restart into a new job is
+distinguished by its `JobKey`. Legacy `JobWorker.Run` contexts leave these new
+fields empty/zero. Observer `InvocationID` retains its existing meaning as the
+task **attempt** ID.
+
+## Failed-task diagnostics
+
+A versioned task may return both `TaskData` and an error. Execution v2 stores the
+returned JSON and artifacts in `ExecutionRecord.Output` alongside the error;
+the error still determines failure, catch selection, and retry behavior.
+`DoTask` and replay observers expose both. Each failed attempt retains its own
+diagnostics even if a later retry succeeds. Returning no data leaves the failure
+output nil. Temporary output files are cleaned after snapshotting, including on
+failure. Consumers remain responsible for sanitizing the diagnostics they return.
+
 ## Scopes, catches, and retries
 
 Replace operation/sequence/state timeout wrappers, checkpoint tasks, retry loops,

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -87,9 +89,8 @@ func (c *executionContext) DoTask(call TaskCall, build func(context.Context) (Ta
 				rec, err = c.externalTask(call, aid, input, start.Deadline, total, &dispatch)
 			} else {
 				if taskErr == nil {
-					tc := child.taskContext()
 					workerInput := snapshotData(input)
-					out, taskErr = child.invoke(func() (TaskData, error) { return worker.Run(tc, workerInput) })
+					out, taskErr = child.invokeTask(worker, workerInput)
 				}
 				child.close()
 				rec, err = c.finishBody("result", aid, out, taskErr, input, p.Retry)
@@ -116,9 +117,33 @@ func (c *executionContext) DoTask(call TaskCall, build func(context.Context) (Ta
 		}
 	}
 }
+
+func (c *executionContext) invokeTask(worker TaskWorker, input TaskData) (TaskData, error) {
+	// On recovery, activation can be the next append. Commit it before exposing
+	// the result ordinal to the worker; TaskContext's lease/wait actions don't
+	// append execution records while Run continues in this activation.
+	c.run.mu.Lock()
+	err := c.liveLocked()
+	if err == nil {
+		err = c.run.activateLocked()
+	}
+	c.run.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	tc := c.taskContext()
+	return c.invoke(func() (TaskData, error) { return worker.Run(tc, input) })
+}
+
 func (c *executionContext) taskContext() TaskContext {
 	tc := newTaskContextWithLeaseActions(c.GetJobKey(), c.run.nextOrdinal(), c.Logger(), func(at time.Time) error { return c.waitUntil(at, c.deadline) }, c.awaitTaskJobs, c.SubmitJob, c.SubmitRestartJob, c.ClientPayload, c.ClientPayloadRevision, c.Yield, c.ResolveSecrets, c.GetConfiguration)
 	tc.executionContext = c.ctx
+	// c.id ends with the engine-owned task attempt suffix. Consumer call sites
+	// are JSON-quoted earlier in the identity and cannot replace this suffix.
+	if pos := strings.LastIndex(c.id, "/attempt:"); pos >= 0 {
+		tc.InvocationID = c.id[:pos]
+		tc.AttemptNumber, _ = strconv.Atoi(c.id[pos+len("/attempt:"):])
+	}
 	return tc
 }
 func (c *executionContext) Context() context.Context { return c.ctx }
