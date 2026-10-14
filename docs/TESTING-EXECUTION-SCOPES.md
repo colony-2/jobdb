@@ -11,7 +11,7 @@ invocation matching with mocked task results.
 | Input lifetime | Task retries reuse snapshots; builder failures rebuild; worker mutations do not alter retry input; recovery before/after the first input-bearing outcome has different expected behavior. |
 | Commit uncertainty | Lost acknowledgements at header, activation, scope, attempt, result, catch, handler, decision, and end records are reconciled without repeating committed work; final-result publication and scheduler completion can recover independently. |
 | Scope retry | Completed children repeat in a new enclosing attempt; recovery consumes them in the original attempt. |
-| Timeouts | Interrupted callbacks and tasks, late calls/results, task retries, durable deadlines, timeout after the last child committed, nested budget enforcement, and catch-handler budget exhaustion. |
+| Timeouts | Interrupted callbacks and tasks, late calls/results, task retries, durable deadlines, timeout after the last child committed, nested budget enforcement, and catch-handler budget exhaustion. Delayed storage explicitly exhausts admission budgets; cancellation tests wait for callbacks to start before expiring them. Nested replay propagates recorded ancestor timeouts without consuming them early, while rejecting unrelated outcomes. |
 | Catch | Ordered matching, handled output, rewritten failure, propagation, handler failure, invalid disposition, recovery inside handlers, and changed predicates after recorded selection. |
 | External work | Explicit inputs despite intervening control records; cache-only replay misses; malformed/missing generation, ordinal, and route rejection without writes; stale completion rejection; deadline-driven replacement reuses input and changes generation. Independent scheduler/chapter ports also exercise versioned completion. |
 | Restart | Patched commands/inputs, immutable source history, retained-prefix reuse, unsupported targets, idempotent submission, conflicting patches, expired source deadlines, repeated forks, and recovery before/after suffix commit with unchanged continuation budgets. |
@@ -27,6 +27,14 @@ Run the focused scenarios with:
 
 ```sh
 go test -race ./pkg/workflow ./pkg/jobdb ./pkg/jobdb/runtime/core -run '^TestExecution' -count=1
+```
+
+Match the Go version in [the CI workflow](../.github/workflows/test.yaml) and run
+its commands before committing:
+
+```sh
+go test -v -tags=integration ./...
+go test -race ./pkg/workflow
 ```
 
 Also run `go test ./...` and the full race suite before cutover. Existing API

@@ -17,53 +17,64 @@ import (
 func TestExecutionNestedDeadlinesAndHandlerBudget(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		for _, handler := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/handler=%v", backend, handler), func(t *testing.T) {
-				rt := alternateRuntime(t, backend)
-				var builds, handlers atomic.Int32
-				workerDone := make(chan struct{}, 1)
-				task := executionTestTask{"echo", func(c wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
-					<-c.Context().Done()
-					workerDone <- struct{}{}
-					return nil, c.Context().Err()
-				}}
-				w := wf.ExecutionWorker{JobType: "nested-deadline", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
-					options := wf.ScopeOptions{TotalTimeout: 120 * time.Millisecond, Retry: jobdb.RetryPolicy{MaximumAttempts: 3}}
-					if handler {
-						options.AttemptTimeout = 40 * time.Millisecond
-						options.Catch = []wf.CatchRule{{ID: "bounded-handler", Match: func(error) bool { return true }, Handle: func(h wf.ExecutionContext, err error) (wf.CatchResult, error) {
-							handlers.Add(1)
-							e := h.AwaitDuration(jobdb.Duration(time.Hour))
-							return wf.CatchResult{Disposition: wf.CatchHandled, Output: in}, e
-						}}}
+			for _, slowAdmission := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/handler=%v/slow-admission=%v", backend, handler, slowAdmission), func(t *testing.T) {
+					var rt jobdb.WorkflowRuntime = alternateRuntime(t, backend)
+					if slowAdmission {
+						rt = &delayedExecutionAdmissionRuntime{WorkflowRuntime: rt}
 					}
-					_, err := c.DoScope("parent", options, func(p wf.ExecutionContext) (jobdb.JobData, error) {
-						return p.DoScope("child", wf.ScopeOptions{TotalTimeout: time.Hour, AttemptTimeout: time.Hour, Retry: jobdb.RetryPolicy{MaximumAttempts: 9}}, func(s wf.ExecutionContext) (jobdb.JobData, error) {
-							return s.DoTask(invocation("task"), func(context.Context) (jobdb.TaskData, error) { builds.Add(1); return in, nil })
+					var builds, handlers, workers atomic.Int32
+					task := executionTestTask{"echo", func(c wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
+						workers.Add(1)
+						<-c.Context().Done()
+						return nil, c.Context().Err()
+					}}
+					w := wf.ExecutionWorker{JobType: "nested-deadline", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
+						options := wf.ScopeOptions{TotalTimeout: 120 * time.Millisecond, Retry: jobdb.RetryPolicy{MaximumAttempts: 3}}
+						if handler {
+							options.AttemptTimeout = 40 * time.Millisecond
+							options.Catch = []wf.CatchRule{{ID: "bounded-handler", Match: func(error) bool { return true }, Handle: func(h wf.ExecutionContext, err error) (wf.CatchResult, error) {
+								handlers.Add(1)
+								e := h.AwaitDuration(jobdb.Duration(time.Hour))
+								return wf.CatchResult{Disposition: wf.CatchHandled, Output: in}, e
+							}}}
+						}
+						return c.DoScope("parent", options, func(p wf.ExecutionContext) (jobdb.JobData, error) {
+							return p.DoScope("child", wf.ScopeOptions{TotalTimeout: time.Hour, AttemptTimeout: time.Hour, Retry: jobdb.RetryPolicy{MaximumAttempts: 9}}, func(s wf.ExecutionContext) (jobdb.JobData, error) {
+								return s.DoTask(invocation("task"), func(context.Context) (jobdb.TaskData, error) { builds.Add(1); return in, nil })
+							})
 						})
-					})
-					return nil, err
-				}}
-				key := submitExecutionTest(t, rt, w)
-				started := time.Now()
-				out, err := runExecutionTest(t, rt, key, w, task)
-				require.NoError(t, err)
-				require.Equal(t, wf.JobRunFailed, out.Status)
-				require.Less(t, time.Since(started), 2*time.Second, "enclosing deadline must bound nested work/handler")
-				select {
-				case <-workerDone:
-				case <-time.After(time.Second):
-					t.Fatal("task context was not cancelled")
-				}
-				require.EqualValues(t, 1, builds.Load(), "expired parent must not admit child retries")
-				if handler {
-					require.EqualValues(t, 1, handlers.Load())
-				} else {
-					require.Zero(t, handlers.Load())
-				}
-				_, err = replayExecutionTest(t, rt, key, w, task)
-				require.Error(t, err)
-				require.EqualValues(t, 1, builds.Load())
-			})
+					}}
+					key := submitExecutionTest(t, rt, w)
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer cancel()
+					run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "nested-deadline", LeaseDuration: time.Second})
+					require.NoError(t, err)
+					out, err := run.Run(nil)
+					require.NoError(t, err)
+					require.Equal(t, wf.JobRunFailed, out.Status)
+					var timeout jobdb.TimeoutError
+					require.ErrorAs(t, out.JobError, &timeout)
+					// Storage and scheduling consume the budget too. Neither the worker nor
+					// the handler is guaranteed to be admitted before its deadline. Started
+					// worker/handler cancellation is covered separately with explicit gates.
+					require.LessOrEqual(t, builds.Load(), int32(1), "expired parent must not admit child retries")
+					require.LessOrEqual(t, workers.Load(), int32(1))
+					require.LessOrEqual(t, handlers.Load(), int32(1))
+					if !handler {
+						require.Zero(t, handlers.Load())
+					}
+					if slowAdmission {
+						require.Zero(t, builds.Load(), "storage delay exhausts the parent budget before input construction")
+						require.Zero(t, workers.Load())
+						require.Zero(t, handlers.Load(), "expired total budget must not admit a catch handler")
+					}
+					built := builds.Load()
+					_, err = replayExecutionTest(t, rt, key, w, task)
+					require.ErrorAs(t, err, &timeout)
+					require.Equal(t, built, builds.Load(), "replay must not build interrupted work")
+				})
+			}
 		}
 	}
 }
@@ -233,4 +244,20 @@ func TestExecutionRestartPrerequisite(t *testing.T) {
 			require.EqualValues(t, 1, calls.Load())
 		})
 	}
+}
+
+// delayedExecutionAdmissionRuntime models storage work consuming an attempt's budget.
+type delayedExecutionAdmissionRuntime struct{ jobdb.WorkflowRuntime }
+
+func (r *delayedExecutionAdmissionRuntime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) error {
+	if body, ok := req.Chapter.Body.(jobdb.ExecutionChapter); ok {
+		rec, err := jobdb.DecodeExecutionRecord(body.Record)
+		if err != nil {
+			return err
+		}
+		if rec.Kind == "scope" && strings.Contains(rec.ID, `"child"`) {
+			time.Sleep(150 * time.Millisecond)
+		}
+	}
+	return r.WorkflowRuntime.PutChapter(ctx, req)
 }

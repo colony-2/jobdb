@@ -108,6 +108,12 @@ func (c *executionContext) finishBody(kind, id string, out TaskData, bodyErr err
 		return c.event(kind, id, func() *jobdb.ExecutionRecord { return nil })
 	}
 	if errors.Is(bodyErr, errRecordedBoundary) {
+		if c.run.peek() != nil {
+			// An ancestor may have timed out before this nested scope committed
+			// an outcome. Keep unwinding to that recorded boundary; event still
+			// rejects unrelated identities or non-timeout records.
+			return c.event(kind, id, func() *jobdb.ExecutionRecord { return nil })
+		}
 		return jobdb.ExecutionRecord{}, c.run.control(fmt.Errorf("%w: unexpected interrupted boundary %s", ErrWorkflowNotDeterministic, id))
 	}
 	rec, err := recordResult(c.ctx, out, bodyErr)
