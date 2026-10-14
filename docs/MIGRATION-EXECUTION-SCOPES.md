@@ -192,10 +192,36 @@ to each callback invocation and return results to the caller. An abandoned callb
 must not retain shared mutable state used by another attempt.
 
 Use `ExecutionContext.AwaitDuration` and `AwaitJobs` for orchestration waits.
-Child outcomes and retry wake times are recorded. Task-level waits can suspend an
-unfinished worker; that worker may run again until its outcome is durable.
+Child outcomes and retry wake times are recorded. A child wait becomes eligible
+when every child is terminal (success, failure, or cancellation), or when its
+enclosing deadline arrives. The deadline wakes an unfinished join for timeout
+handling; it does not delay a join whose children have finished. Task-level waits
+can suspend an unfinished worker; that worker may run again until its outcome is
+durable.
 Configuration and secrets retain the live whole-job-attempt cache lifetime;
 nested scope/task retries do not reset these caches. Whole-job retries do.
+
+## Confirming a handoff
+
+Both `ExecutionContext.Yield` and `TaskContext.Yield` return a suspension control
+error after an acknowledged reschedule. Recognize it with the public predicate,
+then propagate it:
+
+```go
+err := ctx.Yield(ctx.Context(), request)
+if workflow.IsExecutionSuspended(err) {
+    emitEnvironmentRequired() // Notify only after confirmed acceptance.
+}
+return nil, err
+```
+
+The predicate supports wrapped errors. Rejected requests, lease loss,
+cancellation, and uncertain transport responses are not confirmation, including
+a lost response after storage committed the reschedule. Yield does not complete
+the task or record its result. Do not convert its control error to success.
+Suspension cancels execution contexts; notification delivery must not depend on
+that cancelled context. The predicate confirms rescheduling, not durable delivery
+of the consumer's notification.
 
 ## External work and restart patches
 

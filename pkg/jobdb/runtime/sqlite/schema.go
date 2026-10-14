@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS jobdb_jobs (
 	parent_job_id TEXT,
 	wait_for BLOB NOT NULL DEFAULT x'',
 	available_at_ns INTEGER NOT NULL,
+	wait_deadline_ns INTEGER,
 	created_at_ns INTEGER NOT NULL,
 	updated_at_ns INTEGER NOT NULL,
 	archived_at_ns INTEGER,
@@ -86,7 +87,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version != 3 && version != 4 {
+	if version != 3 && version != 4 && version != 5 {
 		var tables int
 		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tables); err != nil {
 			return err
@@ -105,7 +106,12 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("sqlite runtime: add expiry counter: %w", err)
 		}
 	}
-	if _, err := tx.ExecContext(ctx, schemaSQL+"; PRAGMA user_version=4;"); err != nil {
+	if version == 3 || version == 4 {
+		if _, err := tx.ExecContext(ctx, "ALTER TABLE jobdb_jobs ADD COLUMN wait_deadline_ns INTEGER"); err != nil {
+			return fmt.Errorf("sqlite runtime: add join deadline: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, schemaSQL+"; PRAGMA user_version=5;"); err != nil {
 		return fmt.Errorf("sqlite runtime: initialize: %w", err)
 	}
 	return tx.Commit()

@@ -91,7 +91,7 @@ func TestVersionThreeUpgradePreservesJobs(t *testing.T) {
 	require.NoError(t, err)
 	h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "existing", JobType: "job", Data: jobdb.NewTaskDataOrPanic(42)}})
 	require.NoError(t, err)
-	_, err = r.db.ExecContext(ctx, `ALTER TABLE jobdb_jobs DROP COLUMN consecutive_expirations; PRAGMA user_version=3;`)
+	_, err = r.db.ExecContext(ctx, `ALTER TABLE jobdb_jobs DROP COLUMN consecutive_expirations; ALTER TABLE jobdb_jobs DROP COLUMN wait_deadline_ns; PRAGMA user_version=3;`)
 	require.NoError(t, err)
 	require.NoError(t, r.Close(ctx))
 	r, err = NewFromConfig(ctx, cfg)
@@ -105,5 +105,5 @@ func TestVersionThreeUpgradePreservesJobs(t *testing.T) {
 	require.NotNil(t, chapter.Body)
 	var version int
 	require.NoError(t, r.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version))
-	require.Equal(t, 4, version)
+	require.Equal(t, 5, version)
 }

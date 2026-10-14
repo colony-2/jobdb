@@ -188,8 +188,14 @@ func (r *Runtime) RescheduleJobWithLeaseByID(ctx context.Context, jobKey jobdb.J
 	}
 	now := time.Now().UTC()
 	availableAt := now
+	var waitDeadline any
 	if req.WaitUntil != nil {
-		availableAt = req.WaitUntil.UTC()
+		if len(req.WaitForJobIDs) > 0 {
+			// A join's deadline is an alternative wakeup, not a not-before time.
+			waitDeadline = timeToNS(req.WaitUntil.UTC())
+		} else {
+			availableAt = req.WaitUntil.UTC()
+		}
 	}
 	var alternateJob, alternateTask any
 	var alternateAt any
@@ -226,11 +232,11 @@ func (r *Runtime) RescheduleJobWithLeaseByID(ctx context.Context, jobKey jobdb.J
 		}
 		_, err = tx.ExecContext(ctx, `
 UPDATE jobdb_jobs
-SET consecutive_expirations = 0, route_job_type = ?, route_task_type = ?, payload = ?, wait_for = ?, available_at_ns = ?,
+SET consecutive_expirations = 0, route_job_type = ?, route_task_type = ?, payload = ?, wait_for = ?, available_at_ns = ?, wait_deadline_ns = ?,
 	lease_id = NULL, lease_worker_id = NULL, lease_expires_at_ns = NULL,
 	alternate_job_type = ?, alternate_task_type = ?, alternate_at_ns = ?, updated_at_ns = ?
 WHERE tenant_id = ? AND job_id = ?`,
-			req.NextRoute.JobType, req.NextRoute.TaskType, payloadBytes, waitFor, timeToNS(availableAt), alternateJob, alternateTask, alternateAt, timeToNS(now), jobKey.TenantId, jobKey.JobId)
+			req.NextRoute.JobType, req.NextRoute.TaskType, payloadBytes, waitFor, timeToNS(availableAt), waitDeadline, alternateJob, alternateTask, alternateAt, timeToNS(now), jobKey.TenantId, jobKey.JobId)
 		return err
 	})
 }

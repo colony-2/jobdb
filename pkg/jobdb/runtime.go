@@ -172,7 +172,9 @@ type CompleteExecutionRequest struct {
 }
 
 type RescheduleExecutionRequest struct {
-	NextRoute           Route
+	NextRoute Route
+	// WaitUntil delays eligibility when no jobs are listed. With WaitForJobIDs,
+	// it is a deadline: resume when all listed jobs terminate OR this time arrives.
 	WaitUntil           *time.Time
 	WaitForJobIDs       []string
 	TaskWait            *TaskWait

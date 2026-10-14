@@ -1083,7 +1083,8 @@ func (r *Runtime) advanceRecordStateLocked(tenantId string, now time.Time, recor
 				break
 			}
 		}
-		if complete {
+		if complete || (!record.waitDeadline.IsZero() && !record.waitDeadline.After(now)) {
+			record.waitDeadline = time.Time{}
 			if !record.availableAt.IsZero() && record.availableAt.After(now) {
 				record.status = jobdb.JobStatusAwaitingFuture
 			} else {
@@ -1249,6 +1250,7 @@ func (r *Runtime) rescheduleLease(jobKey jobdb.JobKey, leaseID string, workerID 
 	record.payload = mustMarshalWorkerPayload(state)
 	record.waitFor = append([]string(nil), req.WaitForJobIDs...)
 	record.availableAt = time.Time{}
+	record.waitDeadline = time.Time{}
 	record.step = 0
 	if wait, err := extractWorkerTaskWait(record.payload); err == nil && wait != nil {
 		record.step = wait.OutputStep
@@ -1272,6 +1274,9 @@ func (r *Runtime) rescheduleLease(jobKey jobdb.JobKey, leaseID string, workerID 
 	switch {
 	case len(req.WaitForJobIDs) > 0:
 		record.status = jobdb.JobStatusPendingJobs
+		if req.WaitUntil != nil {
+			record.waitDeadline = req.WaitUntil.UTC()
+		}
 	case req.WaitUntil != nil && req.WaitUntil.After(time.Now().UTC()):
 		record.status = jobdb.JobStatusAwaitingFuture
 		record.availableAt = req.WaitUntil.UTC()

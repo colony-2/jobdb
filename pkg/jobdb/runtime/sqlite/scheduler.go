@@ -15,7 +15,7 @@ import (
 
 const jobColumns = `
 tenant_id, job_id, job_type, route_job_type, route_task_type, payload, client_payload, client_payload_revision, initial_payload_digest, metadata, parent_job_id, wait_for,
-available_at_ns, created_at_ns, updated_at_ns, archived_at_ns,
+available_at_ns, wait_deadline_ns, created_at_ns, updated_at_ns, archived_at_ns,
 cancel_requested, completion_status, completion_detail,
 consecutive_expirations, lease_id, lease_worker_id, lease_expires_at_ns, alternate_job_type, alternate_task_type, alternate_at_ns
 `
@@ -33,6 +33,7 @@ type jobRow struct {
 	parentJobID           sql.NullString
 	waitForRaw            []byte
 	availableAtNS         int64
+	waitDeadlineNS        sql.NullInt64
 	createdAtNS           int64
 	updatedAtNS           int64
 	archivedAtNS          sql.NullInt64
@@ -65,6 +66,7 @@ func scanJobRow(scanner interface{ Scan(dest ...any) error }) (jobRow, error) {
 		&row.parentJobID,
 		&waitFor,
 		&row.availableAtNS,
+		&row.waitDeadlineNS,
 		&row.createdAtNS,
 		&row.updatedAtNS,
 		&row.archivedAtNS,
@@ -273,7 +275,7 @@ func statusFromRow(ctx context.Context, tx queryer, row jobRow, now time.Time) (
 	if err != nil {
 		return "", err
 	}
-	if !ready {
+	if !ready && (!row.waitDeadlineNS.Valid || timeFromNS(row.waitDeadlineNS.Int64).After(now)) {
 		return jobdb.JobStatusPendingJobs, nil
 	}
 	if available := timeFromNS(row.availableAtNS); !available.IsZero() && available.After(now) {

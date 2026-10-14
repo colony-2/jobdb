@@ -198,6 +198,9 @@ type CompletionMutation struct {
 }
 
 // RescheduleMutation returns a live lease to the scheduler queue.
+// With WaitForJobIDs, WaitUntil is an alternative wakeup deadline: all jobs
+// terminating OR reaching the deadline makes work eligible. Without dependencies,
+// WaitUntil is a not-before time.
 type RescheduleMutation struct {
 	Identity            LeaseIdentity
 	RouteJobType        string

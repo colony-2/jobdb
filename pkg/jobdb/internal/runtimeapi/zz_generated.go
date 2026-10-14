@@ -697,7 +697,9 @@ type RescheduleExecutionRequest struct {
 	NextRoute           Route                `json:"nextRoute"`
 	TaskWait            *TaskWait            `json:"taskWait,omitempty"`
 	WaitForJobIds       *[]string            `json:"waitForJobIds,omitempty"`
-	WaitUntil           *time.Time           `json:"waitUntil,omitempty"`
+
+	// WaitUntil Without waitForJobIds, delays eligibility until this time. With waitForJobIds, resumes when all listed jobs terminate or this deadline arrives.
+	WaitUntil *time.Time `json:"waitUntil,omitempty"`
 }
 
 // ResolveSecretsBody defines model for ResolveSecretsBody.

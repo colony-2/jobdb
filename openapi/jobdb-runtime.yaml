@@ -2309,6 +2309,7 @@ components:
         waitUntil:
           type: string
           format: date-time
+          description: Without waitForJobIds, delays eligibility until this time. With waitForJobIds, resumes when all listed jobs terminate or this deadline arrives.
         waitForJobIds:
           type: array
           items:

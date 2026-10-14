@@ -283,6 +283,9 @@ func (c *executionContext) Yield(ctx context.Context, req RescheduleExecutionReq
 	}
 	callCtx, cancel := invocationCallContext(ctx, c.ctx)
 	defer cancel()
+	if err := callCtx.Err(); err != nil {
+		return c.run.control(err)
+	}
 	if err := c.run.r.lease.Reschedule(callCtx, req); err != nil {
 		return c.run.control(err)
 	}

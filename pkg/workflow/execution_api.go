@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -100,3 +101,11 @@ func copyConsumerVersions(in map[string]string) (map[string]string, error) {
 }
 
 func (w ExecutionWorker) executionDefinition() ExecutionWorker { return w }
+
+// IsExecutionSuspended recognizes a confirmed successful suspension, including
+// through wrapped errors. After Yield, callers may use it to send a handoff
+// notification, then must propagate the error to stop execution. Cancellation,
+// lease loss, and failed or uncertain reschedule responses are not confirmation.
+func IsExecutionSuspended(err error) bool {
+	return errors.Is(err, errExecutionSuspended)
+}

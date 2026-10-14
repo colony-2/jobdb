@@ -87,6 +87,7 @@ type jobRecord struct {
 	step                  int64
 	waitFor               []string
 	availableAt           time.Time
+	waitDeadline          time.Time
 	leased                bool
 	leaseID               string
 	chapters              map[int64]*toyChapter
