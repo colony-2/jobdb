@@ -2,14 +2,20 @@ package workflow_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -42,15 +48,26 @@ func executionWait(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey) job
 
 func TestExecutionAlternateLifecycle(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
-		for _, mode := range []string{"fallback", "local-primary", "leased-primary", "human-before", "human-late", "claimed-crash", "primary-lease-expired", "retry"} {
-			t.Run(backend+"/"+mode, func(t *testing.T) {
+		modes := []string{"fallback", "local-primary", "leased-primary", "human-before", "human-late", "claimed-crash", "primary-lease-expired", "retry"}
+		for _, mode := range modes {
+			controlledExpiry := mode == "primary-lease-expired" || mode == "claimed-crash" || mode == "retry"
+			scenario := func(t *testing.T) {
 				ctx := context.Background()
-				rt := alternateRuntime(t, backend)
+				var rt jobdb.WorkflowRuntime
+				var setSchedulerTimes func(jobdb.JobKey, bool)
+				if controlledExpiry && backend != "toy" {
+					rt, setSchedulerTimes = alternateExpiryRuntime(t, backend)
+				} else {
+					rt = alternateRuntime(t, backend)
+				}
 				var builds, primaryRuns, fallbackRuns atomic.Int32
 				call := invocation("answer")
 				call.Alternate = &wf.TaskAlternateAfter{TaskType: "fallback", After: 150 * time.Millisecond}
 				if mode == "human-before" || mode == "leased-primary" {
 					call.Alternate.After = time.Hour
+				}
+				if mode == "primary-lease-expired" && setSchedulerTimes != nil {
+					call.Alternate.After = 0
 				}
 				if mode == "retry" {
 					call.Policy.Retry.MaximumAttempts = 2
@@ -88,6 +105,11 @@ func TestExecutionAlternateLifecycle(t *testing.T) {
 					out, err := runExecutionTest(t, rt, key, w, fallback)
 					require.NoError(t, err)
 					require.Equal(t, wf.JobRunSuspended, out.Status)
+					if mode == "primary-lease-expired" && setSchedulerTimes != nil {
+						// Hold scheduler eligibility until the primary is claimed. The
+						// recorded due time is already past and remains unchanged.
+						setSchedulerTimes(key, false)
+					}
 					wait := executionWait(t, rt, key)
 					require.NotNil(t, wait.AlternateAt)
 					require.Equal(t, "echo", wait.ExecutionTaskType)
@@ -114,11 +136,19 @@ func TestExecutionAlternateLifecycle(t *testing.T) {
 						tasks = []wf.TaskWorker{primary}
 						expected = "primary"
 					case "primary-lease-expired":
-						lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "primary", Routes: []jobdb.Route{{JobType: w.Name(), TaskType: "echo"}}, LeaseDuration: 200 * time.Millisecond})
+						duration := time.Hour
+						if backend == "toy" {
+							duration = 200 * time.Millisecond // synctest's virtual clock
+						}
+						lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "primary", Routes: []jobdb.Route{{JobType: w.Name(), TaskType: "echo"}}, LeaseDuration: duration})
 						require.NoError(t, err)
 						require.NotNil(t, lease)
 						require.Error(t, finish())
-						waitAlternate(time.Now().Add(250 * time.Millisecond))
+						if setSchedulerTimes != nil {
+							setSchedulerTimes(key, true)
+						} else {
+							waitAlternate(time.Now().Add(250 * time.Millisecond))
+						}
 					default:
 						waitAlternate(*wait.AlternateAt)
 						if mode == "human-late" {
@@ -129,13 +159,21 @@ func TestExecutionAlternateLifecycle(t *testing.T) {
 							// The scheduler applies the relative delay after transport and
 							// storage latency. Observe eligibility rather than assuming the
 							// first request at the client's due time must acquire a lease.
+							duration := time.Hour
+							if backend == "toy" {
+								duration = 80 * time.Millisecond // synctest's virtual clock
+							}
 							require.Eventually(t, func() bool {
-								lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "crashed", Routes: []jobdb.Route{{JobType: w.Name(), TaskType: "fallback"}}, LeaseDuration: 80 * time.Millisecond})
+								lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "crashed", Routes: []jobdb.Route{{JobType: w.Name(), TaskType: "fallback"}}, LeaseDuration: duration})
 								require.NoError(t, err)
 								return lease != nil
 							}, 3*time.Second, 25*time.Millisecond)
 							require.Error(t, finish())
-							waitAlternate(time.Now().Add(120 * time.Millisecond))
+							if setSchedulerTimes != nil {
+								setSchedulerTimes(key, true)
+							} else {
+								waitAlternate(time.Now().Add(120 * time.Millisecond))
+							}
 							// The committed B route must survive both lease loss and retries,
 							// even when A becomes available in this worker process.
 							tasks = []wf.TaskWorker{primary, fallback}
@@ -176,6 +214,15 @@ func TestExecutionAlternateLifecycle(t *testing.T) {
 					call.Alternate = &changed
 					_, err = replayExecutionTest(t, rt, key, w)
 					require.ErrorIs(t, err, jobdb.ErrWorkflowNotDeterministic)
+				}
+			}
+			t.Run(backend+"/"+mode, func(t *testing.T) {
+				if backend == "toy" && controlledExpiry {
+					// Inspection/replay cannot consume the primary claim window.
+					// Only explicit waits advance the in-memory runtime's clock.
+					synctest.Test(t, scenario)
+				} else {
+					scenario(t)
 				}
 			})
 		}
@@ -532,5 +579,40 @@ func TestExecutionAlternateDispatchRecovery(t *testing.T) {
 				require.Equal(t, wantRuns, runs.Load())
 			})
 		}
+	}
+}
+
+// Keep the primary claim and lease expiry independent of HTTP/storage speed.
+// Only scheduler timestamps change; the durable wait, input and hashes do not.
+func alternateExpiryRuntime(t *testing.T, backend string) (jobdb.WorkflowRuntime, func(jobdb.JobKey, bool)) {
+	t.Helper()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "expiry.db")
+	base, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, base.Close(ctx)) })
+	db, err := sql.Open("sqlite", path)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	var runtime jobdb.WorkflowRuntime = base
+	if backend == "remote" {
+		server := httptest.NewServer(remote.NewServer(base))
+		t.Cleanup(server.Close)
+		runtime, err = remote.New(server.URL, server.Client())
+		require.NoError(t, err)
+	}
+	return runtime, func(key jobdb.JobKey, expire bool) {
+		t.Helper()
+		query := "UPDATE jobdb_jobs SET alternate_at_ns=? WHERE tenant_id=? AND job_id=?"
+		at := time.Now().Add(time.Hour).UnixNano()
+		if expire {
+			query = "UPDATE jobdb_jobs SET alternate_at_ns=?, lease_expires_at_ns=0 WHERE tenant_id=? AND job_id=?"
+			at = 0
+		}
+		result, err := db.ExecContext(ctx, query, at, key.TenantId, key.JobId)
+		require.NoError(t, err)
+		n, err := result.RowsAffected()
+		require.NoError(t, err)
+		require.EqualValues(t, 1, n)
 	}
 }

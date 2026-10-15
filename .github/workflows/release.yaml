@@ -1,35 +1,17 @@
 name: Release
 
+# Only the Test workflow calls this, after its complete matrix succeeds.
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - 'v*'
+  workflow_call:
 
 permissions:
   contents: write
   packages: write
   id-token: write # for npm oidc trusted packages
-  checks: read
 
 jobs:
-  # Step 1: Wait for tests (only when triggered by main push)
-  wait-for-tests:
-    if: github.ref_type == 'branch' && github.ref_name == 'main'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Wait for test workflow to complete
-        uses: lewagon/wait-on-check-action@v1.6.1
-        with:
-          ref: ${{ github.sha }}
-          check-name: 'test-summary'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          wait-interval: 10
-
-  # Step 2: Create tag (only when triggered by main push, after tests pass)
+  # Main pushes create a tag at the exact tested commit.
   create-tag:
-    needs: wait-for-tests
     if: github.ref_type == 'branch' && github.ref_name == 'main'
     runs-on: ubuntu-latest
     outputs:
@@ -38,6 +20,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Bump version and push tag
@@ -50,12 +33,14 @@ jobs:
           PRERELEASE: false
           RELEASE_BRANCHES: main
 
-  # Step 3: Run GoReleaser (for both main push after tag creation, and manual tag pushes)
+  # Tag pushes have also passed the caller's full test matrix.
+  # A skipped tag-creation job is acceptable only for a tag push.
   goreleaser:
     needs: [ create-tag ]
     if: |
-      always() &&
-      (needs.create-tag.result == 'success' || needs.create-tag.result == 'skipped')
+      !cancelled() &&
+      (needs.create-tag.result == 'success' ||
+       (github.ref_type == 'tag' && needs.create-tag.result == 'skipped'))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -80,14 +65,6 @@ jobs:
           go env -w GOPRIVATE=github.com/colony-2/*
           echo "machine github.com login x-access-token password ${{ secrets.READ_ALL_C2_REPOS }}" > ~/.netrc
           chmod 600 ~/.netrc
-
-      - name: Run tests
-        # Custom HOME ONLY for this step, and outside the workspace
-        env:
-          HOME: ${{ runner.temp }}/test-home
-        run: |
-          mkdir -p "$HOME"
-          go test -v -tags=integration ./...
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6

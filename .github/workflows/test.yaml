@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*'
   pull_request:
     branches:
       - main
@@ -38,7 +40,25 @@ jobs:
   # Summary job that depends on all matrix jobs completing
   test-summary:
     needs: [test]
+    if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: All tests passed
-        run: echo "All test matrix jobs completed successfully"
+      - name: Require every test platform to pass
+        env:
+          TEST_RESULT: ${{ needs.test.result }}
+        run: |
+          if [ "$TEST_RESULT" != "success" ]; then
+            echo "Test matrix did not pass: $TEST_RESULT"
+            exit 1
+          fi
+          echo "All test matrix jobs completed successfully"
+
+  release:
+    needs: [test-summary]
+    if: github.event_name == 'push' && needs.test-summary.result == 'success'
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    uses: ./.github/workflows/release.yaml
+    secrets: inherit

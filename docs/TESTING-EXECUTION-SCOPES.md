@@ -14,7 +14,7 @@ invocation matching with mocked task results.
 | Timeouts | Interrupted callbacks and tasks, late calls/results, task retries, durable deadlines, timeout after the last child committed, nested budget enforcement, and catch-handler budget exhaustion. Delayed storage explicitly exhausts admission budgets; cancellation tests wait for callbacks to start before expiring them. Nested replay propagates recorded ancestor timeouts without consuming them early, while rejecting unrelated outcomes. |
 | Catch | Ordered matching, handled output, rewritten failure, propagation, handler failure, invalid disposition, recovery inside handlers, and changed predicates after recorded selection. |
 | External work | Explicit inputs despite intervening control records; cache-only replay misses; malformed/missing generation, ordinal, and route rejection without writes; stale completion rejection; deadline-driven replacement reuses input and changes generation. Independent scheduler/chapter ports also exercise versioned completion. |
-| Timed alternates | Local A bypass, leased A execution, B eligibility, human answers before/after due and racing pickup, cancellation before/after claim, lease loss before/after B dispatch, unchanged wait/input through recovery, sticky B retries and backoff (including an attempt expired before B pickup), lost dispatch/result acknowledgements, invalid declarations, changed replay contracts, hard deadlines, and replay without registered implementations. |
+| Timed alternates | Local A bypass, leased A execution, B eligibility, human answers before/after due and racing pickup, cancellation before/after claim, lease loss before/after B dispatch, unchanged wait/input through recovery, sticky B retries and backoff (including an attempt expired before B pickup), lost dispatch/result acknowledgements, invalid declarations, changed replay contracts, hard deadlines, and replay without registered implementations. Lease-expiry lifecycle cases use a virtual clock for toy and controlled scheduler timestamps for SQLite/REST, so inspection latency cannot consume claim windows. |
 | Restart | Patched commands/inputs, immutable source history, retained-prefix reuse, unsupported targets, idempotent submission, conflicting patches, expired source deadlines, repeated forks, and recovery before/after suffix commit with unchanged continuation budgets. |
 | Versions | Named consumer versions, copied registration maps, invalid entries, unsupported/missing pattern versions, preserved initial provenance and newer worker activations, supplied leases, and inspection. Version 1 continuation, external completion, and restart retain version 1; new dispatch fields require version 2. |
 | Artifacts | Producer-authored JSON references resolve live and after replay across transports; same-name input/output artifacts and names colliding with generated input names remain distinct. Outcome ordinals stay correct across worker replacement, in-process waits, durable waits, repeated yields, and external requeue. |
@@ -40,6 +40,10 @@ its commands before committing:
 go test -v -tags=integration ./...
 go test -race ./pkg/workflow
 ```
+
+The Test workflow gates releases on the complete three-platform matrix, including
+the race check. Main and version-tag pushes use the same gate; failed, cancelled,
+or skipped tests prevent tagging and publishing.
 
 Also run `go test ./...` and the full race suite before cutover. Existing API
 conformance and regression tests remain enabled during coexistence. The new
