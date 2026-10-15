@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -718,12 +719,12 @@ func executionRestartTarget(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.Jo
 }
 func TestExecutionRestartBudgetsAndRepeatedFork(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
-		t.Run(backend, func(t *testing.T) {
+		scenario := func(t *testing.T) {
 			rt := alternateRuntime(t, backend)
 			var runs atomic.Int32
 			task := executionTestTask{"echo", func(c wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) { runs.Add(1); return in, nil }}
 			w := wf.ExecutionWorker{JobType: "forks", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
-				return c.DoScope("outer", wf.ScopeOptions{TotalTimeout: 300 * time.Millisecond}, func(s wf.ExecutionContext) (jobdb.JobData, error) {
+				return c.DoScope("outer", wf.ScopeOptions{TotalTimeout: time.Minute}, func(s wf.ExecutionContext) (jobdb.JobData, error) {
 					value := "old"
 					var out jobdb.TaskData
 					for _, name := range []string{"one", "two"} {
@@ -744,8 +745,25 @@ func TestExecutionRestartBudgetsAndRepeatedFork(t *testing.T) {
 			out, err := runExecutionTest(t, rt, source, w, task)
 			require.NoError(t, err)
 			require.Equal(t, wf.JobRunCompleted, out.Status, "error: %v", out.JobError)
-			time.Sleep(320 * time.Millisecond)
 			for i, site := range []string{"one", "two"} {
+				// Virtual time covers expired source deadlines on every fork.
+				// Real transports use a generous live budget and verify rebasing
+				// directly, rather than racing storage against a short timeout.
+				if backend == "toy" {
+					time.Sleep(2 * time.Minute)
+				}
+				original, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: source})
+				require.NoError(t, err)
+				outer := executionRestartTarget(t, rt, source, "outer") + "/attempt:1"
+				if backend == "toy" {
+					info, err := jobdb.GetJobRun(context.Background(), rt, jobdb.GetJobRunRequest{JobKey: source})
+					require.NoError(t, err)
+					for _, entry := range info.Execution {
+						if !entry.Record.TotalDeadline.IsZero() {
+							require.True(t, entry.Record.TotalDeadline.Before(time.Now()), "source deadline must have expired")
+						}
+					}
+				}
 				target := executionRestartTarget(t, rt, source, site)
 				patch, _ := json.Marshal(fmt.Sprintf("patch-%d", i))
 				req := jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: source, JobID: fmt.Sprintf("fork-%d", i), ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target, Payload: patch}}}
@@ -760,6 +778,7 @@ func TestExecutionRestartBudgetsAndRepeatedFork(t *testing.T) {
 				changed.Job.ExecutionRestart = &copy
 				_, err = rt.SubmitRestartJob(context.Background(), changed)
 				require.Error(t, err)
+				restartedAt := time.Now()
 				out, err = runExecutionTest(t, rt, h.JobKey, w, task)
 				require.NoError(t, err)
 				require.Equal(t, wf.JobRunCompleted, out.Status, "error: %v", out.JobError)
@@ -768,9 +787,33 @@ func TestExecutionRestartBudgetsAndRepeatedFork(t *testing.T) {
 				require.JSONEq(t, string(patch), string(raw))
 				_, err = replayExecutionTest(t, rt, h.JobKey, w, task)
 				require.NoError(t, err)
+				info, err := jobdb.GetJobRun(context.Background(), rt, jobdb.GetJobRunRequest{JobKey: h.JobKey})
+				require.NoError(t, err)
+				var deadline time.Time
+				for _, entry := range info.Execution {
+					if entry.Record.Kind == "continuation" && entry.Record.ID == target {
+						var budgets map[string]struct {
+							TotalDeadline time.Time `json:"total_deadline"`
+						}
+						require.NoError(t, json.Unmarshal(entry.Record.Payload, &budgets))
+						deadline = budgets[outer].TotalDeadline
+					}
+				}
+				require.False(t, deadline.IsZero(), "continuation must refresh the ancestor's budget")
+				require.False(t, deadline.Before(restartedAt.Add(time.Minute)), "continuation must receive a full new budget")
+				after, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: source})
+				require.NoError(t, err)
+				require.Equal(t, original, after, "restart must not rewrite source history")
 				source = h.JobKey
 			}
 			require.EqualValues(t, 5, runs.Load())
+		}
+		t.Run(backend, func(t *testing.T) {
+			if backend == "toy" {
+				synctest.Test(t, scenario)
+			} else {
+				scenario(t)
+			}
 		})
 	}
 }
@@ -867,33 +910,65 @@ func TestExecutionArtifactsAndSuppliedLease(t *testing.T) {
 }
 
 func TestExecutionInterruptedTaskNeverBuildsDuringReplay(t *testing.T) {
-	rt := alternateRuntime(t, "sqlite")
-	var builds, runs atomic.Int32
-	release := make(chan struct{})
-	exited := make(chan struct{})
-	task := executionTestTask{"echo", func(c wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
-		runs.Add(1)
-		defer close(exited)
-		<-release
-		return in, nil
-	}}
-	w := wf.ExecutionWorker{JobType: "interrupted-task", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
-		return c.DoScope("timed", wf.ScopeOptions{TotalTimeout: 40 * time.Millisecond}, func(s wf.ExecutionContext) (jobdb.JobData, error) {
-			return s.DoTask(invocation("slow"), func(context.Context) (jobdb.TaskData, error) { builds.Add(1); return in, nil })
-		})
-	}}
-	key := submitExecutionTest(t, rt, w)
-	out, err := runExecutionTest(t, rt, key, w, task)
-	close(release)
-	<-exited
-	require.NoError(t, err)
-	require.Equal(t, wf.JobRunFailed, out.Status)
-	_, err = replayExecutionTest(t, rt, key, w, task)
-	require.Error(t, err)
-	var timeout *jobdb.TimeoutError
-	require.ErrorAs(t, err, &timeout)
-	require.EqualValues(t, 1, builds.Load())
-	require.EqualValues(t, 1, runs.Load())
+	for _, backend := range []string{"toy", "sqlite", "remote"} {
+		for _, admitted := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/admitted=%t", backend, admitted), func(t *testing.T) {
+				rt := alternateRuntime(t, backend)
+				var builds, runs atomic.Int32
+				release := make(chan struct{})
+				exited := make(chan struct{})
+				scopes := make(chan wf.ExecutionContext, 1)
+				// Always release a late worker, including on assertion failure.
+				defer func() {
+					close(release)
+					if runs.Load() > 0 {
+						select {
+						case <-exited:
+						case <-time.After(5 * time.Second):
+							t.Error("interrupted worker did not exit after release")
+						}
+					}
+				}()
+				task := executionTestTask{"echo", func(c wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
+					runs.Add(1)
+					defer close(exited)
+					// Expire only after admission, then keep the worker alive through
+					// replay to check that its missing result cannot trigger a rebuild.
+					wf.ExpireExecutionScopeForTest(<-scopes)
+					<-release
+					return in, nil
+				}}
+				w := wf.ExecutionWorker{JobType: "interrupted-task", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
+					return c.DoScope("timed", wf.ScopeOptions{TotalTimeout: time.Minute}, func(s wf.ExecutionContext) (jobdb.JobData, error) {
+						if admitted {
+							scopes <- s
+						} else {
+							wf.ExpireExecutionScopeForTest(s)
+						}
+						return s.DoTask(invocation("slow"), func(context.Context) (jobdb.TaskData, error) { builds.Add(1); return in, nil })
+					})
+				}}
+				key := submitExecutionTest(t, rt, w)
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "interrupted-test", LeaseDuration: time.Second})
+				require.NoError(t, err)
+				out, err := run.Run(nil)
+				require.NoError(t, err)
+				require.Equal(t, wf.JobRunFailed, out.Status)
+				var timeout jobdb.TimeoutError
+				require.ErrorAs(t, out.JobError, &timeout)
+				_, err = replayExecutionTest(t, rt, key, w, task)
+				require.ErrorAs(t, err, &timeout)
+				want := int32(0)
+				if admitted {
+					want = 1
+				}
+				require.Equal(t, want, builds.Load())
+				require.Equal(t, want, runs.Load())
+			})
+		}
+	}
 }
 func TestExecutionChildJoinOutcomes(t *testing.T) {
 	for _, failed := range []bool{false, true} {

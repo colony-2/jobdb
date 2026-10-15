@@ -45,6 +45,10 @@ The Test workflow gates releases on the complete three-platform matrix, includin
 the race check. Main and version-tag pushes use the same gate; failed, cancelled,
 or skipped tests prevent tagging and publishing.
 
+Interrupted-task replay tests expire scopes before or after task admission and
+bound worker cleanup waits. Restart tests check renewed continuation budgets on
+all transports; virtual time covers expired source deadlines across repeated forks.
+
 Also run `go test ./...` and the full race suite before cutover. Existing API
 conformance and regression tests remain enabled during coexistence. The new
 scenarios add scope/catch/restart protocol cases beyond the older task-only API;
