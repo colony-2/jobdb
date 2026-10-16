@@ -341,6 +341,10 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 		}
 		body.JobTasks = &jobTasks
 	}
+	if len(req.AvailableRoutes) > 0 {
+		routes := routesToAPI(req.AvailableRoutes)
+		body.AvailableRoutes = &routes
+	}
 	if len(req.JobTypes) > 0 {
 		jobTypes := append([]string(nil), req.JobTypes...)
 		body.JobTypes = &jobTypes

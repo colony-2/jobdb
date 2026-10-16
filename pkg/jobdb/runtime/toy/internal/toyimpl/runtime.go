@@ -1060,18 +1060,28 @@ func (r *Runtime) taskDataFromChapter(jobKey jobdb.JobKey, chapter jobdb.Chapter
 }
 
 func (r *Runtime) advanceRecordStateLocked(tenantId string, now time.Time, record *jobRecord) {
+	status := r.engine.availableStatusLocked(tenantId, now, record)
 	if record.leased && !record.leaseExpiresAt.After(now) && record.archived == nil && !record.cancelled {
-		record.status = record.currentStatus(now)
 		record.leased = false
 	}
-
-	if record.status == jobdb.JobStatusAwaitingFuture && !record.availableAt.IsZero() && !record.availableAt.After(now) {
-		record.status = jobdb.JobStatusReady
+	if record.status == jobdb.JobStatusPendingJobs && status != jobdb.JobStatusPendingJobs {
+		record.waitDeadline = time.Time{}
+		record.waitFor = nil
 	}
-	if record.status == jobdb.JobStatusPendingJobs && len(record.waitFor) > 0 {
+	record.status = status
+}
+
+// availableStatusLocked projects scheduler eligibility without mutating the job.
+// The caller holds the engine and record locks, as in lease acquisition.
+func (e *ToyEngine) availableStatusLocked(tenantId string, now time.Time, record *jobRecord) jobdb.JobStatus {
+	status := record.currentStatus(now)
+	if status == jobdb.JobStatusAwaitingFuture && !record.availableAt.IsZero() && !record.availableAt.After(now) {
+		status = jobdb.JobStatusReady
+	}
+	if status == jobdb.JobStatusPendingJobs && len(record.waitFor) > 0 {
 		complete := true
 		for _, jobID := range record.waitFor {
-			dep := r.engine.jobRecords[jobdb.JobKey{TenantId: tenantId, JobId: jobID}]
+			dep := e.jobRecords[jobdb.JobKey{TenantId: tenantId, JobId: jobID}]
 			if dep == nil {
 				continue
 			}
@@ -1084,15 +1094,14 @@ func (r *Runtime) advanceRecordStateLocked(tenantId string, now time.Time, recor
 			}
 		}
 		if complete || (!record.waitDeadline.IsZero() && !record.waitDeadline.After(now)) {
-			record.waitDeadline = time.Time{}
 			if !record.availableAt.IsZero() && record.availableAt.After(now) {
-				record.status = jobdb.JobStatusAwaitingFuture
+				status = jobdb.JobStatusAwaitingFuture
 			} else {
-				record.status = jobdb.JobStatusReady
+				status = jobdb.JobStatusReady
 			}
-			record.waitFor = nil
 		}
 	}
+	return status
 }
 
 func (r *Runtime) completeLease(ctx context.Context, jobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.CompleteExecutionRequest) error {

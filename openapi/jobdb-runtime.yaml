@@ -2576,6 +2576,17 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/JobTaskFilter'
+        availableRoutes:
+          type: array
+          description: |
+            Return only jobs currently leaseable through one of these routes,
+            using the same eligibility and due-alternate rules as pollWork.
+            Omitted or empty disables this filter. Intersects all other filters
+            before pagination. Read-only: does not acquire a lease or change
+            nextRoute, which remains the stored route. Acquire with the same
+            supported routes; availability can change after listing.
+          items:
+            $ref: '#/components/schemas/Route'
         jobKeys:
           type: array
           items:

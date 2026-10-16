@@ -52,14 +52,16 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 		pageSize = jobdb.MaxListJobsPageSize
 	}
 	stored, err := r.scheduler.ListJobs(ctx, ListJobsRequest{
-		TenantIds:    append([]string(nil), req.TenantIds...),
-		Statuses:     append([]jobdb.JobStatus(nil), req.Statuses...),
-		Stores:       append([]jobdb.JobStore(nil), req.Stores...),
-		JobTypes:     append([]string(nil), req.JobTypes...),
-		JobTasks:     append([]jobdb.JobTaskFilter(nil), req.JobTasks...),
-		JobKeys:      append([]jobdb.JobKey(nil), req.JobKeys...),
-		ParentJobIDs: append([]string(nil), req.ParentJobIDs...),
-		RootOnly:     req.RootOnly, MetadataEquals: predicates,
+		TenantIds:       append([]string(nil), req.TenantIds...),
+		Statuses:        append([]jobdb.JobStatus(nil), req.Statuses...),
+		Stores:          append([]jobdb.JobStore(nil), req.Stores...),
+		JobTypes:        append([]string(nil), req.JobTypes...),
+		JobTasks:        append([]jobdb.JobTaskFilter(nil), req.JobTasks...),
+		AvailableRoutes: append([]jobdb.Route(nil), req.AvailableRoutes...),
+		Now:             r.now(),
+		JobKeys:         append([]jobdb.JobKey(nil), req.JobKeys...),
+		ParentJobIDs:    append([]string(nil), req.ParentJobIDs...),
+		RootOnly:        req.RootOnly, MetadataEquals: predicates,
 		CreatedAfter: req.CreatedAfter, CreatedBefore: req.CreatedBefore,
 		PageSize: pageSize, PageToken: req.PageToken,
 	})

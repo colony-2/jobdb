@@ -520,11 +520,18 @@ type ListJobSchemasResponse struct {
 
 // ListJobsRequest defines model for ListJobsRequest.
 type ListJobsRequest struct {
-	CreatedAfter  *time.Time       `json:"createdAfter,omitempty"`
-	CreatedBefore *time.Time       `json:"createdBefore,omitempty"`
-	JobKeys       *[]JobKey        `json:"jobKeys,omitempty"`
-	JobTasks      *[]JobTaskFilter `json:"jobTasks,omitempty"`
-	JobTypes      *[]string        `json:"jobTypes,omitempty"`
+	// AvailableRoutes Return only jobs currently leaseable through one of these routes,
+	// using the same eligibility and due-alternate rules as pollWork.
+	// Omitted or empty disables this filter. Intersects all other filters
+	// before pagination. Read-only: does not acquire a lease or change
+	// nextRoute, which remains the stored route. Acquire with the same
+	// supported routes; availability can change after listing.
+	AvailableRoutes *[]Route         `json:"availableRoutes,omitempty"`
+	CreatedAfter    *time.Time       `json:"createdAfter,omitempty"`
+	CreatedBefore   *time.Time       `json:"createdBefore,omitempty"`
+	JobKeys         *[]JobKey        `json:"jobKeys,omitempty"`
+	JobTasks        *[]JobTaskFilter `json:"jobTasks,omitempty"`
+	JobTypes        *[]string        `json:"jobTypes,omitempty"`
 
 	// MetadataPredicates Wire-format projection of `MetadataFilter`. Each predicate is a
 	// top-level equality match; multiple `values` on one predicate mean OR

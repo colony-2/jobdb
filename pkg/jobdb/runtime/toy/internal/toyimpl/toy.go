@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -786,9 +787,10 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 
 	records := make([]jobdb.JobSummary, 0)
 	e.mu.Lock()
+	now := time.Now().UTC()
 	for key, rec := range e.jobRecords {
 		rec.mu.Lock()
-		status := rec.currentStatus(time.Now())
+		status := e.availableStatusLocked(key.TenantId, now, rec)
 		store := jobdb.JobStoreActive
 		if status == jobdb.JobStatusCompleted {
 			store = jobdb.JobStoreArchived
@@ -825,6 +827,10 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 			continue
 		}
 		if !jobTaskAllowed(rec) {
+			rec.mu.Unlock()
+			continue
+		}
+		if len(req.AvailableRoutes) > 0 && (status != jobdb.JobStatusReady || !slices.Contains(req.AvailableRoutes, effectiveRoute(rec, now))) {
 			rec.mu.Unlock()
 			continue
 		}

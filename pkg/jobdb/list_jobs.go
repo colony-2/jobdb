@@ -53,19 +53,24 @@ type JobTaskFilter struct {
 // ListJobsRequest filters and paginates the union of active + archived jobs.
 // TenantIds must contain at least one tenant ID.
 type ListJobsRequest struct {
-	TenantIds      []string
-	Statuses       []JobStatus
-	Stores         []JobStore
-	JobTypes       []string
-	JobTasks       []JobTaskFilter
-	JobKeys        []JobKey
-	ParentJobIDs   []string
-	RootOnly       bool
-	MetadataFilter MetadataFilter
-	CreatedAfter   *time.Time
-	CreatedBefore  *time.Time
-	PageSize       int
-	PageToken      string
+	TenantIds []string
+	Statuses  []JobStatus
+	Stores    []JobStore
+	JobTypes  []string
+	JobTasks  []JobTaskFilter
+	// AvailableRoutes restricts results to jobs currently leaseable through any
+	// supplied route, including due alternates. Empty means no availability
+	// filter. This intersects all other filters and does not acquire a lease or
+	// change NextRoute (the stored route). Use the same routes when acquiring.
+	AvailableRoutes []Route
+	JobKeys         []JobKey
+	ParentJobIDs    []string
+	RootOnly        bool
+	MetadataFilter  MetadataFilter
+	CreatedAfter    *time.Time
+	CreatedBefore   *time.Time
+	PageSize        int
+	PageToken       string
 }
 
 type FieldName string

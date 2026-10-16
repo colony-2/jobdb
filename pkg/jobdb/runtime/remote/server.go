@@ -336,6 +336,9 @@ func (s *proxyServer) ListJobs(ctx context.Context, request runtimeapi.ListJobsR
 			})
 		}
 	}
+	if request.Body.AvailableRoutes != nil {
+		req.AvailableRoutes = routesFromAPI(*request.Body.AvailableRoutes)
+	}
 	if request.Body.JobTypes != nil {
 		req.JobTypes = append(req.JobTypes, (*request.Body.JobTypes)...)
 	}

@@ -88,6 +88,15 @@ func runCrashConcern(t *testing.T, harnesses []Harness) {
 					want = jobdb.JobStatusCrashConcern
 				}
 				require.Equal(t, want, info.Status)
+				available, err := r.ListJobs(ctx, jobdb.ListJobsRequest{
+					TenantIds: []string{key.TenantId}, JobKeys: []jobdb.JobKey{key}, AvailableRoutes: []jobdb.Route{route},
+				})
+				require.NoError(t, err)
+				if want == jobdb.JobStatusReady {
+					require.Len(t, available.Jobs, 1, "expired lease should become discoverable")
+				} else {
+					require.Empty(t, available.Jobs, "crash concern is not leaseable")
+				}
 			}
 			for i := 0; i < 2; i++ {
 				require.Nil(t, get())

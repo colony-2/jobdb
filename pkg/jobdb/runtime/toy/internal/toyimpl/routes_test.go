@@ -3,6 +3,7 @@ package toyimpl
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -65,4 +66,56 @@ func TestExpiredLeaseActivatesAlternateRouteInSamePoll(t *testing.T) {
 	if record.leased || effectiveRoute(record, now) != fallback || record.status != jobdb.JobStatusReady {
 		t.Fatalf("expired lease did not release to fallback: leased=%v route=%+v status=%s", record.leased, record.route, record.status)
 	}
+}
+
+func TestAvailableRoutesDiscoveryTracksTimeWithoutMutation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
+		rt := New()
+		primary := jobdb.Route{JobType: "job", TaskType: "input"}
+		alternate := jobdb.Route{JobType: "job"}
+		now := time.Now()
+		for _, mode := range []string{"alternate", "delay", "dependency", "lease"} {
+			key := jobdb.JobKey{TenantId: "tenant", JobId: mode}
+			record := &jobRecord{jobType: "job", route: primary, status: jobdb.JobStatusReady, createdAt: now}
+			switch mode {
+			case "alternate":
+				record.alternateRoute = &alternate
+				record.alternateAt = now.Add(time.Minute)
+			case "delay":
+				record.status = jobdb.JobStatusAwaitingFuture
+				record.availableAt = now.Add(time.Minute)
+			case "dependency":
+				record.status = jobdb.JobStatusPendingJobs
+				record.waitFor = []string{"blocker"}
+				record.waitDeadline = now.Add(time.Minute)
+				rt.engine.jobRecords[jobdb.JobKey{TenantId: "tenant", JobId: "blocker"}] = &jobRecord{status: jobdb.JobStatusReady}
+			case "lease":
+				record.status = jobdb.JobStatusActive
+				record.leased = true
+				record.leaseExpiresAt = now.Add(time.Minute)
+			}
+			rt.engine.jobRecords[key] = record
+		}
+		list := func(id string, route jobdb.Route, count int) {
+			t.Helper()
+			result, err := rt.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, JobKeys: []jobdb.JobKey{{TenantId: "tenant", JobId: id}}, AvailableRoutes: []jobdb.Route{route}})
+			require.NoError(t, err)
+			require.Len(t, result.Jobs, count)
+		}
+		list("alternate", primary, 1)
+		list("alternate", alternate, 0)
+		for _, id := range []string{"delay", "dependency", "lease"} {
+			list(id, primary, 0)
+		}
+		time.Sleep(time.Minute) // Virtual time: test exact eligibility boundary without wall-clock races.
+		list("alternate", primary, 0)
+		list("alternate", alternate, 1)
+		for _, id := range []string{"delay", "dependency", "lease"} {
+			list(id, primary, 1)
+		}
+		require.Equal(t, primary, rt.engine.jobRecords[jobdb.JobKey{TenantId: "tenant", JobId: "alternate"}].route)
+		require.Equal(t, jobdb.JobStatusPendingJobs, rt.engine.jobRecords[jobdb.JobKey{TenantId: "tenant", JobId: "dependency"}].status)
+		require.True(t, rt.engine.jobRecords[jobdb.JobKey{TenantId: "tenant", JobId: "lease"}].leased)
+	})
 }

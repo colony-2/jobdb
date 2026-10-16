@@ -65,6 +65,11 @@ func ValidateAlternateRoute(route *Route, after *time.Duration, task *TaskWait) 
 
 // ValidateRoutes checks the identifiers used by listing filters.
 func (req ListJobsRequest) ValidateRoutes() error {
+	for _, route := range req.AvailableRoutes {
+		if err := route.Validate(); err != nil {
+			return fmt.Errorf("available routes: %w", err)
+		}
+	}
 	for _, name := range req.JobTypes {
 		if err := ValidateIdentifier(name); err != nil {
 			return err

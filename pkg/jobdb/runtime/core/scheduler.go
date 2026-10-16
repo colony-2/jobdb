@@ -109,19 +109,24 @@ type CompletionSnapshot struct {
 
 // ListJobsRequest is the scheduler-side form of job listing.
 type ListJobsRequest struct {
-	TenantIds      []string
-	Statuses       []jobdb.JobStatus
-	Stores         []jobdb.JobStore
-	JobTypes       []string
-	JobTasks       []jobdb.JobTaskFilter
-	JobKeys        []jobdb.JobKey
-	ParentJobIDs   []string
-	RootOnly       bool
-	MetadataEquals []jobdb.MetadataPredicate
-	CreatedAfter   *time.Time
-	CreatedBefore  *time.Time
-	PageSize       int
-	PageToken      string
+	TenantIds []string
+	Statuses  []jobdb.JobStatus
+	Stores    []jobdb.JobStore
+	JobTypes  []string
+	JobTasks  []jobdb.JobTaskFilter
+	// AvailableRoutes uses the same eligibility and effective-route rules as
+	// AcquireWork at Now, before pagination. It must not claim or change jobs.
+	// Empty disables this filter; all other filters still intersect it.
+	AvailableRoutes []jobdb.Route
+	Now             time.Time
+	JobKeys         []jobdb.JobKey
+	ParentJobIDs    []string
+	RootOnly        bool
+	MetadataEquals  []jobdb.MetadataPredicate
+	CreatedAfter    *time.Time
+	CreatedBefore   *time.Time
+	PageSize        int
+	PageToken       string
 }
 
 // ListJobsResponse is the scheduler-side job list result.

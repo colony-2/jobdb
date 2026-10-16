@@ -14,6 +14,9 @@ import (
 func TestClientPayloadConformance(t *testing.T) {
 	runPayloadAndRouteConformance(t, runtimetest.RunClientPayloadConformance)
 }
+func TestAvailableRoutesConformance(t *testing.T) {
+	runPayloadAndRouteConformance(t, runtimetest.RunAvailableRoutesConformance)
+}
 func TestRouteConformance(t *testing.T) {
 	runPayloadAndRouteConformance(t, runtimetest.RunRouteConformance)
 }

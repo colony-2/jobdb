@@ -43,11 +43,45 @@ func TestCompletionSummaryUsesOnlyScheduler(t *testing.T) {
 
 type listTestScheduler struct {
 	runtimecore.Scheduler
-	rows []runtimecore.StoredJob
+	rows    []runtimecore.StoredJob
+	inspect func(runtimecore.ListJobsRequest)
 }
 
-func (s listTestScheduler) ListJobs(_ context.Context, _ runtimecore.ListJobsRequest) (runtimecore.ListJobsResponse, error) {
+func (s listTestScheduler) ListJobs(_ context.Context, req runtimecore.ListJobsRequest) (runtimecore.ListJobsResponse, error) {
+	if s.inspect != nil {
+		s.inspect(req)
+	}
 	return runtimecore.ListJobsResponse{Jobs: s.rows}, nil
+}
+
+func TestRuntimeListJobsPassesAvailabilityToScheduler(t *testing.T) {
+	now := time.Date(2026, 10, 16, 1, 0, 0, 0, time.UTC)
+	routes := []jobdb.Route{{JobType: "recipe"}, {JobType: "recipe", TaskType: "fallback"}}
+	calls := 0
+	rt, err := runtimecore.NewRuntime(runtimecore.Config{
+		Configurations: &configuration.MemoryStore{}, Chapters: noSummaryHistory{}, Schemas: readTestSchemas{},
+		Now: func() time.Time { return now },
+		Scheduler: listTestScheduler{inspect: func(req runtimecore.ListJobsRequest) {
+			calls++
+			require.Equal(t, routes, req.AvailableRoutes)
+			require.Equal(t, now, req.Now)
+			require.Equal(t, 1, req.PageSize)
+			require.Equal(t, "cursor", req.PageToken)
+			require.Equal(t, []jobdb.JobTaskFilter{{JobType: "recipe", TaskType: "input"}}, req.JobTasks)
+			// The port owns filtering before pagination; give it an independent slice.
+			req.AvailableRoutes[0].JobType = "changed"
+		}},
+	})
+	require.NoError(t, err)
+	_, err = rt.ListJobs(context.Background(), jobdb.ListJobsRequest{
+		TenantIds: []string{"tenant"}, AvailableRoutes: routes,
+		JobTasks: []jobdb.JobTaskFilter{{JobType: "recipe", TaskType: "input"}}, PageSize: 1, PageToken: "cursor",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "recipe", routes[0].JobType)
+	_, err = rt.ListJobs(context.Background(), jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, AvailableRoutes: []jobdb.Route{{}}})
+	require.Error(t, err)
+	require.Equal(t, 1, calls, "invalid routes must not reach the scheduler")
 }
 
 func TestRuntimeListJobsKeepsArchivedTaskSummary(t *testing.T) {

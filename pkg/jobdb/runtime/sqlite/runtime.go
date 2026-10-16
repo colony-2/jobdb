@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -758,6 +759,12 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 		}
 		if len(req.JobTasks) > 0 && !jobTaskMatches(row.nextRoute, req.JobTasks) {
 			continue
+		}
+		if len(req.AvailableRoutes) > 0 {
+			route, _ := effectiveNextRoute(row, now)
+			if status != jobdb.JobStatusReady || !slices.Contains(req.AvailableRoutes, route) {
+				continue
+			}
 		}
 		parentJobID := ""
 		if row.parentJobID.Valid {
