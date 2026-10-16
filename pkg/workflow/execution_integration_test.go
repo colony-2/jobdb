@@ -604,7 +604,8 @@ func TestExecutionExternalDeadlineAndReplacement(t *testing.T) {
 			stale, err := engine.GetWaitingTask(context.Background(), key)
 			require.NoError(t, err)
 			time.Sleep(100 * time.Millisecond)
-			require.Error(t, stale.Finish(context.Background(), jobdb.NewTaskDataOrPanic("late")))
+			// Let timeout processing replace the waiting generation before
+			// attempting the stale answer; expiry alone leaves the slot open.
 			out, err = runExecutionTest(t, rt, key, w)
 			require.NoError(t, err)
 			require.Equal(t, wf.JobRunSuspended, out.Status)

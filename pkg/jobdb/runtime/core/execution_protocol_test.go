@@ -53,7 +53,7 @@ func TestExecutionCompletionIndependentStores(t *testing.T) {
 				req.InputOrdinal = 0
 			}
 			err = rt.CompleteTaskIfWaiting(context.Background(), req)
-			if mode != "success" {
+			if mode != "success" && mode != "expired" {
 				require.ErrorIs(t, err, jobdb.ErrConflict)
 				require.Nil(t, chapters.output)
 				require.Empty(t, scheduler.events)

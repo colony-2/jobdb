@@ -115,6 +115,9 @@ type GetJobLeaseRequest struct {
 
 // CompleteTaskIfWaitingRequest completes an external task without changing the
 // job's client payload. Update client state through a leased scheduler operation.
+// An elapsed execution deadline alone does not reject a completion: the waiting
+// generation must still be unclaimed and the job must not be cancelled or final.
+// A timeout worker and an external completion compete for the same atomic claim.
 type CompleteTaskIfWaitingRequest struct {
 	JobKey        JobKey
 	Route         Route

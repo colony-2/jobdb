@@ -89,9 +89,10 @@ func ExecutionCompletion(ctx context.Context, r executionHistoryReader, req jobd
 	if wait.Kind != "wait" || wait.Input == nil || req.InputHash != digest || req.InputOrdinal != inputOrdinal {
 		return nil, fmt.Errorf("%w: invalid execution wait generation", jobdb.ErrConflict)
 	}
-	if !wait.Deadline.IsZero() && !time.Now().Before(wait.Deadline) {
-		return nil, fmt.Errorf("%w: execution wait deadline expired", jobdb.ErrConflict)
-	}
+	// A deadline makes timeout processing eligible; it does not commit an
+	// outcome. Until a worker claims the slot, an external answer can win the
+	// scheduler's atomic claim. Generation, lease and terminal-state checks
+	// still prevent answers from replacing work already claimed or completed.
 	data, err := req.Data.GetData()
 	if err != nil {
 		return nil, err

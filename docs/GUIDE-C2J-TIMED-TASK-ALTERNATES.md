@@ -87,15 +87,21 @@ available A may run again. If it returns to external waiting, the original due
 time is retained. Alternate eligibility itself does not consume a retry attempt.
 
 Existing cancellation and hard task/scope deadlines still apply. An acquired B
-must pass deadline admission before its callback executes; external completion
-after the hard deadline is rejected. A recorded successful task result remains
-replayable after those times pass.
+must pass deadline admission before its callback executes. An external completion
+may still win after the deadline if the waiting slot remains unclaimed. Once a
+worker claims timeout/fallback processing, or the job is cancelled or finalized,
+that answer is rejected. A recorded successful task result remains replayable
+after those times pass; accepting it does not extend enclosing scope budgets.
 
 Scheduling uses the existing single alternate-route slot: it schedules whichever
 comes first, B eligibility or the hard deadline. If the deadline comes first,
 the job route wakes to process the timeout. If B eligibility comes first, a
 worker serving B must pick up the job, even if the deadline has since expired;
 there is no second timer service that subsequently changes that pending route.
+An eligible route requires a polling worker to process it. Serving job inspection
+or accepting HTTP requests alone does not finalize a timeout. Pending-task listings
+retain the stored waiting route until a claim; the scheduler evaluates alternate
+eligibility when a worker polls or requests a lease.
 
 ## Recovery, replay, and rollout
 

@@ -359,15 +359,17 @@ func TestExecutionAlternateDeadlines(t *testing.T) {
 						require.NoError(t, pending.Finish(context.Background(), jobdb.NewTaskDataOrPanic("answered")))
 					}
 					waitAlternate(wait.Deadline.Add(time.Millisecond))
-					if mode != "completed" {
-						require.Error(t, pending.Finish(context.Background(), jobdb.NewTaskDataOrPanic("too late")))
-					}
 					tasks := []wf.TaskWorker{}
 					if mode == "alternate-first" {
 						tasks = append(tasks, fallback)
 					}
 					out, err = runExecutionTest(t, rt, key, w, tasks...)
 					require.NoError(t, err)
+					if mode != "completed" {
+						// The timeout has now won the waiting slot and recorded an
+						// outcome. Wall-clock expiry alone does not reject answers.
+						require.Error(t, pending.Finish(context.Background(), jobdb.NewTaskDataOrPanic("too late")))
+					}
 				}
 				if mode == "completed" {
 					require.Equal(t, wf.JobRunCompleted, out.Status)
