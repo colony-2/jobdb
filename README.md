@@ -154,6 +154,9 @@ scope, caching each requested name. See the
 [configuration contract](docs/SPEC-Tenant-Configuration-Store.md), including
 replay rules and the companion Postgres runtime upgrade.
 
+For implementation examples, see the [Go configuration guide](docs/GUIDE-GO-CONFIGURATION.md).
+Postgres maintainers should follow the [pgjobdb update guide](docs/GUIDE-PGJOBDB-CONFIGURATION-UPDATE.md).
+
 ## Go Workflow Workers
 
 Workflow workers are intentionally documented separately from the server. If you
