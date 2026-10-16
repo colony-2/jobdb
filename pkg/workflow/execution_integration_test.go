@@ -175,30 +175,11 @@ func TestExecutionScopeRetryAndTimeout(t *testing.T) {
 			_, err = replayExecutionTest(t, rt, key, w, task)
 			require.NoError(t, err)
 			require.EqualValues(t, 2, a.Load())
-			// Timeout at an enclosing scope may cut off a child with no committed outcome.
-			release := make(chan struct{})
-			late := make(chan error, 1)
-			w = wf.ExecutionWorker{JobType: "scope-timeout", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
-				return c.DoScope("timed", wf.ScopeOptions{AttemptTimeout: 20 * time.Millisecond, Catch: []wf.CatchRule{{ID: "timeout", Match: func(err error) bool {
-					return func() bool { var timeout *jobdb.TimeoutError; return errors.As(err, &timeout) }()
-				}, Handle: func(h wf.ExecutionContext, err error) (wf.CatchResult, error) {
-					require.NoError(t, h.Context().Err())
-					return wf.CatchResult{Disposition: wf.CatchHandled, Output: jobdb.NewTaskDataOrPanic("caught")}, nil
-				}}}}, func(s wf.ExecutionContext) (jobdb.JobData, error) {
-					<-release
-					_, err := s.DoTask(invocation("late"), func(context.Context) (jobdb.TaskData, error) { return in, nil })
-					late <- err
-					return in, nil
+			for _, admitted := range []bool{false, true} {
+				t.Run(fmt.Sprintf("timeout/admitted=%t", admitted), func(t *testing.T) {
+					testScopeTimeoutAdmission(t, rt, admitted)
 				})
-			}}
-			key = submitExecutionTest(t, rt, w)
-			out, err = runExecutionTest(t, rt, key, w, task)
-			require.NoError(t, err)
-			require.Equal(t, wf.JobRunCompleted, out.Status)
-			close(release)
-			require.Error(t, <-late)
-			_, err = replayExecutionTest(t, rt, key, w, task)
-			require.NoError(t, err)
+			}
 		})
 	}
 }
@@ -1027,39 +1008,9 @@ func TestExecutionChildJoinOutcomes(t *testing.T) {
 	}
 }
 func TestExecutionWaitAndLateTaskRetry(t *testing.T) {
-	rt := alternateRuntime(t, "sqlite")
-	var runs atomic.Int32
-	release := make(chan struct{})
-	exited := make(chan struct{})
-	task := executionTestTask{"echo", func(c wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
-		if runs.Add(1) == 1 {
-			defer close(exited)
-			<-release
-			require.Error(t, c.Context().Err())
-			return jobdb.NewTaskDataOrPanic("late"), nil
-		}
-		return jobdb.NewTaskDataOrPanic("current"), nil
-	}}
-	call := invocation("retry")
-	call.Policy.InvocationTimeout = jobdb.AsDuration(30 * time.Millisecond)
-	call.Policy.Retry.MaximumAttempts = 2
-	w := wf.ExecutionWorker{JobType: "late-task", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
-		if err := c.AwaitDuration(jobdb.Duration(time.Millisecond)); err != nil {
-			return nil, err
-		}
-		return c.DoTask(call, func(context.Context) (jobdb.TaskData, error) { return in, nil })
-	}}
-	key := submitExecutionTest(t, rt, w)
-	out, err := runExecutionTest(t, rt, key, w, task)
-	close(release)
-	<-exited
-	require.NoError(t, err)
-	require.Equal(t, wf.JobRunCompleted, out.Status)
-	raw, _ := out.Output.GetData()
-	require.JSONEq(t, `"current"`, string(raw))
-	_, err = replayExecutionTest(t, rt, key, w, task)
-	require.NoError(t, err)
-	require.EqualValues(t, 2, runs.Load())
+	for _, backend := range []string{"toy", "sqlite", "remote"} {
+		t.Run(backend, func(t *testing.T) { testLateTaskRetry(t, alternateRuntime(t, backend)) })
+	}
 }
 
 type executionCacheRuntime struct {

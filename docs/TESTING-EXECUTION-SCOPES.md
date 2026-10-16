@@ -49,6 +49,19 @@ Interrupted-task replay tests expire scopes before or after task admission and
 bound worker cleanup waits. Restart tests check renewed continuation budgets on
 all transports; virtual time covers expired source deadlines across repeated forks.
 
+Scope-timeout and late-task-retry tests control admission explicitly on every
+transport. The pre-admission case holds the attempt append until its recorded
+deadline has elapsed and verifies that no callback starts. The admitted cases
+expire a running attempt through test-only hooks, reject late calls/results, and
+check replay. Driver and cleanup waits are bounded, including on assertion failure.
+
+Do not use a short wall-clock timeout to assume a callback has started: chapter
+writes and goroutine scheduling consume that budget, especially under the race
+detector. Test pre-admission expiry separately from cancellation of admitted work.
+Use virtual time or explicit gates for the latter, and never wait unconditionally
+for a signal whose sender may not have been admitted. Increasing a millisecond
+deadline alone does not establish the ordering the test needs.
+
 Also run `go test ./...` and the full race suite before cutover. Existing API
 conformance and regression tests remain enabled during coexistence. The new
 scenarios add scope/catch/restart protocol cases beyond the older task-only API;
