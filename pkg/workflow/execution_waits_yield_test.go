@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Exercise real default deadlines: a zero policy hid the SQLite join bug.
+// Exercise explicitly declared deadlines: a zero policy hid the SQLite join bug.
 func TestExecutionChildWaitDeadlineAndRecovery(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		for _, taskWait := range []bool{false, true} {
@@ -47,6 +47,8 @@ func TestExecutionChildWaitDeadlineAndRecovery(t *testing.T) {
 						return in, nil
 					}}
 					policy := jobdb.DefaultRunPolicy()
+					policy.InvocationTimeout = jobdb.AsDuration(10 * time.Minute)
+					policy.TotalTimeout = jobdb.AsDuration(30 * time.Minute)
 					policy.Retry.MaximumAttempts = 1
 					h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: parent.Name(), Data: jobdb.NewTaskDataOrPanic("parent input"), RunPolicy: policy}})
 					require.NoError(t, err)

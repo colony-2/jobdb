@@ -80,10 +80,10 @@ type RunPolicy struct {
 	TotalTimeout      *Duration   `yaml:"total_timeout,omitempty"`
 }
 
+// DefaultRunPolicy supplies retry defaults without execution time limits.
+// Jobs and tasks run without a deadline unless the caller declares one.
 func DefaultRunPolicy() RunPolicy {
 	return RunPolicy{
-		InvocationTimeout: AsDuration(10 * time.Minute),
-		TotalTimeout:      AsDuration(30 * time.Minute),
 		Retry: RetryPolicy{
 			InitialInterval:        Duration(100 * time.Millisecond),
 			BackoffCoefficient:     2.0,
