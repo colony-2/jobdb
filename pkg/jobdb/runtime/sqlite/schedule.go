@@ -308,7 +308,7 @@ func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRu
 		cursorJob = jobKey.String()
 		hasCursor = true
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT `+jobColumns+` FROM jobdb_jobs WHERE tenant_id = ? ORDER BY created_at_ns DESC, job_id DESC`, req.ScheduleKey.TenantId)
+	rows, err := r.db.QueryContext(ctx, `SELECT `+jobColumns+` FROM jobdb_jobs WHERE tenant_id = ? AND hidden_at_ns IS NULL ORDER BY created_at_ns DESC, job_id DESC`, req.ScheduleKey.TenantId)
 	if err != nil {
 		return jobdb.ListScheduleRunsResponse{}, err
 	}

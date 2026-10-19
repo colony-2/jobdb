@@ -195,6 +195,10 @@ func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRu
 			continue
 		}
 		rec.mu.Lock()
+		if rec.hidden {
+			rec.mu.Unlock()
+			continue
+		}
 		occ, hasSchedule, err := jobdb.ExtractScheduleOccurrenceMetadata(rec.metadata)
 		if err != nil {
 			rec.mu.Unlock()

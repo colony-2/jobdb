@@ -83,27 +83,3 @@ alternate_job_type='job',alternate_task_type='fallback',alternate_at_ns=?`, cras
 	require.NoError(t, err)
 	require.Equal(t, before, after)
 }
-
-func TestVersionThreeUpgradePreservesJobs(t *testing.T) {
-	ctx := context.Background()
-	cfg := Config{DBPath: filepath.Join(t.TempDir(), "job.db")}
-	r, err := NewFromConfig(ctx, cfg)
-	require.NoError(t, err)
-	h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "existing", JobType: "job", Data: jobdb.NewTaskDataOrPanic(42)}})
-	require.NoError(t, err)
-	_, err = r.db.ExecContext(ctx, `ALTER TABLE jobdb_jobs DROP COLUMN consecutive_expirations; ALTER TABLE jobdb_jobs DROP COLUMN wait_deadline_ns; PRAGMA user_version=3;`)
-	require.NoError(t, err)
-	require.NoError(t, r.Close(ctx))
-	r, err = NewFromConfig(ctx, cfg)
-	require.NoError(t, err)
-	defer r.Close(ctx)
-	row, err := r.loadJobRow(ctx, h.JobKey)
-	require.NoError(t, err)
-	require.Zero(t, row.consecutiveExpirations)
-	chapter, err := r.GetChapter(ctx, jobdb.ChapterRef{JobKey: h.JobKey, Ordinal: 0})
-	require.NoError(t, err)
-	require.NotNil(t, chapter.Body)
-	var version int
-	require.NoError(t, r.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version))
-	require.Equal(t, 5, version)
-}

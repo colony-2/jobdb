@@ -64,6 +64,7 @@ type runtimeArtifactKey struct {
 }
 
 type jobRecord struct {
+	hidden                bool
 	clientPayload         json.RawMessage
 	clientPayloadRevision int64
 	initialPayloadDigest  string
@@ -790,6 +791,10 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 	now := time.Now().UTC()
 	for key, rec := range e.jobRecords {
 		rec.mu.Lock()
+		if rec.hidden && !req.IncludeHidden {
+			rec.mu.Unlock()
+			continue
+		}
 		status := e.availableStatusLocked(key.TenantId, now, rec)
 		store := jobdb.JobStoreActive
 		if status == jobdb.JobStatusCompleted {

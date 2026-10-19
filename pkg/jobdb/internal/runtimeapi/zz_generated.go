@@ -298,6 +298,27 @@ type ConfigurationSnapshot struct {
 	Values   map[string]ApplicationPayload `json:"values"`
 }
 
+// DeleteJobsRequest defines model for DeleteJobsRequest.
+type DeleteJobsRequest struct {
+	// All Select the entire tenant; cannot be combined with other selectors.
+	All *bool `json:"all,omitempty"`
+
+	// CreatedBefore Exclusive creation-time cutoff, representable in Unix nanoseconds.
+	CreatedBefore *time.Time `json:"createdBefore,omitempty"`
+	DryRun        *bool      `json:"dryRun,omitempty"`
+	JobIds        *[]string  `json:"jobIds,omitempty"`
+
+	// MetadataPredicates Application metadata equality; predicates are ANDed, values within a predicate are ORed.
+	MetadataPredicates *[]MetadataPredicate `json:"metadataPredicates,omitempty"`
+}
+
+// DeleteJobsResponse defines model for DeleteJobsResponse.
+type DeleteJobsResponse struct {
+	// DeletedCount Zero for dry runs; otherwise equals matchedCount.
+	DeletedCount int64 `json:"deletedCount"`
+	MatchedCount int64 `json:"matchedCount"`
+}
+
 // ErrorCode defines model for ErrorCode.
 type ErrorCode string
 
@@ -526,12 +547,15 @@ type ListJobsRequest struct {
 	// before pagination. Read-only: does not acquire a lease or change
 	// nextRoute, which remains the stored route. Acquire with the same
 	// supported routes; availability can change after listing.
-	AvailableRoutes *[]Route         `json:"availableRoutes,omitempty"`
-	CreatedAfter    *time.Time       `json:"createdAfter,omitempty"`
-	CreatedBefore   *time.Time       `json:"createdBefore,omitempty"`
-	JobKeys         *[]JobKey        `json:"jobKeys,omitempty"`
-	JobTasks        *[]JobTaskFilter `json:"jobTasks,omitempty"`
-	JobTypes        *[]string        `json:"jobTypes,omitempty"`
+	AvailableRoutes *[]Route   `json:"availableRoutes,omitempty"`
+	CreatedAfter    *time.Time `json:"createdAfter,omitempty"`
+	CreatedBefore   *time.Time `json:"createdBefore,omitempty"`
+
+	// IncludeHidden Include jobs hidden by deleteJobs, for direct history lookup or inspection. Does not make them runnable again.
+	IncludeHidden *bool            `json:"includeHidden,omitempty"`
+	JobKeys       *[]JobKey        `json:"jobKeys,omitempty"`
+	JobTasks      *[]JobTaskFilter `json:"jobTasks,omitempty"`
+	JobTypes      *[]string        `json:"jobTypes,omitempty"`
 
 	// MetadataPredicates Wire-format projection of `MetadataFilter`. Each predicate is a
 	// top-level equality match; multiple `values` on one predicate mean OR
@@ -1142,6 +1166,9 @@ type SetTenantConfigurationValueJSONRequestBody = SetConfigurationBody
 
 // SubmitJobJSONRequestBody defines body for SubmitJob for application/json ContentType.
 type SubmitJobJSONRequestBody = SubmitJobRequest
+
+// DeleteJobsJSONRequestBody defines body for DeleteJobs for application/json ContentType.
+type DeleteJobsJSONRequestBody = DeleteJobsRequest
 
 // ListJobsJSONRequestBody defines body for ListJobs for application/json ContentType.
 type ListJobsJSONRequestBody = ListJobsRequest
@@ -1875,6 +1902,11 @@ type ClientInterface interface {
 
 	SubmitJob(ctx context.Context, tenantId TenantId, body SubmitJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// DeleteJobsWithBody request with any body
+	DeleteJobsWithBody(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	DeleteJobs(ctx context.Context, tenantId TenantId, body DeleteJobsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListJobsWithBody request with any body
 	ListJobsWithBody(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -2119,6 +2151,30 @@ func (c *Client) SubmitJobWithBody(ctx context.Context, tenantId TenantId, conte
 
 func (c *Client) SubmitJob(ctx context.Context, tenantId TenantId, body SubmitJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSubmitJobRequest(c.Server, tenantId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteJobsWithBody(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteJobsRequestWithBody(c.Server, tenantId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteJobs(ctx context.Context, tenantId TenantId, body DeleteJobsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteJobsRequest(c.Server, tenantId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3027,6 +3083,53 @@ func NewSubmitJobRequestWithBody(server string, tenantId TenantId, contentType s
 	}
 
 	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteJobsRequest calls the generic DeleteJobs builder with application/json body
+func NewDeleteJobsRequest(server string, tenantId TenantId, body DeleteJobsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewDeleteJobsRequestWithBody(server, tenantId, "application/json", bodyReader)
+}
+
+// NewDeleteJobsRequestWithBody generates requests for DeleteJobs with any type of body
+func NewDeleteJobsRequestWithBody(server string, tenantId TenantId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs/delete", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -5027,6 +5130,11 @@ type ClientWithResponsesInterface interface {
 
 	SubmitJobWithResponse(ctx context.Context, tenantId TenantId, body SubmitJobJSONRequestBody, reqEditors ...RequestEditorFn) (*SubmitJobHTTPResponse, error)
 
+	// DeleteJobsWithBodyWithResponse request with any body
+	DeleteJobsWithBodyWithResponse(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DeleteJobsHTTPResponse, error)
+
+	DeleteJobsWithResponse(ctx context.Context, tenantId TenantId, body DeleteJobsJSONRequestBody, reqEditors ...RequestEditorFn) (*DeleteJobsHTTPResponse, error)
+
 	// ListJobsWithBodyWithResponse request with any body
 	ListJobsWithBodyWithResponse(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListJobsHTTPResponse, error)
 
@@ -5297,6 +5405,28 @@ func (r SubmitJobHTTPResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r SubmitJobHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type DeleteJobsHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *DeleteJobsResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteJobsHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteJobsHTTPResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -6113,6 +6243,23 @@ func (c *ClientWithResponses) SubmitJobWithResponse(ctx context.Context, tenantI
 	return ParseSubmitJobHTTPResponse(rsp)
 }
 
+// DeleteJobsWithBodyWithResponse request with arbitrary body returning *DeleteJobsHTTPResponse
+func (c *ClientWithResponses) DeleteJobsWithBodyWithResponse(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DeleteJobsHTTPResponse, error) {
+	rsp, err := c.DeleteJobsWithBody(ctx, tenantId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteJobsHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) DeleteJobsWithResponse(ctx context.Context, tenantId TenantId, body DeleteJobsJSONRequestBody, reqEditors ...RequestEditorFn) (*DeleteJobsHTTPResponse, error) {
+	rsp, err := c.DeleteJobs(ctx, tenantId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteJobsHTTPResponse(rsp)
+}
+
 // ListJobsWithBodyWithResponse request with arbitrary body returning *ListJobsHTTPResponse
 func (c *ClientWithResponses) ListJobsWithBodyWithResponse(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListJobsHTTPResponse, error) {
 	rsp, err := c.ListJobsWithBody(ctx, tenantId, contentType, body, reqEditors...)
@@ -6842,6 +6989,32 @@ func ParseSubmitJobHTTPResponse(rsp *http.Response) (*SubmitJobHTTPResponse, err
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest JobHandle
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteJobsHTTPResponse parses an HTTP response from a DeleteJobsWithResponse call
+func ParseDeleteJobsHTTPResponse(rsp *http.Response) (*DeleteJobsHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteJobsHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest DeleteJobsResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -7758,6 +7931,9 @@ type ServerInterface interface {
 	// Submit job
 	// (POST /v1/tenants/{tenantId}/jobs)
 	SubmitJob(w http.ResponseWriter, r *http.Request, tenantId TenantId)
+	// Delete jobs selected by age, IDs, and application metadata
+	// (POST /v1/tenants/{tenantId}/jobs/delete)
+	DeleteJobs(w http.ResponseWriter, r *http.Request, tenantId TenantId)
 	// List jobs
 	// (POST /v1/tenants/{tenantId}/jobs/query)
 	ListJobs(w http.ResponseWriter, r *http.Request, tenantId TenantId)
@@ -7890,6 +8066,12 @@ func (_ Unimplemented) SetTenantConfigurationValue(w http.ResponseWriter, r *htt
 // Submit job
 // (POST /v1/tenants/{tenantId}/jobs)
 func (_ Unimplemented) SubmitJob(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete jobs selected by age, IDs, and application metadata
+// (POST /v1/tenants/{tenantId}/jobs/delete)
+func (_ Unimplemented) DeleteJobs(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -8283,6 +8465,37 @@ func (siw *ServerInterfaceWrapper) SubmitJob(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SubmitJob(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteJobs operation middleware
+func (siw *ServerInterfaceWrapper) DeleteJobs(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteJobs(w, r, tenantId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -10157,6 +10370,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs", wrapper.SubmitJob)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/delete", wrapper.DeleteJobs)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/query", wrapper.ListJobs)
 	})
 	r.Group(func(r chi.Router) {
@@ -10713,6 +10929,40 @@ func (response SubmitJob200JSONResponse) VisitSubmitJobResponse(w http.ResponseW
 	w.WriteHeader(200)
 
 	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteJobsRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Body     *DeleteJobsJSONRequestBody
+}
+
+type DeleteJobsResponseObject interface {
+	VisitDeleteJobsResponse(w http.ResponseWriter) error
+}
+
+type DeleteJobs200JSONResponse DeleteJobsResponse
+
+func (response DeleteJobs200JSONResponse) VisitDeleteJobsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteJobs400Response struct {
+}
+
+func (response DeleteJobs400Response) VisitDeleteJobsResponse(w http.ResponseWriter) error {
+	w.WriteHeader(400)
+	return nil
+}
+
+type DeleteJobs501Response struct {
+}
+
+func (response DeleteJobs501Response) VisitDeleteJobsResponse(w http.ResponseWriter) error {
+	w.WriteHeader(501)
+	return nil
 }
 
 type ListJobsRequestObject struct {
@@ -11601,6 +11851,9 @@ type StrictServerInterface interface {
 	// Submit job
 	// (POST /v1/tenants/{tenantId}/jobs)
 	SubmitJob(ctx context.Context, request SubmitJobRequestObject) (SubmitJobResponseObject, error)
+	// Delete jobs selected by age, IDs, and application metadata
+	// (POST /v1/tenants/{tenantId}/jobs/delete)
+	DeleteJobs(ctx context.Context, request DeleteJobsRequestObject) (DeleteJobsResponseObject, error)
 	// List jobs
 	// (POST /v1/tenants/{tenantId}/jobs/query)
 	ListJobs(ctx context.Context, request ListJobsRequestObject) (ListJobsResponseObject, error)
@@ -11882,6 +12135,39 @@ func (sh *strictHandler) SubmitJob(w http.ResponseWriter, r *http.Request, tenan
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SubmitJobResponseObject); ok {
 		if err := validResponse.VisitSubmitJobResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteJobs operation middleware
+func (sh *strictHandler) DeleteJobs(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
+	var request DeleteJobsRequestObject
+
+	request.TenantId = tenantId
+
+	var body DeleteJobsJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteJobs(ctx, request.(DeleteJobsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteJobs")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteJobsResponseObject); ok {
+		if err := validResponse.VisitDeleteJobsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

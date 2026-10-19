@@ -119,6 +119,10 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 				status = statusErr.status
 			} else {
 				switch {
+				case errors.Is(err, jobdb.ErrInvalidJobDeletion):
+					status = http.StatusBadRequest
+				case errors.Is(err, jobdb.ErrJobDeletionUnsupported):
+					status = http.StatusNotImplemented
 				case errors.Is(err, jobdb.ErrJobNotFound), errors.Is(err, jobdb.ErrChapterNotFound):
 					status = http.StatusNotFound
 				case errors.Is(err, jobdb.ErrJobSchemaNotFound):
@@ -310,6 +314,7 @@ func (s *proxyServer) ListJobs(ctx context.Context, request runtimeapi.ListJobsR
 		return nil, badRequest(err.Error())
 	}
 	req := jobdb.ListJobsRequest{
+		IncludeHidden:  boolValue(request.Body.IncludeHidden),
 		TenantIds:      []string{request.TenantId},
 		MetadataFilter: metadataFilter,
 		CreatedAfter:   request.Body.CreatedAfter,

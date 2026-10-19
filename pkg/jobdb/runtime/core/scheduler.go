@@ -109,11 +109,13 @@ type CompletionSnapshot struct {
 
 // ListJobsRequest is the scheduler-side form of job listing.
 type ListJobsRequest struct {
-	TenantIds []string
-	Statuses  []jobdb.JobStatus
-	Stores    []jobdb.JobStore
-	JobTypes  []string
-	JobTasks  []jobdb.JobTaskFilter
+	// IncludeHidden must be applied before pagination by deletion-capable stores.
+	IncludeHidden bool
+	TenantIds     []string
+	Statuses      []jobdb.JobStatus
+	Stores        []jobdb.JobStore
+	JobTypes      []string
+	JobTasks      []jobdb.JobTaskFilter
 	// AvailableRoutes uses the same eligibility and effective-route rules as
 	// AcquireWork at Now, before pagination. It must not claim or change jobs.
 	// Empty disables this filter; all other filters still intersect it.

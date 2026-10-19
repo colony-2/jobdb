@@ -51,24 +51,3 @@ func TestJoinDeadlineSurvivesReopen(t *testing.T) {
 	check(deadline.Add(-time.Nanosecond), jobdb.JobStatusAwaitingFuture)
 	check(deadline, jobdb.JobStatusReady)
 }
-
-func TestVersionFourJoinDeadlineMigration(t *testing.T) {
-	ctx := context.Background()
-	cfg := Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")}
-	rt, err := NewFromConfig(ctx, cfg)
-	require.NoError(t, err)
-	h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: "job", Data: jobdb.NewTaskDataOrPanic("existing")}})
-	require.NoError(t, err)
-	_, err = rt.db.ExecContext(ctx, `ALTER TABLE jobdb_jobs DROP COLUMN wait_deadline_ns; PRAGMA user_version=4;`)
-	require.NoError(t, err)
-	require.NoError(t, rt.Close(ctx))
-	rt, err = NewFromConfig(ctx, cfg)
-	require.NoError(t, err)
-	defer rt.Close(ctx)
-	row, err := rt.loadJobRow(ctx, h.JobKey)
-	require.NoError(t, err)
-	require.False(t, row.waitDeadlineNS.Valid)
-	info, err := rt.GetJob(ctx, h.JobKey)
-	require.NoError(t, err)
-	require.Equal(t, jobdb.JobStatusReady, info.Status)
-}

@@ -52,6 +52,7 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 		pageSize = jobdb.MaxListJobsPageSize
 	}
 	stored, err := r.scheduler.ListJobs(ctx, ListJobsRequest{
+		IncludeHidden:   req.IncludeHidden,
 		TenantIds:       append([]string(nil), req.TenantIds...),
 		Statuses:        append([]jobdb.JobStatus(nil), req.Statuses...),
 		Stores:          append([]jobdb.JobStore(nil), req.Stores...),

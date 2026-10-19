@@ -700,7 +700,11 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 		cursorJob = jobKey.String()
 		hasCursor = true
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT `+jobColumns+` FROM jobdb_jobs ORDER BY created_at_ns DESC, job_id DESC`)
+	visibility := " WHERE hidden_at_ns IS NULL"
+	if req.IncludeHidden {
+		visibility = ""
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT `+jobColumns+` FROM jobdb_jobs`+visibility+` ORDER BY created_at_ns DESC, job_id DESC`)
 	if err != nil {
 		return jobdb.ListJobsResponse{}, err
 	}

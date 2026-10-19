@@ -238,10 +238,11 @@ func loadJobSummary(ctx context.Context, runtime WorkflowRuntime, jobKey JobKey)
 	pageToken := ""
 	for {
 		resp, err := runtime.ListJobs(ctx, ListJobsRequest{
-			TenantIds: []string{jobKey.TenantId},
-			JobKeys:   []JobKey{jobKey},
-			PageSize:  MaxListJobsPageSize,
-			PageToken: pageToken,
+			IncludeHidden: true,
+			TenantIds:     []string{jobKey.TenantId},
+			JobKeys:       []JobKey{jobKey},
+			PageSize:      MaxListJobsPageSize,
+			PageToken:     pageToken,
 		})
 		if err != nil {
 			return JobSummary{}, err

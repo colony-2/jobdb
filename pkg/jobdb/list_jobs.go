@@ -53,11 +53,14 @@ type JobTaskFilter struct {
 // ListJobsRequest filters and paginates the union of active + archived jobs.
 // TenantIds must contain at least one tenant ID.
 type ListJobsRequest struct {
-	TenantIds []string
-	Statuses  []JobStatus
-	Stores    []JobStore
-	JobTypes  []string
-	JobTasks  []JobTaskFilter
+	// IncludeHidden includes jobs hidden by DeleteJobs. Direct history lookups
+	// use this option so deletion does not break thin clones or references.
+	IncludeHidden bool
+	TenantIds     []string
+	Statuses      []JobStatus
+	Stores        []JobStore
+	JobTypes      []string
+	JobTasks      []JobTaskFilter
 	// AvailableRoutes restricts results to jobs currently leaseable through any
 	// supplied route, including due alternates. Empty means no availability
 	// filter. This intersects all other filters and does not acquire a lease or

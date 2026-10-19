@@ -667,6 +667,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /v1/tenants/{tenantId}/jobs/delete:
+    post:
+      tags: [jobs]
+      operationId: deleteJobs
+      summary: Delete jobs selected by age, IDs, and application metadata
+      description: |
+        Hides matching jobs from job and schedule-run listings and revokes leases.
+        Unfinished jobs are cancelled and cannot be picked up again. Completed
+        outcomes are preserved. Direct job reads remain available. All selectors intersect; jobIds are ORed.
+        createdBefore is exclusive and uses job creation time, not completion time.
+        Requires a selector or explicit all=true. No implicit child cascade.
+        IDs continue to identify the same jobs. History, artifacts, and terminal dependency
+        facts are retained for surviving references; this is not a storage purge.
+        Raw chapter/artifact reads remain available. Dry runs only count matches
+        and do not reserve the selection for a later request.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteJobsRequest'
+      responses:
+        '200':
+          description: Atomic deletion or dry-run count
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteJobsResponse'
+        '400':
+          description: Invalid deletion selector
+        '501':
+          description: Backend does not implement job deletion
   /v1/tenants/{tenantId}/jobs/query:
     post:
       tags: [jobs]
@@ -2556,10 +2590,53 @@ components:
           type: string
         taskType:
           type: string
+    DeleteJobsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        jobIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
+        createdBefore:
+          type: string
+          format: date-time
+          description: Exclusive creation-time cutoff, representable in Unix nanoseconds.
+        metadataPredicates:
+          type: array
+          description: Application metadata equality; predicates are ANDed, values within a predicate are ORed.
+          items:
+            $ref: '#/components/schemas/MetadataPredicate'
+        all:
+          type: boolean
+          default: false
+          description: Select the entire tenant; cannot be combined with other selectors.
+        dryRun:
+          type: boolean
+          default: false
+    DeleteJobsResponse:
+      type: object
+      additionalProperties: false
+      required: [matchedCount, deletedCount]
+      properties:
+        matchedCount:
+          type: integer
+          format: int64
+          minimum: 0
+        deletedCount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Zero for dry runs; otherwise equals matchedCount.
     ListJobsRequest:
       type: object
       additionalProperties: false
       properties:
+        includeHidden:
+          type: boolean
+          default: false
+          description: Include jobs hidden by deleteJobs, for direct history lookup or inspection. Does not make them runnable again.
         statuses:
           type: array
           items:

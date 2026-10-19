@@ -311,6 +311,7 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 		return jobdb.ListJobsResponse{}, err
 	}
 	body := runtimeapi.ListJobsRequest{
+		IncludeHidden:      &req.IncludeHidden,
 		CreatedAfter:       req.CreatedAfter,
 		CreatedBefore:      req.CreatedBefore,
 		MetadataPredicates: metadataPredicates,

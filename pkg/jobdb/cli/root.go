@@ -50,6 +50,7 @@ func newRootCmd() *cobra.Command {
 		newSQLiteCmd(&listenAddr, &dbPath, &sqliteDSN, &blobDir, &blobStoreURI),
 		newSecretsCmd(),
 		newConfigurationCmd(),
+		newJobsCmd(),
 		newToyCmd(&listenAddr),
 		newHealthcheckCmd(),
 	)
