@@ -43,6 +43,9 @@ func (c *executionContext) DoTask(call TaskCall, build func(context.Context) (Ta
 		Call   TaskCall        `json:"call"`
 		Policy executionPolicy `json:"policy"`
 	}{call, p})
+	if err := c.applyRestart(id, ScopeOptions{}); err != nil {
+		return nil, err
+	}
 	entry, err := c.event("task", id, func() *jobdb.ExecutionRecord {
 		return &jobdb.ExecutionRecord{Descriptor: descriptor, TotalDeadline: deadlineFrom(time.Now().UTC(), p.TotalTimeout)}
 	})
@@ -74,6 +77,10 @@ func (c *executionContext) DoTask(call TaskCall, build func(context.Context) (Ta
 		} else if c.run.r.replay {
 			return nil, ReplayCacheMissError{JobKey: c.GetJobKey(), Ordinal: c.run.nextOrdinal(), Reason: ReplayCacheMissTaskResultMissing}
 		} else {
+			// A local invocation with no committed outcome starts a fresh timer even
+			// when a prior scheduler handoff persisted its path metadata.
+			start.At = time.Now().UTC()
+			start.Deadline = earlier(deadlineFrom(start.At, p.AttemptTimeout), total)
 			child := c.child(aid, start.Deadline, total)
 			var out TaskData
 			var taskErr error
@@ -109,11 +116,7 @@ func (c *executionContext) DoTask(call TaskCall, build func(context.Context) (Ta
 			return nil, err
 		}
 		if !retry {
-			end, err := c.finishBody("end", id, out, taskErr, nil)
-			if err != nil {
-				return nil, err
-			}
-			return resultData(end)
+			return out, taskErr
 		}
 	}
 }
@@ -250,6 +253,9 @@ func (c *executionContext) awaitTaskJobs(ids ...string) error {
 	return c.suspendForJobs(ids)
 }
 func (c *executionContext) suspendForJobs(ids []string) error {
+	if err := c.checkpointPath(); err != nil {
+		return err
+	}
 	err := c.run.r.lease.Reschedule(c.ctx, RescheduleExecutionRequest{NextRoute: Route{JobType: c.run.r.worker.JobWorker.Name()}, WaitForJobIDs: ids, WaitUntil: nonzeroTime(c.deadline)})
 	if err != nil {
 		return c.run.control(err)
@@ -288,6 +294,9 @@ func (c *executionContext) Yield(ctx context.Context, req YieldRequest) error {
 	}
 	handoff, err := prepareHandoff(req)
 	if err != nil {
+		return err
+	}
+	if err := c.checkpointPath(); err != nil {
 		return err
 	}
 	if err := c.run.r.lease.Reschedule(callCtx, req.Reschedule); err != nil {

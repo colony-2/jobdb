@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/colony-2/jobdb/pkg/internal/executionmeta"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
@@ -33,6 +34,7 @@ func ResolveExecutionRestart(ctx context.Context, r executionHistoryReader, job 
 	}
 	found, header := false, false
 	var version uint32
+	var retained json.RawMessage
 	for _, chapter := range chapters {
 		body, ok := chapter.Body.(jobdb.ExecutionChapter)
 		if !ok {
@@ -46,18 +48,37 @@ func ResolveExecutionRestart(ctx context.Context, r executionHistoryReader, job 
 			header = true
 			version = record.Version
 		}
-		if record.Kind == "scope" && record.ID == target.ScopeID {
+		prefixRaw := chapter.Metadata.Fields["metadata"].Map[executionmeta.Key].String
+		if record.Kind == "restart" && len(record.Descriptor) > 0 {
+			prefixRaw = string(record.Descriptor)
+		}
+		prefix, err := executionmeta.Decode(prefixRaw)
+		if err != nil {
+			return job, nil, err
+		}
+		for i, raw := range prefix {
+			item, err := jobdb.DecodeExecutionRecord(raw)
+			if err != nil {
+				return job, nil, err
+			}
+			if (item.Kind != "scope" && item.Kind != "task") || item.ID != target.ScopeID {
+				continue
+			}
 			if found {
 				return job, nil, fmt.Errorf("ambiguous execution restart boundary")
 			}
 			var options struct {
 				Restart bool `json:"restart"`
 			}
-			if err = json.Unmarshal(record.Descriptor, &options); err != nil {
+			if err := json.Unmarshal(item.Descriptor, &options); err != nil {
 				return job, nil, err
 			}
 			if len(target.Payload) > 0 && !options.Restart {
 				return job, nil, fmt.Errorf("target scope has no restart handler")
+			}
+			retained, err = json.Marshal(prefix[:i])
+			if err != nil {
+				return job, nil, err
 			}
 			job.LastStepToKeep = chapter.Ordinal - 1
 			found = true
@@ -66,7 +87,7 @@ func ResolveExecutionRestart(ctx context.Context, r executionHistoryReader, job 
 	if !header || !found {
 		return job, nil, fmt.Errorf("execution restart boundary not found")
 	}
-	return job, &jobdb.ExecutionRecord{Version: version, Kind: "restart", ID: target.ScopeID, Source: &job.PriorJobKey, Payload: append(json.RawMessage(nil), target.Payload...), Prerequisites: append([]jobdb.JobPrerequisite(nil), job.Prerequisites...)}, nil
+	return job, &jobdb.ExecutionRecord{Version: version, Kind: "restart", ID: target.ScopeID, Descriptor: retained, Source: &job.PriorJobKey, Payload: append(json.RawMessage(nil), target.Payload...), Prerequisites: append([]jobdb.JobPrerequisite(nil), job.Prerequisites...)}, nil
 }
 
 // ExecutionCompletion preserves a wait's explicit invocation/input association.

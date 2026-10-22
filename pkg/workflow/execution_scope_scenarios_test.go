@@ -110,13 +110,10 @@ func TestExecutionPatchedContinuationRecovery(t *testing.T) {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 				rt := &executionFaultRuntime{WorkflowRuntime: base, cancel: cancel, fail: func(r jobdb.ExecutionRecord) bool {
-					if !strings.Contains(r.ID, `task:"suffix"`) {
-						return false
-					}
 					if committed {
-						return r.Kind == "decision"
+						return r.Kind == "result" && r.ID == `/scope:"$job"#1/attempt:1`
 					}
-					return r.Kind == "result"
+					return r.Kind == "result" && strings.Contains(r.ID, `task:"suffix"`)
 				}}
 				run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "interrupted", LeaseDuration: 500 * time.Millisecond})
 				require.NoError(t, err)
@@ -127,15 +124,19 @@ func TestExecutionPatchedContinuationRecovery(t *testing.T) {
 				require.NoError(t, err)
 				var continuation json.RawMessage
 				for _, ch := range interrupted {
-					if b, ok := ch.Body.(jobdb.ExecutionChapter); ok {
-						r, err := jobdb.DecodeExecutionRecord(b.Record)
-						require.NoError(t, err)
+					for _, r := range executionChapterRecords(t, ch) {
 						if r.Kind == "continuation" {
-							continuation = append(json.RawMessage(nil), b.Record...)
+							continuation, err = json.Marshal(r)
+							require.NoError(t, err)
 						}
 					}
 				}
-				require.NotEmpty(t, continuation)
+				if committed {
+					require.NotEmpty(t, continuation)
+				} else {
+					require.Empty(t, continuation, "uncommitted path metadata need not survive")
+				}
+
 				require.Eventually(t, func() bool {
 					out, err = runExecutionTest(t, base, h.JobKey, w, task)
 					require.NoError(t, err)
@@ -157,12 +158,14 @@ func TestExecutionPatchedContinuationRecovery(t *testing.T) {
 				require.NoError(t, err)
 				continuations := 0
 				for _, ch := range final {
-					if b, ok := ch.Body.(jobdb.ExecutionChapter); ok {
-						r, err := jobdb.DecodeExecutionRecord(b.Record)
-						require.NoError(t, err)
+					for _, r := range executionChapterRecords(t, ch) {
 						if r.Kind == "continuation" {
 							continuations++
-							require.JSONEq(t, string(continuation), string(b.Record))
+							if committed {
+								raw, err := json.Marshal(r)
+								require.NoError(t, err)
+								require.JSONEq(t, string(continuation), string(raw))
+							}
 						}
 					}
 				}
@@ -226,7 +229,7 @@ func TestExecutionRestartPrerequisite(t *testing.T) {
 			require.Equal(t, wf.JobRunFailed, out.Status)
 			var calls atomic.Int32
 			w := wf.ExecutionWorker{JobType: "restart-prerequisite", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
-				return c.DoScope("target", wf.ScopeOptions{}, func(wf.ExecutionContext) (jobdb.JobData, error) { calls.Add(1); return in, nil })
+				return c.DoScope("target", wf.ScopeOptions{OnRestart: func(json.RawMessage) error { return nil }}, func(wf.ExecutionContext) (jobdb.JobData, error) { calls.Add(1); return in, nil })
 			}}
 			source := submitExecutionTest(t, rt, w)
 			out, err = runExecutionTest(t, rt, source, w)
@@ -255,7 +258,7 @@ func (r *delayedExecutionAdmissionRuntime) PutChapter(ctx context.Context, req j
 		if err != nil {
 			return err
 		}
-		if rec.Kind == "scope" && strings.Contains(rec.ID, `"child"`) {
+		if rec.Kind == "header" {
 			time.Sleep(150 * time.Millisecond)
 		}
 	}

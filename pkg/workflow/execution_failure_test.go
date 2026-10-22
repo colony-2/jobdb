@@ -117,7 +117,7 @@ func TestExecutionLiveMismatchCompletesJob(t *testing.T) {
 			base := alternateRuntime(t, backend)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			rt := &executionFaultRuntime{WorkflowRuntime: base, cancel: cancel, fail: func(r jobdb.ExecutionRecord) bool { return r.Kind == "decision" && strings.Contains(r.ID, "task:") }}
+			rt := &executionFaultRuntime{WorkflowRuntime: base, cancel: cancel, fail: func(r jobdb.ExecutionRecord) bool { return r.Kind == "result" && r.ID == `/scope:"$job"#1/attempt:1` }}
 			var builds atomic.Int32
 			call := invocation("stable")
 			w := wf.ExecutionWorker{JobType: "mismatch", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {

@@ -249,13 +249,9 @@ func TestExecutionPatchedRestart(t *testing.T) {
 			before, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
 			require.NoError(t, err)
 			var target string
-			for _, ch := range before {
-				if b, ok := ch.Body.(jobdb.ExecutionChapter); ok {
-					rec, err := jobdb.DecodeExecutionRecord(b.Record)
-					require.NoError(t, err)
-					if rec.Kind == "scope" && strings.Contains(rec.ID, `"patched"`) {
-						target = rec.ID
-					}
+			for _, rec := range executionRecords(t, rt, key) {
+				if rec.Kind == "scope" && strings.Contains(rec.ID, `"patched"`) {
+					target = rec.ID
 				}
 			}
 			require.NotEmpty(t, target)
@@ -295,7 +291,17 @@ func (f *executionFaultRuntime) PutChapter(ctx context.Context, req jobdb.PutCha
 		if err != nil {
 			return err
 		}
-		if f.fail(rec) && f.fired.CompareAndSwap(false, true) {
+		matched := f.fail(rec)
+		var prefix []jobdb.ExecutionRecord
+		if raw := req.Chapter.Metadata.Fields["metadata"].Map["__execution_prefix_v3"].String; raw != "" {
+			if err := json.Unmarshal([]byte(raw), &prefix); err != nil {
+				return err
+			}
+		}
+		for _, item := range prefix {
+			matched = matched || f.fail(item)
+		}
+		if matched && f.fired.CompareAndSwap(false, true) {
 			if f.after {
 				if err := f.WorkflowRuntime.PutChapter(ctx, req); err != nil {
 					return err
@@ -310,7 +316,7 @@ func (f *executionFaultRuntime) PutChapter(ctx context.Context, req jobdb.PutCha
 	return f.WorkflowRuntime.PutChapter(ctx, req)
 }
 func TestExecutionUncertainAppend(t *testing.T) {
-	for _, kind := range []string{"header", "activation", "scope", "attempt", "result", "catch", "handled", "decision", "end"} {
+	for _, kind := range []string{"header", "activation", "scope", "attempt", "result", "catch", "handled", "decision"} {
 		t.Run(kind, func(t *testing.T) {
 			rt := &executionFaultRuntime{WorkflowRuntime: alternateRuntime(t, "sqlite"), after: true, fail: func(r jobdb.ExecutionRecord) bool { return r.Kind == kind }}
 			var runs atomic.Int32
@@ -662,7 +668,7 @@ func TestExecutionScopeDeadlineSurvivesRecovery(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	fault := &executionFaultRuntime{WorkflowRuntime: rt, cancel: cancel, fail: func(r jobdb.ExecutionRecord) bool {
-		return r.Kind == "result" && strings.HasSuffix(r.ID, `scope:"timed"#1/attempt:1`)
+		return r.Kind == "result" && r.ID == `/scope:"$job"#1/attempt:1`
 	}}
 	var runs atomic.Int32
 	task := executionTestTask{"echo", func(c wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) { runs.Add(1); return in, nil }}

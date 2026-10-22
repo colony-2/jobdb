@@ -13,6 +13,8 @@ type GetJobRunRequest struct {
 	IncludeAttemptInputs bool
 }
 
+// ExecutionHistoryEntry is a logical record at a physical chapter position.
+// Reconstruction entries can share their containing event's ordinal.
 type ExecutionHistoryEntry struct {
 	Ordinal int64
 	Record  ExecutionRecord

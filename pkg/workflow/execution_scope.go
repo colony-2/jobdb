@@ -53,6 +53,7 @@ func (c *executionContext) match(rec jobdb.ExecutionRecord, descriptor json.RawM
 	}
 	return nil
 }
+
 func (c *executionContext) invoke(fn func() (TaskData, error)) (TaskData, error) {
 	// Timers start only at the live edge, never while consuming completed history.
 	e := c.run
@@ -101,6 +102,9 @@ func (c *executionContext) invoke(fn func() (TaskData, error)) (TaskData, error)
 	}
 }
 func (c *executionContext) finishBody(kind, id string, out TaskData, bodyErr error, input *jobdb.ExecutionSnapshot, retryPolicies ...RetryPolicy) (jobdb.ExecutionRecord, error) {
+	return c.finishOutcome(kind, id, out, bodyErr, input, false, retryPolicies...)
+}
+func (c *executionContext) finishOutcome(kind, id string, out TaskData, bodyErr error, input *jobdb.ExecutionSnapshot, deferred bool, retryPolicies ...RetryPolicy) (jobdb.ExecutionRecord, error) {
 	if bodyErr != nil && isExecutionControl(bodyErr) && !errors.Is(bodyErr, errRecordedBoundary) {
 		return jobdb.ExecutionRecord{}, bodyErr
 	}
@@ -125,7 +129,7 @@ func (c *executionContext) finishBody(kind, id string, out TaskData, bodyErr err
 		retryable := isRetryable(bodyErr, retryPolicies[0])
 		rec.Retryable = &retryable
 	}
-	return c.event(kind, id, func() *jobdb.ExecutionRecord { return rec })
+	return c.recordEvent(kind, id, func() *jobdb.ExecutionRecord { return rec }, deferred)
 }
 func (c *executionContext) DoScope(site string, opts ScopeOptions, body func(ExecutionContext) (JobData, error)) (JobData, error) {
 	id, err := c.occurrence("scope", site)
@@ -144,24 +148,30 @@ func (c *executionContext) DoScope(site string, opts ScopeOptions, body func(Exe
 	if err := c.applyRestart(id, opts); err != nil {
 		return nil, err
 	}
-	entry, err := c.event("scope", id, func() *jobdb.ExecutionRecord {
-		now := time.Now().UTC()
-		return &jobdb.ExecutionRecord{Descriptor: descriptor, TotalDeadline: deadlineFrom(now, policy.TotalTimeout)}
-	})
-	if err != nil {
-		return nil, err
-	}
-	if err = c.match(entry, descriptor); err != nil {
-		return nil, err
+	// Pure organizational scopes have no declaration to persist. Identity still
+	// includes their deterministic occurrence path.
+	significant := site == "$job" || policy.TotalTimeout > 0 || policy.AttemptTimeout > 0 || policy.Retry.MaximumAttempts > 1 || len(policy.Rules) > 0 || policy.Restart
+	anchor := c.run.progressTime()
+	entry := jobdb.ExecutionRecord{At: anchor, Descriptor: descriptor, TotalDeadline: deadlineFrom(anchor, policy.TotalTimeout)}
+	if significant {
+		entry, err = c.event("scope", id, func() *jobdb.ExecutionRecord { return &entry })
+		if err != nil {
+			return nil, err
+		}
+		if err = c.match(entry, descriptor); err != nil {
+			return nil, err
+		}
 	}
 	total := earlier(entry.TotalDeadline, c.deadline)
 	for attempt := 1; ; attempt++ {
 		aid := fmt.Sprintf("%s/attempt:%d", id, attempt)
-		start, err := c.event("attempt", aid, func() *jobdb.ExecutionRecord {
-			return &jobdb.ExecutionRecord{Attempt: attempt, Deadline: earlier(deadlineFrom(time.Now().UTC(), policy.AttemptTimeout), total), TotalDeadline: total}
-		})
-		if err != nil {
-			return nil, err
+		at := c.run.progressTime()
+		start := jobdb.ExecutionRecord{At: at, Attempt: attempt, Deadline: earlier(deadlineFrom(at, policy.AttemptTimeout), total), TotalDeadline: total}
+		if significant {
+			start, err = c.event("attempt", aid, func() *jobdb.ExecutionRecord { return &start })
+			if err != nil {
+				return nil, err
+			}
 		}
 		child := c.child(aid, start.Deadline, total)
 		child.policy = policy
@@ -188,26 +198,31 @@ func (c *executionContext) DoScope(site string, opts ScopeOptions, body func(Exe
 		if budget, ok := c.run.continuationBudget(aid); ok {
 			total = budget.TotalDeadline
 		}
-		rec, err := c.finishBody("result", aid, out, bodyErr, nil, policy.Retry)
-		if err != nil {
-			return nil, err
+		// Normal scope completion is reconstructed. A recorded exceptional result
+		// is consumed before consulting live clocks or recomputing a branch.
+		next := c.run.peek()
+		recorded := next != nil && next.record.Kind == "result" && next.record.ID == aid
+		var retryable *bool
+		var rec jobdb.ExecutionRecord
+		if site == "$job" || bodyErr != nil || recorded {
+			rec, err = c.finishOutcome("result", aid, out, bodyErr, nil, site != "$job", policy.Retry)
+			if err != nil {
+				return nil, err
+			}
+			out, bodyErr = resultData(rec)
+			retryable = rec.Retryable
 		}
-		out, bodyErr = resultData(rec)
 		if site == "$job" {
 			c.run.observerMu.Lock()
 			c.run.r.emitJobEnd(attempt, out, bodyErr, rec.At)
 			c.run.observerMu.Unlock()
 		}
-		out, bodyErr, retry, err := c.handleFailure(aid, total, policy, opts.Catch, attempt, out, bodyErr, rec.Retryable)
+		out, bodyErr, retry, err := c.handleFailure(aid, total, policy, opts.Catch, attempt, out, bodyErr, retryable)
 		if err != nil {
 			return nil, err
 		}
 		if !retry {
-			end, err := c.finishBody("end", id, out, bodyErr, nil)
-			if err != nil {
-				return nil, err
-			}
-			return resultData(end)
+			return out, bodyErr
 		}
 	}
 }
@@ -215,6 +230,12 @@ func (c *executionContext) handleFailure(id string, total time.Time, p execution
 	if budget, ok := c.run.continuationBudget(id); ok {
 		total = budget.TotalDeadline
 		p.Retry.MaximumAttempts += int32(budget.Attempt - 1)
+	}
+	if bodyErr == nil {
+		return out, nil, false, nil
+	}
+	if len(rules) == 0 && p.Retry.MaximumAttempts <= 1 {
+		return out, bodyErr, false, nil
 	}
 	disposition := CatchContinue
 	if bodyErr != nil {
@@ -382,6 +403,9 @@ func (c *executionContext) waitUntil(wake, total time.Time) error {
 		threshold = 5 * time.Minute
 	}
 	if time.Until(wake) > threshold {
+		if err := c.checkpointPath(); err != nil {
+			return err
+		}
 		err = e.r.lease.Reschedule(c.ctx, RescheduleExecutionRequest{NextRoute: Route{JobType: e.r.worker.JobWorker.Name()}, WaitUntil: &wake})
 		if err != nil {
 			return e.control(err)

@@ -20,7 +20,8 @@ type SubmitJob struct {
 	Prerequisites       []JobPrerequisite  // Optional prerequisites that must complete before this job starts
 }
 
-// ExecutionRestart selects a declared logical scope entry in versioned history.
+// ExecutionRestart selects a logical scope or task entry in versioned history.
+// ScopeID accepts the opaque invocation ID exposed by execution inspection.
 type ExecutionRestart struct {
 	ScopeID string          `json:"scopeId"`
 	Payload json.RawMessage `json:"payload,omitempty"`

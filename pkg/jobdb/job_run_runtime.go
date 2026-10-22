@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/colony-2/jobdb/pkg/internal/executionmeta"
 )
 
 func GetJobRun(ctx context.Context, runtime WorkflowRuntime, req GetJobRunRequest) (GetJobRunResponse, error) {
@@ -125,11 +127,11 @@ func GetJobRun(ctx context.Context, runtime WorkflowRuntime, req GetJobRunReques
 			continue
 		}
 
-		if body, ok := chapter.Body.(ExecutionChapter); ok {
-			record, err := DecodeExecutionRecord(body.Record)
-			if err != nil {
-				return GetJobRunResponse{}, err
-			}
+		records, err := chapterExecutionRecords(chapter)
+		if err != nil {
+			return GetJobRunResponse{}, err
+		}
+		for _, record := range records {
 			if !includeInputs {
 				record.Input = nil
 			}
@@ -145,6 +147,8 @@ func GetJobRun(ctx context.Context, runtime WorkflowRuntime, req GetJobRunReques
 				}
 			}
 			resp.Execution = append(resp.Execution, ExecutionHistoryEntry{Ordinal: chapter.Ordinal, Record: record})
+		}
+		if _, ok := chapter.Body.(ExecutionChapter); ok {
 			continue
 		}
 		isJobAttemptOutcome := chapterIs(chapter, chapterTypeJobAttemptOutcome)
@@ -666,4 +670,36 @@ func routeWorkType(route Route) string {
 		return route.TaskType
 	}
 	return route.JobType
+}
+
+func chapterExecutionRecords(chapter Chapter) ([]ExecutionRecord, error) {
+	prefixRaw := chapter.Metadata.Fields["metadata"].Map[executionmeta.Key].String
+	var record *ExecutionRecord
+	if body, ok := chapter.Body.(ExecutionChapter); ok {
+		r, err := DecodeExecutionRecord(body.Record)
+		if err != nil {
+			return nil, err
+		}
+		record = &r
+		if r.Kind == "restart" && len(r.Descriptor) > 0 {
+			prefixRaw = string(r.Descriptor)
+			r.Descriptor = nil // Expanded below; do not bypass input/output filtering.
+		}
+	}
+	prefix, err := executionmeta.Decode(prefixRaw)
+	if err != nil {
+		return nil, err
+	}
+	records := make([]ExecutionRecord, 0, len(prefix)+1)
+	for _, raw := range prefix {
+		item, err := DecodeExecutionRecord(raw)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, item)
+	}
+	if record != nil {
+		records = append(records, *record)
+	}
+	return records, nil
 }

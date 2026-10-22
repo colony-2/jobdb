@@ -1,5 +1,10 @@
 # Migrating to versioned execution scopes
 
+Execution protocol 3 replaces the persistence and timeout details below with
+[compact execution history](MIGRATION-COMPACT-EXECUTION-HISTORY.md). Public APIs
+remain unchanged; pre-cutover jobs must be deleted. The sections below document
+the original scope API introduction.
+
 The new JobDB client engine is selected by `workflow.ExecutionWorker`. Register it
 with the existing engine builder or supply it to `GetJobForRun` /
 `GetJobForRunWithLease`. Existing workers remain available during consumer

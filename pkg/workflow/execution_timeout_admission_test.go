@@ -3,7 +3,6 @@ package workflow_test
 import (
 	"context"
 	"errors"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -14,8 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// expiredScopeAdmissionRuntime lets persistence consume the entire recorded
-// attempt budget before the engine can admit the scope body.
+// Delay the durable initial anchor so a short block budget is already exhausted
+// before scope admission, without requiring a standalone scope/attempt append.
 type expiredScopeAdmissionRuntime struct{ jobdb.WorkflowRuntime }
 
 func (r expiredScopeAdmissionRuntime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) error {
@@ -24,8 +23,8 @@ func (r expiredScopeAdmissionRuntime) PutChapter(ctx context.Context, req jobdb.
 		if err != nil {
 			return err
 		}
-		if rec.Kind == "attempt" && strings.Contains(rec.ID, `scope:"timed"`) {
-			timer := time.NewTimer(time.Until(rec.Deadline))
+		if rec.Kind == "header" {
+			timer := time.NewTimer(30 * time.Millisecond)
 			defer timer.Stop()
 			select {
 			case <-timer.C:

@@ -10,7 +10,7 @@ import (
 )
 
 // ExecutionPatternVersion pins the semantics of the client execution protocol.
-const ExecutionPatternVersion uint32 = 2
+const ExecutionPatternVersion uint32 = 3
 
 type ExecutionVersions struct {
 	ExecutionPatternVersion uint32            `json:"execution_pattern_version"`
@@ -80,7 +80,7 @@ func DecodeExecutionRecord(raw []byte) (ExecutionRecord, error) {
 		if r.Versions == nil || r.Versions.ExecutionPatternVersion != r.Version || r.Versions.JobDBVersion == "" {
 			return r, fmt.Errorf("invalid execution versions")
 		}
-	case "dispatch", "join_result", "admission", "scope", "task", "attempt", "result", "catch", "handled", "decision", "end", "wait", "restart", "continuation", "sleep", "join":
+	case "checkpoint", "dispatch", "join_result", "admission", "scope", "task", "attempt", "result", "catch", "handled", "decision", "end", "wait", "restart", "continuation", "sleep", "join":
 		if r.ID == "" {
 			return r, fmt.Errorf("execution %s requires identity", r.Kind)
 		}

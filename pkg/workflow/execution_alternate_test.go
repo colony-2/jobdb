@@ -13,6 +13,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/colony-2/jobdb/pkg/internal/executionmeta"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
@@ -26,11 +27,34 @@ func executionRecords(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey) 
 	require.NoError(t, err)
 	var records []jobdb.ExecutionRecord
 	for _, chapter := range chapters {
-		if body, ok := chapter.Body.(jobdb.ExecutionChapter); ok {
-			record, err := jobdb.DecodeExecutionRecord(body.Record)
-			require.NoError(t, err)
-			records = append(records, record)
+		records = append(records, executionChapterRecords(t, chapter)...)
+	}
+	return records
+}
+
+// Includes reconstruction metadata while retaining raw chapters for volume tests.
+func executionChapterRecords(t *testing.T, chapter jobdb.Chapter) []jobdb.ExecutionRecord {
+	t.Helper()
+	var record *jobdb.ExecutionRecord
+	rawPrefix := chapter.Metadata.Fields["metadata"].Map[executionmeta.Key].String
+	if body, ok := chapter.Body.(jobdb.ExecutionChapter); ok {
+		r, err := jobdb.DecodeExecutionRecord(body.Record)
+		require.NoError(t, err)
+		record = &r
+		if r.Kind == "restart" && len(r.Descriptor) > 0 {
+			rawPrefix = string(r.Descriptor)
 		}
+	}
+	raw, err := executionmeta.Decode(rawPrefix)
+	require.NoError(t, err)
+	var records []jobdb.ExecutionRecord
+	for _, item := range raw {
+		r, err := jobdb.DecodeExecutionRecord(item)
+		require.NoError(t, err)
+		records = append(records, r)
+	}
+	if record != nil {
+		records = append(records, *record)
 	}
 	return records
 }
