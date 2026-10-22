@@ -111,5 +111,8 @@ func (r *Runtime) RenewExecutionLeaseByID(ctx context.Context, key jobdb.JobKey,
 }
 
 func (l *executionLease) Renew(ctx context.Context) (jobdb.RenewableExecutionLease, error) {
+	if err := l.checkExpiry(); err != nil {
+		return nil, err
+	}
 	return l.runtime.RenewExecutionLeaseByID(ctx, l.Job().JobKey, l.LeaseID(), l.LeaseWorkerID(), l.snapshot.Duration)
 }

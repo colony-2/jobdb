@@ -44,6 +44,9 @@ func Result(result jobdb.SecretResolveResult, names []string, limit int64) (jobd
 		result.Secrets = map[string]jobdb.SecretValue{}
 	}
 	for name, value := range result.Secrets {
+		if value.LeaseBound && value.ExpiresAt == nil {
+			return jobdb.SecretResolveResult{}, jobdb.ErrSecretResolutionFailed
+		}
 		if !allowed[name] || !utf8.ValidString(value.Value) || !utf8.ValidString(value.Version) {
 			return jobdb.SecretResolveResult{}, jobdb.ErrSecretResolutionFailed
 		}

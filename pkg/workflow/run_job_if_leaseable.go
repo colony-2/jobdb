@@ -36,6 +36,8 @@ type GetJobForRunRequest struct {
 	ConsumerVersions map[string]string
 	// BeforeRun runs under the validated, renewing lease before application work.
 	// It may reschedule the supplied lease to reject execution admission.
+	// SecretResolverFromContext supplies a narrow resolver for bootstrap; it
+	// shares the first live job attempt's secret cache and follows later attempts.
 	BeforeRun     func(context.Context, ExecutionLease) error
 	JobKey        JobKey
 	JobWorker     JobWorker

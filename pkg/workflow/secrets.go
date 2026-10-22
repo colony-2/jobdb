@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"sort"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -22,7 +23,34 @@ func (tc TaskContext) ResolveSecrets(ctx context.Context, names []string) (Secre
 	return tc.resolveSecrets(ctx, names)
 }
 
+// ResolveSecretsFresh consults the provider again and replaces the requested
+// names in this attempt's cache, including omissions. Providers may reuse valid
+// credentials. Failed calls leave the cache unchanged.
+func (tc TaskContext) ResolveSecretsFresh(ctx context.Context, names []string) (SecretResolveResult, error) {
+	if tc.resolveSecretsFresh == nil {
+		return SecretResolveResult{}, jobdb.ErrExecutionLeaseLost
+	}
+	return tc.resolveSecretsFresh(ctx, names)
+}
+
 func (r *workerRunner) ResolveSecrets(ctx context.Context, names []string) (SecretResolveResult, error) {
+	return r.resolveSecrets(ctx, names, false)
+}
+
+func (r *workerRunner) ResolveSecretsFresh(ctx context.Context, names []string) (SecretResolveResult, error) {
+	return r.resolveSecrets(ctx, names, true)
+}
+
+func (r *workerRunner) secretsCache() *attemptCache[map[string]*SecretValue] {
+	r.secretCacheInit.Do(func() {
+		if r.secretCache == nil {
+			r.secretCache = &attemptCache[map[string]*SecretValue]{}
+		}
+	})
+	return r.secretCache
+}
+
+func (r *workerRunner) resolveSecrets(ctx context.Context, names []string, fresh bool) (SecretResolveResult, error) {
 	if r.replay {
 		return SecretResolveResult{}, replayMutationError("resolve secrets")
 	}
@@ -31,10 +59,11 @@ func (r *workerRunner) ResolveSecrets(ctx context.Context, names []string) (Secr
 	}
 	callCtx, cancel := invocationCallContext(ctx, r.ctx)
 	defer cancel()
-	if r.secretCache.lock(callCtx) != nil {
+	cache := r.secretsCache()
+	if cache.lock(callCtx) != nil {
 		return SecretResolveResult{}, jobdb.ErrSecretsUnavailable
 	}
-	defer r.secretCache.unlock()
+	defer cache.unlock()
 	if r.rescheduled.Load() {
 		return SecretResolveResult{}, jobdb.ErrExecutionLeaseLost
 	}
@@ -50,20 +79,19 @@ func (r *workerRunner) ResolveSecrets(ctx context.Context, names []string) (Secr
 			return SecretResolveResult{}, jobdb.ErrInvalidSecretRequest
 		}
 		seen[name] = true
-		if _, ok := r.secretCache.value[name]; !ok {
+		if _, ok := cache.value[name]; fresh || !ok {
 			missing = append(missing, name)
 		}
 	}
-	next := r.secretCache.value
+	next := cache.value
 	if len(missing) > 0 {
-		// An absent entry has never been retrieved; a nil entry is a known
-		// omission. Refresh every available value with the new names, while
-		// preserving omissions without asking the provider for them again.
+		// Ordinary reads expand the cache by refreshing available names. Fresh
+		// reads replace only the explicitly requested names, including omissions.
 		lookup := append([]string(nil), missing...)
-		next = make(map[string]*SecretValue, len(r.secretCache.value)+len(missing))
-		for name, value := range r.secretCache.value {
-			if value == nil {
-				next[name] = nil
+		next = make(map[string]*SecretValue, len(cache.value)+len(missing))
+		for name, value := range cache.value {
+			if fresh || value == nil {
+				next[name] = value
 			} else {
 				lookup = append(lookup, name)
 			}
@@ -101,7 +129,7 @@ func (r *workerRunner) ResolveSecrets(ctx context.Context, names []string) (Secr
 		}
 	}
 	// Publish the whole refresh only after validation and cancellation checks.
-	r.secretCache.value = next
+	cache.value = next
 	return result, nil
 }
 
@@ -115,4 +143,73 @@ func cloneSecret(value SecretValue) SecretValue {
 		value.ExpiresAt = &expiresAt
 	}
 	return value
+}
+
+// SecretResolver is a narrow, execution-bound secret capability. It cannot
+// select another job, renew a lease, or acquire work.
+type SecretResolver interface {
+	ResolveSecrets(context.Context, []string) (SecretResolveResult, error)
+	ResolveSecretsFresh(context.Context, []string) (SecretResolveResult, error)
+}
+
+type secretResolverKey struct{}
+
+// SecretResolverFromContext returns the active execution's resolver, including
+// in GetJobForRunRequest.BeforeRun before application bootstrap. The resolver
+// follows the current job attempt's cache and is valid only while ctx and the
+// execution remain live. It is unavailable outside execution or during replay.
+func SecretResolverFromContext(ctx context.Context) (SecretResolver, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+	resolver, ok := ctx.Value(secretResolverKey{}).(*executionSecretResolver)
+	if !ok {
+		return nil, false
+	}
+	return boundSecretResolver{ctx: ctx, resolver: resolver}, true
+}
+
+type boundSecretResolver struct {
+	ctx      context.Context
+	resolver *executionSecretResolver
+}
+
+func (boundSecretResolver) String() string     { return "execution secret resolver" }
+func (s boundSecretResolver) GoString() string { return s.String() }
+
+func (s boundSecretResolver) ResolveSecrets(ctx context.Context, names []string) (SecretResolveResult, error) {
+	return s.resolve(ctx, names, false)
+}
+func (s boundSecretResolver) ResolveSecretsFresh(ctx context.Context, names []string) (SecretResolveResult, error) {
+	return s.resolve(ctx, names, true)
+}
+func (s boundSecretResolver) resolve(ctx context.Context, names []string, fresh bool) (SecretResolveResult, error) {
+	callCtx, cancel := invocationCallContext(ctx, s.ctx)
+	defer cancel()
+	s.resolver.mu.Lock()
+	owner := s.resolver.owner
+	s.resolver.mu.Unlock()
+	return owner.resolveSecrets(callCtx, names, fresh)
+}
+
+// Bootstrap uses the first live attempt's cache. Later whole-job attempts get
+// new caches; a retained execution resolver follows the current owner.
+type executionSecretResolver struct {
+	mu        sync.Mutex
+	owner     *workerRunner
+	bootstrap bool
+}
+
+func (r *workerRunner) bindExecutionSecrets(owner *workerRunner) {
+	if r.executionSecrets == nil {
+		return
+	}
+	s := r.executionSecrets
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.bootstrap {
+		owner.secretCache = s.owner.secretsCache()
+		s.bootstrap = false
+	}
+	s.owner = owner
 }

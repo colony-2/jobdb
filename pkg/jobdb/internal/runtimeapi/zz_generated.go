@@ -868,8 +868,11 @@ type SecretResolveResult struct {
 // SecretValue defines model for SecretValue.
 type SecretValue struct {
 	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
-	Value     string     `json:"value"`
-	Version   *string    `json:"version,omitempty"`
+
+	// LeaseBound Requires expiresAt bounded by the verified lease authority. Unmarked values retain static-secret semantics.
+	LeaseBound *bool   `json:"leaseBound,omitempty"`
+	Value      string  `json:"value"`
+	Version    *string `json:"version,omitempty"`
 }
 
 // SetConfigurationBody defines model for SetConfigurationBody.

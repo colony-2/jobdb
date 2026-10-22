@@ -18,6 +18,8 @@ type JobContext interface {
 	// are not retried. Offline replay rejects reads;
 	// use task-level resolution for workflows that must support offline replay.
 	ResolveSecrets(context.Context, []string) (SecretResolveResult, error)
+	// ResolveSecretsFresh refreshes only the requested names in this attempt's cache.
+	ResolveSecretsFresh(context.Context, []string) (SecretResolveResult, error)
 	ClientPayload() json.RawMessage
 	ClientPayloadRevision() int64
 	// Yield reschedules and stops this invocation. It never writes a chapter.

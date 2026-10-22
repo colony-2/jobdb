@@ -131,3 +131,45 @@ func TestToyProviderReceivesOnlySignedPrincipal(t *testing.T) {
 	require.Equal(t, 400, status)
 	require.Empty(t, received)
 }
+
+func TestLeaseBoundProviderContextAcrossTransports(t *testing.T) {
+	for _, backend := range []string{"toy", "sqlite"} {
+		for _, transport := range []string{"embedded", "http"} {
+			t.Run(backend+"/"+transport, func(t *testing.T) {
+				ctx := context.Background()
+				requests := make(chan jobdb.SecretResolveRequest, 2)
+				provider := testSecretProvider(func(_ context.Context, req jobdb.SecretResolveRequest) (jobdb.SecretResolveResult, error) {
+					requests <- req
+					expiry := req.Lease.AuthorizedNotAfter
+					return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{
+						"token":    {Value: "dynamic", LeaseBound: true, ExpiresAt: &expiry},
+						"password": {Value: "static"},
+					}}, nil
+				})
+				runtime := providerRuntime(t, backend, provider)
+				if transport == "http" {
+					server := httptest.NewServer(NewServer(runtime))
+					t.Cleanup(server.Close)
+					var err error
+					runtime, err = New(server.URL, server.Client())
+					require.NoError(t, err)
+				}
+				job, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: "job", Metadata: json.RawMessage(`{"lease":{"LeaseID":"forged","AuthorizedNotAfter":"2099-01-01T00:00:00Z"}}`), Data: jobdb.NewTaskDataOrPanic(1)}})
+				require.NoError(t, err)
+				lease, err := runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: job.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "job"}}, LeaseDuration: time.Minute})
+				require.NoError(t, err)
+				result, err := lease.ResolveSecrets(ctx, []string{"token", "password"})
+				require.NoError(t, err)
+				req := <-requests
+				require.Equal(t, lease.LeaseID(), req.Lease.LeaseID)
+				require.Equal(t, "worker", req.Lease.WorkerID)
+				require.WithinDuration(t, lease.(jobdb.RenewableExecutionLease).LeaseExpiry(), req.Lease.AuthorizedNotAfter, 0)
+				require.False(t, req.Lease.LeaseExpiresAt.Before(req.Lease.AuthorizedNotAfter))
+				require.True(t, result.Secrets["token"].LeaseBound)
+				require.WithinDuration(t, req.Lease.AuthorizedNotAfter, *result.Secrets["token"].ExpiresAt, 0)
+				require.False(t, result.Secrets["password"].LeaseBound)
+				require.Nil(t, result.Secrets["password"].ExpiresAt)
+			})
+		}
+	}
+}

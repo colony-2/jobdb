@@ -15,7 +15,10 @@ func (r *Runtime) GetConfiguration(ctx context.Context, req jobdb.GetConfigurati
 	return r.getConfiguration(ctx, access)
 }
 func (l *runtimeLease) GetConfiguration(ctx context.Context) (jobdb.ConfigurationSnapshot, error) {
-	return l.runtime.getConfiguration(ctx, configurationbroker.Access{JobKey: l.jobKey, LeaseID: l.leaseID, WorkerID: l.workerID})
+	if err := l.checkExpiry(); err != nil {
+		return jobdb.ConfigurationSnapshot{}, err
+	}
+	return l.runtime.getConfiguration(ctx, configurationbroker.Access{JobKey: l.jobKey, LeaseID: l.leaseID, WorkerID: l.workerID, TokenExpiry: l.LeaseExpiry()})
 }
 func (r *Runtime) getConfiguration(ctx context.Context, access configurationbroker.Access) (jobdb.ConfigurationSnapshot, error) {
 	return configurationbroker.Read(ctx, r.Service, access, func(ctx context.Context) error {

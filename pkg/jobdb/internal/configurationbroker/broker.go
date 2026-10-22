@@ -14,7 +14,8 @@ import (
 type Access struct {
 	JobKey            jobdb.JobKey
 	LeaseID, WorkerID string
-	TokenExpiry       time.Time
+	// TokenExpiry also bounds embedded requests to the issued handle's expiry.
+	TokenExpiry time.Time
 }
 
 func FromRequest(ctx context.Context, req jobdb.GetConfigurationRequest) (Access, error) {

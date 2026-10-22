@@ -25,22 +25,25 @@ func (r *Runtime) ResolveSecrets(ctx context.Context, req jobdb.ResolveSecretsRe
 }
 
 func (l *executionLease) ResolveSecrets(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
-	return l.runtime.resolveSecrets(ctx, l.jobKey, l.leaseID, l.workerID, nil, time.Time{}, names)
+	if err := l.checkExpiry(); err != nil {
+		return jobdb.SecretResolveResult{}, err
+	}
+	return l.runtime.resolveSecrets(ctx, l.jobKey, l.leaseID, l.workerID, nil, l.LeaseExpiry(), names)
 }
 
 func (r *Runtime) resolveSecrets(ctx context.Context, key jobdb.JobKey, leaseID, workerID string, principal *string, tokenExpiry time.Time, names []string) (jobdb.SecretResolveResult, error) {
 	return secretsbroker.Resolve(ctx, r.secretProvider, r.secretLimits, secretsbroker.Access{
 		JobKey: key, LeaseID: leaseID, WorkerID: workerID, Principal: principal, TokenExpiry: tokenExpiry,
-	}, names, func(ctx context.Context) (json.RawMessage, error) {
+	}, names, func(ctx context.Context) (secretsbroker.Snapshot, error) {
 		row, err := r.validateLease(ctx, key, leaseID, workerID)
 		if err != nil {
-			return nil, err
+			return secretsbroker.Snapshot{}, err
 		}
 		var envelope jobdb.JobMetadataEnvelope
 		if len(row.metadata) > 0 && json.Unmarshal(row.metadata, &envelope) != nil {
-			return nil, jobdb.ErrSecretResolutionFailed
+			return secretsbroker.Snapshot{}, jobdb.ErrSecretResolutionFailed
 		}
-		return envelope.App, nil
+		return secretsbroker.Snapshot{AppMetadata: envelope.App, LeaseExpiresAt: timeFromNS(row.leaseExpiresAtNS.Int64)}, nil
 	})
 }
 

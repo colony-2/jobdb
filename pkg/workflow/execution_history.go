@@ -611,7 +611,10 @@ func (r *workerRunner) runExecution(ctx context.Context, w ExecutionWorker, inpu
 		}
 	}
 	policy := r.jobPolicy
-	out, err := root.DoScope("$job", ScopeOptions{TotalTimeout: durationPtrToDuration(policy.TotalTimeout), AttemptTimeout: durationPtrToDuration(policy.InvocationTimeout), Retry: policy.Retry}, func(c ExecutionContext) (JobData, error) { return w.Execute(c, snapshotData(e.jobInput)) })
+	out, err := root.DoScope("$job", ScopeOptions{TotalTimeout: durationPtrToDuration(policy.TotalTimeout), AttemptTimeout: durationPtrToDuration(policy.InvocationTimeout), Retry: policy.Retry}, func(c ExecutionContext) (JobData, error) {
+		r.bindExecutionSecrets(c.(*executionContext).cacheOwner())
+		return w.Execute(c, snapshotData(e.jobInput))
+	})
 	if errors.Is(err, errExecutionSuspended) {
 		return nil, nil
 	}

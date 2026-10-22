@@ -169,6 +169,13 @@ func (l *executionLease) LeaseExpiry() time.Time {
 	defer l.mu.Unlock()
 	return l.expiresAt
 }
+func (l *executionLease) checkExpiry() error {
+	if !l.LeaseExpiry().After(l.runtime.now()) {
+		return jobdb.ErrExecutionLeaseLost
+	}
+	return nil
+}
+
 func (l *executionLease) LeaseSchemaHash() string { return l.snapshot.SchemaHash }
 
 func (l *executionLease) KeepAlive(ctx context.Context) error {
@@ -177,6 +184,9 @@ func (l *executionLease) KeepAlive(ctx context.Context) error {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if !l.expiresAt.After(l.runtime.now()) {
+		return jobdb.ErrExecutionLeaseLost
+	}
 	if l.keepAliveCancel != nil {
 		return nil
 	}
@@ -201,6 +211,9 @@ func (l *executionLease) renewUntilStopped(ctx context.Context, interval time.Du
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if l.checkExpiry() != nil {
+				return
+			}
 			identity, duration := l.snapshot.Identity, l.snapshot.Duration
 			updated, err := l.runtime.scheduler.KeepAliveLease(ctx, LeaseMutation{
 				Identity: identity, Duration: duration, Now: l.runtime.now(),
@@ -309,6 +322,9 @@ func (l *executionLease) SubmitRestartJob(ctx context.Context, req jobdb.SubmitR
 func (l *executionLease) requireCurrent(ctx context.Context) error {
 	if l == nil || l.runtime == nil {
 		return fmt.Errorf("runtime is required for lease operation")
+	}
+	if err := l.checkExpiry(); err != nil {
+		return err
 	}
 	_, err := l.runtime.scheduler.ValidateLease(ctx, l.snapshot.Identity)
 	return err

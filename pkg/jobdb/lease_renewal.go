@@ -16,6 +16,9 @@ var ErrLeaseRenewalUnsupported = errors.New("execution lease renewal is unsuppor
 // acquires work nor starts background heartbeats. Renew must honor context
 // cancellation and deadlines. Callers must use the returned
 // lease for subsequent operations, including its refreshed remote capability.
+// Renewal does not extend the authority of older handles. Both embedded handles
+// and remote capabilities must reject operations after their own expiry, even
+// while the same backend lease remains live through another handle's renewal.
 // Wrappers must explicitly forward these methods and any LeaseToken method.
 type RenewableExecutionLease interface {
 	ExecutionLease

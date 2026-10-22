@@ -18,7 +18,8 @@ type Access struct {
 	JobKey            jobdb.JobKey
 	LeaseID, WorkerID string
 	Principal         *string
-	TokenExpiry       time.Time
+	// TokenExpiry also bounds embedded requests to the issued handle's expiry.
+	TokenExpiry time.Time
 }
 
 func FromRequest(ctx context.Context, req jobdb.ResolveSecretsRequest) (Access, error) {
@@ -30,9 +31,15 @@ func FromRequest(ctx context.Context, req jobdb.ResolveSecretsRequest) (Access, 
 	return Access{req.JobKey, req.LeaseID, claims.WorkerID, claims.Principal, claims.ExpiresAt}, nil
 }
 
+// Snapshot is supplied by authoritative backend validation.
+type Snapshot struct {
+	AppMetadata    json.RawMessage
+	LeaseExpiresAt time.Time
+}
+
 // Resolve never persists or caches results. validate must check the exact live
 // lease (including cancellation) on every call and return owned metadata bytes.
-func Resolve(ctx context.Context, provider jobdb.SecretProvider, limits jobdb.SecretLimits, access Access, names []string, validate func(context.Context) (json.RawMessage, error)) (jobdb.SecretResolveResult, error) {
+func Resolve(ctx context.Context, provider jobdb.SecretProvider, limits jobdb.SecretLimits, access Access, names []string, validate func(context.Context) (Snapshot, error)) (jobdb.SecretResolveResult, error) {
 	limits = limits.WithDefaults()
 	if err := secretsutil.Names(names, limits.MaxRequestBytes); err != nil {
 		return jobdb.SecretResolveResult{}, err
@@ -40,29 +47,46 @@ func Resolve(ctx context.Context, provider jobdb.SecretProvider, limits jobdb.Se
 	if access.JobKey.Validate() != nil || access.LeaseID == "" || access.WorkerID == "" {
 		return jobdb.SecretResolveResult{}, jobdb.ErrExecutionLeaseLost
 	}
-	check := func() (json.RawMessage, error) {
+	check := func() (Snapshot, error) {
 		if !access.TokenExpiry.IsZero() && !time.Now().Before(access.TokenExpiry) {
-			return nil, jobdb.ErrExecutionLeaseLost
+			return Snapshot{}, jobdb.ErrExecutionLeaseLost
 		}
 		if err := ctx.Err(); err != nil {
-			return nil, secretsutil.SafeError(err)
+			return Snapshot{}, secretsutil.SafeError(err)
 		}
 		metadata, err := validate(ctx)
 		if errors.Is(err, jobdb.ErrJobNotFound) {
 			err = jobdb.ErrExecutionLeaseLost
 		}
+		if err == nil && !metadata.LeaseExpiresAt.IsZero() && !metadata.LeaseExpiresAt.After(time.Now()) {
+			err = jobdb.ErrExecutionLeaseLost
+		}
 		return metadata, secretsutil.SafeError(err)
 	}
-	metadata, err := check()
+	initial, err := check()
 	if err != nil {
 		return jobdb.SecretResolveResult{}, err
 	}
 	if provider == nil {
 		return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
 	}
+	// Missing backend or capability expiry must not become an unbounded grant.
+	authorizedDeadline := func(snapshot Snapshot) time.Time {
+		if snapshot.LeaseExpiresAt.IsZero() || access.TokenExpiry.IsZero() {
+			return time.Time{}
+		}
+		if access.TokenExpiry.Before(snapshot.LeaseExpiresAt) {
+			return access.TokenExpiry
+		}
+		return snapshot.LeaseExpiresAt
+	}
+	initialDeadline := authorizedDeadline(initial)
 	deadline := time.Now().Add(limits.LookupTimeout)
 	if !access.TokenExpiry.IsZero() && access.TokenExpiry.Before(deadline) {
 		deadline = access.TokenExpiry
+	}
+	if !initial.LeaseExpiresAt.IsZero() && initial.LeaseExpiresAt.Before(deadline) {
+		deadline = initial.LeaseExpiresAt
 	}
 	callCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
@@ -73,9 +97,12 @@ func Resolve(ctx context.Context, provider jobdb.SecretProvider, limits jobdb.Se
 	}
 	result, providerErr := provider.ResolveSecrets(callCtx, jobdb.SecretResolveRequest{
 		TenantID: access.JobKey.TenantId, JobID: access.JobKey.JobId, Principal: principal,
-		AppMetadata: append(json.RawMessage(nil), metadata...), Names: append([]string(nil), names...),
+		AppMetadata: append(json.RawMessage(nil), initial.AppMetadata...), Names: append([]string(nil), names...),
+		Lease: jobdb.SecretLeaseContext{LeaseID: access.LeaseID, WorkerID: access.WorkerID,
+			LeaseExpiresAt: initial.LeaseExpiresAt, AuthorizedNotAfter: initialDeadline},
 	})
-	if _, err := check(); err != nil {
+	current, err := check()
+	if err != nil {
 		return jobdb.SecretResolveResult{}, err
 	}
 	if err := callCtx.Err(); err != nil {
@@ -88,8 +115,30 @@ func Resolve(ctx context.Context, provider jobdb.SecretProvider, limits jobdb.Se
 	if err != nil {
 		return jobdb.SecretResolveResult{}, err
 	}
-	if _, err := check(); err != nil {
+	validateBounds := func(snapshot Snapshot) error {
+		deadline := authorizedDeadline(snapshot)
+		for _, value := range result.Secrets {
+			if value.ExpiresAt != nil && !value.ExpiresAt.After(time.Now()) {
+				return jobdb.ErrSecretsUnavailable
+			}
+			if value.LeaseBound && (value.ExpiresAt == nil || initialDeadline.IsZero() || deadline.IsZero() || value.ExpiresAt.After(initialDeadline) || value.ExpiresAt.After(deadline)) {
+				return jobdb.ErrSecretResolutionFailed
+			}
+		}
+		return nil
+	}
+	if err := validateBounds(current); err != nil {
 		return jobdb.SecretResolveResult{}, err
+	}
+	current, err = check()
+	if err != nil {
+		return jobdb.SecretResolveResult{}, err
+	}
+	if err := validateBounds(current); err != nil {
+		return jobdb.SecretResolveResult{}, err
+	}
+	if err := callCtx.Err(); err != nil {
+		return jobdb.SecretResolveResult{}, secretsutil.SafeError(err)
 	}
 	return result, nil
 }

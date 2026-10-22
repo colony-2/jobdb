@@ -35,7 +35,7 @@ func (l *secretSessionLease) ResolveSecrets(ctx context.Context, names []string)
 	return l.resolve(ctx, names)
 }
 
-func TestLeaseSessionSecretLookupAllowsRenewal(t *testing.T) {
+func TestLeaseSessionFreshSecretLookupAllowsRenewal(t *testing.T) {
 	base := newSessionTestLease()
 	started, renewed, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	var count atomic.Int64
@@ -62,9 +62,10 @@ func TestLeaseSessionSecretLookupAllowsRenewal(t *testing.T) {
 	session, err := startLeaseSession(context.Background(), lease)
 	require.NoError(t, err)
 	defer session.close()
+	runner := &workerRunner{ctx: session.ctx, lease: session}
 	done := make(chan error, 1)
 	go func() {
-		_, err := session.ResolveSecrets(context.Background(), []string{"token"})
+		_, err := runner.ResolveSecretsFresh(context.Background(), []string{"token"})
 		done <- err
 	}()
 	<-started
@@ -75,6 +76,9 @@ func TestLeaseSessionSecretLookupAllowsRenewal(t *testing.T) {
 	}
 	close(release)
 	require.NoError(t, <-done)
+	cached, err := runner.ResolveSecrets(context.Background(), []string{"token"})
+	require.NoError(t, err)
+	require.Equal(t, "value", cached.Secrets["token"].Value)
 }
 
 func TestLeaseSessionRenewalTimeout(t *testing.T) {

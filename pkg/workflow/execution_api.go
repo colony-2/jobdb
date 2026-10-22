@@ -36,6 +36,8 @@ type ExecutionContext interface {
 	AwaitJobs(...string) error
 	GetConfiguration(context.Context) (ConfigurationSnapshot, error)
 	ResolveSecrets(context.Context, []string) (SecretResolveResult, error)
+	// ResolveSecretsFresh refreshes only the requested names in this attempt's cache.
+	ResolveSecretsFresh(context.Context, []string) (SecretResolveResult, error)
 	ClientPayload() json.RawMessage
 	ClientPayloadRevision() int64
 	SubmitJob(context.Context, SubmitJob) (JobKey, error)

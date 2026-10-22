@@ -22,9 +22,14 @@ var (
 // honor context cancellation. Core never caches provider output or denials.
 // The caller owns provider configuration and lifecycle; runtimes do not close
 // injected providers. A provider may implement its own caching policy.
+// Cached values must remain authorized for the request. Lease-bound values must
+// encode an expiry no later than Lease.AuthorizedNotAfter in the credential
+// itself; the broker cannot shorten a signed credential by changing metadata.
 // Workflow job/task contexts separately cache resolutions by name for one live
 // job attempt. Requesting a new name also refreshes all cached available names
-// in the same provider request; previously omitted names are not requested again.
+// in the same provider request; ordinary reads do not retry omitted names.
+// Workflow ResolveSecretsFresh explicitly refreshes requested names, including
+// omissions, and updates only those entries in the attempt's cache.
 type SecretProvider interface {
 	ResolveSecrets(context.Context, SecretResolveRequest) (SecretResolveResult, error)
 }
@@ -37,12 +42,27 @@ type SecretResolveRequest struct {
 	// AppMetadata is copied from the job, not supplied by the resolution caller.
 	AppMetadata json.RawMessage
 	Names       []string
+	// Lease is verified by the broker, never taken from application metadata.
+	Lease SecretLeaseContext
+}
+
+// SecretLeaseContext describes authority for this lookup without exposing its
+// bearer token. AuthorizedNotAfter includes the presenting capability's expiry,
+// which may precede LeaseExpiresAt even after the backend lease is renewed.
+type SecretLeaseContext struct {
+	LeaseID            string
+	WorkerID           string
+	LeaseExpiresAt     time.Time
+	AuthorizedNotAfter time.Time
 }
 
 type SecretValue struct {
 	Value     string     `json:"value"`
 	Version   string     `json:"version,omitempty"`
 	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+	// LeaseBound requires ExpiresAt within the verified lease authority. False
+	// preserves static-secret semantics; any supplied ExpiresAt still applies.
+	LeaseBound bool `json:"leaseBound,omitempty"`
 }
 
 func (SecretValue) String() string     { return "secret (redacted)" }

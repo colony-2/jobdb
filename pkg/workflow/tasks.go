@@ -27,13 +27,14 @@ type FindTasksWaitingRequest struct {
 }
 
 type TaskContext struct {
-	executionContext context.Context
-	getConfiguration func(context.Context) (ConfigurationSnapshot, error)
-	resolveSecrets   func(context.Context, []string) (SecretResolveResult, error)
-	clientPayload    func() json.RawMessage
-	clientRevision   func() int64
-	yield            func(context.Context, YieldRequest) error
-	JobKey           JobKey
+	executionContext    context.Context
+	getConfiguration    func(context.Context) (ConfigurationSnapshot, error)
+	resolveSecretsFresh func(context.Context, []string) (SecretResolveResult, error)
+	resolveSecrets      func(context.Context, []string) (SecretResolveResult, error)
+	clientPayload       func() json.RawMessage
+	clientRevision      func() int64
+	yield               func(context.Context, YieldRequest) error
+	JobKey              JobKey
 	// Step is the outcome ordinal for this call to Run. In the versioned
 	// engine it remains valid across in-process waits. Suspension or lease loss
 	// ends the call; a resumed Run gets a new context and may have a new Step.
@@ -114,6 +115,7 @@ func newTaskContextWithLeaseActions(
 	submitRestartJob func(context.Context, SubmitRestartJob) (JobKey, error),
 	clientPayload func() json.RawMessage, clientRevision func() int64, yield func(context.Context, YieldRequest) error,
 	resolveSecrets func(context.Context, []string) (SecretResolveResult, error),
+	resolveSecretsFresh func(context.Context, []string) (SecretResolveResult, error),
 	getConfiguration func(context.Context) (ConfigurationSnapshot, error),
 ) TaskContext {
 	tc := NewTaskContext(jobKey, step, logger, await, awaitJobs)
@@ -121,6 +123,7 @@ func newTaskContextWithLeaseActions(
 	tc.clientRevision = clientRevision
 	tc.yield = yield
 	tc.resolveSecrets = resolveSecrets
+	tc.resolveSecretsFresh = resolveSecretsFresh
 	tc.getConfiguration = getConfiguration
 	tc.submitJob = submitJob
 	tc.submitRestartJob = submitRestartJob

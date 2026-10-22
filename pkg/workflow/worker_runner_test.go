@@ -435,7 +435,7 @@ func TestWorkerRunnerContextSubmitJobUsesLease(t *testing.T) {
 		t.Fatalf("child key = %+v", childKey)
 	}
 
-	taskCtx := newTaskContextWithLeaseActions(parent, 1, nil, nil, nil, runner.SubmitJob, runner.SubmitRestartJob, runner.ClientPayload, runner.ClientPayloadRevision, runner.Yield, runner.ResolveSecrets, runner.GetConfiguration)
+	taskCtx := newTaskContextWithLeaseActions(parent, 1, nil, nil, nil, runner.SubmitJob, runner.SubmitRestartJob, runner.ClientPayload, runner.ClientPayloadRevision, runner.Yield, runner.ResolveSecrets, runner.ResolveSecretsFresh, runner.GetConfiguration)
 	restartKey, err := taskCtx.SubmitRestartJob(context.Background(), SubmitRestartJob{
 		JobID:          "child-restart",
 		PriorJobKey:    JobKey{JobId: "prior"},

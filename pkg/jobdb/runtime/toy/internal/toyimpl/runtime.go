@@ -9,6 +9,7 @@ import (
 	"io"
 	"reflect"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
@@ -1296,6 +1297,7 @@ func (r *Runtime) rescheduleLease(jobKey jobdb.JobKey, leaseID string, workerID 
 }
 
 type runtimeLease struct {
+	mu                    sync.Mutex // protects this handle's expiry during KeepAlive
 	clientPayload         json.RawMessage
 	clientPayloadRevision int64
 	workerID              string
@@ -1315,27 +1317,55 @@ func (l *runtimeLease) Route() jobdb.Route                   { return l.route }
 func (l *runtimeLease) ClientPayload() json.RawMessage       { return cloneJSON(l.clientPayload) }
 func (l *runtimeLease) ClientPayloadRevision() int64         { return l.clientPayloadRevision }
 func (l *runtimeLease) ExecutionState() jobdb.ExecutionState { return toyExecutionState(l.payload) }
-func (l *runtimeLease) LeaseExpiry() time.Time               { return l.expiresAt }
-func (l *runtimeLease) LeaseSchemaHash() string              { return l.schemaHash }
+func (l *runtimeLease) LeaseExpiry() time.Time {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.expiresAt
+}
+
+func (l *runtimeLease) checkExpiry() error {
+	if !l.LeaseExpiry().After(time.Now()) {
+		return jobdb.ErrExecutionLeaseLost
+	}
+	return nil
+}
+func (l *runtimeLease) LeaseSchemaHash() string { return l.schemaHash }
 func (l *runtimeLease) KeepAlive(ctx context.Context) error {
+	if err := l.checkExpiry(); err != nil {
+		return err
+	}
 	expiry, err := l.runtime.KeepAliveLeaseByIDWithExpiry(ctx, l.jobKey, l.leaseID, l.workerID, l.duration)
 	if err == nil {
+		l.mu.Lock()
 		l.expiresAt = expiry
+		l.mu.Unlock()
 	}
 	return err
 }
 
 func (l *runtimeLease) StopKeepAlive() {}
 func (l *runtimeLease) Complete(ctx context.Context, req jobdb.CompleteExecutionRequest) error {
+	if err := l.checkExpiry(); err != nil {
+		return err
+	}
 	return l.runtime.completeLease(ctx, l.jobKey, l.leaseID, l.workerID, req)
 }
 func (l *runtimeLease) Reschedule(ctx context.Context, req jobdb.RescheduleExecutionRequest) error {
+	if err := l.checkExpiry(); err != nil {
+		return err
+	}
 	return l.runtime.rescheduleLease(l.jobKey, l.leaseID, l.workerID, req)
 }
 func (l *runtimeLease) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {
+	if err := l.checkExpiry(); err != nil {
+		return jobdb.JobHandle{}, err
+	}
 	return l.runtime.SubmitJobWithLeaseByID(ctx, l.jobKey, l.leaseID, l.workerID, req)
 }
 func (l *runtimeLease) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
+	if err := l.checkExpiry(); err != nil {
+		return jobdb.JobHandle{}, err
+	}
 	return l.runtime.SubmitRestartJobWithLeaseByID(ctx, l.jobKey, l.leaseID, l.workerID, req)
 }
 

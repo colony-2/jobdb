@@ -149,6 +149,13 @@ err = lease.Complete(ctx, jobdb.CompleteExecutionRequest{
 Most applications should not implement worker execution directly against leases.
 Use [pkg/workflow](../workflow/README.md) for job and task workers.
 
+Secret providers receive verified lease identity and expiry in
+`SecretResolveRequest.Lease`. Individual `SecretValue` results may opt into
+lease-bound expiry with `LeaseBound`. Workflow contexts expose
+`ResolveSecretsFresh` to refresh the current execution attempt's cache; bootstrap
+can use `workflow.SecretResolverFromContext` inside `BeforeRun`.
+See [lease-bound secrets and fresh resolution](../../docs/GUIDE-LEASE-BOUND-SECRETS.md).
+
 ## Crash Concern And Ready Work
 
 `PollWork`, `GetJobLease`, and external-task completion claims require `READY`.

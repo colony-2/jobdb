@@ -55,7 +55,9 @@ type workerRunner struct {
 	lastTaskEndAt             *time.Time
 	rescheduled               atomic.Bool
 	configurationCache        attemptCache[*ConfigurationSnapshot]
-	secretCache               attemptCache[map[string]*SecretValue]
+	secretCache               *attemptCache[map[string]*SecretValue]
+	secretCacheInit           sync.Once
+	executionSecrets          *executionSecretResolver
 }
 
 type jobExecutionConfig struct {
@@ -1195,6 +1197,11 @@ func (r *workerRunner) DoTask(policy RunPolicy, taskType string, data TaskData) 
 						defer cancel()
 						return r.ResolveSecrets(callCtx, names)
 					},
+					func(callCtx context.Context, names []string) (SecretResolveResult, error) {
+						callCtx, cancel := invocationCallContext(callCtx, readCtx)
+						defer cancel()
+						return r.ResolveSecretsFresh(callCtx, names)
+					},
 					func(callCtx context.Context) (ConfigurationSnapshot, error) {
 						callCtx, cancel := invocationCallContext(callCtx, readCtx)
 						defer cancel()
@@ -1388,7 +1395,7 @@ func (r *workerRunner) DoJob(ctx context.Context) (output JobData, runErr error)
 				// Capture the failure before cleanup cancels the execution context.
 				session.stop()
 				<-session.done
-				cause := context.Cause(ctx)
+				cause := context.Cause(session.ctx)
 				session.close()
 				if cause != nil {
 					output, runErr = nil, cause
@@ -1400,6 +1407,12 @@ func (r *workerRunner) DoJob(ctx context.Context) (output JobData, runErr error)
 			}
 			defer r.lease.StopKeepAlive()
 		}
+	}
+	ctx, closeExecution := context.WithCancel(ctx)
+	defer closeExecution()
+	if !r.replay {
+		r.executionSecrets = &executionSecretResolver{owner: r, bootstrap: true}
+		ctx = context.WithValue(ctx, secretResolverKey{}, r.executionSecrets)
 	}
 	r.ctx = ctx
 	if r.beforeRun != nil {
@@ -1545,6 +1558,7 @@ func (r *workerRunner) DoJob(ctx context.Context) (output JobData, runErr error)
 		attemptRunner.currentJobAttemptStartAt = startAt
 		attemptInvocationDeadline := attemptRunner.setupAttemptDeadlines(config.invocationTimeout, config.totalDeadline, config.totalTimeout, config.inputRef)
 		attemptStartAt := startAt
+		r.bindExecutionSecrets(attemptRunner)
 		resultCh := attemptRunner.executeJobWorkerAsync(inputData)
 		output, jobErr := r.waitForJobResultWithDeadline(resultCh, attemptInvocationDeadline, config.totalDeadline, config.invocationTimeout, config.totalTimeout, config.inputRef)
 		stopAttempt()

@@ -10,6 +10,9 @@ import (
 )
 
 func (l *executionLease) Renew(ctx context.Context) (jobdb.RenewableExecutionLease, error) {
+	if err := l.checkExpiry(); err != nil {
+		return nil, err
+	}
 	return l.runtime.RenewExecutionLeaseByID(ctx, l.jobKey, l.leaseID, l.workerID, l.duration)
 }
 
