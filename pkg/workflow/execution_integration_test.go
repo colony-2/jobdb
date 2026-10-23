@@ -278,10 +278,11 @@ func TestExecutionPatchedRestart(t *testing.T) {
 
 type executionFaultRuntime struct {
 	jobdb.WorkflowRuntime
-	fail   func(jobdb.ExecutionRecord) bool
-	after  bool
-	fired  atomic.Bool
-	cancel context.CancelFunc
+	fail      func(jobdb.ExecutionRecord) bool
+	after     bool
+	fired     atomic.Bool
+	committed atomic.Bool
+	cancel    context.CancelFunc
 }
 
 func (f *executionFaultRuntime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) error {
@@ -306,6 +307,7 @@ func (f *executionFaultRuntime) PutChapter(ctx context.Context, req jobdb.PutCha
 				if err := f.WorkflowRuntime.PutChapter(ctx, req); err != nil {
 					return err
 				}
+				f.committed.Store(true)
 			}
 			if f.cancel != nil {
 				f.cancel()

@@ -554,8 +554,15 @@ func TestExecutionAlternateCancellation(t *testing.T) {
 func TestExecutionAlternateDispatchRecovery(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		for _, mode := range []string{"dispatch-uncommitted", "dispatch-committed", "dispatch-ack-lost", "result-uncommitted", "result-committed"} {
-			t.Run(backend+"/"+mode, func(t *testing.T) {
-				base := alternateRuntime(t, backend)
+			scenario := func(t *testing.T) {
+				const leaseDuration = 10 * time.Second
+				var base jobdb.WorkflowRuntime
+				var setSchedulerTimes func(jobdb.JobKey, bool)
+				if backend == "toy" {
+					base = alternateRuntime(t, backend)
+				} else {
+					base, setSchedulerTimes = alternateExpiryRuntime(t, backend)
+				}
 				var builds, runs atomic.Int32
 				call := invocation("answer")
 				call.Alternate = &wf.TaskAlternateAfter{TaskType: "fallback"}
@@ -574,10 +581,13 @@ func TestExecutionAlternateDispatchRecovery(t *testing.T) {
 				if mode != "dispatch-ack-lost" {
 					fault.cancel = cancel
 				}
-				run, err := wf.GetJobForRun(ctx, fault, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{fallback}, WorkerID: "interrupted", LeaseDuration: 100 * time.Millisecond})
+				run, err := wf.GetJobForRun(ctx, fault, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{fallback}, WorkerID: "interrupted", LeaseDuration: leaseDuration})
 				require.NoError(t, err)
 				out, err = run.Run(nil)
 				require.True(t, fault.fired.Load())
+				if fault.after {
+					require.True(t, fault.committed.Load(), "fault injection must follow a successful append; run error: %v", err)
+				}
 				if mode == "dispatch-ack-lost" {
 					require.NoError(t, err)
 				} else {
@@ -587,6 +597,13 @@ func TestExecutionAlternateDispatchRecovery(t *testing.T) {
 					var miss wf.ReplayCacheMissError
 					require.ErrorAs(t, err, &miss)
 					require.Equal(t, before, executionRecords(t, base, key))
+					// Run has stopped renewal. Expire only now, after verifying the
+					// intended crash point, independently of storage/HTTP speed.
+					if setSchedulerTimes != nil {
+						setSchedulerTimes(key, true)
+					} else {
+						time.Sleep(leaseDuration + time.Millisecond)
+					}
 					require.Eventually(t, func() bool {
 						out, err = runExecutionTest(t, base, key, w, fallback)
 						require.NoError(t, err)
@@ -603,6 +620,13 @@ func TestExecutionAlternateDispatchRecovery(t *testing.T) {
 				_, err = replayExecutionTest(t, base, key, w)
 				require.NoError(t, err)
 				require.Equal(t, wantRuns, runs.Load())
+			}
+			t.Run(backend+"/"+mode, func(t *testing.T) {
+				if backend == "toy" {
+					synctest.Test(t, scenario)
+				} else {
+					scenario(t)
+				}
 			})
 		}
 	}
