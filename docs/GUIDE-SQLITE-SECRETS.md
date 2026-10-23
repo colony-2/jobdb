@@ -163,3 +163,11 @@ Repopulate the automatic store using `jobdb secrets set` and the original secret
 values. Old encrypted files are not migrated or modified; opening one as the new
 store fails with a safe format error. Keep any old file at the automatic path
 under a different name before starting the runtime.
+
+## Provider collections and external plugins
+
+To use this SQLite repository together with external secret providers, see the
+[provider implementation and configuration guide](GUIDE-SECRET-PROVIDERS.md).
+The explicit collection can retain local `secrets set/remove` administration,
+apply first-provider-wins overrides, and return provider provenance. Dynamic
+providers receive verified lease authority and can issue lease-bound credentials.

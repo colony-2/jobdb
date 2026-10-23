@@ -870,7 +870,10 @@ type SecretValue struct {
 	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
 
 	// LeaseBound Requires expiresAt bounded by the verified lease authority. Unmarked values retain static-secret semantics.
-	LeaseBound *bool   `json:"leaseBound,omitempty"`
+	LeaseBound *bool `json:"leaseBound,omitempty"`
+
+	// ProviderId Configured provider selected by the host; absent for untagged providers.
+	ProviderId *string `json:"providerId,omitempty"`
 	Value      string  `json:"value"`
 	Version    *string `json:"version,omitempty"`
 }

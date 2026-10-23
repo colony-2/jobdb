@@ -34,6 +34,7 @@ func newRootCmd() *cobra.Command {
 	var sqliteDSN string
 	var blobDir string
 	var blobStoreURI string
+	var secretProvidersFile string
 
 	cmd := &cobra.Command{
 		Use:          "jobdb",
@@ -42,16 +43,16 @@ func newRootCmd() *cobra.Command {
 		Args:         cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg := sqliteConfigFromFlags(dbPath, sqliteDSN, blobDir, blobStoreURI)
-			return runSQLite(cmd.Context(), listenAddr, cfg)
+			return runSQLite(cmd.Context(), listenAddr, cfg, secretProvidersFile)
 		},
 	}
 
 	cmd.AddCommand(
-		newSQLiteCmd(&listenAddr, &dbPath, &sqliteDSN, &blobDir, &blobStoreURI),
+		newSQLiteCmd(&listenAddr, &dbPath, &sqliteDSN, &blobDir, &blobStoreURI, &secretProvidersFile),
 		newSecretsCmd(),
 		newConfigurationCmd(),
 		newJobsCmd(),
-		newToyCmd(&listenAddr),
+		newToyCmd(&listenAddr, &secretProvidersFile),
 		newHealthcheckCmd(),
 	)
 	cmd.PersistentFlags().StringVar(&listenAddr, "listen", defaultListenAddr, "listen address for the HTTP API")
@@ -59,48 +60,64 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&sqliteDSN, "sqlite-dsn", "", "SQLite DSN for the default embedded runtime (overrides --db and "+sqliteDSNEnvVar+")")
 	cmd.PersistentFlags().StringVar(&blobDir, "blob-dir", "", "blobfs directory for large artifacts (defaults to <db>.blobs)")
 	cmd.PersistentFlags().StringVar(&blobStoreURI, "blob-store-uri", "", "Go CDK blob bucket URL for large artifacts (overrides --blob-dir)")
+	cmd.PersistentFlags().StringVar(&secretProvidersFile, "secret-providers-file", "", "JSON file selecting ordered secret providers and optional local development administration")
 
 	return cmd
 }
 
-func newSQLiteCmd(listenAddr *string, dbPath *string, sqliteDSN *string, blobDir *string, blobStoreURI *string) *cobra.Command {
+func newSQLiteCmd(listenAddr *string, dbPath *string, sqliteDSN *string, blobDir *string, blobStoreURI *string, secretProvidersFile *string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sqlite",
 		Short: "Run a SQLite-backed embedded workflow runtime over HTTP",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg := sqliteConfigFromFlags(*dbPath, *sqliteDSN, *blobDir, *blobStoreURI)
-			return runSQLite(cmd.Context(), *listenAddr, cfg)
+			return runSQLite(cmd.Context(), *listenAddr, cfg, *secretProvidersFile)
 		},
 	}
 	return cmd
 }
 
-func newToyCmd(listenAddr *string) *cobra.Command {
+func newToyCmd(listenAddr *string, secretProvidersFile *string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "toy",
 		Short: "Run a toy workflow runtime over HTTP",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runToy(cmd.Context(), *listenAddr)
+			return runToy(cmd.Context(), *listenAddr, *secretProvidersFile)
 		},
 	}
 
 	return cmd
 }
 
-func runToy(ctx context.Context, listenAddr string) error {
-	runtime := toyruntime.New()
-	return serveHTTPFunc(ctx, listenAddr, remoteruntime.NewServer(runtime), nil)
+func runToy(ctx context.Context, listenAddr string, providersFile string) error {
+	providers, err := openSecretProviders(ctx, providersFile)
+	if err != nil {
+		return err
+	}
+	defer providers.close()
+	runtime := toyruntime.New(toyruntime.WithSecretProvider(providers.provider))
+	return serveHTTPFunc(ctx, listenAddr, remoteruntime.NewServer(providers.wrap(runtime)), nil)
 }
 
-func runSQLite(ctx context.Context, listenAddr string, cfg sqliteruntime.Config) error {
+func runSQLite(ctx context.Context, listenAddr string, cfg sqliteruntime.Config, providersFile string) error {
+	providers, err := openSecretProviders(ctx, providersFile)
+	if err != nil {
+		return err
+	}
+	defer providers.close()
+	if providers.provider != nil {
+		cfg.SecretProvider = providers.provider
+	}
 	runtime, err := sqliteruntime.NewFromConfig(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("build SQLite runtime: %w", err)
 	}
+	// Also closes resources when listener creation fails before ServeHTTP cleanup.
+	defer runtime.Close(context.Background())
 	log.Printf("using SQLite runtime")
-	return serveHTTPFunc(ctx, listenAddr, remoteruntime.NewServer(runtime), runtime.Close)
+	return serveHTTPFunc(ctx, listenAddr, remoteruntime.NewServer(providers.wrap(runtime)), runtime.Close)
 }
 
 func sqliteConfigFromFlags(dbPath string, sqliteDSN string, blobDir string, blobStoreURI string) sqliteruntime.Config {
@@ -122,9 +139,16 @@ func sqliteConfigFromFlags(dbPath string, sqliteDSN string, blobDir string, blob
 }
 
 // ServeHTTP runs the runtime HTTP server with a health endpoint and graceful shutdown.
-func ServeHTTP(ctx context.Context, listenAddr string, handler http.Handler, cleanup func(context.Context) error) error {
+func ServeHTTP(ctx context.Context, listenAddr string, handler http.Handler, cleanup func(context.Context) error) (err error) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if cleanup != nil {
+		defer func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
+			defer cancel()
+			err = errors.Join(err, cleanup(cleanupCtx))
+		}()
 	}
 
 	listener, err := net.Listen("tcp", listenAddr)
@@ -135,14 +159,17 @@ func ServeHTTP(ctx context.Context, listenAddr string, handler http.Handler, cle
 
 	server := &http.Server{Handler: withHealthCheck(handler)}
 	stopShutdown := make(chan struct{})
-	defer close(stopShutdown)
+	shutdownDone := make(chan struct{})
 
 	go func() {
+		defer close(shutdownDone)
 		select {
 		case <-ctx.Done():
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
 			defer cancel()
-			_ = server.Shutdown(shutdownCtx)
+			if server.Shutdown(shutdownCtx) != nil {
+				_ = server.Close()
+			}
 		case <-stopShutdown:
 		}
 	}()
@@ -153,11 +180,11 @@ func ServeHTTP(ctx context.Context, listenAddr string, handler http.Handler, cle
 		err = nil
 	}
 
-	if cleanup != nil {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
-		defer cancel()
-		err = errors.Join(err, cleanup(cleanupCtx))
+	if err != nil {
+		_ = server.Close()
 	}
+	close(stopShutdown)
+	<-shutdownDone
 
 	return err
 }

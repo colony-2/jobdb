@@ -34,8 +34,8 @@ jobs:
       - name: Run tests (Unix)
         run: go test -v -tags=integration ./...
 
-      - name: Check workflow races
-        run: go test -race ./pkg/workflow
+      - name: Check workflow and provider races
+        run: go test -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider
 
   # Summary job that depends on all matrix jobs completing
   test-summary:

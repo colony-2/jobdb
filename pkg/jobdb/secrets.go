@@ -57,9 +57,11 @@ type SecretLeaseContext struct {
 }
 
 type SecretValue struct {
-	Value     string     `json:"value"`
-	Version   string     `json:"version,omitempty"`
-	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+	// ProviderID identifies the configured collection member that supplied this value.
+	ProviderID string     `json:"providerId,omitempty"`
+	Value      string     `json:"value"`
+	Version    string     `json:"version,omitempty"`
+	ExpiresAt  *time.Time `json:"expiresAt,omitempty"`
 	// LeaseBound requires ExpiresAt within the verified lease authority. False
 	// preserves static-secret semantics; any supplied ExpiresAt still applies.
 	LeaseBound bool `json:"leaseBound,omitempty"`

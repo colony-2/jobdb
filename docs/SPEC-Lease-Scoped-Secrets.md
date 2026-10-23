@@ -136,6 +136,14 @@ type SecretResolveRequest struct {
     Principal   *string // nil when the signed lease token has no principal claim
     AppMetadata json.RawMessage
     Names       []string
+    Lease       SecretLeaseContext
+}
+
+type SecretLeaseContext struct {
+    LeaseID            string
+    WorkerID           string
+    LeaseExpiresAt     time.Time
+    AuthorizedNotAfter time.Time
 }
 
 type SecretResolveResult struct {
@@ -143,9 +151,11 @@ type SecretResolveResult struct {
 }
 
 type SecretValue struct {
-    Value     string     `json:"value"`
-    Version   string     `json:"version,omitempty"`
-    ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+    Value      string     `json:"value"`
+    Version    string     `json:"version,omitempty"`
+    ExpiresAt  *time.Time `json:"expiresAt,omitempty"`
+    LeaseBound bool       `json:"leaseBound,omitempty"`
+    ProviderID string     `json:"providerId,omitempty"`
 }
 
 // Recognized through errors.Is; its wrapped error text is never exposed.
@@ -155,6 +165,17 @@ var ErrSecretsUnavailable = errors.New("secret provider unavailable")
 The provider is the authority for resolving names and deciding access using
 the supplied context. Provider configuration and backend credentials stay on
 the server. The lease token is not passed to the provider.
+
+Lease-bound credentials must encode an expiry no later than the verified
+`Lease.AuthorizedNotAfter`, and return that expiry with `LeaseBound: true`.
+The broker enforces both initial and revalidated lease bounds; see
+[lease-bound secrets](GUIDE-LEASE-BOUND-SECRETS.md).
+
+Provider collections call every member and choose the first entry for each
+name in configured order, stamping the winning member's ID into `ProviderID`.
+The optional tag follows the value through HTTP and workflow caches. Collections
+can combine SQLite development secrets with local go-plugin executables; see
+the [provider guide](GUIDE-SECRET-PROVIDERS.md).
 
 Provider behavior:
 

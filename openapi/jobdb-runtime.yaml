@@ -1374,6 +1374,9 @@ components:
       additionalProperties: false
       required: [value]
       properties:
+        providerId:
+          type: string
+          description: Configured provider selected by the host; absent for untagged providers.
         value: {type: string}
         version: {type: string}
         expiresAt: {type: string, format: date-time}

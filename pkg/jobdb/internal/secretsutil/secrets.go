@@ -47,7 +47,7 @@ func Result(result jobdb.SecretResolveResult, names []string, limit int64) (jobd
 		if value.LeaseBound && value.ExpiresAt == nil {
 			return jobdb.SecretResolveResult{}, jobdb.ErrSecretResolutionFailed
 		}
-		if !allowed[name] || !utf8.ValidString(value.Value) || !utf8.ValidString(value.Version) {
+		if !allowed[name] || !utf8.ValidString(value.Value) || !utf8.ValidString(value.Version) || !utf8.ValidString(value.ProviderID) {
 			return jobdb.SecretResolveResult{}, jobdb.ErrSecretResolutionFailed
 		}
 		if value.ExpiresAt != nil && !value.ExpiresAt.After(time.Now()) {
@@ -59,6 +59,17 @@ func Result(result jobdb.SecretResolveResult, names []string, limit int64) (jobd
 		return jobdb.SecretResolveResult{}, jobdb.ErrSecretResolutionFailed
 	}
 	return result, nil
+}
+
+// LeaseBounds validates every contribution, including values later shadowed by
+// a higher-priority provider. The broker additionally rechecks live authority.
+func LeaseBounds(result jobdb.SecretResolveResult, lease jobdb.SecretLeaseContext) error {
+	for _, value := range result.Secrets {
+		if value.LeaseBound && (value.ExpiresAt == nil || lease.AuthorizedNotAfter.IsZero() || lease.LeaseExpiresAt.IsZero() || value.ExpiresAt.After(lease.AuthorizedNotAfter) || value.ExpiresAt.After(lease.LeaseExpiresAt)) {
+			return jobdb.ErrSecretResolutionFailed
+		}
+	}
+	return nil
 }
 
 // SafeError deliberately drops raw causes: callers may persist or format errors.

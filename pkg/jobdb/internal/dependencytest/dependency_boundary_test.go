@@ -54,6 +54,7 @@ func main() {}
 	}
 
 	forbidden := []string{
+		"github.com/hashicorp/go-plugin",
 		"gocloud.dev/blob",
 		"gocloud.dev/blob/s3blob",
 		"gocloud.dev/blob/gcsblob",
