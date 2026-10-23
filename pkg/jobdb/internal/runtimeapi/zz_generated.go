@@ -306,7 +306,7 @@ type ConfigurationSnapshot struct {
 	Values   map[string]ApplicationPayload `json:"values"`
 }
 
-// CreateDelegationRequest defines model for CreateDelegationRequest.
+// CreateDelegationRequest Restrict authority until notAfter, or while the exact parent lease remains live if omitted. Credential refresh never extends either bound.
 type CreateDelegationRequest = jobdb.CreateDelegationRequest
 
 // DelegationChapters defines model for DelegationChapters.
@@ -336,15 +336,9 @@ type DelegationPermissions struct {
 	ChaptersRead *DelegationChapters `json:"chapters.read,omitempty"`
 
 	// ChaptersWrite Only TaskAttemptOutcome chapters. Artifact selectors allow fresh uploads, never stored references.
-	ChaptersWrite   *DelegationWritePermission  `json:"chapters.write,omitempty"`
-	DelegationRenew *DelegationRenewPermission  `json:"delegation.renew,omitempty"`
-	JobsSubmit      *DelegationSubmitPermission `json:"jobs.submit,omitempty"`
-	SecretsResolve  *[]string                   `json:"secrets.resolve,omitempty"`
-}
-
-// DelegationRenewPermission defines model for DelegationRenewPermission.
-type DelegationRenewPermission struct {
-	MaxTtlSeconds int `json:"maxTtlSeconds"`
+	ChaptersWrite  *DelegationWritePermission  `json:"chapters.write,omitempty"`
+	JobsSubmit     *DelegationSubmitPermission `json:"jobs.submit,omitempty"`
+	SecretsResolve *[]string                   `json:"secrets.resolve,omitempty"`
 }
 
 // DelegationSubmitPermission defines model for DelegationSubmitPermission.

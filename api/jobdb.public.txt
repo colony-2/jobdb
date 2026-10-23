@@ -140,7 +140,6 @@ type ConfigurationSnapshot struct
   field Values map[string]encoding/json.RawMessage `json:"values"`
 type CreateDelegationRequest struct
   field Permissions DelegationPermissions `json:"permissions"`
-  field TTLSeconds int `json:"ttlSeconds,omitempty"`
   field NotAfter *time.Time `json:"notAfter,omitempty"`
 type Data = encoding/json.RawMessage
 func DecodeExecutionRecord func(raw []byte) (ExecutionRecord, error)
@@ -166,9 +165,6 @@ type DelegationPermissions struct
   field Secrets []string `json:"secrets.resolve,omitempty"`
   field Read *DelegationChapters `json:"chapters.read,omitempty"`
   field Write *DelegationWritePermission `json:"chapters.write,omitempty"`
-  field Renew *DelegationRenewPermission `json:"delegation.renew,omitempty"`
-type DelegationRenewPermission struct
-  field MaxTTLSeconds int `json:"maxTtlSeconds"`
 type DelegationSubmitPermission struct
   field JobTypes DelegationNames `json:"jobTypes"`
   field JobIDs DelegationNames `json:"jobIds"`

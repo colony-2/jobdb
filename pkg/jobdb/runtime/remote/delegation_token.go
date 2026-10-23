@@ -15,15 +15,17 @@ import (
 
 // A distinct, signed format prevents old servers and owner-token validators from
 // accepting a delegation as unrestricted authority. The entire payload is signed.
-const delegationTokenPrefix = "jdb-d1."
+const delegationTokenPrefix = "jdb-d2."
 const maxDelegationTokenBytes = 16 << 10
 
+// Credential freshness is an internal transport bound, not the grant lifetime.
+const delegationAccessTTL = 30 * time.Second
+
 type delegationClaims struct {
-	Parent     leaseTokenClaims     `json:"parent"`
-	Grant      jobdb.DelegationInfo `json:"grant"`
-	Route      jobdb.Route          `json:"route"`
-	TTLSeconds int                  `json:"ttlSeconds"`
-	ExpiresAt  time.Time            `json:"expiresAt"`
+	Parent    leaseTokenClaims     `json:"parent"`
+	Grant     jobdb.DelegationInfo `json:"grant"`
+	Route     jobdb.Route          `json:"route"`
+	ExpiresAt time.Time            `json:"expiresAt"`
 }
 
 func isDelegationToken(token string) bool { return strings.HasPrefix(token, delegationTokenPrefix) }
@@ -65,9 +67,6 @@ func (s *leaseTokenSigner) parseDelegation(token string) (delegationClaims, erro
 	return c, nil
 }
 
-func (c delegationClaims) renewable() bool {
-	return c.Grant.NotAfter == nil && c.Grant.Permissions.Renew != nil
-}
 func (c delegationClaims) key() jobdb.JobKey {
 	return jobdb.JobKey{TenantId: c.Parent.TenantID, JobId: c.Parent.JobID}
 }
@@ -78,7 +77,7 @@ func (c delegationClaims) accessClaims() leaseTokenClaims {
 	return p
 }
 func (c *delegationClaims) setExpiry(parentExpiry time.Time) {
-	c.ExpiresAt = time.Now().UTC().Add(time.Duration(c.TTLSeconds) * time.Second)
+	c.ExpiresAt = time.Now().UTC().Add(delegationAccessTTL)
 	if c.ExpiresAt.After(parentExpiry) {
 		c.ExpiresAt = parentExpiry
 	}
@@ -105,12 +104,6 @@ func chaptersAllow(s *jobdb.DelegationChapters, ordinal int64) bool {
 }
 
 func validateDelegationRequest(req *jobdb.CreateDelegationRequest) error {
-	if req.TTLSeconds == 0 {
-		req.TTLSeconds = 30
-	}
-	if req.TTLSeconds < 1 || req.TTLSeconds > 300 {
-		return fmt.Errorf("ttlSeconds must be between 1 and 300")
-	}
 	if req.NotAfter != nil && !req.NotAfter.After(time.Now()) {
 		return fmt.Errorf("notAfter must be in the future")
 	}
@@ -155,9 +148,6 @@ func validateDelegationRequest(req *jobdb.CreateDelegationRequest) error {
 	}
 	if p.Write != nil && (!ordinals(p.Write.Ordinals) || !names(p.Write.TaskTypes) || !names(p.Write.ArtifactNames)) {
 		return fmt.Errorf("invalid chapter write selectors")
-	}
-	if p.Renew != nil && (p.Renew.MaxTTLSeconds < 1 || p.Renew.MaxTTLSeconds > 300 || req.TTLSeconds > p.Renew.MaxTTLSeconds) {
-		return fmt.Errorf("maxTtlSeconds must be between ttlSeconds and 300")
 	}
 	return nil
 }

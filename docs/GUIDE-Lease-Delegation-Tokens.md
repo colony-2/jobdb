@@ -18,8 +18,9 @@ the permissions its operation requires:
 ```go
 func exportForOperation(ctx context.Context, runtime *remote.Runtime,
     owner jobdb.ExecutionLease, handoff io.Writer) error {
+    deadline := time.Now().Add(15 * time.Minute)
     child, err := runtime.CreateDelegation(ctx, owner, jobdb.CreateDelegationRequest{
-        TTLSeconds: 30,
+        NotAfter: &deadline,
         Permissions: jobdb.DelegationPermissions{
             Secrets: []string{"model_api_key"},
             Read: &jobdb.DelegationChapters{Ordinals: []int64{0, 1}},
@@ -28,7 +29,6 @@ func exportForOperation(ctx context.Context, runtime *remote.Runtime,
                 TaskTypes: jobdb.DelegationNames{Names: []string{"summarize"}},
                 ArtifactNames: jobdb.DelegationNames{Names: []string{"summary.json"}},
             },
-            Renew: &jobdb.DelegationRenewPermission{MaxTTLSeconds: 30},
         },
     })
     if err != nil { return err }
@@ -49,12 +49,13 @@ its bearer token. Configure the server URL separately from the credential.
 For a submission-only child, set `Submit` to a
 `jobdb.DelegationSubmitPermission` containing exact `JobTypes` and `JobIDs`
 selectors. `JobIDs.Any` allows generated IDs; a finite list requires explicit
-IDs. Leave the other permissions absent. Add `Renew` only when required.
+IDs. Leave the other permissions absent.
 
-For a bounded nonrenewable child, set `NotAfter` and choose a suitable access
-TTL (maximum 300 seconds). A hard deadline always disables renewal, even if
-`Renew` is present. Omitting both `NotAfter` and `Renew` also creates a
-nonrenewable child. Parent expiry may shorten every child's initial validity.
+Set `NotAfter` to the absolute time when the child's authority must end. Omit it
+if the child should remain authorized while the exact parent lease is live.
+There is no renewal permission or access TTL to configure. The SDK maintains
+credentials internally, without extending this deadline or the parent lease.
+At or after the deadline, both resource operations and credential refresh fail.
 
 ## Child process: use the existing lease path
 
@@ -80,17 +81,19 @@ values, err := lease.ResolveSecrets(ctx, []string{"model_api_key"})
 // Or lease.SubmitJob(ctx, request), when jobs.submit was granted.
 ```
 
-An unexpired child imports without renewal. An expired renewable child refreshes
-on import using its own token. `SubmitJob`, `ResolveSecrets` and the runtime's
-lease-authorized chapter operations use the same lazy refresh mechanism. There
-is no child heartbeat to start and no owner callback to configure.
+A child with a current credential imports without refresh. A stale credential
+refreshes on import using only the child's token, as long as its parent is live
+and its deadline has not been reached. `SubmitJob`, `ResolveSecrets` and the
+runtime's lease-authorized chapter operations use the same automatic mechanism.
+There is no child heartbeat to start and no owner callback to configure.
 
-`KeepAlive`/`Renew` are still supported methods, but fail unless the child has
-renewal permission and no deadline. A generic worker's periodic lease-renewal
-loop should therefore be disabled for delegated operations; lazy refresh handles
-the required token maintenance, including nonrenewable leases. The optional
-`interface { Delegation() *jobdb.DelegationInfo }` method identifies a restricted
-remote lease and exposes a copy of its policy without its bearer token.
+`KeepAlive`/`Renew` remain supported for existing lease consumers. They maintain
+only the child credential and never extend its authority deadline or the parent.
+A periodic loop is unnecessary; the SDK maintains credentials on use. The
+optional `interface { Delegation() *jobdb.DelegationInfo }` method exposes the
+permissions and `NotAfter` without its bearer token. `LeaseExpiry()` is a current
+credential snapshot, not a second deadline on the grant; do not terminate a
+child solely because that snapshot has passed before allowing the SDK to refresh.
 
 The delegated snapshot includes identity, route, expiry and permissions. Its
 `ClientPayload` and `ExecutionState` are empty: importing a lease must not leak
@@ -151,9 +154,10 @@ conflicts as reasons to replay an operation. Retain normal idempotency and
 ambiguous-result handling. Renewal failure must not trigger acquisition of a new
 job lease, a lookup of the owner's token, or a retry with broader credentials.
 
-A renewable token remains renewal authority after access expiry. Refresh does
+A token retains its grant authority after internal access expiry. Refresh does
 not revoke old token copies. Protect both current and old serialized copies
-until the parent lease is lost. Do not follow redirects with the token.
+until the parent lease is lost or the hard deadline is reached. Do not follow
+redirects with the token.
 
 Errors are described in the [spec](PROPOSAL-Restricted-Lease-Capabilities.md).
 Permission failures are `403 lease_permission_denied`; loss of the parent is
@@ -198,14 +202,15 @@ backends must implement or forward read-only `ValidateExecutionLeaseByID`.
 
 - The delegated capability enters c2j through its supplied-lease path and remains
   an `ExecutionLease`; it does not become an owner token during import or renewal.
-- A separate operation process can use an expired renewable token with only its
-  own capability. It reaches JobDB directly and never contacts the owner.
+- A separate operation process can use a stale access token with only its own
+  capability. It reaches JobDB directly and never contacts the owner.
 - Permission failures are terminal for that operation and never broaden its
   credentials or cause unrestricted runtime calls.
 - Child operations and renewal leave the parent expiry unchanged. The owner
   continues its ordinary parent lease renewal independently.
-- Every hard-deadline/renewal-permission combination follows the spec's truth
-  table. In particular, valid nonrenewable children can still be imported.
+- A child stays usable until its hard deadline while its parent is live, without
+  a refresh permission or timer. Omitting the deadline ties its lifetime solely
+  to the parent. At the deadline, operations, import and refresh all fail.
 - Losing or replacing the parent stops both child operations and renewal.
 - Chapter reads/writes and secret resolution remain within their allowlists.
 

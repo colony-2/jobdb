@@ -13,7 +13,7 @@ individual delegation revocation or further delegation in this release.
 
 ## Authority and lifetime
 
-The server issues a `jdb-d1.<payload>.<signature>` token. The signature is
+The server issues a `jdb-d2.<payload>.<signature>` token. The signature is
 HMAC-SHA256 over the prefix and encoded payload, using the configured lease
 signing key. This follows the existing JobDB signing mechanism; it is not JWT.
 Old owner-token parsers reject its distinct format instead of treating it as an
@@ -24,7 +24,7 @@ Signed claims contain:
 - Parent tenant, job, execution lease ID, worker, schema and principal.
 - Delegation ID and complete permission selectors.
 - Optional absolute `notAfter` hard deadline.
-- Access TTL, access expiration, and parent route.
+- Internal access expiration and parent route.
 
 Every resource operation and renewal verifies the signature, path binding and
 current backend parent identity/liveness. Cancellation, completion, rescheduling,
@@ -38,31 +38,34 @@ lifetime. The owner may have refreshed that token and extended the same backend
 lease. The child needs only its own token; it never contacts the owner process or
 uses an owner credential.
 
-Access TTL defaults to 30 seconds and is limited to 1–300 seconds. Every issuance
-is bounded by the current backend parent expiry and, when present, `notAfter`.
-A nonrenewable child therefore expires at the earliest of those bounds. Setting
-a distant hard deadline does not override the access TTL.
+The public contract is **the selected permissions remain usable until `notAfter`,
+provided the exact parent lease remains live**. Without `notAfter`, the parent
+lease's lifetime is the only lifetime bound. Equality with the deadline is
+expired. Neither credential refresh nor owner renewal can move that deadline.
+There is no renewal permission and no caller-selected access TTL.
 
-**A child can renew only when it has `delegation.renew` AND has no hard deadline.**
-The exact parent must also still be live. A grant containing both `notAfter` and
-`delegation.renew` is accepted, but renewal is denied, including before the hard
-deadline. Omitting a deadline does not implicitly grant renewal.
+| Hard deadline | Child authority |
+|---|---|
+| Absent | Valid while the exact parent remains live |
+| Future | Valid while the exact parent remains live and the deadline is not reached |
+| Reached | Resource operations and credential refresh are denied |
 
-| Hard deadline | Renewal permission | Child renewal |
-|---|---|---|
-| Absent | Absent | Denied |
-| Present | Absent | Denied |
-| Present | Present | Denied |
-| Absent | Present | Allowed while parent is live |
+The current transport uses a 30-second internal access window. Every issuance
+sets `expiresAt = min(now + internalAccessTTL, parentLeaseExpiresAt,
+notAfter when present)`. This window is credential freshness, not the duration
+of the delegation grant. The SDK refreshes it transparently on use. The
+`expiresAt`/`LeaseExpiry()` snapshot describes the current credential window;
+`delegation.notAfter` is the immutable authority deadline. A stale credential
+window alone must not be treated as terminal loss of a delegated lease.
 
-For eligible children, the signed lease token doubles as the renewal credential:
-access expiry blocks resource operations, but does not erase renewal authority.
-An expired token can authenticate `keepalive`. The server preserves the entire
-grant and issues a fresh access expiry; it never calls parent keepalive.
-No per-child timer or heartbeat is needed. There is no rotation/reuse-detection
-protocol: old copies can still renew while the parent is live. Access expiry is
-not a revocation boundary for renewable delegations. Signing keys must be unique
-to a trust domain and shared across its replicas; there is no grant database.
+The signed lease token also authenticates refresh after access expiry. The
+server preserves the entire grant and issues a fresh access expiry; it never
+calls parent keepalive. Even an empty permission allowlist can refresh, but it
+still authorizes no resource operations. No per-child timer or heartbeat is
+needed. There is no rotation/reuse-detection protocol: old token copies remain
+usable until parent loss or the hard deadline. Access expiry is not a revocation
+boundary. Signing keys must be unique to a trust domain and shared across its
+replicas; there is no grant database.
 
 ## Permissions
 
@@ -77,7 +80,6 @@ there are no implicit wildcards or namespace prefixes. Names lists have at most
 | `secrets.resolve` | Array of exact secret names. Resolve the intersection of requested names, grant names, and provider authorization. Denied or unknown names are omitted. An empty intersection returns `{ "secrets": {} }` without invoking the provider. An absent/empty permission denies the operation. Values retain the existing provider lifetime and disclosure checks. |
 | `chapters.read` | `{ "ordinals": [...], "ranges": [{ "start": 0, "end": 4 }] }` or `{ "any": true }`. Ranges are inclusive. A single unauthorized ordinal is denied; lists return only authorized chapters. Includes body, metadata and stored artifact descriptors, never artifact bytes. |
 | `chapters.write` | Exact `ordinals`, `taskTypes` name selector, and `artifactNames` name selector. Only task outcome chapters (`TaskAttemptOutcome`) are writable. An empty artifact selector permits no uploads. Existing artifact references without fresh uploads are denied. Writes retain ordinary schema, lease and conflict checks. |
-| `delegation.renew` | `{ "maxTtlSeconds": 30 }`, between the requested access TTL and 300. Allows child refresh only without `notAfter`. The original TTL is preserved; refresh cannot broaden permissions or alter bounds. |
 
 An empty name/chapter selector matches nothing. `any` cannot be combined with
 finite values for the same selector. There are no permissions for parent
@@ -102,9 +104,9 @@ All paths below start with
 
 | Method and suffix | Behavior |
 |---|---|
-| `POST /delegations` | Owner lease creates a restricted lease. Accepts `permissions`, optional `ttlSeconds`, optional `notAfter`. Returns an `ExecutionLease` with `delegation` metadata. |
+| `POST /delegations` | Owner lease creates a restricted lease. Accepts `permissions` and optional `notAfter`. Returns an `ExecutionLease` with `delegation` metadata. |
 | `GET` (no suffix) | Inspect/import a live delegation without renewing. Returns identity, route, expiry and policy, with empty execution state/client payload. Does not expose the owner's execution snapshot. |
-| `POST /keepalive` | Existing endpoint: owner tokens extend the parent as before; eligible delegation tokens refresh only themselves, including after access expiry. |
+| `POST /keepalive` | Existing endpoint: owner tokens extend the parent as before; delegation tokens refresh only themselves while the parent is live and the deadline has not been reached, including after access expiry. |
 | `POST /jobs` or `PUT /jobs/{childJobId}` | Existing submission endpoints, with delegated type/ID restrictions. |
 | `POST /secrets/resolve` | Existing endpoint with delegated name intersection. |
 | `POST /add_chapter` | Existing endpoint with delegated ordinal/type/upload restrictions. |
@@ -115,7 +117,7 @@ Example creation body:
 
 ```json
 {
-  "ttlSeconds": 30,
+  "notAfter": "2026-10-23T20:00:00Z",
   "permissions": {
     "jobs.submit": {
       "jobTypes": {"names": ["summarize"]},
@@ -127,8 +129,7 @@ Example creation body:
       "ordinals": [7],
       "taskTypes": {"names": ["summarize"]},
       "artifactNames": {"names": ["summary.json"]}
-    },
-    "delegation.renew": {"maxTtlSeconds": 30}
+    }
   }
 }
 ```
@@ -155,7 +156,7 @@ credential-free values.
 |---|---|
 | `401 delegation_access_token_expired` | Only emitted before dispatch. Renew the child, then retry the operation once. |
 | `401 invalid_delegation_credential` | Signature/identity failure; stop. |
-| `403 lease_permission_denied` | Operation/selector disallowed, or renewal forbidden; stop. |
+| `403 lease_permission_denied` | Operation/selector disallowed; stop. |
 | `403 delegation_deadline_reached` | Hard deadline elapsed; stop. |
 | `409 execution_lease_lost` | Parent lost or access expired during execution; stop. |
 | `400 invalid_delegation_request` | Invalid delegated operation body; correct the request. |
@@ -170,9 +171,9 @@ errors, or conflicts. Delegation requests never follow redirects. The bounded
 cache may evict entries; eviction changes efficiency, not authority.
 
 Creation and ordinary parent renewal remain explicit actions. Importing a valid
-child only inspects it; importing an expired renewable child performs the same
-lazy refresh cycle. Nonrenewable children can be imported while valid without
-requiring renewal permission. `KeepAlive` and `Renew` on a child preserve its
+child only inspects it; importing a child with an expired access window performs
+the same lazy refresh cycle, provided its parent is live and its hard deadline
+has not been reached. `KeepAlive` and `Renew` on a child preserve its
 restrictions and never extend its parent.
 
 ## Implementation and rollout
@@ -183,6 +184,11 @@ method (or embed an implementation); unsupported backends fail closed.
 The toy backend's child submission validation now uses this read-only method
 instead of implicitly extending the parent.
 
+This simplification removes `ttlSeconds`, `delegation.renew` and
+`maxTtlSeconds`; obsolete request fields are rejected. The new signed token
+prefix is `jdb-d2`; previous delegation tokens are not supported and must be
+reissued. No compatibility or conversion path is provided.
+
 Upgrade the server and Go client before enabling delegated c2j workers. Existing
 owner capabilities and owner import behavior remain compatible. Old clients may
 pass a delegated token on allowed operations, but need the new client for lazy
@@ -191,8 +197,8 @@ repository; the [guide](GUIDE-Lease-Delegation-Tokens.md) specifies the integrat
 contract without inventing new CLI flags.
 
 Tests cover toy/SQLite permission enforcement, signed-claim tampering, empty
-secret intersections, chapter filtering/writes, deadline/renewal combinations,
-concurrent lazy refresh, parent loss/replacement, and a distinct child process
+secret intersections, chapter filtering/writes, automatic refresh with and without
+a deadline, concurrent lazy refresh, parent loss/replacement, and a distinct child process
 with only a delegated capability. Core validation checks do not renew the parent.
 
 ## Prior art and deliberate differences
@@ -214,6 +220,5 @@ require child periodic heartbeats.
 [OAuth security guidance on refresh tokens](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14)
 includes rotation and sender-constraining protections for OAuth clients. This
 initial JobDB bearer design does not implement those protections or claim OAuth
-conformance. Its renewal authority lasts until parent loss and has no independent
-revocation. Do not treat access expiration as invalidating a stolen renewable
-credential.
+conformance. Its authority lasts until parent loss or its hard deadline and has
+no independent revocation. Do not treat access expiration as invalidating a stolen credential.

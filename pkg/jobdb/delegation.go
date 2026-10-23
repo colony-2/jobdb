@@ -41,12 +41,6 @@ type DelegationWritePermission struct {
 	ArtifactNames DelegationNames `json:"artifactNames"`
 }
 
-// DelegationRenewPermission permits refreshing the child while its parent is
-// live, but only if the grant has no NotAfter deadline. It never extends the parent.
-type DelegationRenewPermission struct {
-	MaxTTLSeconds int `json:"maxTtlSeconds"`
-}
-
 // DelegationPermissions is an immutable allowlist; omitted actions are denied.
 // Delegation does not authorize completion, rescheduling, configuration reads,
 // restart submission, schema registration, artifact downloads, or further delegation.
@@ -55,15 +49,13 @@ type DelegationPermissions struct {
 	Secrets []string                    `json:"secrets.resolve,omitempty"`
 	Read    *DelegationChapters         `json:"chapters.read,omitempty"`
 	Write   *DelegationWritePermission  `json:"chapters.write,omitempty"`
-	Renew   *DelegationRenewPermission  `json:"delegation.renew,omitempty"`
 }
 
-// CreateDelegationRequest restricts a lease. TTLSeconds defaults to 30 (maximum
-// 300). NotAfter is an optional hard deadline; its presence disables renewal,
-// even if Permissions.Renew is present. An omitted deadline does not imply renewal.
+// CreateDelegationRequest restricts a lease to Permissions until NotAfter.
+// Without NotAfter, authority lasts while the exact parent lease remains live.
+// Credential refresh is automatic and never extends the deadline or parent lease.
 type CreateDelegationRequest struct {
 	Permissions DelegationPermissions `json:"permissions"`
-	TTLSeconds  int                   `json:"ttlSeconds,omitempty"`
 	NotAfter    *time.Time            `json:"notAfter,omitempty"`
 }
 

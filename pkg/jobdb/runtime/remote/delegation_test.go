@@ -52,7 +52,7 @@ func delegationPolicy() jobdb.DelegationPermissions {
 		Submit:  &jobdb.DelegationSubmitPermission{JobTypes: jobdb.DelegationNames{Names: []string{"child"}}, JobIDs: jobdb.DelegationNames{Any: true}},
 		Read:    &jobdb.DelegationChapters{Ordinals: []int64{0, 1}},
 		Write:   &jobdb.DelegationWritePermission{Ordinals: []int64{1}, TaskTypes: jobdb.DelegationNames{Names: []string{"task"}}, ArtifactNames: jobdb.DelegationNames{Names: []string{"result"}}},
-		Secrets: []string{"allowed", "unknown"}, Renew: &jobdb.DelegationRenewPermission{MaxTTLSeconds: 30},
+		Secrets: []string{"allowed", "unknown"},
 	}
 }
 func (f *delegationFixture) create(t *testing.T, req jobdb.CreateDelegationRequest) *remoteExecutionLease {
@@ -202,40 +202,30 @@ func TestDelegationLeaseCompatibilityAndPermissions(t *testing.T) {
 	}
 }
 
-func TestDelegationRenewalRequiresPermissionAndNoDeadline(t *testing.T) {
-	for _, deadline := range []bool{false, true} {
-		for _, renew := range []bool{false, true} {
-			t.Run(fmt.Sprintf("deadline=%v/renew=%v", deadline, renew), func(t *testing.T) {
-				f := newDelegationFixture(t, "toy", nil)
-				p := delegationPolicy()
-				if !renew {
-					p.Renew = nil
-				}
-				req := jobdb.CreateDelegationRequest{Permissions: p}
+func TestDelegationRefreshIsAutomaticUntilDeadline(t *testing.T) {
+	for _, kind := range []string{"toy", "sqlite"} {
+		for _, deadline := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/deadline=%v", kind, deadline), func(t *testing.T) {
+				f := newDelegationFixture(t, kind, nil)
+				req := jobdb.CreateDelegationRequest{Permissions: delegationPolicy()}
 				if deadline {
-					d := time.Now().Add(time.Hour)
+					d := time.Now().UTC().Add(time.Hour)
 					req.NotAfter = &d
 				}
 				l := f.create(t, req)
+				before := f.validity(t)
 				cap, err := ExportLease(l)
 				require.NoError(t, err)
 				_, err = f.client.ImportLease(context.Background(), cap)
-				require.NoError(t, err, "nonrenewable leases must import while valid")
-				before := f.validity(t)
-				err = l.KeepAlive(context.Background())
-				if renew && !deadline {
-					require.NoError(t, err)
-				} else {
-					require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
-				}
+				require.NoError(t, err)
+				require.Equal(t, int32(0), f.renews.Load(), "valid import needs no refresh")
+				require.NoError(t, l.KeepAlive(context.Background()))
 				f.expire(t, l)
 				_, err = l.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{JobType: "child", Data: jobdb.NewTaskDataOrPanic(1)}})
-				if renew && !deadline {
-					require.NoError(t, err)
-				} else {
-					require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
-				}
+				require.NoError(t, err)
+				require.Equal(t, int32(2), f.renews.Load(), "explicit keepalive plus lazy refresh")
 				require.Equal(t, before, f.validity(t))
+				require.Equal(t, req.NotAfter, l.Delegation().NotAfter)
 			})
 		}
 	}
@@ -417,7 +407,9 @@ func TestDelegationMalformedPolicyAndHardDeadline(t *testing.T) {
 		`{"permissions":{"chapters.write":{"ordinals":[-1]}}}`,
 		`{"permissions":{"jobs.submit":{"jobTypes":{"any":true,"names":["x"]},"jobIds":{"any":true}}}}`,
 		`{"permissions":{"chapters.read":{"ranges":[{"start":2,"end":1}]}}}`,
-		`{"ttlSeconds":31,"permissions":{"delegation.renew":{"maxTtlSeconds":30}}}`,
+		`{"ttlSeconds":30,"permissions":{}}`,
+		`{"permissions":{"delegation.renew":{"maxTtlSeconds":30}}}`,
+		`{"notAfter":"2000-01-01T00:00:00Z","permissions":{}}`,
 	} {
 		req, err := http.NewRequest("POST", f.server.URL+delegationBase(f.owner)+"/delegations", strings.NewReader(body))
 		require.NoError(t, err)
@@ -493,7 +485,7 @@ func TestDelegationExpiryDuringOperationIsNotRetried(t *testing.T) {
 
 func TestDelegationCacheTracksSuccessiveRefreshes(t *testing.T) {
 	f := newDelegationFixture(t, "toy", nil)
-	l := f.create(t, jobdb.CreateDelegationRequest{TTLSeconds: 1, Permissions: delegationPolicy()})
+	l := f.create(t, jobdb.CreateDelegationRequest{Permissions: delegationPolicy()})
 	f.expire(t, l)
 	submit := func() {
 		_, err := l.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{JobType: "child", Data: jobdb.NewTaskDataOrPanic(1)}})
@@ -501,11 +493,24 @@ func TestDelegationCacheTracksSuccessiveRefreshes(t *testing.T) {
 	}
 	submit()
 	first := l.LeaseToken()
-	time.Sleep(time.Until(l.LeaseExpiry()) + 10*time.Millisecond)
+	// Expire the cached credential without waiting for the internal access TTL.
+	// Keep the original handle and its aliases, exercising successive refreshes.
+	state := f.client.delegations.state(l.leaseToken)
+	state.mu.Lock()
+	claims, err := f.signer.parseDelegation(state.token)
+	require.NoError(t, err)
+	claims.ExpiresAt = time.Now().Add(-time.Second)
+	state.token, err = f.signer.signDelegation(claims)
+	require.NoError(t, err)
+	state.expiry = claims.ExpiresAt
+	f.client.delegations.mu.Lock()
+	f.client.delegations.states[state.token] = state
+	f.client.delegations.mu.Unlock()
+	state.mu.Unlock()
 	submit()
 	require.NotEqual(t, first, l.LeaseToken())
 	require.True(t, l.LeaseExpiry().After(time.Now()))
-	claims, err := f.signer.parseDelegation(l.LeaseToken())
+	claims, err = f.signer.parseDelegation(l.LeaseToken())
 	require.NoError(t, err)
 	require.Equal(t, claims.ExpiresAt, l.LeaseExpiry())
 	require.Equal(t, int32(2), f.renews.Load())
@@ -564,4 +569,22 @@ func TestDelegationOnlyIngressRejectsMissingAndOwnerCredentials(t *testing.T) {
 	require.NoError(t, err)
 	_, err = imported.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{JobType: "child", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, err)
+}
+
+func TestDelegationRenewalIsCappedAtHardDeadline(t *testing.T) {
+	for _, kind := range []string{"toy", "sqlite"} {
+		t.Run(kind, func(t *testing.T) {
+			f := newDelegationFixture(t, kind, nil)
+			deadline := time.Now().UTC().Add(10 * time.Second)
+			child := f.create(t, jobdb.CreateDelegationRequest{NotAfter: &deadline, Permissions: delegationPolicy()})
+			before := f.validity(t)
+			require.Equal(t, deadline, child.LeaseExpiry())
+			f.expire(t, child)
+			next, err := child.Renew(context.Background())
+			require.NoError(t, err)
+			require.Equal(t, deadline, next.LeaseExpiry())
+			require.Equal(t, &deadline, next.(*remoteExecutionLease).Delegation().NotAfter)
+			require.Equal(t, before, f.validity(t), "renewal must not extend the parent")
+		})
+	}
 }

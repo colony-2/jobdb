@@ -1066,7 +1066,7 @@ paths:
       tags: [leases]
       operationId: createLeaseDelegation
       summary: Create a restricted lease from an owner lease
-      description: Permissions are immutable signed claims. No individual revocation or further delegation. A hard deadline disables renewal, even with renewal permission.
+      description: Permissions are immutable signed claims. No individual revocation or further delegation. Authority lasts until the optional notAfter deadline while the exact parent lease remains live. Credential refresh is automatic and internal.
       parameters:
         - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/JobId'
@@ -1096,7 +1096,7 @@ paths:
       tags: [leases]
       operationId: inspectLease
       summary: Validate a delegated lease without renewal
-      description: Returns only identity, route, validity and delegation policy. Used to import restricted leases without requiring renewal permission.
+      description: Returns only identity, route, validity and delegation policy. Used to import restricted leases without refreshing a current credential.
       parameters:
         - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/JobId'
@@ -1169,7 +1169,7 @@ paths:
       tags: [leases]
       operationId: keepAliveLease
       summary: Keep lease alive
-      description: For a delegation, refreshes only its access token, requires delegation.renew and no hard deadline, and accepts an expired access token while the exact parent lease remains live. Never extends the parent. Restrictions remain unchanged.
+      description: For a delegation, refreshes only its access token, requires an unexpired hard deadline when set, and accepts an expired access token while the exact parent lease remains live. Never extends the parent or the hard deadline. Restrictions remain unchanged.
       parameters:
         - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/JobId'
@@ -1487,12 +1487,6 @@ components:
           items: {type: integer, format: int64, minimum: 0}
         taskTypes: {$ref: '#/components/schemas/DelegationNames'}
         artifactNames: {$ref: '#/components/schemas/DelegationNames'}
-    DelegationRenewPermission:
-      type: object
-      additionalProperties: false
-      required: [maxTtlSeconds]
-      properties:
-        maxTtlSeconds: {type: integer, minimum: 1, maximum: 300}
     DelegationPermissions:
       type: object
       additionalProperties: false
@@ -1504,8 +1498,8 @@ components:
           items: {type: string, minLength: 1, maxLength: 1024}
         chapters.read: {$ref: '#/components/schemas/DelegationChapters'}
         chapters.write: {$ref: '#/components/schemas/DelegationWritePermission'}
-        delegation.renew: {$ref: '#/components/schemas/DelegationRenewPermission'}
     CreateDelegationRequest:
+      description: Restrict authority until notAfter, or while the exact parent lease remains live if omitted. Credential refresh never extends either bound.
       type: object
       additionalProperties: false
       required: [permissions]
@@ -1515,7 +1509,6 @@ components:
         name: jobdb
       properties:
         permissions: {$ref: '#/components/schemas/DelegationPermissions'}
-        ttlSeconds: {type: integer, minimum: 1, maximum: 300, default: 30}
         notAfter: {type: string, format: date-time}
     DelegationInfo:
       type: object

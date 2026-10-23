@@ -125,9 +125,6 @@ func (s *proxyServer) prepareDelegationRequest(w http.ResponseWriter, r *http.Re
 	policy := c.Grant.Permissions
 	// Renewal is the only action that may use a token past access expiry.
 	if r.Method == http.MethodPost && suffix == "keepalive" {
-		if !c.renewable() {
-			return reject(delegationDenied())
-		}
 		return true
 	}
 	allowed := false
@@ -232,7 +229,7 @@ func (s *proxyServer) CreateLeaseDelegation(ctx context.Context, req runtimeapi.
 	if err != nil {
 		return nil, err
 	}
-	c := delegationClaims{Parent: p, Grant: jobdb.DelegationInfo{ID: uuid.NewString(), Permissions: body.Permissions, NotAfter: body.NotAfter}, Route: v.Route, TTLSeconds: body.TTLSeconds}
+	c := delegationClaims{Parent: p, Grant: jobdb.DelegationInfo{ID: uuid.NewString(), Permissions: body.Permissions, NotAfter: body.NotAfter}, Route: v.Route}
 	c.setExpiry(v.ExpiresAt)
 	token, err := s.tokens.signDelegation(c)
 	if err != nil {
@@ -252,9 +249,6 @@ func (s *proxyServer) renewDelegation(ctx context.Context, token string, key job
 	c, v, err := s.checkedDelegation(ctx, token, key, leaseID, true)
 	if err != nil {
 		return nil, err
-	}
-	if !c.renewable() {
-		return nil, delegationDenied()
 	}
 	c.setExpiry(v.ExpiresAt)
 	next, err := s.tokens.signDelegation(c)
