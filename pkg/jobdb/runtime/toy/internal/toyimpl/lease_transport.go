@@ -36,8 +36,25 @@ func (r *Runtime) RescheduleJobWithLeaseByID(_ context.Context, jobKey jobdb.Job
 	return r.rescheduleLease(jobKey, leaseID, workerID, req)
 }
 
+// ValidateExecutionLeaseByID checks a live parent without extending it.
+func (r *Runtime) ValidateExecutionLeaseByID(ctx context.Context, key jobdb.JobKey, leaseID, workerID string) (jobdb.LeaseValidity, error) {
+	if err := ctx.Err(); err != nil {
+		return jobdb.LeaseValidity{}, err
+	}
+	record := r.engine.getJobRecord(key)
+	if record == nil {
+		return jobdb.LeaseValidity{}, jobdb.ErrExecutionLeaseLost
+	}
+	record.mu.Lock()
+	defer record.mu.Unlock()
+	if leaseID == "" || workerID == "" || record.leaseID != leaseID || record.leaseWorkerID != workerID || !record.leased || !record.leaseExpiresAt.After(time.Now().UTC()) || record.cancelled || record.archived != nil {
+		return jobdb.LeaseValidity{}, jobdb.ErrExecutionLeaseLost
+	}
+	return jobdb.LeaseValidity{ExpiresAt: record.leaseExpiresAt, Route: record.route}, nil
+}
+
 func (r *Runtime) SubmitJobWithLeaseByID(ctx context.Context, parentJobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {
-	if _, err := r.KeepAliveLeaseByIDWithExpiry(ctx, parentJobKey, leaseID, workerID, 0); err != nil {
+	if _, err := r.ValidateExecutionLeaseByID(ctx, parentJobKey, leaseID, workerID); err != nil {
 		return jobdb.JobHandle{}, err
 	}
 	req.Job.TenantId = parentJobKey.TenantId
@@ -45,7 +62,7 @@ func (r *Runtime) SubmitJobWithLeaseByID(ctx context.Context, parentJobKey jobdb
 }
 
 func (r *Runtime) SubmitRestartJobWithLeaseByID(ctx context.Context, parentJobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
-	if _, err := r.KeepAliveLeaseByIDWithExpiry(ctx, parentJobKey, leaseID, workerID, 0); err != nil {
+	if _, err := r.ValidateExecutionLeaseByID(ctx, parentJobKey, leaseID, workerID); err != nil {
 		return jobdb.JobHandle{}, err
 	}
 	if req.Job.PriorJobKey.TenantId != "" && req.Job.PriorJobKey.TenantId != parentJobKey.TenantId {

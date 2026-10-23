@@ -98,6 +98,9 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		},
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			if writeDelegationError(w, err) {
+				return
+			}
 			if isConfigurationPath(r.URL.EscapedPath()) {
 				configuration.WriteError(w, jobdb.ErrInvalidConfigurationRequest)
 				return
@@ -144,6 +147,12 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 	handler := runtimeapi.HandlerFromMux(strict, router)
 	devHandler := server.devSecretHandler()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !server.prepareDelegationRequest(w, r) {
+			return
+		}
+		if strings.Contains(r.URL.Path, "/leases/") {
+			w.Header().Set("Cache-Control", "no-store")
+		}
 		if isConfigurationPath(r.URL.EscapedPath()) && !server.prepareConfigurationRequest(w, r) {
 			return
 		}
@@ -928,6 +937,9 @@ func optionalRequestArtifactWrites(items *[]runtimeapi.ArtifactWrite) []runtimea
 }
 
 func (s *proxyServer) KeepAliveLease(ctx context.Context, request runtimeapi.KeepAliveLeaseRequestObject) (runtimeapi.KeepAliveLeaseResponseObject, error) {
+	if isDelegationToken(request.Params.XJobDBLeaseToken) {
+		return s.renewDelegation(ctx, request.Params.XJobDBLeaseToken, jobdb.JobKey{TenantId: request.TenantId, JobId: request.JobId}, request.LeaseId)
+	}
 	jobKey := jobdb.JobKey{TenantId: request.TenantId, JobId: request.JobId}
 	claims, err := s.validatedLeaseClaims(request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
 	if err != nil {
@@ -1240,6 +1252,13 @@ func (s *proxyServer) requireSchemaRegistry() (jobdb.JobSchemaRegistry, error) {
 }
 
 func (s *proxyServer) validatedLeaseClaims(token string, jobKey jobdb.JobKey, leaseID string) (leaseTokenClaims, error) {
+	if isDelegationToken(token) {
+		c, err := s.tokens.parseDelegation(token)
+		if err != nil || c.key() != jobKey || c.Parent.LeaseID != leaseID || !c.ExpiresAt.After(time.Now()) || c.Grant.NotAfter != nil && !c.Grant.NotAfter.After(time.Now()) {
+			return leaseTokenClaims{}, jobdb.ErrExecutionLeaseLost
+		}
+		return c.accessClaims(), nil
+	}
 	claims, err := s.tokens.validateAndParse(token, jobKey, leaseID, time.Now().UTC())
 	if err != nil {
 		return leaseTokenClaims{}, leaseTokenValidationError(err)

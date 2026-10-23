@@ -17,6 +17,7 @@ import (
 )
 
 type Runtime struct {
+	delegations         *delegationTransport
 	configurationLimits jobdb.ConfigurationLimits
 	raw                 *runtimeapi.Client
 	client              *runtimeapi.ClientWithResponses
@@ -32,10 +33,8 @@ func WithConfigurationLimits(limits jobdb.ConfigurationLimits) Option {
 }
 
 func New(baseURL string, httpClient *http.Client, options ...Option) (*Runtime, error) {
-	opts := make([]runtimeapi.ClientOption, 0, 1)
-	if httpClient != nil {
-		opts = append(opts, runtimeapi.WithHTTPClient(httpClient))
-	}
+	delegations := newDelegationTransport(httpClient)
+	opts := []runtimeapi.ClientOption{runtimeapi.WithHTTPClient(delegations)}
 	raw, err := runtimeapi.NewClient(baseURL, opts...)
 	if err != nil {
 		return nil, err
@@ -44,7 +43,7 @@ func New(baseURL string, httpClient *http.Client, options ...Option) (*Runtime, 
 	if err != nil {
 		return nil, err
 	}
-	runtime := &Runtime{raw: raw, client: client}
+	runtime := &Runtime{raw: raw, client: client, delegations: delegations}
 	for _, option := range options {
 		option(runtime)
 	}
@@ -639,6 +638,9 @@ func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRu
 }
 
 func (r *Runtime) GetChapter(ctx context.Context, ref jobdb.ChapterRef) (jobdb.Chapter, error) {
+	if ref.LeaseID != "" || ref.LeaseToken != "" {
+		return r.getDelegatedChapter(ctx, ref)
+	}
 	resp, err := r.client.GetChapterWithResponse(ctx, ref.JobKey.TenantId, ref.JobKey.JobId, ref.Ordinal)
 	if err != nil {
 		return jobdb.Chapter{}, err
@@ -650,6 +652,9 @@ func (r *Runtime) GetChapter(ctx context.Context, ref jobdb.ChapterRef) (jobdb.C
 }
 
 func (r *Runtime) ListChapters(ctx context.Context, req jobdb.ListChaptersRequest) ([]jobdb.Chapter, error) {
+	if req.LeaseID != "" || req.LeaseToken != "" {
+		return r.listDelegatedChapters(ctx, req)
+	}
 	params := &runtimeapi.ListChaptersParams{
 		StartOrdinal: req.StartOrdinal,
 	}
@@ -725,6 +730,7 @@ func (r *Runtime) OpenArtifact(ctx context.Context, ref jobdb.ArtifactRef) (jobd
 }
 
 type remoteExecutionLease struct {
+	delegation     *jobdb.DelegationInfo
 	workerID       string
 	expiresAt      time.Time
 	runtime        *Runtime
@@ -749,7 +755,8 @@ func (l *remoteExecutionLease) StopKeepAlive() {}
 func (l *remoteExecutionLease) LeaseToken() string {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	return l.leaseToken
+	token, _ := l.runtime.delegations.cached(l.leaseToken)
+	return token
 }
 func (l *remoteExecutionLease) ClientPayload() json.RawMessage {
 	return cloneRawMessage(l.clientPayload)
@@ -787,6 +794,9 @@ func (l *remoteExecutionLease) KeepAlive(ctx context.Context) error {
 }
 
 func (l *remoteExecutionLease) Complete(ctx context.Context, req jobdb.CompleteExecutionRequest) error {
+	if l.delegation != nil {
+		return jobdb.ErrLeasePermissionDenied
+	}
 	if req.Chapter == nil {
 		return fmt.Errorf("complete lease requires final chapter")
 	}
@@ -827,6 +837,9 @@ func optionalArtifactWrites(items []runtimeapi.ArtifactWrite) *[]runtimeapi.Arti
 }
 
 func (l *remoteExecutionLease) Reschedule(ctx context.Context, req jobdb.RescheduleExecutionRequest) error {
+	if l.delegation != nil {
+		return jobdb.ErrLeasePermissionDenied
+	}
 	task, err := jobdb.RescheduleTaskWait(req.NextRoute, req.TaskWait)
 	if err != nil {
 		return err
@@ -904,6 +917,9 @@ func (l *remoteExecutionLease) SubmitJob(ctx context.Context, req jobdb.SubmitJo
 }
 
 func (l *remoteExecutionLease) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
+	if l.delegation != nil {
+		return jobdb.JobHandle{}, jobdb.ErrLeasePermissionDenied
+	}
 	body, err := submitRestartJobRequestToAPI(ctx, req)
 	if err != nil {
 		return jobdb.JobHandle{}, err
@@ -953,6 +969,7 @@ func (r *Runtime) executionLeaseFromAPI(lease runtimeapi.ExecutionLease) (jobdb.
 		return nil, err
 	}
 	return &remoteExecutionLease{
+		delegation:    lease.Delegation,
 		runtime:       r,
 		leaseID:       lease.LeaseId,
 		jobKey:        fromAPIJobKey(lease.Job.JobKey),
@@ -993,6 +1010,12 @@ func toAPIPrerequisites(prereqs []jobdb.JobPrerequisite) *[]runtimeapi.JobPrereq
 }
 
 func responseError(operation string, status int, body []byte, sentinel error) error {
+	if err := delegationResponseError(status, body); err != nil {
+		return err
+	}
+	if status == http.StatusForbidden {
+		return jobdb.ErrLeasePermissionDenied
+	}
 	message := strings.TrimSpace(string(body))
 	if message == "" {
 		message = http.StatusText(status)
@@ -1030,6 +1053,12 @@ func responseError(operation string, status int, body []byte, sentinel error) er
 }
 
 func responseErrorWithConflict(operation string, status int, body []byte, notFoundSentinel error, conflictSentinel error) error {
+	if err := delegationResponseError(status, body); err != nil {
+		return err
+	}
+	if status == http.StatusForbidden {
+		return jobdb.ErrLeasePermissionDenied
+	}
 	message := strings.TrimSpace(string(body))
 	if message == "" {
 		message = http.StatusText(status)
@@ -1102,6 +1131,12 @@ func explicitJobCreateError(operation string, status int, body []byte, conflict 
 }
 
 func explicitLeaseJobCreateError(operation string, status int, body []byte, conflict *runtimeapi.ErrorResponse) error {
+	if err := delegationResponseError(status, body); err != nil {
+		return err
+	}
+	if status == http.StatusForbidden {
+		return jobdb.ErrLeasePermissionDenied
+	}
 	message := strings.TrimSpace(string(body))
 	if conflict != nil && conflict.Message != "" {
 		message = conflict.Message

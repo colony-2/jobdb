@@ -44,3 +44,25 @@ func TestCoreRenewReturnsAuthoritativeSnapshotWithoutAcquisition(t *testing.T) {
 	_, err = next.Renew(context.Background())
 	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
 }
+
+func TestCoreValidateLeaseDoesNotRenewOrReturnPayload(t *testing.T) {
+	ctx := context.Background()
+	key := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
+	expiry := time.Now().Add(time.Minute)
+	scheduler := &secretScheduler{row: runtimecore.StoredJob{JobKey: key, Store: jobdb.JobStoreActive, Lease: &runtimecore.LeaseIdentity{JobKey: key, LeaseID: "lease", WorkerID: "worker", ExpiresAt: expiry}}}
+	runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: scheduler, Chapters: readTestChapters{}, Schemas: readTestSchemas{}})
+	require.NoError(t, err)
+	valid, err := runtime.ValidateExecutionLeaseByID(ctx, key, "lease", "worker")
+	require.NoError(t, err)
+	require.Equal(t, expiry, valid.ExpiresAt)
+	require.Equal(t, expiry, scheduler.row.Lease.ExpiresAt)
+	_, err = runtime.ValidateExecutionLeaseByID(ctx, key, "replaced", "worker")
+	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
+	scheduler.row.CancelRequested = true
+	_, err = runtime.ValidateExecutionLeaseByID(ctx, key, "lease", "worker")
+	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
+	scheduler.row.CancelRequested = false
+	scheduler.row.Lease.ExpiresAt = time.Now().Add(-time.Second)
+	_, err = runtime.ValidateExecutionLeaseByID(ctx, key, "lease", "worker")
+	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
+}

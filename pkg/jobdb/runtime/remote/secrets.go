@@ -3,8 +3,10 @@ package remote
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -51,6 +53,25 @@ func (s *proxyServer) ResolveSecretsWithLease(ctx context.Context, req runtimeap
 	claims, err := s.validatedLeaseClaims(req.Params.XJobDBLeaseToken, key, req.LeaseId)
 	if err != nil {
 		return secretResponse{err: jobdb.ErrExecutionLeaseLost}, nil
+	}
+	if isDelegationToken(req.Params.XJobDBLeaseToken) {
+		c, _, err := s.checkedDelegation(ctx, req.Params.XJobDBLeaseToken, key, req.LeaseId, false)
+		if err != nil {
+			return nil, err
+		}
+		if len(c.Grant.Permissions.Secrets) == 0 {
+			return nil, delegationDenied()
+		}
+		names := make([]string, 0, len(req.Body.Names))
+		for _, name := range req.Body.Names {
+			if slices.Contains(c.Grant.Permissions.Secrets, name) {
+				names = append(names, name)
+			}
+		}
+		if len(names) == 0 {
+			return secretResponse{result: jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{}}}, nil
+		}
+		req.Body.Names = names
 	}
 	result, err := s.runtime.ResolveSecrets(leaseauth.WithClaims(ctx, claims.leaseAuthClaims()), jobdb.ResolveSecretsRequest{
 		JobKey: key, LeaseID: req.LeaseId, LeaseToken: req.Params.XJobDBLeaseToken, Names: req.Body.Names,
@@ -147,10 +168,19 @@ func (r *Runtime) ResolveSecrets(ctx context.Context, req jobdb.ResolveSecretsRe
 		client = &clone
 	}
 	resp, err := client.Do(httpReq)
+	if errors.Is(err, jobdb.ErrLeasePermissionDenied) {
+		return jobdb.SecretResolveResult{}, jobdb.ErrLeasePermissionDenied
+	}
 	if err != nil {
 		return jobdb.SecretResolveResult{}, secretsutil.SafeError(err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == 401 && isDelegationToken(req.LeaseToken) {
+		return jobdb.SecretResolveResult{}, jobdb.ErrExecutionLeaseLost
+	}
+	if resp.StatusCode == 403 && isDelegationToken(req.LeaseToken) {
+		return jobdb.SecretResolveResult{}, jobdb.ErrLeasePermissionDenied
+	}
 	if resp.StatusCode != 200 {
 		return jobdb.SecretResolveResult{}, secretsutil.StatusError(resp.StatusCode)
 	}

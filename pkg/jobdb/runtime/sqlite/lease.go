@@ -308,6 +308,18 @@ func (r *Runtime) SubmitRestartJobWithLeaseByID(ctx context.Context, parentJobKe
 	return r.submitRestartJobWithParent(ctx, req, parentJobKey.JobId)
 }
 
+// ValidateExecutionLeaseByID checks a live parent without extending it.
+func (r *Runtime) ValidateExecutionLeaseByID(ctx context.Context, key jobdb.JobKey, leaseID, workerID string) (jobdb.LeaseValidity, error) {
+	if leaseID == "" || workerID == "" {
+		return jobdb.LeaseValidity{}, jobdb.ErrExecutionLeaseLost
+	}
+	row, err := r.validateLease(ctx, key, leaseID, workerID)
+	if err != nil {
+		return jobdb.LeaseValidity{}, err
+	}
+	return jobdb.LeaseValidity{ExpiresAt: timeFromNS(row.leaseExpiresAtNS.Int64), Route: row.nextRoute}, nil
+}
+
 func (r *Runtime) validateLease(ctx context.Context, jobKey jobdb.JobKey, leaseID string, workerID string) (jobRow, error) {
 	row, err := r.loadJobRow(ctx, jobKey)
 	if err != nil {

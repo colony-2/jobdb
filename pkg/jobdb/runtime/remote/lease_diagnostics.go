@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
 	"syscall"
 	"time"
@@ -202,6 +203,9 @@ func (l *remoteExecutionLease) requestRenewal(ctx context.Context, operation str
 		case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusConflict:
 			cause = jobdb.ErrExecutionLeaseLost
 		}
+		if status == http.StatusForbidden && isDelegationToken(l.LeaseToken()) {
+			cause = jobdb.ErrLeasePermissionDenied
+		}
 		return nil, l.renewalError(operation, LeasePhaseExchange, LeaseFailureHTTP, status, cause)
 	}
 	body, err := io.ReadAll(resp.Body)
@@ -224,6 +228,9 @@ func (l *remoteExecutionLease) renewedSnapshot(response *runtimeapi.KeepAliveLea
 		return nil, l.renewalError(operation, LeasePhaseSnapshot, LeaseFailureUnsupported, http.StatusOK, jobdb.ErrLeaseRenewalUnsupported)
 	}
 	snapshot := response.Lease
+	if l.delegation != nil && (!isDelegationToken(snapshot.LeaseToken) || !reflect.DeepEqual(l.delegation, snapshot.Delegation)) {
+		return nil, l.renewalError(operation, LeasePhaseSnapshot, LeaseFailureSnapshot, http.StatusOK, jobdb.ErrExecutionLeaseLost)
+	}
 	if snapshot.LeaseId != l.leaseID || fromAPIJobKey(snapshot.Job.JobKey) != l.jobKey || snapshot.WorkerId == nil || *snapshot.WorkerId == "" || (l.workerID != "" && *snapshot.WorkerId != l.workerID) || snapshot.ExpiresAt == nil || !snapshot.ExpiresAt.After(time.Now()) || snapshot.LeaseToken == "" {
 		return nil, l.renewalError(operation, LeasePhaseSnapshot, LeaseFailureSnapshot, http.StatusOK, jobdb.ErrExecutionLeaseLost)
 	}

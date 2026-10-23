@@ -1061,11 +1061,115 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SecretError'
+  /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/delegations:
+    post:
+      tags: [leases]
+      operationId: createLeaseDelegation
+      summary: Create a restricted lease from an owner lease
+      description: Permissions are immutable signed claims. No individual revocation or further delegation. A hard deadline disables renewal, even with renewal permission.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDelegationRequest'
+      responses:
+        '200':
+          description: Authorized result; delegation responses contain no owner credentials or execution payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionLease'
+        default:
+          description: '400 invalid request; 401 invalid or expired delegation; 403 permission denied or deadline reached; 409 parent lease lost.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}:
+    get:
+      tags: [leases]
+      operationId: inspectLease
+      summary: Validate a delegated lease without renewal
+      description: Returns only identity, route, validity and delegation policy. Used to import restricted leases without requiring renewal permission.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      responses:
+        '200':
+          description: Authorized result; delegation responses contain no owner credentials or execution payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionLease'
+        default:
+          description: '400 invalid request; 401 invalid or expired delegation; 403 permission denied or deadline reached; 409 parent lease lost.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/chapters:
+    get:
+      tags: [chapters]
+      operationId: listChaptersWithLease
+      summary: Read only chapters allowed by the lease
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+        - $ref: '#/components/parameters/StartOrdinal'
+        - $ref: '#/components/parameters/EndOrdinal'
+      responses:
+        '200':
+          description: Authorized result; delegation responses contain no owner credentials or execution payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListChaptersResponse'
+        default:
+          description: '400 invalid request; 401 invalid or expired delegation; 403 permission denied or deadline reached; 409 parent lease lost.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/chapters/{ordinal}:
+    get:
+      tags: [chapters]
+      operationId: getChapterWithLease
+      summary: Read one chapter allowed by the lease
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+        - $ref: '#/components/parameters/Ordinal'
+      responses:
+        '200':
+          description: Authorized result; delegation responses contain no owner credentials or execution payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChapterRecord'
+        default:
+          description: '400 invalid request; 401 invalid or expired delegation; 403 permission denied or deadline reached; 409 parent lease lost.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/keepalive:
     post:
       tags: [leases]
       operationId: keepAliveLease
       summary: Keep lease alive
+      description: For a delegation, refreshes only its access token, requires delegation.renew and no hard deadline, and accepts an expired access token while the exact parent lease remains live. Never extends the parent. Restrictions remain unchanged.
       parameters:
         - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/JobId'
@@ -1335,6 +1439,96 @@ components:
       schema:
         type: string
   schemas:
+    DelegationNames:
+      type: object
+      additionalProperties: false
+      properties:
+        any: {type: boolean, default: false}
+        names:
+          type: array
+          maxItems: 256
+          items: {type: string, minLength: 1, maxLength: 1024}
+    DelegationOrdinalRange:
+      type: object
+      additionalProperties: false
+      required: [start, end]
+      properties:
+        start: {type: integer, format: int64, minimum: 0}
+        end: {type: integer, format: int64, minimum: 0}
+    DelegationChapters:
+      type: object
+      additionalProperties: false
+      properties:
+        any: {type: boolean, default: false}
+        ordinals:
+          type: array
+          maxItems: 256
+          items: {type: integer, format: int64, minimum: 0}
+        ranges:
+          type: array
+          maxItems: 256
+          items: {$ref: '#/components/schemas/DelegationOrdinalRange'}
+    DelegationSubmitPermission:
+      type: object
+      additionalProperties: false
+      required: [jobTypes, jobIds]
+      properties:
+        jobTypes: {$ref: '#/components/schemas/DelegationNames'}
+        jobIds: {$ref: '#/components/schemas/DelegationNames'}
+    DelegationWritePermission:
+      type: object
+      additionalProperties: false
+      required: [ordinals, taskTypes, artifactNames]
+      description: Only TaskAttemptOutcome chapters. Artifact selectors allow fresh uploads, never stored references.
+      properties:
+        ordinals:
+          type: array
+          maxItems: 256
+          items: {type: integer, format: int64, minimum: 0}
+        taskTypes: {$ref: '#/components/schemas/DelegationNames'}
+        artifactNames: {$ref: '#/components/schemas/DelegationNames'}
+    DelegationRenewPermission:
+      type: object
+      additionalProperties: false
+      required: [maxTtlSeconds]
+      properties:
+        maxTtlSeconds: {type: integer, minimum: 1, maximum: 300}
+    DelegationPermissions:
+      type: object
+      additionalProperties: false
+      properties:
+        jobs.submit: {$ref: '#/components/schemas/DelegationSubmitPermission'}
+        secrets.resolve:
+          type: array
+          maxItems: 256
+          items: {type: string, minLength: 1, maxLength: 1024}
+        chapters.read: {$ref: '#/components/schemas/DelegationChapters'}
+        chapters.write: {$ref: '#/components/schemas/DelegationWritePermission'}
+        delegation.renew: {$ref: '#/components/schemas/DelegationRenewPermission'}
+    CreateDelegationRequest:
+      type: object
+      additionalProperties: false
+      required: [permissions]
+      x-go-type: jobdb.CreateDelegationRequest
+      x-go-type-import:
+        path: github.com/colony-2/jobdb/pkg/jobdb
+        name: jobdb
+      properties:
+        permissions: {$ref: '#/components/schemas/DelegationPermissions'}
+        ttlSeconds: {type: integer, minimum: 1, maximum: 300, default: 30}
+        notAfter: {type: string, format: date-time}
+    DelegationInfo:
+      type: object
+      additionalProperties: false
+      required: [id, permissions]
+      x-go-type: jobdb.DelegationInfo
+      x-go-type-import:
+        path: github.com/colony-2/jobdb/pkg/jobdb
+        name: jobdb
+      properties:
+        id: {type: string}
+        permissions: {$ref: '#/components/schemas/DelegationPermissions'}
+        notAfter: {type: string, format: date-time}
     ConfigurationSnapshot:
       type: object
       additionalProperties: false
@@ -1414,6 +1608,13 @@ components:
         - conflict
         - execution_lease_lost
         - existing_job_mismatch
+        - invalid_delegation_credential
+        - delegation_access_token_expired
+        - lease_permission_denied
+        - delegation_deadline_reached
+        - invalid_delegation_request
+        - delegation_not_supported
+        - delegation_unavailable
         - chapter_not_found
         - job_not_found
         - job_not_complete
@@ -2290,6 +2491,8 @@ components:
       required: [leaseId, leaseToken, job, route, executionState, clientPayloadRevision]
       additionalProperties: false
       properties:
+        delegation:
+          $ref: '#/components/schemas/DelegationInfo'
         workerId:
           type: string
         expiresAt:

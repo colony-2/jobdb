@@ -346,7 +346,7 @@ func TestLeaseDiagnosticsRequestAndRedirectFailures(t *testing.T) {
 		lease := diagnosticLease(t, "https://jobdb.example", diagnosticTransport(func(r *http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: 307, Header: http.Header{"Location": []string{"https://user:url-password@other.example/path-secret?token=query-secret#fragment-secret"}}, Body: io.NopCloser(strings.NewReader(diagnosticSecret)), Request: r}, nil
 		}))
-		lease.runtime.raw.Client.(*http.Client).CheckRedirect = func(*http.Request, []*http.Request) error { return cause }
+		lease.runtime.delegations.original.CheckRedirect = func(*http.Request, []*http.Request) error { return cause }
 		_, err := lease.Renew(context.Background())
 		d := assertSafeLeaseDiagnostic(t, err)
 		require.ErrorIs(t, err, cause)

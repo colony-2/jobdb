@@ -129,13 +129,19 @@ type CompleteTaskIfWaitingRequest struct {
 }
 
 type ChapterRef struct {
-	JobKey   JobKey
-	Ordinal  int64
-	Attempt  int
-	TaskType string
+	// Optional remote lease authority; both fields must be set together.
+	LeaseID    string
+	LeaseToken string
+	JobKey     JobKey
+	Ordinal    int64
+	Attempt    int
+	TaskType   string
 }
 
 type ListChaptersRequest struct {
+	// Optional remote lease authority; both fields must be set together.
+	LeaseID      string
+	LeaseToken   string
 	JobKey       JobKey
 	StartOrdinal int64
 	EndOrdinal   *int64

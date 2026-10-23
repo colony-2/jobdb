@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/runtimeapi"
 )
 
 // LeaseCapability is a bearer credential. Only Encode deliberately exposes it.
@@ -54,7 +55,8 @@ func DecodeLeaseCapability(raw []byte) (LeaseCapability, error) {
 
 // ExportLease exports the current remote capability, including through wrappers
 // that forward LeaseToken. It does not stop the dispatcher's execution/renewal;
-// the caller must coordinate that handoff before the receiver starts.
+// the caller must coordinate an owner handoff before the receiver starts. For
+// a delegation, the owner should continue renewing its own parent lease.
 func ExportLease(lease jobdb.ExecutionLease) (LeaseCapability, error) {
 	token, ok := lease.(interface{ LeaseToken() string })
 	if !ok {
@@ -68,14 +70,28 @@ func ExportLease(lease jobdb.ExecutionLease) (LeaseCapability, error) {
 	return c, nil
 }
 
-// ImportLease validates and renews a capability without acquiring work. The
-// returned snapshot comes from the backend, never from serialized caller metadata.
+// ImportLease validates a capability without acquiring work. Owner leases are
+// renewed; delegated leases are inspected, with lazy child refresh if expired.
+// Importing a delegation never extends its parent and requires no owner token.
 func (r *Runtime) ImportLease(ctx context.Context, capability LeaseCapability) (jobdb.RenewableExecutionLease, error) {
 	if !capability.valid() {
 		return nil, jobdb.ErrExecutionLeaseLost
 	}
 	w := capability.wire
 	lease := &remoteExecutionLease{runtime: r, jobKey: jobdb.JobKey{TenantId: w.TenantID, JobId: w.JobID}, leaseID: w.LeaseID, leaseToken: w.Token}
+	if isDelegationToken(w.Token) {
+		resp, err := r.client.InspectLeaseWithResponse(ctx, w.TenantID, w.JobID, w.LeaseID, &runtimeapi.InspectLeaseParams{XJobDBLeaseToken: w.Token})
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode() != 200 || resp.JSON200 == nil {
+			return nil, responseError("import delegated lease", resp.StatusCode(), resp.Body, jobdb.ErrExecutionLeaseLost)
+		}
+		if resp.JSON200.Delegation == nil || !isDelegationToken(resp.JSON200.LeaseToken) {
+			return nil, jobdb.ErrExecutionLeaseLost
+		}
+		return lease.renewedSnapshot(&runtimeapi.KeepAliveLeaseResponse{Lease: resp.JSON200, LeaseToken: resp.JSON200.LeaseToken}, "renew")
+	}
 	return lease.Renew(ctx)
 }
 
@@ -90,6 +106,10 @@ func (l *remoteExecutionLease) LeaseWorkerID() string { return l.workerID }
 func (l *remoteExecutionLease) LeaseExpiry() time.Time {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
+	_, expiry := l.runtime.delegations.cached(l.leaseToken)
+	if !expiry.IsZero() {
+		return expiry
+	}
 	return l.expiresAt
 }
 func (l *remoteExecutionLease) String() string   { return "remote execution lease (capability redacted)" }

@@ -180,6 +180,9 @@ func (r *Runtime) GetConfiguration(ctx context.Context, req jobdb.GetConfigurati
 	return result, err
 }
 func (l *remoteExecutionLease) GetConfiguration(ctx context.Context) (jobdb.ConfigurationSnapshot, error) {
+	if l.delegation != nil {
+		return jobdb.ConfigurationSnapshot{}, jobdb.ErrLeasePermissionDenied
+	}
 	return l.runtime.GetConfiguration(ctx, jobdb.GetConfigurationRequest{JobKey: l.jobKey, LeaseID: l.leaseID, LeaseToken: l.LeaseToken()})
 }
 func (r *Runtime) GetTenantConfiguration(ctx context.Context, tenant string) (jobdb.ConfigurationSnapshot, error) {

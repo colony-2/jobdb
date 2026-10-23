@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	jobdb "github.com/colony-2/jobdb/pkg/jobdb"
 	clientpayload "github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 	"github.com/go-chi/chi/v5"
 	"github.com/oapi-codegen/runtime"
@@ -34,16 +35,23 @@ const (
 	ConfigurationTooLarge         ErrorCode = "configuration_too_large"
 	ConfigurationUnavailable      ErrorCode = "configuration_unavailable"
 	Conflict                      ErrorCode = "conflict"
+	DelegationAccessTokenExpired  ErrorCode = "delegation_access_token_expired"
+	DelegationDeadlineReached     ErrorCode = "delegation_deadline_reached"
+	DelegationNotSupported        ErrorCode = "delegation_not_supported"
+	DelegationUnavailable         ErrorCode = "delegation_unavailable"
 	ExecutionLeaseLost            ErrorCode = "execution_lease_lost"
 	ExistingJobMismatch           ErrorCode = "existing_job_mismatch"
 	Internal                      ErrorCode = "internal"
 	InvalidConfigurationRequest   ErrorCode = "invalid_configuration_request"
+	InvalidDelegationCredential   ErrorCode = "invalid_delegation_credential"
+	InvalidDelegationRequest      ErrorCode = "invalid_delegation_request"
 	InvalidRequest                ErrorCode = "invalid_request"
 	JobNotComplete                ErrorCode = "job_not_complete"
 	JobNotFound                   ErrorCode = "job_not_found"
 	JobSchemaArchived             ErrorCode = "job_schema_archived"
 	JobSchemaNotFound             ErrorCode = "job_schema_not_found"
 	JobSchemaValidationFailed     ErrorCode = "job_schema_validation_failed"
+	LeasePermissionDenied         ErrorCode = "lease_permission_denied"
 	NotFound                      ErrorCode = "not_found"
 	WorkflowNotDeterministic      ErrorCode = "workflow_not_deterministic"
 )
@@ -298,6 +306,60 @@ type ConfigurationSnapshot struct {
 	Values   map[string]ApplicationPayload `json:"values"`
 }
 
+// CreateDelegationRequest defines model for CreateDelegationRequest.
+type CreateDelegationRequest = jobdb.CreateDelegationRequest
+
+// DelegationChapters defines model for DelegationChapters.
+type DelegationChapters struct {
+	Any      *bool                     `json:"any,omitempty"`
+	Ordinals *[]int64                  `json:"ordinals,omitempty"`
+	Ranges   *[]DelegationOrdinalRange `json:"ranges,omitempty"`
+}
+
+// DelegationInfo defines model for DelegationInfo.
+type DelegationInfo = jobdb.DelegationInfo
+
+// DelegationNames defines model for DelegationNames.
+type DelegationNames struct {
+	Any   *bool     `json:"any,omitempty"`
+	Names *[]string `json:"names,omitempty"`
+}
+
+// DelegationOrdinalRange defines model for DelegationOrdinalRange.
+type DelegationOrdinalRange struct {
+	End   int64 `json:"end"`
+	Start int64 `json:"start"`
+}
+
+// DelegationPermissions defines model for DelegationPermissions.
+type DelegationPermissions struct {
+	ChaptersRead *DelegationChapters `json:"chapters.read,omitempty"`
+
+	// ChaptersWrite Only TaskAttemptOutcome chapters. Artifact selectors allow fresh uploads, never stored references.
+	ChaptersWrite   *DelegationWritePermission  `json:"chapters.write,omitempty"`
+	DelegationRenew *DelegationRenewPermission  `json:"delegation.renew,omitempty"`
+	JobsSubmit      *DelegationSubmitPermission `json:"jobs.submit,omitempty"`
+	SecretsResolve  *[]string                   `json:"secrets.resolve,omitempty"`
+}
+
+// DelegationRenewPermission defines model for DelegationRenewPermission.
+type DelegationRenewPermission struct {
+	MaxTtlSeconds int `json:"maxTtlSeconds"`
+}
+
+// DelegationSubmitPermission defines model for DelegationSubmitPermission.
+type DelegationSubmitPermission struct {
+	JobIds   DelegationNames `json:"jobIds"`
+	JobTypes DelegationNames `json:"jobTypes"`
+}
+
+// DelegationWritePermission Only TaskAttemptOutcome chapters. Artifact selectors allow fresh uploads, never stored references.
+type DelegationWritePermission struct {
+	ArtifactNames DelegationNames `json:"artifactNames"`
+	Ordinals      []int64         `json:"ordinals"`
+	TaskTypes     DelegationNames `json:"taskTypes"`
+}
+
 // DeleteJobsRequest defines model for DeleteJobsRequest.
 type DeleteJobsRequest struct {
 	// All Select the entire tenant; cannot be combined with other selectors.
@@ -346,6 +408,7 @@ type ExecutionChapterKind string
 type ExecutionLease struct {
 	ClientPayload         json.RawMessage `json:"clientPayload,omitempty"`
 	ClientPayloadRevision string          `json:"clientPayloadRevision"`
+	Delegation            *DelegationInfo `json:"delegation,omitempty"`
 	ExecutionState        ExecutionState  `json:"executionState"`
 
 	// ExpiresAt Safe validity deadline, including capability expiration.
@@ -1106,8 +1169,25 @@ type ListChaptersParams struct {
 	EndOrdinal   *EndOrdinal  `form:"endOrdinal,omitempty" json:"endOrdinal,omitempty"`
 }
 
+// InspectLeaseParams defines parameters for InspectLease.
+type InspectLeaseParams struct {
+	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
+}
+
 // AddChapterWithLeaseParams defines parameters for AddChapterWithLease.
 type AddChapterWithLeaseParams struct {
+	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
+}
+
+// ListChaptersWithLeaseParams defines parameters for ListChaptersWithLease.
+type ListChaptersWithLeaseParams struct {
+	StartOrdinal     StartOrdinal     `form:"startOrdinal" json:"startOrdinal"`
+	EndOrdinal       *EndOrdinal      `form:"endOrdinal,omitempty" json:"endOrdinal,omitempty"`
+	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
+}
+
+// GetChapterWithLeaseParams defines parameters for GetChapterWithLease.
+type GetChapterWithLeaseParams struct {
 	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
 }
 
@@ -1118,6 +1198,11 @@ type CompleteJobWithLeaseParams struct {
 
 // GetConfigurationWithLeaseParams defines parameters for GetConfigurationWithLease.
 type GetConfigurationWithLeaseParams struct {
+	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
+}
+
+// CreateLeaseDelegationParams defines parameters for CreateLeaseDelegation.
+type CreateLeaseDelegationParams struct {
 	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
 }
 
@@ -1199,6 +1284,9 @@ type AddChapterWithLeaseJSONRequestBody = AddChapterRequest
 
 // CompleteJobWithLeaseJSONRequestBody defines body for CompleteJobWithLease for application/json ContentType.
 type CompleteJobWithLeaseJSONRequestBody = CompleteExecutionRequest
+
+// CreateLeaseDelegationJSONRequestBody defines body for CreateLeaseDelegation for application/json ContentType.
+type CreateLeaseDelegationJSONRequestBody = CreateDelegationRequest
 
 // RescheduleJobWithLeaseJSONRequestBody defines body for RescheduleJobWithLease for application/json ContentType.
 type RescheduleJobWithLeaseJSONRequestBody = RescheduleExecutionRequest
@@ -1955,10 +2043,19 @@ type ClientInterface interface {
 
 	GetJobLease(ctx context.Context, tenantId TenantId, jobId JobId, body GetJobLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// InspectLease request
+	InspectLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *InspectLeaseParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// AddChapterWithLeaseWithBody request with any body
 	AddChapterWithLeaseWithBody(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *AddChapterWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	AddChapterWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *AddChapterWithLeaseParams, body AddChapterWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListChaptersWithLease request
+	ListChaptersWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *ListChaptersWithLeaseParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetChapterWithLease request
+	GetChapterWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, ordinal Ordinal, params *GetChapterWithLeaseParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// CompleteJobWithLeaseWithBody request with any body
 	CompleteJobWithLeaseWithBody(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *CompleteJobWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1967,6 +2064,11 @@ type ClientInterface interface {
 
 	// GetConfigurationWithLease request
 	GetConfigurationWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *GetConfigurationWithLeaseParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateLeaseDelegationWithBody request with any body
+	CreateLeaseDelegationWithBody(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *CreateLeaseDelegationParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CreateLeaseDelegation(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *CreateLeaseDelegationParams, body CreateLeaseDelegationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// KeepAliveLease request
 	KeepAliveLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *KeepAliveLeaseParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -2383,6 +2485,18 @@ func (c *Client) GetJobLease(ctx context.Context, tenantId TenantId, jobId JobId
 	return c.Client.Do(req)
 }
 
+func (c *Client) InspectLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *InspectLeaseParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewInspectLeaseRequest(c.Server, tenantId, jobId, leaseId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) AddChapterWithLeaseWithBody(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *AddChapterWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewAddChapterWithLeaseRequestWithBody(c.Server, tenantId, jobId, leaseId, params, contentType, body)
 	if err != nil {
@@ -2397,6 +2511,30 @@ func (c *Client) AddChapterWithLeaseWithBody(ctx context.Context, tenantId Tenan
 
 func (c *Client) AddChapterWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *AddChapterWithLeaseParams, body AddChapterWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewAddChapterWithLeaseRequest(c.Server, tenantId, jobId, leaseId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListChaptersWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *ListChaptersWithLeaseParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListChaptersWithLeaseRequest(c.Server, tenantId, jobId, leaseId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetChapterWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, ordinal Ordinal, params *GetChapterWithLeaseParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetChapterWithLeaseRequest(c.Server, tenantId, jobId, leaseId, ordinal, params)
 	if err != nil {
 		return nil, err
 	}
@@ -2433,6 +2571,30 @@ func (c *Client) CompleteJobWithLease(ctx context.Context, tenantId TenantId, jo
 
 func (c *Client) GetConfigurationWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *GetConfigurationWithLeaseParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetConfigurationWithLeaseRequest(c.Server, tenantId, jobId, leaseId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateLeaseDelegationWithBody(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *CreateLeaseDelegationParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateLeaseDelegationRequestWithBody(c.Server, tenantId, jobId, leaseId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateLeaseDelegation(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *CreateLeaseDelegationParams, body CreateLeaseDelegationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateLeaseDelegationRequest(c.Server, tenantId, jobId, leaseId, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3691,6 +3853,67 @@ func NewGetJobLeaseRequestWithBody(server string, tenantId TenantId, jobId JobId
 	return req, nil
 }
 
+// NewInspectLeaseRequest generates requests for InspectLease
+func NewInspectLeaseRequest(server string, tenantId TenantId, jobId JobId, leaseId LeaseId, params *InspectLeaseParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "jobId", runtime.ParamLocationPath, jobId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithLocation("simple", false, "leaseId", runtime.ParamLocationPath, leaseId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs/%s/leases/%s", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithLocation("simple", false, "X-JobDB-Lease-Token", runtime.ParamLocationHeader, params.XJobDBLeaseToken)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-JobDB-Lease-Token", headerParam0)
+
+	}
+
+	return req, nil
+}
+
 // NewAddChapterWithLeaseRequest calls the generic AddChapterWithLease builder with application/json body
 func NewAddChapterWithLeaseRequest(server string, tenantId TenantId, jobId JobId, leaseId LeaseId, params *AddChapterWithLeaseParams, body AddChapterWithLeaseJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -3748,6 +3971,169 @@ func NewAddChapterWithLeaseRequestWithBody(server string, tenantId TenantId, job
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithLocation("simple", false, "X-JobDB-Lease-Token", runtime.ParamLocationHeader, params.XJobDBLeaseToken)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-JobDB-Lease-Token", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewListChaptersWithLeaseRequest generates requests for ListChaptersWithLease
+func NewListChaptersWithLeaseRequest(server string, tenantId TenantId, jobId JobId, leaseId LeaseId, params *ListChaptersWithLeaseParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "jobId", runtime.ParamLocationPath, jobId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithLocation("simple", false, "leaseId", runtime.ParamLocationPath, leaseId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs/%s/leases/%s/chapters", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "startOrdinal", runtime.ParamLocationQuery, params.StartOrdinal); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		if params.EndOrdinal != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "endOrdinal", runtime.ParamLocationQuery, *params.EndOrdinal); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithLocation("simple", false, "X-JobDB-Lease-Token", runtime.ParamLocationHeader, params.XJobDBLeaseToken)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-JobDB-Lease-Token", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewGetChapterWithLeaseRequest generates requests for GetChapterWithLease
+func NewGetChapterWithLeaseRequest(server string, tenantId TenantId, jobId JobId, leaseId LeaseId, ordinal Ordinal, params *GetChapterWithLeaseParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "jobId", runtime.ParamLocationPath, jobId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithLocation("simple", false, "leaseId", runtime.ParamLocationPath, leaseId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam3 string
+
+	pathParam3, err = runtime.StyleParamWithLocation("simple", false, "ordinal", runtime.ParamLocationPath, ordinal)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs/%s/leases/%s/chapters/%s", pathParam0, pathParam1, pathParam2, pathParam3)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	if params != nil {
 
@@ -3883,6 +4269,80 @@ func NewGetConfigurationWithLeaseRequest(server string, tenantId TenantId, jobId
 	if err != nil {
 		return nil, err
 	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithLocation("simple", false, "X-JobDB-Lease-Token", runtime.ParamLocationHeader, params.XJobDBLeaseToken)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-JobDB-Lease-Token", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewCreateLeaseDelegationRequest calls the generic CreateLeaseDelegation builder with application/json body
+func NewCreateLeaseDelegationRequest(server string, tenantId TenantId, jobId JobId, leaseId LeaseId, params *CreateLeaseDelegationParams, body CreateLeaseDelegationJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateLeaseDelegationRequestWithBody(server, tenantId, jobId, leaseId, params, "application/json", bodyReader)
+}
+
+// NewCreateLeaseDelegationRequestWithBody generates requests for CreateLeaseDelegation with any type of body
+func NewCreateLeaseDelegationRequestWithBody(server string, tenantId TenantId, jobId JobId, leaseId LeaseId, params *CreateLeaseDelegationParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "jobId", runtime.ParamLocationPath, jobId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithLocation("simple", false, "leaseId", runtime.ParamLocationPath, leaseId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs/%s/leases/%s/delegations", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	if params != nil {
 
@@ -5183,10 +5643,19 @@ type ClientWithResponsesInterface interface {
 
 	GetJobLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, body GetJobLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*GetJobLeaseHTTPResponse, error)
 
+	// InspectLeaseWithResponse request
+	InspectLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *InspectLeaseParams, reqEditors ...RequestEditorFn) (*InspectLeaseHTTPResponse, error)
+
 	// AddChapterWithLeaseWithBodyWithResponse request with any body
 	AddChapterWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *AddChapterWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddChapterWithLeaseHTTPResponse, error)
 
 	AddChapterWithLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *AddChapterWithLeaseParams, body AddChapterWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*AddChapterWithLeaseHTTPResponse, error)
+
+	// ListChaptersWithLeaseWithResponse request
+	ListChaptersWithLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *ListChaptersWithLeaseParams, reqEditors ...RequestEditorFn) (*ListChaptersWithLeaseHTTPResponse, error)
+
+	// GetChapterWithLeaseWithResponse request
+	GetChapterWithLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, ordinal Ordinal, params *GetChapterWithLeaseParams, reqEditors ...RequestEditorFn) (*GetChapterWithLeaseHTTPResponse, error)
 
 	// CompleteJobWithLeaseWithBodyWithResponse request with any body
 	CompleteJobWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *CompleteJobWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CompleteJobWithLeaseHTTPResponse, error)
@@ -5195,6 +5664,11 @@ type ClientWithResponsesInterface interface {
 
 	// GetConfigurationWithLeaseWithResponse request
 	GetConfigurationWithLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *GetConfigurationWithLeaseParams, reqEditors ...RequestEditorFn) (*GetConfigurationWithLeaseHTTPResponse, error)
+
+	// CreateLeaseDelegationWithBodyWithResponse request with any body
+	CreateLeaseDelegationWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *CreateLeaseDelegationParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateLeaseDelegationHTTPResponse, error)
+
+	CreateLeaseDelegationWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *CreateLeaseDelegationParams, body CreateLeaseDelegationJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateLeaseDelegationHTTPResponse, error)
 
 	// KeepAliveLeaseWithResponse request
 	KeepAliveLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *KeepAliveLeaseParams, reqEditors ...RequestEditorFn) (*KeepAliveLeaseHTTPResponse, error)
@@ -5657,6 +6131,29 @@ func (r GetJobLeaseHTTPResponse) StatusCode() int {
 	return 0
 }
 
+type InspectLeaseHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ExecutionLease
+	JSONDefault  *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r InspectLeaseHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r InspectLeaseHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type AddChapterWithLeaseHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -5672,6 +6169,52 @@ func (r AddChapterWithLeaseHTTPResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r AddChapterWithLeaseHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ListChaptersWithLeaseHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ListChaptersResponse
+	JSONDefault  *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r ListChaptersWithLeaseHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListChaptersWithLeaseHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetChapterWithLeaseHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ChapterRecord
+	JSONDefault  *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r GetChapterWithLeaseHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetChapterWithLeaseHTTPResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5722,6 +6265,29 @@ func (r GetConfigurationWithLeaseHTTPResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r GetConfigurationWithLeaseHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type CreateLeaseDelegationHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ExecutionLease
+	JSONDefault  *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateLeaseDelegationHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateLeaseDelegationHTTPResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -6404,6 +6970,15 @@ func (c *ClientWithResponses) GetJobLeaseWithResponse(ctx context.Context, tenan
 	return ParseGetJobLeaseHTTPResponse(rsp)
 }
 
+// InspectLeaseWithResponse request returning *InspectLeaseHTTPResponse
+func (c *ClientWithResponses) InspectLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *InspectLeaseParams, reqEditors ...RequestEditorFn) (*InspectLeaseHTTPResponse, error) {
+	rsp, err := c.InspectLease(ctx, tenantId, jobId, leaseId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseInspectLeaseHTTPResponse(rsp)
+}
+
 // AddChapterWithLeaseWithBodyWithResponse request with arbitrary body returning *AddChapterWithLeaseHTTPResponse
 func (c *ClientWithResponses) AddChapterWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *AddChapterWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddChapterWithLeaseHTTPResponse, error) {
 	rsp, err := c.AddChapterWithLeaseWithBody(ctx, tenantId, jobId, leaseId, params, contentType, body, reqEditors...)
@@ -6419,6 +6994,24 @@ func (c *ClientWithResponses) AddChapterWithLeaseWithResponse(ctx context.Contex
 		return nil, err
 	}
 	return ParseAddChapterWithLeaseHTTPResponse(rsp)
+}
+
+// ListChaptersWithLeaseWithResponse request returning *ListChaptersWithLeaseHTTPResponse
+func (c *ClientWithResponses) ListChaptersWithLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *ListChaptersWithLeaseParams, reqEditors ...RequestEditorFn) (*ListChaptersWithLeaseHTTPResponse, error) {
+	rsp, err := c.ListChaptersWithLease(ctx, tenantId, jobId, leaseId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListChaptersWithLeaseHTTPResponse(rsp)
+}
+
+// GetChapterWithLeaseWithResponse request returning *GetChapterWithLeaseHTTPResponse
+func (c *ClientWithResponses) GetChapterWithLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, ordinal Ordinal, params *GetChapterWithLeaseParams, reqEditors ...RequestEditorFn) (*GetChapterWithLeaseHTTPResponse, error) {
+	rsp, err := c.GetChapterWithLease(ctx, tenantId, jobId, leaseId, ordinal, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetChapterWithLeaseHTTPResponse(rsp)
 }
 
 // CompleteJobWithLeaseWithBodyWithResponse request with arbitrary body returning *CompleteJobWithLeaseHTTPResponse
@@ -6445,6 +7038,23 @@ func (c *ClientWithResponses) GetConfigurationWithLeaseWithResponse(ctx context.
 		return nil, err
 	}
 	return ParseGetConfigurationWithLeaseHTTPResponse(rsp)
+}
+
+// CreateLeaseDelegationWithBodyWithResponse request with arbitrary body returning *CreateLeaseDelegationHTTPResponse
+func (c *ClientWithResponses) CreateLeaseDelegationWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *CreateLeaseDelegationParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateLeaseDelegationHTTPResponse, error) {
+	rsp, err := c.CreateLeaseDelegationWithBody(ctx, tenantId, jobId, leaseId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateLeaseDelegationHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) CreateLeaseDelegationWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *CreateLeaseDelegationParams, body CreateLeaseDelegationJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateLeaseDelegationHTTPResponse, error) {
+	rsp, err := c.CreateLeaseDelegation(ctx, tenantId, jobId, leaseId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateLeaseDelegationHTTPResponse(rsp)
 }
 
 // KeepAliveLeaseWithResponse request returning *KeepAliveLeaseHTTPResponse
@@ -7268,6 +7878,39 @@ func ParseGetJobLeaseHTTPResponse(rsp *http.Response) (*GetJobLeaseHTTPResponse,
 	return response, nil
 }
 
+// ParseInspectLeaseHTTPResponse parses an HTTP response from a InspectLeaseWithResponse call
+func ParseInspectLeaseHTTPResponse(rsp *http.Response) (*InspectLeaseHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &InspectLeaseHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ExecutionLease
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseAddChapterWithLeaseHTTPResponse parses an HTTP response from a AddChapterWithLeaseWithResponse call
 func ParseAddChapterWithLeaseHTTPResponse(rsp *http.Response) (*AddChapterWithLeaseHTTPResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -7279,6 +7922,72 @@ func ParseAddChapterWithLeaseHTTPResponse(rsp *http.Response) (*AddChapterWithLe
 	response := &AddChapterWithLeaseHTTPResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParseListChaptersWithLeaseHTTPResponse parses an HTTP response from a ListChaptersWithLeaseWithResponse call
+func ParseListChaptersWithLeaseHTTPResponse(rsp *http.Response) (*ListChaptersWithLeaseHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListChaptersWithLeaseHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ListChaptersResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetChapterWithLeaseHTTPResponse parses an HTTP response from a GetChapterWithLeaseWithResponse call
+func ParseGetChapterWithLeaseHTTPResponse(rsp *http.Response) (*GetChapterWithLeaseHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetChapterWithLeaseHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ChapterRecord
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -7369,6 +8078,39 @@ func ParseGetConfigurationWithLeaseHTTPResponse(rsp *http.Response) (*GetConfigu
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateLeaseDelegationHTTPResponse parses an HTTP response from a CreateLeaseDelegationWithResponse call
+func ParseCreateLeaseDelegationHTTPResponse(rsp *http.Response) (*CreateLeaseDelegationHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateLeaseDelegationHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ExecutionLease
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -7970,15 +8712,27 @@ type ServerInterface interface {
 	// Get job lease
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/lease)
 	GetJobLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId)
+	// Validate a delegated lease without renewal
+	// (GET /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId})
+	InspectLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params InspectLeaseParams)
 	// Add chapter with lease
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/add_chapter)
 	AddChapterWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params AddChapterWithLeaseParams)
+	// Read only chapters allowed by the lease
+	// (GET /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/chapters)
+	ListChaptersWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params ListChaptersWithLeaseParams)
+	// Read one chapter allowed by the lease
+	// (GET /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/chapters/{ordinal})
+	GetChapterWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, ordinal Ordinal, params GetChapterWithLeaseParams)
 	// Complete job with lease
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/complete)
 	CompleteJobWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params CompleteJobWithLeaseParams)
 	// Read current tenant configuration using a live lease
 	// (GET /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/configuration)
 	GetConfigurationWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params GetConfigurationWithLeaseParams)
+	// Create a restricted lease from an owner lease
+	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/delegations)
+	CreateLeaseDelegation(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params CreateLeaseDelegationParams)
 	// Keep lease alive
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/keepalive)
 	KeepAliveLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params KeepAliveLeaseParams)
@@ -8141,9 +8895,27 @@ func (_ Unimplemented) GetJobLease(w http.ResponseWriter, r *http.Request, tenan
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Validate a delegated lease without renewal
+// (GET /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId})
+func (_ Unimplemented) InspectLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params InspectLeaseParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Add chapter with lease
 // (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/add_chapter)
 func (_ Unimplemented) AddChapterWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params AddChapterWithLeaseParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read only chapters allowed by the lease
+// (GET /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/chapters)
+func (_ Unimplemented) ListChaptersWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params ListChaptersWithLeaseParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read one chapter allowed by the lease
+// (GET /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/chapters/{ordinal})
+func (_ Unimplemented) GetChapterWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, ordinal Ordinal, params GetChapterWithLeaseParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -8156,6 +8928,12 @@ func (_ Unimplemented) CompleteJobWithLease(w http.ResponseWriter, r *http.Reque
 // Read current tenant configuration using a live lease
 // (GET /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/configuration)
 func (_ Unimplemented) GetConfigurationWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params GetConfigurationWithLeaseParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Create a restricted lease from an owner lease
+// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/delegations)
+func (_ Unimplemented) CreateLeaseDelegation(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params CreateLeaseDelegationParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -8955,6 +9733,83 @@ func (siw *ServerInterfaceWrapper) GetJobLease(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// InspectLease operation middleware
+func (siw *ServerInterfaceWrapper) InspectLease(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "jobId" -------------
+	var jobId JobId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobId", chi.URLParam(r, "jobId"), &jobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "leaseId" -------------
+	var leaseId LeaseId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "leaseId", chi.URLParam(r, "leaseId"), &leaseId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "leaseId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params InspectLeaseParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-JobDB-Lease-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-JobDB-Lease-Token")]; found {
+		var XJobDBLeaseToken LeaseTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-JobDB-Lease-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-JobDB-Lease-Token", valueList[0], &XJobDBLeaseToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-JobDB-Lease-Token", Err: err})
+			return
+		}
+
+		params.XJobDBLeaseToken = XJobDBLeaseToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-JobDB-Lease-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-JobDB-Lease-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.InspectLease(w, r, tenantId, jobId, leaseId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // AddChapterWithLease operation middleware
 func (siw *ServerInterfaceWrapper) AddChapterWithLease(w http.ResponseWriter, r *http.Request) {
 
@@ -9023,6 +9878,192 @@ func (siw *ServerInterfaceWrapper) AddChapterWithLease(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.AddChapterWithLease(w, r, tenantId, jobId, leaseId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListChaptersWithLease operation middleware
+func (siw *ServerInterfaceWrapper) ListChaptersWithLease(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "jobId" -------------
+	var jobId JobId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobId", chi.URLParam(r, "jobId"), &jobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "leaseId" -------------
+	var leaseId LeaseId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "leaseId", chi.URLParam(r, "leaseId"), &leaseId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "leaseId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListChaptersWithLeaseParams
+
+	// ------------- Required query parameter "startOrdinal" -------------
+
+	if paramValue := r.URL.Query().Get("startOrdinal"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "startOrdinal"})
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "startOrdinal", r.URL.Query(), &params.StartOrdinal)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "startOrdinal", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "endOrdinal" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "endOrdinal", r.URL.Query(), &params.EndOrdinal)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "endOrdinal", Err: err})
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-JobDB-Lease-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-JobDB-Lease-Token")]; found {
+		var XJobDBLeaseToken LeaseTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-JobDB-Lease-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-JobDB-Lease-Token", valueList[0], &XJobDBLeaseToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-JobDB-Lease-Token", Err: err})
+			return
+		}
+
+		params.XJobDBLeaseToken = XJobDBLeaseToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-JobDB-Lease-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-JobDB-Lease-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListChaptersWithLease(w, r, tenantId, jobId, leaseId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetChapterWithLease operation middleware
+func (siw *ServerInterfaceWrapper) GetChapterWithLease(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "jobId" -------------
+	var jobId JobId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobId", chi.URLParam(r, "jobId"), &jobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "leaseId" -------------
+	var leaseId LeaseId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "leaseId", chi.URLParam(r, "leaseId"), &leaseId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "leaseId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "ordinal" -------------
+	var ordinal Ordinal
+
+	err = runtime.BindStyledParameterWithOptions("simple", "ordinal", chi.URLParam(r, "ordinal"), &ordinal, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ordinal", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetChapterWithLeaseParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-JobDB-Lease-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-JobDB-Lease-Token")]; found {
+		var XJobDBLeaseToken LeaseTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-JobDB-Lease-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-JobDB-Lease-Token", valueList[0], &XJobDBLeaseToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-JobDB-Lease-Token", Err: err})
+			return
+		}
+
+		params.XJobDBLeaseToken = XJobDBLeaseToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-JobDB-Lease-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-JobDB-Lease-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetChapterWithLease(w, r, tenantId, jobId, leaseId, ordinal, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -9177,6 +10218,83 @@ func (siw *ServerInterfaceWrapper) GetConfigurationWithLease(w http.ResponseWrit
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetConfigurationWithLease(w, r, tenantId, jobId, leaseId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateLeaseDelegation operation middleware
+func (siw *ServerInterfaceWrapper) CreateLeaseDelegation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "jobId" -------------
+	var jobId JobId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobId", chi.URLParam(r, "jobId"), &jobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "leaseId" -------------
+	var leaseId LeaseId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "leaseId", chi.URLParam(r, "leaseId"), &leaseId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "leaseId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateLeaseDelegationParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-JobDB-Lease-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-JobDB-Lease-Token")]; found {
+		var XJobDBLeaseToken LeaseTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-JobDB-Lease-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-JobDB-Lease-Token", valueList[0], &XJobDBLeaseToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-JobDB-Lease-Token", Err: err})
+			return
+		}
+
+		params.XJobDBLeaseToken = XJobDBLeaseToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-JobDB-Lease-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-JobDB-Lease-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateLeaseDelegation(w, r, tenantId, jobId, leaseId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -10409,13 +11527,25 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/lease", wrapper.GetJobLease)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}", wrapper.InspectLease)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/add_chapter", wrapper.AddChapterWithLease)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/chapters", wrapper.ListChaptersWithLease)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/chapters/{ordinal}", wrapper.GetChapterWithLease)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/complete", wrapper.CompleteJobWithLease)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/configuration", wrapper.GetConfigurationWithLease)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/delegations", wrapper.CreateLeaseDelegation)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/keepalive", wrapper.KeepAliveLease)
@@ -11185,6 +12315,38 @@ func (response GetJobLease200JSONResponse) VisitGetJobLeaseResponse(w http.Respo
 	return json.NewEncoder(w).Encode(response)
 }
 
+type InspectLeaseRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	JobId    JobId    `json:"jobId"`
+	LeaseId  LeaseId  `json:"leaseId"`
+	Params   InspectLeaseParams
+}
+
+type InspectLeaseResponseObject interface {
+	VisitInspectLeaseResponse(w http.ResponseWriter) error
+}
+
+type InspectLease200JSONResponse ExecutionLease
+
+func (response InspectLease200JSONResponse) VisitInspectLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type InspectLeasedefaultJSONResponse struct {
+	Body       ErrorResponse
+	StatusCode int
+}
+
+func (response InspectLeasedefaultJSONResponse) VisitInspectLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
 type AddChapterWithLeaseRequestObject struct {
 	TenantId TenantId `json:"tenantId"`
 	JobId    JobId    `json:"jobId"`
@@ -11211,6 +12373,71 @@ type AddChapterWithLease409Response struct {
 func (response AddChapterWithLease409Response) VisitAddChapterWithLeaseResponse(w http.ResponseWriter) error {
 	w.WriteHeader(409)
 	return nil
+}
+
+type ListChaptersWithLeaseRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	JobId    JobId    `json:"jobId"`
+	LeaseId  LeaseId  `json:"leaseId"`
+	Params   ListChaptersWithLeaseParams
+}
+
+type ListChaptersWithLeaseResponseObject interface {
+	VisitListChaptersWithLeaseResponse(w http.ResponseWriter) error
+}
+
+type ListChaptersWithLease200JSONResponse ListChaptersResponse
+
+func (response ListChaptersWithLease200JSONResponse) VisitListChaptersWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListChaptersWithLeasedefaultJSONResponse struct {
+	Body       ErrorResponse
+	StatusCode int
+}
+
+func (response ListChaptersWithLeasedefaultJSONResponse) VisitListChaptersWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetChapterWithLeaseRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	JobId    JobId    `json:"jobId"`
+	LeaseId  LeaseId  `json:"leaseId"`
+	Ordinal  Ordinal  `json:"ordinal"`
+	Params   GetChapterWithLeaseParams
+}
+
+type GetChapterWithLeaseResponseObject interface {
+	VisitGetChapterWithLeaseResponse(w http.ResponseWriter) error
+}
+
+type GetChapterWithLease200JSONResponse ChapterRecord
+
+func (response GetChapterWithLease200JSONResponse) VisitGetChapterWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetChapterWithLeasedefaultJSONResponse struct {
+	Body       ErrorResponse
+	StatusCode int
+}
+
+func (response GetChapterWithLeasedefaultJSONResponse) VisitGetChapterWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+
+	return json.NewEncoder(w).Encode(response.Body)
 }
 
 type CompleteJobWithLeaseRequestObject struct {
@@ -11378,6 +12605,39 @@ func (response GetConfigurationWithLease503JSONResponse) VisitGetConfigurationWi
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
 	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type CreateLeaseDelegationRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	JobId    JobId    `json:"jobId"`
+	LeaseId  LeaseId  `json:"leaseId"`
+	Params   CreateLeaseDelegationParams
+	Body     *CreateLeaseDelegationJSONRequestBody
+}
+
+type CreateLeaseDelegationResponseObject interface {
+	VisitCreateLeaseDelegationResponse(w http.ResponseWriter) error
+}
+
+type CreateLeaseDelegation200JSONResponse ExecutionLease
+
+func (response CreateLeaseDelegation200JSONResponse) VisitCreateLeaseDelegationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateLeaseDelegationdefaultJSONResponse struct {
+	Body       ErrorResponse
+	StatusCode int
+}
+
+func (response CreateLeaseDelegationdefaultJSONResponse) VisitCreateLeaseDelegationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
 
 	return json.NewEncoder(w).Encode(response.Body)
 }
@@ -11890,15 +13150,27 @@ type StrictServerInterface interface {
 	// Get job lease
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/lease)
 	GetJobLease(ctx context.Context, request GetJobLeaseRequestObject) (GetJobLeaseResponseObject, error)
+	// Validate a delegated lease without renewal
+	// (GET /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId})
+	InspectLease(ctx context.Context, request InspectLeaseRequestObject) (InspectLeaseResponseObject, error)
 	// Add chapter with lease
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/add_chapter)
 	AddChapterWithLease(ctx context.Context, request AddChapterWithLeaseRequestObject) (AddChapterWithLeaseResponseObject, error)
+	// Read only chapters allowed by the lease
+	// (GET /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/chapters)
+	ListChaptersWithLease(ctx context.Context, request ListChaptersWithLeaseRequestObject) (ListChaptersWithLeaseResponseObject, error)
+	// Read one chapter allowed by the lease
+	// (GET /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/chapters/{ordinal})
+	GetChapterWithLease(ctx context.Context, request GetChapterWithLeaseRequestObject) (GetChapterWithLeaseResponseObject, error)
 	// Complete job with lease
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/complete)
 	CompleteJobWithLease(ctx context.Context, request CompleteJobWithLeaseRequestObject) (CompleteJobWithLeaseResponseObject, error)
 	// Read current tenant configuration using a live lease
 	// (GET /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/configuration)
 	GetConfigurationWithLease(ctx context.Context, request GetConfigurationWithLeaseRequestObject) (GetConfigurationWithLeaseResponseObject, error)
+	// Create a restricted lease from an owner lease
+	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/delegations)
+	CreateLeaseDelegation(ctx context.Context, request CreateLeaseDelegationRequestObject) (CreateLeaseDelegationResponseObject, error)
 	// Keep lease alive
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/keepalive)
 	KeepAliveLease(ctx context.Context, request KeepAliveLeaseRequestObject) (KeepAliveLeaseResponseObject, error)
@@ -12496,6 +13768,35 @@ func (sh *strictHandler) GetJobLease(w http.ResponseWriter, r *http.Request, ten
 	}
 }
 
+// InspectLease operation middleware
+func (sh *strictHandler) InspectLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params InspectLeaseParams) {
+	var request InspectLeaseRequestObject
+
+	request.TenantId = tenantId
+	request.JobId = jobId
+	request.LeaseId = leaseId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.InspectLease(ctx, request.(InspectLeaseRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "InspectLease")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(InspectLeaseResponseObject); ok {
+		if err := validResponse.VisitInspectLeaseResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // AddChapterWithLease operation middleware
 func (sh *strictHandler) AddChapterWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params AddChapterWithLeaseParams) {
 	var request AddChapterWithLeaseRequestObject
@@ -12525,6 +13826,65 @@ func (sh *strictHandler) AddChapterWithLease(w http.ResponseWriter, r *http.Requ
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(AddChapterWithLeaseResponseObject); ok {
 		if err := validResponse.VisitAddChapterWithLeaseResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListChaptersWithLease operation middleware
+func (sh *strictHandler) ListChaptersWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params ListChaptersWithLeaseParams) {
+	var request ListChaptersWithLeaseRequestObject
+
+	request.TenantId = tenantId
+	request.JobId = jobId
+	request.LeaseId = leaseId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListChaptersWithLease(ctx, request.(ListChaptersWithLeaseRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListChaptersWithLease")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListChaptersWithLeaseResponseObject); ok {
+		if err := validResponse.VisitListChaptersWithLeaseResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetChapterWithLease operation middleware
+func (sh *strictHandler) GetChapterWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, ordinal Ordinal, params GetChapterWithLeaseParams) {
+	var request GetChapterWithLeaseRequestObject
+
+	request.TenantId = tenantId
+	request.JobId = jobId
+	request.LeaseId = leaseId
+	request.Ordinal = ordinal
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetChapterWithLease(ctx, request.(GetChapterWithLeaseRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetChapterWithLease")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetChapterWithLeaseResponseObject); ok {
+		if err := validResponse.VisitGetChapterWithLeaseResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -12590,6 +13950,42 @@ func (sh *strictHandler) GetConfigurationWithLease(w http.ResponseWriter, r *htt
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetConfigurationWithLeaseResponseObject); ok {
 		if err := validResponse.VisitGetConfigurationWithLeaseResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateLeaseDelegation operation middleware
+func (sh *strictHandler) CreateLeaseDelegation(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params CreateLeaseDelegationParams) {
+	var request CreateLeaseDelegationRequestObject
+
+	request.TenantId = tenantId
+	request.JobId = jobId
+	request.LeaseId = leaseId
+	request.Params = params
+
+	var body CreateLeaseDelegationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateLeaseDelegation(ctx, request.(CreateLeaseDelegationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateLeaseDelegation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateLeaseDelegationResponseObject); ok {
+		if err := validResponse.VisitCreateLeaseDelegationResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

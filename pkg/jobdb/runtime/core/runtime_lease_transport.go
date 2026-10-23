@@ -8,6 +8,39 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
+// ValidateExecutionLeaseByID checks a live parent without extending it.
+func (r *Runtime) ValidateExecutionLeaseByID(ctx context.Context, key jobdb.JobKey, leaseID, workerID string) (jobdb.LeaseValidity, error) {
+	identity, err := leaseIdentityForTransport(key, leaseID, workerID)
+	if err != nil {
+		return jobdb.LeaseValidity{}, err
+	}
+	if err := r.validate(); err != nil {
+		return jobdb.LeaseValidity{}, err
+	}
+	row, err := r.scheduler.GetJob(ctx, key)
+	if err != nil {
+		return jobdb.LeaseValidity{}, err
+	}
+	if row.CancelRequested || row.Store == jobdb.JobStoreArchived || row.Lease == nil {
+		return jobdb.LeaseValidity{}, jobdb.ErrExecutionLeaseLost
+	}
+	if row.Lease.JobKey != identity.JobKey || row.Lease.LeaseID != identity.LeaseID || row.Lease.WorkerID != identity.WorkerID {
+		return jobdb.LeaseValidity{}, jobdb.ErrExecutionLeaseLost
+	}
+	snapshot, err := r.scheduler.ValidateLease(ctx, *row.Lease)
+	if err != nil {
+		return jobdb.LeaseValidity{}, err
+	}
+	if !snapshot.Identity.ExpiresAt.After(r.now()) {
+		return jobdb.LeaseValidity{}, jobdb.ErrExecutionLeaseLost
+	}
+	lease, err := r.wrapLease(snapshot)
+	if err != nil {
+		return jobdb.LeaseValidity{}, err
+	}
+	return jobdb.LeaseValidity{ExpiresAt: snapshot.Identity.ExpiresAt, Route: lease.Route()}, nil
+}
+
 // KeepAliveLeaseByID renews the current lease for remote transport callers.
 func (r *Runtime) KeepAliveLeaseByID(ctx context.Context, key jobdb.JobKey, leaseID, workerID string, duration time.Duration) error {
 	_, err := r.KeepAliveLeaseByIDWithExpiry(ctx, key, leaseID, workerID, duration)
