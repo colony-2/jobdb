@@ -116,7 +116,7 @@ func (r configurationResponse) VisitRemoveTenantConfigurationValueResponse(w htt
 }
 func (s *proxyServer) GetConfigurationWithLease(ctx context.Context, req runtimeapi.GetConfigurationWithLeaseRequestObject) (runtimeapi.GetConfigurationWithLeaseResponseObject, error) {
 	key := jobdb.JobKey{TenantId: req.TenantId, JobId: req.JobId}
-	claims, err := s.validatedLeaseClaims(req.Params.XJobDBLeaseToken, key, req.LeaseId)
+	claims, err := s.validatedLeaseClaims(ctx, req.Params.XJobDBLeaseToken, key, req.LeaseId)
 	if err != nil {
 		return configurationResponse{err: jobdb.ErrExecutionLeaseLost}, nil
 	}
@@ -125,7 +125,7 @@ func (s *proxyServer) GetConfigurationWithLease(ctx context.Context, req runtime
 		err = configuration.ValidateSnapshot(result, s.configurationLimits())
 	}
 	if err == nil {
-		_, err = s.validatedLeaseClaims(req.Params.XJobDBLeaseToken, key, req.LeaseId)
+		_, err = s.validatedLeaseClaims(ctx, req.Params.XJobDBLeaseToken, key, req.LeaseId)
 	}
 	return configurationResponse{snapshot: &result, revision: result.Revision, err: err}, nil
 }

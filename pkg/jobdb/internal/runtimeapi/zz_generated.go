@@ -35,7 +35,6 @@ const (
 	ConfigurationTooLarge         ErrorCode = "configuration_too_large"
 	ConfigurationUnavailable      ErrorCode = "configuration_unavailable"
 	Conflict                      ErrorCode = "conflict"
-	DelegationAccessTokenExpired  ErrorCode = "delegation_access_token_expired"
 	DelegationDeadlineReached     ErrorCode = "delegation_deadline_reached"
 	DelegationNotSupported        ErrorCode = "delegation_not_supported"
 	DelegationUnavailable         ErrorCode = "delegation_unavailable"

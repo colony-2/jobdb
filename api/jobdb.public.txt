@@ -1843,6 +1843,7 @@ method Runtime.TriggerSchedule func(ctx context.Context, req github.com/colony-2
 method Runtime.UpsertSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.UpsertScheduleRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 type ServerOptions struct
   field LeaseTokenSigningKey []byte
+  field LeaseTokenAudience string
 func WithConfigurationLimits func(limits github.com/colony-2/jobdb/pkg/jobdb.ConfigurationLimits) Option
 
 package github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite

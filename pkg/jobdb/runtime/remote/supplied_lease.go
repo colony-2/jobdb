@@ -71,7 +71,7 @@ func ExportLease(lease jobdb.ExecutionLease) (LeaseCapability, error) {
 }
 
 // ImportLease validates a capability without acquiring work. Owner leases are
-// renewed; delegated leases are inspected, with lazy child refresh if expired.
+// renewed; delegated leases are inspected against the live backend parent.
 // Importing a delegation never extends its parent and requires no owner token.
 func (r *Runtime) ImportLease(ctx context.Context, capability LeaseCapability) (jobdb.RenewableExecutionLease, error) {
 	if !capability.valid() {
@@ -106,10 +106,6 @@ func (l *remoteExecutionLease) LeaseWorkerID() string { return l.workerID }
 func (l *remoteExecutionLease) LeaseExpiry() time.Time {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	_, expiry := l.runtime.delegations.cached(l.leaseToken)
-	if !expiry.IsZero() {
-		return expiry
-	}
 	return l.expiresAt
 }
 func (l *remoteExecutionLease) String() string   { return "remote execution lease (capability redacted)" }

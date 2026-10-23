@@ -22,6 +22,8 @@ const (
 )
 
 type leaseTokenClaims struct {
+	Audience             string  `json:"audience"`
+	Grant                string  `json:"grant,omitempty"`
 	Principal            *string `json:"principal,omitempty"`
 	TenantID             string  `json:"tenant_id"`
 	JobID                string  `json:"job_id"`
@@ -35,7 +37,8 @@ type leaseTokenClaims struct {
 }
 
 type leaseTokenSigner struct {
-	key []byte
+	key      []byte
+	audience string
 }
 
 func newLeaseTokenSigner() *leaseTokenSigner {
@@ -82,7 +85,8 @@ func (s *leaseTokenSigner) mintWithPrincipal(jobKey jobdb.JobKey, leaseID string
 		leaseDuration = leaseExpiresAt.Sub(now)
 	}
 	tokenExpiresAt := leaseTokenExpiresAt(now, leaseExpiresAt, ttl)
-	payload, err := json.Marshal(leaseTokenClaims{
+	claims := leaseTokenClaims{
+		Audience:             s.audienceID(),
 		Principal:            principal,
 		TenantID:             jobKey.TenantId,
 		JobID:                jobKey.JobId,
@@ -93,15 +97,25 @@ func (s *leaseTokenSigner) mintWithPrincipal(jobKey jobdb.JobKey, leaseID string
 		IssuedAt:             now.Unix(),
 		ExpiresAt:            tokenExpiresAt.Unix(),
 		ExpiresAtNS:          tokenExpiresAt.UnixNano(),
-	})
+	}
+	grant, err := s.newGrant(claims)
 	if err != nil {
 		return "", err
 	}
-	encodedPayload := base64.RawURLEncoding.EncodeToString(payload)
+	claims.Grant = grant
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		return "", err
+	}
+	encodedPayload := ownerTokenPrefix + base64.RawURLEncoding.EncodeToString(payload)
 	mac := hmac.New(sha256.New, s.key)
 	_, _ = mac.Write([]byte(encodedPayload))
 	signature := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-	return encodedPayload + "." + signature, nil
+	token := encodedPayload + "." + signature
+	if len(token) > maxOwnerTokenBytes {
+		return "", fmt.Errorf("owner credential exceeds token size limit")
+	}
+	return token, nil
 }
 
 func (s *leaseTokenSigner) validate(token string, jobKey jobdb.JobKey, leaseID string, now time.Time) error {
@@ -130,29 +144,25 @@ func (s *leaseTokenSigner) parse(token string) (leaseTokenClaims, error) {
 	if s == nil || len(s.key) == 0 {
 		return leaseTokenClaims{}, fmt.Errorf("lease token signer is required")
 	}
+	if !strings.HasPrefix(token, ownerTokenPrefix) || len(token) > maxOwnerTokenBytes {
+		return leaseTokenClaims{}, jobdb.ErrExecutionLeaseLost
+	}
 	parts := strings.Split(token, ".")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+	if len(parts) != 3 {
 		return leaseTokenClaims{}, jobdb.ErrExecutionLeaseLost
 	}
 	mac := hmac.New(sha256.New, s.key)
-	_, _ = mac.Write([]byte(parts[0]))
-	expected := mac.Sum(nil)
-	actual, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
+	_, _ = mac.Write([]byte(parts[0] + "." + parts[1]))
+	actual, err := decodeTokenBase64(parts[2])
+	if err != nil || !hmac.Equal(actual, mac.Sum(nil)) {
 		return leaseTokenClaims{}, jobdb.ErrExecutionLeaseLost
 	}
-	if !hmac.Equal(actual, expected) {
+	claims, err := decodeOwner(token)
+	if err != nil || claims.Audience != s.audienceID() {
 		return leaseTokenClaims{}, jobdb.ErrExecutionLeaseLost
 	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil {
-		return leaseTokenClaims{}, jobdb.ErrExecutionLeaseLost
-	}
-	var claims leaseTokenClaims
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return leaseTokenClaims{}, jobdb.ErrExecutionLeaseLost
-	}
-	if claims.TenantID == "" || claims.JobID == "" || claims.LeaseID == "" || claims.ExpiresAt == 0 {
+	m, root, _, err := s.verifyGrant(claims.Grant, true)
+	if err != nil || len(m.Caveats()) != 0 || !sameGrantParent(root.Parent, parentOf(claims)) {
 		return leaseTokenClaims{}, jobdb.ErrExecutionLeaseLost
 	}
 	return claims, nil
@@ -257,4 +267,26 @@ func leaseTokenValidationError(err error) error {
 		return err
 	}
 	return jobdb.ErrExecutionLeaseLost
+}
+
+// decodeOwner is syntax inspection for local derivation, not authentication.
+func decodeOwner(token string) (leaseTokenClaims, error) {
+	var c leaseTokenClaims
+	if !strings.HasPrefix(token, ownerTokenPrefix) || len(token) > maxOwnerTokenBytes {
+		return c, jobdb.ErrExecutionLeaseLost
+	}
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 || parts[2] == "" {
+		return c, jobdb.ErrExecutionLeaseLost
+	}
+	raw, err := decodeTokenBase64(parts[1])
+	if err != nil || decodeCanonical(raw, &c) != nil || c.TenantID == "" || c.JobID == "" || c.LeaseID == "" || c.ExpiresAt == 0 || c.Audience == "" || c.Grant == "" {
+		return leaseTokenClaims{}, jobdb.ErrExecutionLeaseLost
+	}
+	return c, nil
+}
+func sameGrantParent(a, b grantParent) bool {
+	x, _ := json.Marshal(a)
+	y, _ := json.Marshal(b)
+	return string(x) == string(y)
 }

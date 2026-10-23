@@ -755,8 +755,7 @@ func (l *remoteExecutionLease) StopKeepAlive() {}
 func (l *remoteExecutionLease) LeaseToken() string {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	token, _ := l.runtime.delegations.cached(l.leaseToken)
-	return token
+	return l.leaseToken
 }
 func (l *remoteExecutionLease) ClientPayload() json.RawMessage {
 	return cloneRawMessage(l.clientPayload)

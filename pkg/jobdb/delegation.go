@@ -43,7 +43,7 @@ type DelegationWritePermission struct {
 
 // DelegationPermissions is an immutable allowlist; omitted actions are denied.
 // Delegation does not authorize completion, rescheduling, configuration reads,
-// restart submission, schema registration, artifact downloads, or further delegation.
+// restart submission, schema registration, or artifact downloads. Further delegation may only narrow this allowlist.
 type DelegationPermissions struct {
 	Submit  *DelegationSubmitPermission `json:"jobs.submit,omitempty"`
 	Secrets []string                    `json:"secrets.resolve,omitempty"`

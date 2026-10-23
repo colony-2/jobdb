@@ -1066,7 +1066,7 @@ paths:
       tags: [leases]
       operationId: createLeaseDelegation
       summary: Create a restricted lease from an owner lease
-      description: Permissions are immutable signed claims. No individual revocation or further delegation. Authority lasts until the optional notAfter deadline while the exact parent lease remains live. Credential refresh is automatic and internal.
+      description: Issues a macaroon with authenticated permissions and an optional notAfter deadline, valid while the exact parent lease remains live. The Go SDK derives these locally; holders may further narrow the grant offline. No individual revocation.
       parameters:
         - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/JobId'
@@ -1169,7 +1169,7 @@ paths:
       tags: [leases]
       operationId: keepAliveLease
       summary: Keep lease alive
-      description: For a delegation, refreshes only its access token, requires an unexpired hard deadline when set, and accepts an expired access token while the exact parent lease remains live. Never extends the parent or the hard deadline. Restrictions remain unchanged.
+      description: For a delegation, validates the live parent and optional hard deadline and returns a restricted snapshot with the same token. Never extends the parent or the hard deadline. Restrictions remain unchanged.
       parameters:
         - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/JobId'
@@ -1602,7 +1602,6 @@ components:
         - execution_lease_lost
         - existing_job_mismatch
         - invalid_delegation_credential
-        - delegation_access_token_expired
         - lease_permission_denied
         - delegation_deadline_reached
         - invalid_delegation_request

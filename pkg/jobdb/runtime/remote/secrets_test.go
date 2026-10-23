@@ -151,9 +151,9 @@ func TestSignedSecretPrincipalAndRenewal(t *testing.T) {
 	}
 	count := backend.calls
 	parts := strings.Split(l.LeaseToken(), ".")
-	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
+	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
 	require.NoError(t, err)
-	parts[0] = base64.RawURLEncoding.EncodeToString(bytes.ReplaceAll(raw, []byte("trusted"), []byte("forged")))
+	parts[1] = base64.RawURLEncoding.EncodeToString(bytes.ReplaceAll(raw, []byte("trusted"), []byte("forged")))
 	l.leaseToken = strings.Join(parts, ".")
 	_, err = l.ResolveSecrets(context.Background(), []string{"missing"})
 	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)

@@ -9,22 +9,23 @@ A delegation is still a lease: it uses the same `leaseToken`,
 `X-JobDB-Lease-Token` header, lease identity, `ExecutionLease` interface, and
 version-1 `LeaseCapability` import/export format. Its authority is a signed,
 immutable subset of the parent execution lease's authority. There is no
-individual delegation revocation or further delegation in this release.
+individual delegation revocation. Holders may derive narrower children locally.
+See the [implemented attenuation design](DESIGN-Offline-Lease-Delegation.md) for
+the token profile and local derivation rules.
 
 ## Authority and lifetime
 
-The server issues a `jdb-d2.<payload>.<signature>` token. The signature is
-HMAC-SHA256 over the prefix and encoded payload, using the configured lease
-signing key. This follows the existing JobDB signing mechanism; it is not JWT.
-Old owner-token parsers reject its distinct format instead of treating it as an
-unrestricted lease.
+Owners receive a signed `jdb-o1` bundle containing a root macaroon. The Go
+`CreateDelegation` method clones and attenuates it locally, returning a `jdb-m1`
+child. No HTTP request or server signing key is needed for derivation. The child
+contains no owner token or reusable ancestor MAC.
 
-Signed claims contain:
-
-- Parent tenant, job, execution lease ID, worker, schema and principal.
-- Delegation ID and complete permission selectors.
-- Optional absolute `notAfter` hard deadline.
-- Internal access expiration and parent route.
+Authenticated grant contents include parent identity, principal/schema binding,
+service audience, key ID, root identity and every permission/deadline restriction.
+Every descendant must retain or narrow the effective permissions and deadline.
+Omitting a deadline inherits the ancestor's deadline; an explicit later deadline
+is rejected. Creation checks local syntax and narrowing; server-side parent
+liveness is checked at import/use.
 
 Every resource operation and renewal verifies the signature, path binding and
 current backend parent identity/liveness. Cancellation, completion, rescheduling,
@@ -50,22 +51,19 @@ There is no renewal permission and no caller-selected access TTL.
 | Future | Valid while the exact parent remains live and the deadline is not reached |
 | Reached | Resource operations and credential refresh are denied |
 
-The current transport uses a 30-second internal access window. Every issuance
-sets `expiresAt = min(now + internalAccessTTL, parentLeaseExpiresAt,
-notAfter when present)`. This window is credential freshness, not the duration
-of the delegation grant. The SDK refreshes it transparently on use. The
-`expiresAt`/`LeaseExpiry()` snapshot describes the current credential window;
-`delegation.notAfter` is the immutable authority deadline. A stale credential
-window alone must not be treated as terminal loss of a delegated lease.
+A child has no separate access-token expiry. Requests verify the macaroon and
+current backend parent directly. No token-refresh cache, mutation replay or
+per-child heartbeat is needed. `KeepAlive` and `Renew` validate the grant and
+return the same token with an updated snapshot, never extending the parent.
+The `expiresAt`/`LeaseExpiry()` snapshot is current parent expiry capped by
+`notAfter`; it may become stale when the owner extends the parent. Operations
+still reach JobDB for authoritative validation. `delegation.notAfter` is the
+immutable child authority deadline.
 
-The signed lease token also authenticates refresh after access expiry. The
-server preserves the entire grant and issues a fresh access expiry; it never
-calls parent keepalive. Even an empty permission allowlist can refresh, but it
-still authorizes no resource operations. No per-child timer or heartbeat is
-needed. There is no rotation/reuse-detection protocol: old token copies remain
-usable until parent loss or the hard deadline. Access expiry is not a revocation
-boundary. Signing keys must be unique to a trust domain and shared across its
-replicas; there is no grant database.
+Old token copies remain usable until parent loss or the hard deadline. Snapshot
+refresh does not revoke copies. Signing keys must be unique to a trust domain
+and shared across replicas. `LeaseTokenAudience` additionally separates services
+(default `jobdb`). There is no grant database or extra per-lease storage.
 
 ## Permissions
 
@@ -85,8 +83,8 @@ An empty name/chapter selector matches nothing. `any` cannot be combined with
 finite values for the same selector. There are no permissions for parent
 keepalive, completion, rescheduling, configuration reads/writes, restart jobs,
 client-payload updates on the parent, schema administration, artifact download,
-job acquisition, or issuing more delegations. Those can be separately designed
-later rather than inferred from submission or chapter permissions.
+or job acquisition. Further attenuation needs no additional permission, but
+never grants access to the owner-only REST creation endpoint.
 
 Chapter writes cannot write job-start, job-final, restart-extra or execution
 control chapters. Authorizing a task outcome nevertheless authorizes its effect
@@ -104,9 +102,9 @@ All paths below start with
 
 | Method and suffix | Behavior |
 |---|---|
-| `POST /delegations` | Owner lease creates a restricted lease. Accepts `permissions` and optional `notAfter`. Returns an `ExecutionLease` with `delegation` metadata. |
+| `POST /delegations` | Owner lease creates a restricted macaroon for direct HTTP clients; the Go SDK uses local derivation. Accepts `permissions` and optional `notAfter`. Returns an `ExecutionLease` with `delegation` metadata. |
 | `GET` (no suffix) | Inspect/import a live delegation without renewing. Returns identity, route, expiry and policy, with empty execution state/client payload. Does not expose the owner's execution snapshot. |
-| `POST /keepalive` | Existing endpoint: owner tokens extend the parent as before; delegation tokens refresh only themselves while the parent is live and the deadline has not been reached, including after access expiry. |
+| `POST /keepalive` | Existing endpoint: owner tokens extend the parent as before; delegation tokens validate parent liveness and the deadline, then return the same token and a fresh restricted snapshot. |
 | `POST /jobs` or `PUT /jobs/{childJobId}` | Existing submission endpoints, with delegated type/ID restrictions. |
 | `POST /secrets/resolve` | Existing endpoint with delegated name intersection. |
 | `POST /add_chapter` | Existing endpoint with delegated ordinal/type/upload restrictions. |
@@ -147,34 +145,29 @@ ingress that requires a delegated token on every request, including unscoped
 routes, and rejects owner tokens. It shares the backend and signing key with the
 trusted owner handler. Embedded Go runtimes remain trusted in-process APIs.
 
-## Errors and lazy refresh
+## Errors and lease inspection
 
 Delegation errors use `{ "code": "...", "message": "..." }` with sanitized,
 credential-free values.
 
 | HTTP/code | Client behavior |
 |---|---|
-| `401 delegation_access_token_expired` | Only emitted before dispatch. Renew the child, then retry the operation once. |
 | `401 invalid_delegation_credential` | Signature/identity failure; stop. |
 | `403 lease_permission_denied` | Operation/selector disallowed; stop. |
 | `403 delegation_deadline_reached` | Hard deadline elapsed; stop. |
-| `409 execution_lease_lost` | Parent lost or access expired during execution; stop. |
+| `409 execution_lease_lost` | Parent lost or lease/deadline validity lost during execution; stop. |
 | `400 invalid_delegation_request` | Invalid delegated operation body; correct the request. |
 | `501 delegation_not_supported` | Backend lacks read-only lease validation. |
 | `503 delegation_unavailable` | Parent validation unavailable; no operation dispatched. |
 
-The Go remote client shares an in-memory token cache across its lease operations.
-It serializes refreshes for the same cached credential, retries only the exact
-pre-dispatch expiry response, and recreates the original request body. It does
-not replay operations after ambiguous network errors, arbitrary 401s, provider
-errors, or conflicts. Delegation requests never follow redirects. The bounded
-cache may evict entries; eviction changes efficiency, not authority.
+The client does not replay delegated operations automatically. Normal handling
+of ambiguous network results and mutation idempotency still applies. Delegated,
+secret and configuration requests never follow redirects.
 
-Creation and ordinary parent renewal remain explicit actions. Importing a valid
-child only inspects it; importing a child with an expired access window performs
-the same lazy refresh cycle, provided its parent is live and its hard deadline
-has not been reached. `KeepAlive` and `Renew` on a child preserve its
-restrictions and never extend its parent.
+Importing a child inspects the grant against the live parent without renewing
+it. `KeepAlive` and `Renew` preserve every restriction and never extend the parent
+or child deadline. Even an empty permission allowlist may inspect its own lease
+or call keepalive; it still permits no resource operations.
 
 ## Implementation and rollout
 
@@ -184,41 +177,20 @@ method (or embed an implementation); unsupported backends fail closed.
 The toy backend's child submission validation now uses this read-only method
 instead of implicitly extending the parent.
 
-This simplification removes `ttlSeconds`, `delegation.renew` and
-`maxTtlSeconds`; obsolete request fields are rejected. The new signed token
-prefix is `jdb-d2`; previous delegation tokens are not supported and must be
-reissued. No compatibility or conversion path is provided.
+Update the server and Go SDK together. Previous owner and delegation token
+formats are rejected; there is no compatibility or conversion path. Existing
+public lease operations, capability envelopes and delegation call sites remain.
+No database migration or additional server records are needed. c2j integration
+is described in the [guide](GUIDE-Lease-Delegation-Tokens.md).
 
-Upgrade the server and Go client before enabling delegated c2j workers. Existing
-owner capabilities and owner import behavior remain compatible. Old clients may
-pass a delegated token on allowed operations, but need the new client for lazy
-refresh and nonrenewing import. c2j code and CLI flags are maintained outside this
-repository; the [guide](GUIDE-Lease-Delegation-Tokens.md) specifies the integration
-contract without inventing new CLI flags.
+Tests cover local derivation with networking disabled, multilevel attenuation,
+server rejection of wider caveats, wire vectors, malformed/tampered chains,
+deadline inheritance, parent loss/rotation, secret and chapter restrictions,
+concurrent derivation and isolated child processes against worker-only ingress.
 
-Tests cover toy/SQLite permission enforcement, signed-claim tampering, empty
-secret intersections, chapter filtering/writes, automatic refresh with and without
-a deadline, concurrent lazy refresh, parent loss/replacement, and a distinct child process
-with only a delegated capability. Core validation checks do not renew the parent.
+## Prior art
 
-## Prior art and deliberate differences
-
-[OAuth 2.0 RFC 6749 sections 1.5 and 6](https://www.rfc-editor.org/rfc/rfc6749.html#section-1.5)
-separates access expiry from continuing refresh authority and requires refreshed
-scope to remain within the grant. JobDB adopts that distinction but encodes both
-in one signed lease credential for compatibility; this is not an OAuth endpoint.
-
-[Google downscoped credentials](https://docs.cloud.google.com/iam/docs/create-downscoped-short-lived-credentials)
-and [Go's ReuseTokenSource](https://pkg.go.dev/golang.org/x/oauth2#ReuseTokenSource)
-provide useful models for obtaining restricted tokens on demand and sharing a
-cached token source. Here the child calls JobDB itself, with no owner broker.
-
-[Vault token hierarchies](https://developer.hashicorp.com/vault/docs/concepts/tokens#token-hierarchies-and-orphan-tokens)
-provide the parent-loss invalidates child model. JobDB deliberately does not
-require child periodic heartbeats.
-
-[OAuth security guidance on refresh tokens](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14)
-includes rotation and sender-constraining protections for OAuth clients. This
-initial JobDB bearer design does not implement those protections or claim OAuth
-conformance. Its authority lasts until parent loss or its hard deadline and has
-no independent revocation. Do not treat access expiration as invalidating a stolen credential.
+The [attenuation design](DESIGN-Offline-Lease-Delegation.md#cryptographic-construction-and-prior-art)
+compares macaroons, Biscuit and UCAN. JobDB uses first-party macaroons with typed
+permission selectors and authoritative backend lease checks. This is a bearer
+capability protocol, not an OAuth implementation.

@@ -8,27 +8,49 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/runtimeapi"
 )
 
-// CreateDelegation returns an ordinary remote lease with restricted authority.
+// CreateDelegation locally derives an ordinary lease with narrower authority.
+// It makes no network requests; JobDB validates the parent at import/use.
 // ExportLease and ImportLease transport it using the existing capability format.
 // KeepAlive/Renew refresh only this child, subject to its signed restrictions.
 func (r *Runtime) CreateDelegation(ctx context.Context, parent jobdb.ExecutionLease, req jobdb.CreateDelegationRequest) (jobdb.RenewableExecutionLease, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	capability, err := ExportLease(parent)
 	if err != nil {
 		return nil, err
 	}
 	w := capability.wire
-	resp, err := r.client.CreateLeaseDelegationWithResponse(ctx, w.TenantID, w.JobID, w.LeaseID, &runtimeapi.CreateLeaseDelegationParams{XJobDBLeaseToken: w.Token}, req)
+	grant := w.Token
+	if !isDelegationToken(grant) {
+		owner, err := decodeOwner(grant)
+		if err != nil {
+			return nil, err
+		}
+		m, root, _, err := decodeGrant(owner.Grant, true)
+		if err != nil || len(m.Caveats()) != 0 || root.Audience != owner.Audience || !sameGrantParent(root.Parent, parentOf(owner)) {
+			return nil, jobdb.ErrExecutionLeaseLost
+		}
+		grant = owner.Grant
+	}
+	token, c, err := attenuateGrant(grant, req)
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode() != 200 || resp.JSON200 == nil {
-		return nil, responseError("create delegation", resp.StatusCode(), resp.Body, jobdb.ErrExecutionLeaseLost)
-	}
-	if resp.JSON200.Delegation == nil || !isDelegationToken(resp.JSON200.LeaseToken) {
+	if c.Parent.TenantID != w.TenantID || c.Parent.JobID != w.JobID || c.Parent.LeaseID != w.LeaseID {
 		return nil, jobdb.ErrExecutionLeaseLost
 	}
-	parentHandle := &remoteExecutionLease{runtime: r, jobKey: parent.Job().JobKey, leaseID: parent.LeaseID()}
-	return parentHandle.renewedSnapshot(&runtimeapi.KeepAliveLeaseResponse{Lease: resp.JSON200, LeaseToken: resp.JSON200.LeaseToken}, "renew")
+	c.Route = parent.Route()
+	c.setExpiry(leaseExpiry(parent))
+	snapshot := delegationSnapshot(c, token)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	lease, err := r.executionLeaseFromAPI(snapshot)
+	if err != nil {
+		return nil, err
+	}
+	return lease.(*remoteExecutionLease), nil
 }
 
 // Delegation returns a copy of the signed restrictions, or nil for an owner lease.
@@ -83,7 +105,7 @@ func delegationResponseError(status int, body []byte) error {
 	if json.Unmarshal(body, &response) != nil {
 		return nil
 	}
-	if status == 401 && (response.Code == "invalid_delegation_credential" || response.Code == "delegation_access_token_expired") || status == 409 && response.Code == "execution_lease_lost" {
+	if status == 401 && response.Code == "invalid_delegation_credential" || status == 409 && response.Code == "execution_lease_lost" {
 		return jobdb.ErrExecutionLeaseLost
 	}
 	if status == 403 && (response.Code == "lease_permission_denied" || response.Code == "delegation_deadline_reached") {

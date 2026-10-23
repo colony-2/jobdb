@@ -3,8 +3,8 @@
 A delegated lease replaces the owner lease in the child process. It uses the same
 Go `jobdb.ExecutionLease` interface, lease-token HTTP header and exported
 `LeaseCapability` format. The owner continues refreshing its main lease; the
-child obtains fresh tokens on use, directly from JobDB. Child refresh never
-extends the main lease.
+child uses its own macaroon directly with JobDB. Child operations and keepalive
+never extend the main lease.
 
 This guide describes the implemented JobDB API. c2j must update its JobDB
 version and integrate these calls in its supplied-lease/operation path; this
@@ -13,7 +13,8 @@ repository does not define c2j command-line flags for delegation.
 ## Owner process: create and hand off
 
 The owner already holds a remote execution lease. Create a child with exactly
-the permissions its operation requires:
+the permissions its operation requires. `CreateDelegation` derives the child
+locally, with no HTTP request:
 
 ```go
 func exportForOperation(ctx context.Context, runtime *remote.Runtime,
@@ -54,7 +55,7 @@ IDs. Leave the other permissions absent.
 Set `NotAfter` to the absolute time when the child's authority must end. Omit it
 if the child should remain authorized while the exact parent lease is live.
 There is no renewal permission or access TTL to configure. The SDK maintains
-credentials internally, without extending this deadline or the parent lease.
+the lease internally, without extending this deadline or the parent lease.
 At or after the deadline, both resource operations and credential refresh fail.
 
 ## Child process: use the existing lease path
@@ -81,19 +82,23 @@ values, err := lease.ResolveSecrets(ctx, []string{"model_api_key"})
 // Or lease.SubmitJob(ctx, request), when jobs.submit was granted.
 ```
 
-A child with a current credential imports without refresh. A stale credential
-refreshes on import using only the child's token, as long as its parent is live
-and its deadline has not been reached. `SubmitJob`, `ResolveSecrets` and the
-runtime's lease-authorized chapter operations use the same automatic mechanism.
-There is no child heartbeat to start and no owner callback to configure.
+Import validates the child against the live parent and its hard deadline. No
+owner credential, callback, refresh permission or child heartbeat is needed.
+Child tokens do not have a separate short-lived access window.
 
-`KeepAlive`/`Renew` remain supported for existing lease consumers. They maintain
-only the child credential and never extend its authority deadline or the parent.
-A periodic loop is unnecessary; the SDK maintains credentials on use. The
-optional `interface { Delegation() *jobdb.DelegationInfo }` method exposes the
-permissions and `NotAfter` without its bearer token. `LeaseExpiry()` is a current
-credential snapshot, not a second deadline on the grant; do not terminate a
-child solely because that snapshot has passed before allowing the SDK to refresh.
+`KeepAlive`/`Renew` remain supported for existing lease consumers. They validate
+the child and return the same token with an updated parent-expiry snapshot; they
+never extend the parent or child deadline. `LeaseExpiry()` is a current snapshot,
+which can become stale when the owner extends its lease. Operations still reach
+JobDB for authoritative liveness checks. The optional
+`interface { Delegation() *jobdb.DelegationInfo }` exposes the permissions and
+immutable `NotAfter`, without the bearer token.
+
+A child can call the same `CreateDelegation` API to derive a grandchild. Every
+selector must stay within its existing allowlist. Omitting `NotAfter` inherits
+the child's deadline; an earlier deadline narrows it, and a later deadline fails.
+Local creation success does not assert that the parent is still live; an invalid
+parent is detected when JobDB receives the resulting token.
 
 The delegated snapshot includes identity, route, expiry and permissions. Its
 `ClientPayload` and `ExecutionState` are empty: importing a lease must not leak
@@ -140,24 +145,17 @@ Delegated write/submission authorization buffers at most 64 MiB of request data.
 ## Implementing another HTTP client
 
 Use the delegated token in `X-JobDB-Lease-Token` on the existing lease-scoped
-operations. On **exactly** `401` with `code: delegation_access_token_expired`:
+operations. Direct HTTP clients can obtain a child through `POST /delegations`;
+the Go SDK creates the same credential locally. Treat the token as opaque.
 
-1. Serialize renewal against concurrent users of that cached token.
-2. `POST` to the same lease's `/keepalive`, using that child token, even though its
-   access expiry has passed. There is no renewal request body or parent token.
-3. Read `leaseToken` and `lease.expiresAt` from the response; replace the cache.
-4. Rebuild the original request body and retry once with the new token.
+No periodic token replacement or automatic retry on token expiry is required.
+`POST /keepalive` validates a child and returns the same token and an updated
+snapshot. It never extends authority. Retain normal idempotency and ambiguous
+result handling. Never respond to a failure by acquiring an owner lease or
+retrying with broader credentials. Do not follow redirects with the token.
 
-The server guarantees that this specific expiry response precedes dispatch.
-Do not use arbitrary 401/403 responses, timeouts, connection failures or mutation
-conflicts as reasons to replay an operation. Retain normal idempotency and
-ambiguous-result handling. Renewal failure must not trigger acquisition of a new
-job lease, a lookup of the owner's token, or a retry with broader credentials.
-
-A token retains its grant authority after internal access expiry. Refresh does
-not revoke old token copies. Protect both current and old serialized copies
-until the parent lease is lost or the hard deadline is reached. Do not follow
-redirects with the token.
+Protect current and old serialized copies until parent loss or the hard deadline.
+Keepalive does not revoke earlier copies.
 
 Errors are described in the [spec](PROPOSAL-Restricted-Lease-Capabilities.md).
 Permission failures are `403 lease_permission_denied`; loss of the parent is
@@ -179,14 +177,14 @@ route cannot bypass its checks. The owner creates delegations through the regula
 handler, which must remain behind a separate access boundary.
 
 ```go
-options := remote.ServerOptions{LeaseTokenSigningKey: signingKey}
+options := remote.ServerOptions{LeaseTokenSigningKey: signingKey, LeaseTokenAudience: "my-jobdb"}
 ownerHandler, err := remote.NewServerWithOptions(backend, options)
 workerHandler, err := remote.NewDelegationServerWithOptions(backend, options)
 // Serve ownerHandler on the trusted owner/admin ingress.
 // Serve workerHandler on the isolated workers' ingress.
 ```
 
-Use the same backend and signing key for both. Give the child the worker ingress
+Use the same backend, signing key and audience for both. Give the child the worker ingress
 URL in trusted configuration; capabilities contain no destination URL. JobDB's
 regular unscoped/admin APIs rely on deployment authorization, so the child must
 not also be able to reach them anonymously or with inherited service credentials.
@@ -194,7 +192,8 @@ An equivalent authenticated gateway enforcing only lease-scoped calls can replac
 the delegation-only handler.
 
 Deploy replicas with the same `ServerOptions.LeaseTokenSigningKey`, unique to
-that JobDB trust domain. The signed policy is stateless and portable among those
+that JobDB trust domain, and the same `LeaseTokenAudience` (default `jobdb`).
+The signed policy is stateless and portable among those
 replicas; every replica consults the authoritative backend lease. Third-party
 backends must implement or forward read-only `ValidateExecutionLeaseByID`.
 
@@ -202,8 +201,8 @@ backends must implement or forward read-only `ValidateExecutionLeaseByID`.
 
 - The delegated capability enters c2j through its supplied-lease path and remains
   an `ExecutionLease`; it does not become an owner token during import or renewal.
-- A separate operation process can use a stale access token with only its own
-  capability. It reaches JobDB directly and never contacts the owner.
+- A separate operation process can use and further narrow its own capability
+  after owner-token rotation. It reaches JobDB directly and never contacts the owner.
 - Permission failures are terminal for that operation and never broaden its
   credentials or cause unrestricted runtime calls.
 - Child operations and renewal leave the parent expiry unchanged. The owner
@@ -214,6 +213,9 @@ backends must implement or forward read-only `ValidateExecutionLeaseByID`.
 - Losing or replacing the parent stops both child operations and renewal.
 - Chapter reads/writes and secret resolution remain within their allowlists.
 
-`TestDelegationIsolatedProcess` exercises the separate-process handoff, expired
-child import, direct refresh and submission against SQLite. The remaining
-`TestDelegation*` tests cover permissions, concurrency and parent invalidation.
+`TestDelegationIsolatedProcess` exercises separate-process handoff, import,
+chapter reads/writes, secrets, local further attenuation, submission and keepalive
+against SQLite through worker-only ingress. `TestAttenuation*` and the remaining
+`TestDelegation*` tests cover narrowing, token integrity, concurrency and parent
+invalidation. The [implemented design](DESIGN-Offline-Lease-Delegation.md) records
+the wire profile and stateless verification rules.

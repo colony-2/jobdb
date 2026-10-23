@@ -15,7 +15,6 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/runtimeapi"
-	"github.com/google/uuid"
 )
 
 type delegationError struct {
@@ -76,7 +75,7 @@ func (s *proxyServer) parentValidity(ctx context.Context, p leaseTokenClaims) (j
 	return v, nil
 }
 
-func (s *proxyServer) checkedDelegation(ctx context.Context, token string, key jobdb.JobKey, leaseID string, allowExpired bool) (delegationClaims, jobdb.LeaseValidity, error) {
+func (s *proxyServer) checkedDelegation(ctx context.Context, token string, key jobdb.JobKey, leaseID string) (delegationClaims, jobdb.LeaseValidity, error) {
 	c, err := s.tokens.parseDelegation(token)
 	if err != nil || c.key() != key || c.Parent.LeaseID != leaseID {
 		return c, jobdb.LeaseValidity{}, &delegationError{401, "invalid_delegation_credential"}
@@ -88,15 +87,13 @@ func (s *proxyServer) checkedDelegation(ctx context.Context, token string, key j
 	if c.Grant.NotAfter != nil && !c.Grant.NotAfter.After(time.Now()) {
 		return c, v, &delegationError{403, "delegation_deadline_reached"}
 	}
-	if !allowExpired && !c.ExpiresAt.After(time.Now()) {
-		return c, v, &delegationError{409, "execution_lease_lost"}
-	}
+	c.setExpiry(v.ExpiresAt)
+	c.Route = v.Route
 	return c, v, nil
 }
 
 // This boundary runs BEFORE all routing, including dev/admin and unscoped APIs.
-// The expired-token response is produced only here, before any operation starts.
-// It is the only response on which clients may replay an operation after renewal.
+// The entire restriction chain and live parent are checked before side effects.
 func (s *proxyServer) prepareDelegationRequest(w http.ResponseWriter, r *http.Request) bool {
 	token := r.Header.Get("X-JobDB-Lease-Token")
 	if !isDelegationToken(token) {
@@ -117,13 +114,13 @@ func (s *proxyServer) prepareDelegationRequest(w http.ResponseWriter, r *http.Re
 	if e1 != nil || e2 != nil || e3 != nil {
 		return reject(delegationDenied())
 	}
-	c, _, err := s.checkedDelegation(r.Context(), token, jobdb.JobKey{TenantId: tenant, JobId: job}, lease, true)
+	c, _, err := s.checkedDelegation(r.Context(), token, jobdb.JobKey{TenantId: tenant, JobId: job}, lease)
 	if err != nil {
 		return reject(err)
 	}
 	suffix := strings.Join(p[8:], "/")
 	policy := c.Grant.Permissions
-	// Renewal is the only action that may use a token past access expiry.
+	// Snapshot refresh is allowed for every valid grant, even an empty policy.
 	if r.Method == http.MethodPost && suffix == "keepalive" {
 		return true
 	}
@@ -148,9 +145,6 @@ func (s *proxyServer) prepareDelegationRequest(w http.ResponseWriter, r *http.Re
 	}
 	if !allowed {
 		return reject(delegationDenied())
-	}
-	if !c.ExpiresAt.After(time.Now()) {
-		return reject(&delegationError{401, "delegation_access_token_expired"})
 	}
 	if r.Method == http.MethodGet || suffix == "secrets/resolve" {
 		return true
@@ -217,7 +211,7 @@ func (s *proxyServer) CreateLeaseDelegation(ctx context.Context, req runtimeapi.
 		return nil, delegationDenied()
 	}
 	key := jobdb.JobKey{TenantId: req.TenantId, JobId: req.JobId}
-	p, err := s.validatedLeaseClaims(req.Params.XJobDBLeaseToken, key, req.LeaseId)
+	p, err := s.validatedLeaseClaims(ctx, req.Params.XJobDBLeaseToken, key, req.LeaseId)
 	if err != nil {
 		return nil, err
 	}
@@ -229,39 +223,35 @@ func (s *proxyServer) CreateLeaseDelegation(ctx context.Context, req runtimeapi.
 	if err != nil {
 		return nil, err
 	}
-	c := delegationClaims{Parent: p, Grant: jobdb.DelegationInfo{ID: uuid.NewString(), Permissions: body.Permissions, NotAfter: body.NotAfter}, Route: v.Route}
-	c.setExpiry(v.ExpiresAt)
-	token, err := s.tokens.signDelegation(c)
+	token, c, err := attenuateGrant(p.Grant, body)
 	if err != nil {
 		return nil, badRequest(err.Error())
 	}
+	c.setExpiry(v.ExpiresAt)
+	c.Route = v.Route
 	return runtimeapi.CreateLeaseDelegation200JSONResponse(delegationSnapshot(c, token)), nil
 }
 
 func (s *proxyServer) InspectLease(ctx context.Context, req runtimeapi.InspectLeaseRequestObject) (runtimeapi.InspectLeaseResponseObject, error) {
-	c, _, err := s.checkedDelegation(ctx, req.Params.XJobDBLeaseToken, jobdb.JobKey{TenantId: req.TenantId, JobId: req.JobId}, req.LeaseId, false)
+	c, _, err := s.checkedDelegation(ctx, req.Params.XJobDBLeaseToken, jobdb.JobKey{TenantId: req.TenantId, JobId: req.JobId}, req.LeaseId)
 	if err != nil {
 		return nil, err
 	}
 	return runtimeapi.InspectLease200JSONResponse(delegationSnapshot(c, req.Params.XJobDBLeaseToken)), nil
 }
 func (s *proxyServer) renewDelegation(ctx context.Context, token string, key jobdb.JobKey, leaseID string) (runtimeapi.KeepAliveLeaseResponseObject, error) {
-	c, v, err := s.checkedDelegation(ctx, token, key, leaseID, true)
+	c, v, err := s.checkedDelegation(ctx, token, key, leaseID)
 	if err != nil {
 		return nil, err
 	}
 	c.setExpiry(v.ExpiresAt)
-	next, err := s.tokens.signDelegation(c)
-	if err != nil {
-		return nil, err
-	}
-	snapshot := delegationSnapshot(c, next)
-	return runtimeapi.KeepAliveLease200JSONResponse{LeaseToken: next, Lease: &snapshot}, nil
+	snapshot := delegationSnapshot(c, token)
+	return runtimeapi.KeepAliveLease200JSONResponse{LeaseToken: token, Lease: &snapshot}, nil
 }
 
 func (s *proxyServer) readLeaseClaims(ctx context.Context, token string, key jobdb.JobKey, leaseID string) (leaseTokenClaims, *jobdb.DelegationChapters, error) {
 	if isDelegationToken(token) {
-		c, _, err := s.checkedDelegation(ctx, token, key, leaseID, false)
+		c, _, err := s.checkedDelegation(ctx, token, key, leaseID)
 		if err != nil {
 			return leaseTokenClaims{}, nil, err
 		}
@@ -270,7 +260,7 @@ func (s *proxyServer) readLeaseClaims(ctx context.Context, token string, key job
 		}
 		return c.accessClaims(), c.Grant.Permissions.Read, nil
 	}
-	p, err := s.validatedLeaseClaims(token, key, leaseID)
+	p, err := s.validatedLeaseClaims(ctx, token, key, leaseID)
 	if err == nil {
 		_, err = s.parentValidity(ctx, p)
 	}

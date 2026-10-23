@@ -69,17 +69,11 @@ func (f *delegationFixture) validity(t *testing.T) jobdb.LeaseValidity {
 	require.NoError(t, err)
 	return v
 }
-func (f *delegationFixture) expire(t *testing.T, l *remoteExecutionLease) {
+func (f *delegationFixture) staleSnapshot(t *testing.T, l *remoteExecutionLease) {
 	t.Helper()
-	c, err := f.signer.parseDelegation(l.leaseToken)
-	require.NoError(t, err)
-	c.ExpiresAt = time.Now().Add(-time.Minute)
-	// The original owner's bearer expiry does not determine grant liveness.
-	c.Parent.ExpiresAt = time.Now().Add(-time.Minute).Unix()
-	c.Parent.ExpiresAtNS = time.Now().Add(-time.Minute).UnixNano()
-	l.leaseToken, err = f.signer.signDelegation(c)
-	require.NoError(t, err)
-	l.expiresAt = c.ExpiresAt
+	l.mu.Lock()
+	l.expiresAt = time.Now().Add(-time.Minute)
+	l.mu.Unlock()
 }
 func delegationBase(l jobdb.ExecutionLease) string {
 	return fmt.Sprintf("/v1/tenants/%s/jobs/%s/leases/%s", l.Job().JobKey.TenantId, l.Job().JobKey.JobId, l.LeaseID())
@@ -202,7 +196,7 @@ func TestDelegationLeaseCompatibilityAndPermissions(t *testing.T) {
 	}
 }
 
-func TestDelegationRefreshIsAutomaticUntilDeadline(t *testing.T) {
+func TestDelegationUsableUntilDeadline(t *testing.T) {
 	for _, kind := range []string{"toy", "sqlite"} {
 		for _, deadline := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/deadline=%v", kind, deadline), func(t *testing.T) {
@@ -220,10 +214,10 @@ func TestDelegationRefreshIsAutomaticUntilDeadline(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, int32(0), f.renews.Load(), "valid import needs no refresh")
 				require.NoError(t, l.KeepAlive(context.Background()))
-				f.expire(t, l)
+				f.staleSnapshot(t, l)
 				_, err = l.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{JobType: "child", Data: jobdb.NewTaskDataOrPanic(1)}})
 				require.NoError(t, err)
-				require.Equal(t, int32(2), f.renews.Load(), "explicit keepalive plus lazy refresh")
+				require.Equal(t, int32(1), f.renews.Load(), "only explicit keepalive; operations need no refresh")
 				require.Equal(t, before, f.validity(t))
 				require.Equal(t, req.NotAfter, l.Delegation().NotAfter)
 			})
@@ -231,10 +225,10 @@ func TestDelegationRefreshIsAutomaticUntilDeadline(t *testing.T) {
 	}
 }
 
-func TestDelegationLazyRefreshConcurrentSubmission(t *testing.T) {
+func TestDelegationConcurrentSubmissionNeedsNoRefresh(t *testing.T) {
 	f := newDelegationFixture(t, "toy", nil)
 	l := f.create(t, jobdb.CreateDelegationRequest{Permissions: delegationPolicy()})
-	f.expire(t, l)
+	f.staleSnapshot(t, l)
 	before := f.validity(t)
 	var wg sync.WaitGroup
 	errs := make(chan error, 16)
@@ -251,9 +245,9 @@ func TestDelegationLazyRefreshConcurrentSubmission(t *testing.T) {
 	for err := range errs {
 		require.NoError(t, err)
 	}
-	require.Equal(t, int32(1), f.renews.Load())
+	require.Equal(t, int32(0), f.renews.Load())
 	require.Equal(t, before, f.validity(t))
-	require.True(t, l.LeaseExpiry().After(time.Now()))
+	require.True(t, l.LeaseExpiry().Before(time.Now()), "stale snapshots do not block operations")
 }
 
 func TestDelegationSignedClaimsCannotBeChanged(t *testing.T) {
@@ -262,12 +256,7 @@ func TestDelegationSignedClaimsCannotBeChanged(t *testing.T) {
 	parts := strings.Split(l.LeaseToken(), ".")
 	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
 	require.NoError(t, err)
-	var c delegationClaims
-	require.NoError(t, json.Unmarshal(raw, &c))
-	c.Grant.Permissions.Read.Any = true
-	c.Grant.NotAfter = nil
-	raw, err = json.Marshal(c)
-	require.NoError(t, err)
+	raw = bytes.Replace(raw, []byte(`"ordinals":[0,1]`), []byte(`"ordinals":[0,2]`), 1)
 	parts[1] = base64.RawURLEncoding.EncodeToString(raw)
 	status, _ := delegationHTTP(t, f, "GET", delegationBase(l)+"/chapters/0", strings.Join(parts, "."), nil)
 	require.Equal(t, 401, status)
@@ -302,13 +291,30 @@ func TestDelegationIsolatedProcess(t *testing.T) {
 		require.NoError(t, err)
 		lease, err := c.ImportLease(context.Background(), cap)
 		require.NoError(t, err)
-		_, err = lease.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{JobType: "child", Data: jobdb.NewTaskDataOrPanic("isolated")}})
+		ctx := context.Background()
+		token := lease.(interface{ LeaseToken() string }).LeaseToken()
+		_, err = c.GetChapter(ctx, jobdb.ChapterRef{JobKey: lease.Job().JobKey, LeaseID: lease.LeaseID(), LeaseToken: token, Ordinal: 0})
 		require.NoError(t, err)
+		values, err := lease.ResolveSecrets(ctx, []string{"allowed"})
+		require.NoError(t, err)
+		require.Equal(t, "isolated-secret", values.Secrets["allowed"].Value)
+		require.NoError(t, c.PutChapter(ctx, jobdb.PutChapterRequest{LeaseID: lease.LeaseID(), LeaseToken: token, Ref: jobdb.ChapterRef{JobKey: lease.Job().JobKey, Ordinal: 1}, Chapter: delegationChapter(1)}))
+		narrow, err := c.CreateDelegation(ctx, lease, jobdb.CreateDelegationRequest{Permissions: jobdb.DelegationPermissions{Submit: delegationPolicy().Submit}})
+		require.NoError(t, err)
+		_, err = narrow.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{JobType: "child", Data: jobdb.NewTaskDataOrPanic("isolated")}})
+		require.NoError(t, err)
+		require.NoError(t, narrow.KeepAlive(ctx))
 		return
 	}
-	f := newDelegationFixture(t, "sqlite", nil)
+	f := newDelegationFixture(t, "sqlite", testSecretProvider(func(context.Context, jobdb.SecretResolveRequest) (jobdb.SecretResolveResult, error) {
+		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"allowed": {Value: "isolated-secret"}}}, nil
+	}))
+	handler, err := NewDelegationServerWithOptions(f.backend, ServerOptions{LeaseTokenSigningKey: f.signer.key})
+	require.NoError(t, err)
+	ingress := httptest.NewServer(handler)
+	defer ingress.Close()
 	l := f.create(t, jobdb.CreateDelegationRequest{Permissions: delegationPolicy()})
-	f.expire(t, l)
+	f.staleSnapshot(t, l)
 	before := f.validity(t)
 	cap, err := ExportLease(l)
 	require.NoError(t, err)
@@ -317,7 +323,7 @@ func TestDelegationIsolatedProcess(t *testing.T) {
 	handoff, err := json.Marshal(struct {
 		URL        string
 		Capability json.RawMessage
-	}{f.server.URL, raw})
+	}{ingress.URL, raw})
 	require.NoError(t, err)
 	binary, err := os.Executable()
 	require.NoError(t, err)
@@ -329,7 +335,7 @@ func TestDelegationIsolatedProcess(t *testing.T) {
 	cmd.Stdin = bytes.NewReader(handoff)
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "%s", output)
-	require.Equal(t, int32(1), f.renews.Load())
+	require.Equal(t, int32(0), f.renews.Load())
 	require.Equal(t, before, f.validity(t))
 }
 
@@ -421,12 +427,8 @@ func TestDelegationMalformedPolicyAndHardDeadline(t *testing.T) {
 		resp.Body.Close()
 	}
 	l := f.create(t, jobdb.CreateDelegationRequest{Permissions: delegationPolicy()})
-	c, err := f.signer.parseDelegation(l.LeaseToken())
-	require.NoError(t, err)
-	past := time.Now().Add(-time.Second)
-	c.Grant.NotAfter = &past
-	token, err := f.signer.signDelegation(c)
-	require.NoError(t, err)
+	past := time.Now().UTC().Add(-time.Second)
+	token := appendTestRestriction(t, l.LeaseToken(), delegationPolicy(), &past)
 	for _, suffix := range []string{"/keepalive", "/secrets/resolve"} {
 		status, raw := delegationHTTP(t, f, "POST", delegationBase(l)+suffix, token, map[string]any{"names": []string{"allowed"}})
 		require.Equal(t, 403, status)
@@ -462,7 +464,7 @@ func TestDelegationTransportDoesNotReplayOtherFailuresOrFollowRedirects(t *testi
 	}
 }
 
-func TestDelegationExpiryDuringOperationIsNotRetried(t *testing.T) {
+func TestDelegationDeadlineDuringOperationIsNotRetried(t *testing.T) {
 	var calls atomic.Int32
 	f := newDelegationFixture(t, "toy", testSecretProvider(func(ctx context.Context, req jobdb.SecretResolveRequest) (jobdb.SecretResolveResult, error) {
 		calls.Add(1)
@@ -470,56 +472,34 @@ func TestDelegationExpiryDuringOperationIsNotRetried(t *testing.T) {
 		return jobdb.SecretResolveResult{}, ctx.Err()
 	}))
 	l := f.create(t, jobdb.CreateDelegationRequest{Permissions: delegationPolicy()})
-	claims, err := f.signer.parseDelegation(l.leaseToken)
-	require.NoError(t, err)
-	claims.ExpiresAt = time.Now().Add(100 * time.Millisecond)
-	l.leaseToken, err = f.signer.signDelegation(claims)
-	require.NoError(t, err)
+	deadline := time.Now().UTC().Add(100 * time.Millisecond)
+	l.leaseToken = appendTestRestriction(t, l.LeaseToken(), delegationPolicy(), &deadline)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	_, err = l.ResolveSecrets(ctx, []string{"allowed"})
+	_, err := l.ResolveSecrets(ctx, []string{"allowed"})
 	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
 	require.Equal(t, int32(1), calls.Load())
 	require.Equal(t, int32(0), f.renews.Load())
 }
 
-func TestDelegationCacheTracksSuccessiveRefreshes(t *testing.T) {
+func TestDelegationKeepAlivePreservesGrant(t *testing.T) {
 	f := newDelegationFixture(t, "toy", nil)
 	l := f.create(t, jobdb.CreateDelegationRequest{Permissions: delegationPolicy()})
-	f.expire(t, l)
-	submit := func() {
-		_, err := l.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{JobType: "child", Data: jobdb.NewTaskDataOrPanic(1)}})
-		require.NoError(t, err)
+	original := l.LeaseToken()
+	before := f.validity(t)
+	for i := 0; i < 2; i++ {
+		f.staleSnapshot(t, l)
+		require.NoError(t, l.KeepAlive(context.Background()))
+		require.Equal(t, original, l.LeaseToken())
+		require.Equal(t, before.ExpiresAt, l.LeaseExpiry())
 	}
-	submit()
-	first := l.LeaseToken()
-	// Expire the cached credential without waiting for the internal access TTL.
-	// Keep the original handle and its aliases, exercising successive refreshes.
-	state := f.client.delegations.state(l.leaseToken)
-	state.mu.Lock()
-	claims, err := f.signer.parseDelegation(state.token)
-	require.NoError(t, err)
-	claims.ExpiresAt = time.Now().Add(-time.Second)
-	state.token, err = f.signer.signDelegation(claims)
-	require.NoError(t, err)
-	state.expiry = claims.ExpiresAt
-	f.client.delegations.mu.Lock()
-	f.client.delegations.states[state.token] = state
-	f.client.delegations.mu.Unlock()
-	state.mu.Unlock()
-	submit()
-	require.NotEqual(t, first, l.LeaseToken())
-	require.True(t, l.LeaseExpiry().After(time.Now()))
-	claims, err = f.signer.parseDelegation(l.LeaseToken())
-	require.NoError(t, err)
-	require.Equal(t, claims.ExpiresAt, l.LeaseExpiry())
-	require.Equal(t, int32(2), f.renews.Load())
+	require.Equal(t, before, f.validity(t))
 }
 
 func TestDelegationWorksAcrossReplicasWithSharedKey(t *testing.T) {
 	f := newDelegationFixture(t, "toy", nil)
 	l := f.create(t, jobdb.CreateDelegationRequest{Permissions: delegationPolicy()})
-	f.expire(t, l)
+	f.staleSnapshot(t, l)
 	for _, sameKey := range []bool{true, false} {
 		key := f.signer.key
 		if !sameKey {
@@ -545,7 +525,7 @@ func TestDelegationWorksAcrossReplicasWithSharedKey(t *testing.T) {
 func TestDelegationOnlyIngressRejectsMissingAndOwnerCredentials(t *testing.T) {
 	f := newDelegationFixture(t, "toy", nil)
 	l := f.create(t, jobdb.CreateDelegationRequest{Permissions: delegationPolicy()})
-	f.expire(t, l)
+	f.staleSnapshot(t, l)
 	handler, err := NewDelegationServerWithOptions(f.backend, ServerOptions{LeaseTokenSigningKey: f.signer.key})
 	require.NoError(t, err)
 	ingress := httptest.NewServer(handler)
@@ -579,7 +559,7 @@ func TestDelegationRenewalIsCappedAtHardDeadline(t *testing.T) {
 			child := f.create(t, jobdb.CreateDelegationRequest{NotAfter: &deadline, Permissions: delegationPolicy()})
 			before := f.validity(t)
 			require.Equal(t, deadline, child.LeaseExpiry())
-			f.expire(t, child)
+			f.staleSnapshot(t, child)
 			next, err := child.Renew(context.Background())
 			require.NoError(t, err)
 			require.Equal(t, deadline, next.LeaseExpiry())

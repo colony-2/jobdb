@@ -47,6 +47,9 @@ type ServerOptions struct {
 	// contain at least 32 bytes and must be shared by server replicas which
 	// should accept one another's tokens.
 	LeaseTokenSigningKey []byte
+	// LeaseTokenAudience separates trust domains even when signing keys are shared.
+	// Empty selects "jobdb"; replicas must use the same value.
+	LeaseTokenAudience string
 }
 
 func NewServer(runtime jobdb.WorkflowRuntime) http.Handler {
@@ -64,6 +67,7 @@ func NewServerWithOptions(runtime jobdb.WorkflowRuntime, opts ServerOptions) (ht
 	if err != nil {
 		return nil, err
 	}
+	tokens.audience = opts.LeaseTokenAudience
 	return newServer(runtime, tokens)
 }
 
@@ -871,7 +875,7 @@ func (s *proxyServer) AddChapterWithLease(ctx context.Context, request runtimeap
 		return nil, badRequest("add chapter body is required")
 	}
 	jobKey := jobdb.JobKey{TenantId: request.TenantId, JobId: request.JobId}
-	claims, err := s.validatedLeaseClaims(request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
+	claims, err := s.validatedLeaseClaims(ctx, request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
 	if err != nil {
 		return nil, err
 	}
@@ -904,7 +908,7 @@ func (s *proxyServer) CompleteJobWithLease(ctx context.Context, request runtimea
 		return nil, badRequest("complete job body is required")
 	}
 	jobKey := jobdb.JobKey{TenantId: request.TenantId, JobId: request.JobId}
-	claims, err := s.validatedLeaseClaims(request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
+	claims, err := s.validatedLeaseClaims(ctx, request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
 	if err != nil {
 		return nil, err
 	}
@@ -941,7 +945,7 @@ func (s *proxyServer) KeepAliveLease(ctx context.Context, request runtimeapi.Kee
 		return s.renewDelegation(ctx, request.Params.XJobDBLeaseToken, jobdb.JobKey{TenantId: request.TenantId, JobId: request.JobId}, request.LeaseId)
 	}
 	jobKey := jobdb.JobKey{TenantId: request.TenantId, JobId: request.JobId}
-	claims, err := s.validatedLeaseClaims(request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
+	claims, err := s.validatedLeaseClaims(ctx, request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
 	if err != nil {
 		return nil, err
 	}
@@ -999,7 +1003,7 @@ func (s *proxyServer) RescheduleJobWithLease(ctx context.Context, request runtim
 		return nil, badRequest(err.Error())
 	}
 	jobKey := jobdb.JobKey{TenantId: request.TenantId, JobId: request.JobId}
-	claims, err := s.validatedLeaseClaims(request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
+	claims, err := s.validatedLeaseClaims(ctx, request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
 	if err != nil {
 		return nil, err
 	}
@@ -1027,7 +1031,7 @@ func (s *proxyServer) SubmitJobWithLease(ctx context.Context, request runtimeapi
 		return nil, badRequest("submit job body is required")
 	}
 	jobKey := jobdb.JobKey{TenantId: request.TenantId, JobId: request.ParentJobId}
-	claims, err := s.validatedLeaseClaims(request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
+	claims, err := s.validatedLeaseClaims(ctx, request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
 	if err != nil {
 		return nil, err
 	}
@@ -1052,7 +1056,7 @@ func (s *proxyServer) PutJobWithLease(ctx context.Context, request runtimeapi.Pu
 		return nil, badRequest("submit job body is required")
 	}
 	jobKey := jobdb.JobKey{TenantId: request.TenantId, JobId: request.ParentJobId}
-	claims, err := s.validatedLeaseClaims(request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
+	claims, err := s.validatedLeaseClaims(ctx, request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
 	if err != nil {
 		return nil, err
 	}
@@ -1077,7 +1081,7 @@ func (s *proxyServer) SubmitRestartJobWithLease(ctx context.Context, request run
 		return nil, badRequest("submit restart job body is required")
 	}
 	jobKey := jobdb.JobKey{TenantId: request.TenantId, JobId: request.ParentJobId}
-	claims, err := s.validatedLeaseClaims(request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
+	claims, err := s.validatedLeaseClaims(ctx, request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
 	if err != nil {
 		return nil, err
 	}
@@ -1102,7 +1106,7 @@ func (s *proxyServer) PutRestartJobWithLease(ctx context.Context, request runtim
 		return nil, badRequest("submit restart job body is required")
 	}
 	jobKey := jobdb.JobKey{TenantId: request.TenantId, JobId: request.ParentJobId}
-	claims, err := s.validatedLeaseClaims(request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
+	claims, err := s.validatedLeaseClaims(ctx, request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
 	if err != nil {
 		return nil, err
 	}
@@ -1251,11 +1255,11 @@ func (s *proxyServer) requireSchemaRegistry() (jobdb.JobSchemaRegistry, error) {
 	return s.schemaRegistry, nil
 }
 
-func (s *proxyServer) validatedLeaseClaims(token string, jobKey jobdb.JobKey, leaseID string) (leaseTokenClaims, error) {
+func (s *proxyServer) validatedLeaseClaims(ctx context.Context, token string, jobKey jobdb.JobKey, leaseID string) (leaseTokenClaims, error) {
 	if isDelegationToken(token) {
-		c, err := s.tokens.parseDelegation(token)
-		if err != nil || c.key() != jobKey || c.Parent.LeaseID != leaseID || !c.ExpiresAt.After(time.Now()) || c.Grant.NotAfter != nil && !c.Grant.NotAfter.After(time.Now()) {
-			return leaseTokenClaims{}, jobdb.ErrExecutionLeaseLost
+		c, _, err := s.checkedDelegation(ctx, token, jobKey, leaseID)
+		if err != nil {
+			return leaseTokenClaims{}, err
 		}
 		return c.accessClaims(), nil
 	}

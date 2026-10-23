@@ -50,12 +50,12 @@ func (s *proxyServer) ResolveSecretsWithLease(ctx context.Context, req runtimeap
 		return secretResponse{err: err}, nil
 	}
 	key := jobdb.JobKey{TenantId: req.TenantId, JobId: req.JobId}
-	claims, err := s.validatedLeaseClaims(req.Params.XJobDBLeaseToken, key, req.LeaseId)
+	claims, err := s.validatedLeaseClaims(ctx, req.Params.XJobDBLeaseToken, key, req.LeaseId)
 	if err != nil {
 		return secretResponse{err: jobdb.ErrExecutionLeaseLost}, nil
 	}
 	if isDelegationToken(req.Params.XJobDBLeaseToken) {
-		c, _, err := s.checkedDelegation(ctx, req.Params.XJobDBLeaseToken, key, req.LeaseId, false)
+		c, _, err := s.checkedDelegation(ctx, req.Params.XJobDBLeaseToken, key, req.LeaseId)
 		if err != nil {
 			return nil, err
 		}
@@ -77,7 +77,7 @@ func (s *proxyServer) ResolveSecretsWithLease(ctx context.Context, req runtimeap
 		JobKey: key, LeaseID: req.LeaseId, LeaseToken: req.Params.XJobDBLeaseToken, Names: req.Body.Names,
 	})
 	if err == nil {
-		_, err = s.validatedLeaseClaims(req.Params.XJobDBLeaseToken, key, req.LeaseId)
+		_, err = s.validatedLeaseClaims(ctx, req.Params.XJobDBLeaseToken, key, req.LeaseId)
 	}
 	return secretResponse{result: result, err: err}, nil
 }
