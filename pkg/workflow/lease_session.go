@@ -138,6 +138,16 @@ func (s *leaseSession) LeaseExpiry() time.Time {
 	defer s.mu.Unlock()
 	return s.current.LeaseExpiry()
 }
+
+// Delegation preserves signed restrictions through the runner's renewal wrapper.
+func (s *leaseSession) Delegation() *jobdb.DelegationInfo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if restricted, ok := s.current.(interface{ Delegation() *jobdb.DelegationInfo }); ok {
+		return restricted.Delegation()
+	}
+	return nil
+}
 func (s *leaseSession) LeaseSchemaHash() string {
 	if schema, ok := s.ExecutionLease.(interface{ LeaseSchemaHash() string }); ok {
 		return schema.LeaseSchemaHash()

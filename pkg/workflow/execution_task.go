@@ -141,6 +141,7 @@ func (c *executionContext) invokeTask(worker TaskWorker, input TaskData) (TaskDa
 func (c *executionContext) taskContext() TaskContext {
 	tc := newTaskContextWithLeaseActions(c.GetJobKey(), c.run.nextOrdinal(), c.Logger(), func(at time.Time) error { return c.waitUntil(at, c.deadline) }, c.awaitTaskJobs, c.SubmitJob, c.SubmitRestartJob, c.ClientPayload, c.ClientPayloadRevision, c.Yield, c.ResolveSecrets, c.ResolveSecretsFresh, c.GetConfiguration)
 	tc.executionContext = c.ctx
+	tc.createDelegation = c.createTaskDelegation
 	// c.id ends with the engine-owned task attempt suffix. Consumer call sites
 	// are JSON-quoted earlier in the identity and cannot replace this suffix.
 	if pos := strings.LastIndex(c.id, "/attempt:"); pos >= 0 {

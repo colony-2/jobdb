@@ -194,3 +194,26 @@ The [attenuation design](DESIGN-Offline-Lease-Delegation.md#cryptographic-constr
 compares macaroons, Biscuit and UCAN. JobDB uses first-party macaroons with typed
 permission selectors and authoritative backend lease checks. This is a bearer
 capability protocol, not an OAuth implementation.
+
+## Workflow task issuance
+
+`workflow.TaskContext.CreateDelegation(ctx, request)` uses the current execution
+lease and caps `NotAfter` to the earliest task-attempt, task-total, enclosing
+scope/job, execution-context, parent-capability, or requested deadline. Absent
+bounds are ignored. Repeated issuance preserves the engine's absolute budget,
+including time already spent preparing the task. A later requested deadline is
+capped; permissions still must fit the parent's allowlist.
+
+The method's call context only bounds issuance. The renewable owner's expiry
+snapshot does not become a child deadline. Existing retry/recovery policies
+select the current attempt's budget; this API does not change timers,
+cancellation causes, history, or timeout classification. Closing a task prevents
+further issuance but does not revoke already issued children individually.
+
+Issuance uses optional runtime capability `jobdb.LeaseDelegator`; the remote
+implementation attenuates locally. Unsupported runtimes and manually constructed
+task contexts return `jobdb.ErrLeaseDelegationUnsupported`. Replay cannot issue
+credentials. No HTTP or storage changes are required.
+
+The [c2j integration guide](GUIDE-C2J-Task-Delegation.md) describes the owner/child
+process boundary and required client integration.

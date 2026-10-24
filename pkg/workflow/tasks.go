@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type taskRunApi interface {
@@ -28,6 +30,7 @@ type FindTasksWaitingRequest struct {
 
 type TaskContext struct {
 	executionContext    context.Context
+	createDelegation    func(context.Context, jobdb.CreateDelegationRequest) (jobdb.RenewableExecutionLease, error)
 	getConfiguration    func(context.Context) (ConfigurationSnapshot, error)
 	resolveSecretsFresh func(context.Context, []string) (SecretResolveResult, error)
 	resolveSecrets      func(context.Context, []string) (SecretResolveResult, error)

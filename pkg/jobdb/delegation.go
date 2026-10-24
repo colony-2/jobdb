@@ -1,12 +1,23 @@
 package jobdb
 
 import (
+	"context"
 	"errors"
 	"time"
 )
 
 // ErrLeasePermissionDenied means a restricted lease does not authorize an operation.
 var ErrLeasePermissionDenied = errors.New("lease permission denied")
+
+// ErrLeaseDelegationUnsupported means the runtime cannot issue delegated leases.
+var ErrLeaseDelegationUnsupported = errors.New("execution lease delegation is unsupported")
+
+// LeaseDelegator is an optional runtime capability. Wrappers supporting delegation
+// must forward this method; WorkflowRuntime alone does not require it.
+// The remote runtime derives signed restrictions locally, without a server call.
+type LeaseDelegator interface {
+	CreateDelegation(context.Context, ExecutionLease, CreateDelegationRequest) (RenewableExecutionLease, error)
+}
 
 // DelegationNames selects exact, case-sensitive names, or explicitly all names.
 // An empty selector permits nothing. Wildcards have no special meaning.

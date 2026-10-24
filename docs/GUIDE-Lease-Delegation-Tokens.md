@@ -10,6 +10,18 @@ This guide describes the implemented JobDB API. c2j must update its JobDB
 version and integrate these calls in its supplied-lease/operation path; this
 repository does not define c2j command-line flags for delegation.
 
+## Workflow tasks: automatic execution bounds
+
+For c2j operation handoffs, prefer
+`TaskContext.CreateDelegation(ctx, restrictions)`. It applies the current task,
+enclosing execution, execution caller, parent capability, and requested
+deadlines automatically. See the
+[c2j task-delegation integration guide](GUIDE-C2J-Task-Delegation.md) for the
+handoff example, runtime support, and migration checklist.
+
+The generic API below is for callers that already hold a lease outside the task
+API. It has no knowledge of workflow execution budgets.
+
 ## Owner process: create and hand off
 
 The owner already holds a remote execution lease. Create a child with exactly

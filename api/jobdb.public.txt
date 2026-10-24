@@ -215,6 +215,7 @@ var ErrJobNotFound error
 var ErrJobSchemaArchived error
 var ErrJobSchemaNotFound error
 var ErrJobSchemaValidation error
+var ErrLeaseDelegationUnsupported error
 var ErrLeasePermissionDenied error
 var ErrLeaseRenewalUnsupported error
 var ErrMissingInputHash error
@@ -448,6 +449,8 @@ type JobSummary struct
 type JobTaskFilter struct
   field JobType string
   field TaskType string
+type LeaseDelegator interface
+  method CreateDelegation func(context.Context, ExecutionLease, CreateDelegationRequest) (RenewableExecutionLease, error)
 type LeaseRenewalError struct
   field Err error
 method LeaseRenewalError.Error func() string
@@ -1645,6 +1648,7 @@ method TaskContext.AwaitJobs func(jobIds ...string) error
 method TaskContext.ClientPayload func() encoding/json.RawMessage
 method TaskContext.ClientPayloadRevision func() int64
 method TaskContext.Context func() context.Context
+method TaskContext.CreateDelegation func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CreateDelegationRequest) (github.com/colony-2/jobdb/pkg/jobdb.RenewableExecutionLease, error)
 method TaskContext.GetConfiguration func(ctx context.Context) (ConfigurationSnapshot, error)
 method TaskContext.ResolveSecrets func(ctx context.Context, names []string) (SecretResolveResult, error)
 method TaskContext.ResolveSecretsFresh func(ctx context.Context, names []string) (SecretResolveResult, error)
