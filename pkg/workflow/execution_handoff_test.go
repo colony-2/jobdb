@@ -317,7 +317,7 @@ func TestExecutionHandoffLateAcknowledgementCannotChangeOutcome(t *testing.T) {
 	}
 }
 
-func TestLegacyYieldHandoffOutcome(t *testing.T) {
+func TestJobWorkerYieldHandoffOutcome(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		for _, taskLevel := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/task=%t", backend, taskLevel), func(t *testing.T) {
@@ -326,15 +326,15 @@ func TestLegacyYieldHandoffOutcome(t *testing.T) {
 				task := executionTestTask{"echo", func(c wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
 					return nil, c.Yield(c.Context(), req)
 				}}
-				worker := suppliedJob{run: func(c wf.JobContext, in jobdb.JobData) (jobdb.JobData, error) {
+				worker := suppliedJob{run: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
 					if taskLevel {
-						return c.DoTask(jobdb.RunPolicy{}, "echo", in)
+						return c.DoTask(wf.TaskCall{Site: "task", Command: []byte("{}"), TaskType: "echo", ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (wf.TaskData, error) { return in, nil })
 					}
 					return nil, c.Yield(context.Background(), req)
 				}}
 				h, err := rt.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic("job")}})
 				require.NoError(t, err)
-				runnable, err := wf.GetJobForRun(context.Background(), rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: worker, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "legacy", LeaseDuration: time.Minute})
+				runnable, err := wf.GetJobForRun(context.Background(), rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: worker, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "job-worker", LeaseDuration: time.Minute})
 				require.NoError(t, err)
 				out, err := runnable.Run(nil)
 				require.NoError(t, err)

@@ -1421,7 +1421,7 @@ type ExecutionWorker struct
   field JobType string
   field Execute func(ExecutionContext, JobData) (JobData, error)
 method ExecutionWorker.Name func() string
-method ExecutionWorker.Run func(JobContext, JobData) (JobData, error)
+method ExecutionWorker.Run func(ctx ExecutionContext, input JobData) (JobData, error)
 func ExtractTaskDataResult func(data TaskData) (TaskData, error)
 type FieldName = github.com/colony-2/jobdb/pkg/jobdb.FieldName
 type FindTasksWaitingRequest struct
@@ -1458,20 +1458,6 @@ func IsExistingJobMismatch func(err error) bool
 func IsSystemError func(err error) bool
 type JobAttempt = github.com/colony-2/jobdb/pkg/jobdb.JobAttempt
 type JobAttemptOutcomeChapter = github.com/colony-2/jobdb/pkg/jobdb.JobAttemptOutcomeChapter
-type JobContext interface
-  method AwaitDuration func(waitFor Duration) error
-  method AwaitJobs func(jobIds ...string) error
-  method ClientPayload func() encoding/json.RawMessage
-  method ClientPayloadRevision func() int64
-  method DoTask func(policy RunPolicy, taskType string, data TaskData) (TaskData, error)
-  method GetConfiguration func(context.Context) (ConfigurationSnapshot, error)
-  method GetJobKey func() JobKey
-  method Logger func() *log/slog.Logger
-  method ResolveSecrets func(context.Context, []string) (SecretResolveResult, error)
-  method ResolveSecretsFresh func(context.Context, []string) (SecretResolveResult, error)
-  method SubmitJob func(ctx context.Context, submit SubmitJob) (JobKey, error)
-  method SubmitRestartJob func(ctx context.Context, restart SubmitRestartJob) (JobKey, error)
-  method Yield func(context.Context, YieldRequest) error
 type JobData = github.com/colony-2/jobdb/pkg/jobdb.TaskData
 type JobEndEvent struct
   field JobKey JobKey
@@ -1534,7 +1520,7 @@ type JobSummary = github.com/colony-2/jobdb/pkg/jobdb.JobSummary
 type JobTaskFilter = github.com/colony-2/jobdb/pkg/jobdb.JobTaskFilter
 type JobWorker interface
   method Name func() string
-  method Run func(JobContext, JobData) (JobData, error)
+  method Run func(ExecutionContext, JobData) (JobData, error)
 type ListChaptersRequest = github.com/colony-2/jobdb/pkg/jobdb.ListChaptersRequest
 type ListJobsRequest = github.com/colony-2/jobdb/pkg/jobdb.ListJobsRequest
 type ListJobsResponse = github.com/colony-2/jobdb/pkg/jobdb.ListJobsResponse
@@ -1625,9 +1611,6 @@ type SubmitRestartJobRequest = github.com/colony-2/jobdb/pkg/jobdb.SubmitRestart
 type SystemError = github.com/colony-2/jobdb/pkg/jobdb.SystemError
 type SystemErrorOutcome = github.com/colony-2/jobdb/pkg/jobdb.SystemErrorOutcome
 type SystemErrorPayload = github.com/colony-2/jobdb/pkg/jobdb.SystemErrorPayload
-type TaskAlternate struct
-  field TaskType string `json:"taskType"`
-  field At time.Time `json:"at"`
 type TaskAlternateAfter struct
   field TaskType string `json:"task_type"`
   field After time.Duration `json:"after"`
@@ -1722,9 +1705,6 @@ method TaskInputMismatchError.ChapterMeta func() TaskDeterminismMeta
 method TaskInputMismatchError.Error func() string
 method TaskInputMismatchError.Unwrap func() error
 func TaskInputStorageEnabled func() bool
-type TaskOptions struct
-  field Alternate *TaskAlternate `json:"alternate,omitempty"`
-func TaskOptionsFor func(data TaskData) TaskOptions
 type TaskOutcome = github.com/colony-2/jobdb/pkg/jobdb.TaskOutcome
 const TaskOutcomeStatusFailed untyped string = "FAILED"
 const TaskOutcomeStatusSucceeded untyped string = "SUCCEEDED"
@@ -1751,7 +1731,6 @@ type TriggerScheduleRequest = github.com/colony-2/jobdb/pkg/jobdb.TriggerSchedul
 func UnexpectedChapter func(err error) (TaskInputMismatchError, bool)
 type UpsertScheduleRequest = github.com/colony-2/jobdb/pkg/jobdb.UpsertScheduleRequest
 func WaitForJobToComplete func(ctx context.Context, timeout time.Duration, jobKey JobKey, engine Engine) error
-func WithTaskOptions func(data TaskData, options TaskOptions) TaskData
 type WorkRegistrationOptions struct
   field ConsumerVersions map[string]string
   field MetadataFilter MetadataFilter

@@ -58,7 +58,7 @@ type explicitIDEchoJob struct {
 
 func (j explicitIDEchoJob) Name() string { return j.name }
 
-func (j explicitIDEchoJob) Run(_ workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
+func (j explicitIDEchoJob) Run(_ workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 	return data, nil
 }
 
@@ -70,7 +70,7 @@ type explicitIDBlockingJob struct {
 
 func (j explicitIDBlockingJob) Name() string { return j.name }
 
-func (j explicitIDBlockingJob) Run(_ workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
+func (j explicitIDBlockingJob) Run(_ workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 	if j.started != nil {
 		select {
 		case j.started <- struct{}{}:

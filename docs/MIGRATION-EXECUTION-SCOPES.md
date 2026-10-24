@@ -1,20 +1,27 @@
 # Migrating to versioned execution scopes
 
+The legacy sequential runner has been removed. `JobWorker.Run` now takes
+`ExecutionContext`; `ExecutionWorker` remains the callback registration form.
+All workers use the invocation/scope engine. `JobContext`, `WithTaskOptions`,
+`TaskOptions`, and the absolute-time `TaskAlternate` have been removed. Use
+`TaskCall.Alternate` with `TaskAlternateAfter` for delayed dispatch. Existing
+legacy sequential histories cannot be resumed or replayed by this runner;
+start a new execution. The low-level chapter APIs remain available for inspecting
+those histories.
+
 Execution protocol 3 replaces the persistence and timeout details below with
 [compact execution history](MIGRATION-COMPACT-EXECUTION-HISTORY.md). Public APIs
 remain unchanged; pre-cutover jobs must be deleted. The sections below document
 the original scope API introduction.
 
-The new JobDB client engine is selected by `workflow.ExecutionWorker`. Register it
-with the existing engine builder or supply it to `GetJobForRun` /
-`GetJobForRunWithLease`. Existing workers remain available during consumer
-migration; the two engines do not interpret each other's histories.
+Register `workflow.ExecutionWorker` or a `JobWorker` implementing
+`Run(ExecutionContext, JobData)` with the engine builder, or supply it to
+`GetJobForRun` / `GetJobForRunWithLease`. Both use the same execution engine.
 
 Deploy the server and client changes together. The REST chapter union and storage
 protobuf now include execution control records. Use fresh jobs at the coordinated
-cutover. Do not submit old histories to the new engine. Remove the legacy path
-once c2j and other consumers have switched; this implementation does not delete
-existing jobs or change a running deployment.
+cutover. Do not submit old histories to the execution engine. Removing the legacy runner
+does not delete existing jobs or change a running deployment.
 
 After cutover, rolling back to the old engine requires another fresh-job reset;
 it cannot continue new execution histories. If a tenant has a chapter schema,
@@ -208,7 +215,7 @@ nested scope/task retries do not reset these caches. Whole-job retries do.
 
 ## Confirming a handoff
 
-`ExecutionContext.Yield`, `TaskContext.Yield`, and the legacy `JobContext.Yield`
+`ExecutionContext.Yield` and `TaskContext.Yield`
 now accept `workflow.YieldRequest`. Wrap the existing scheduling request in
 `Reschedule`; optionally include consumer JSON in `Metadata`:
 

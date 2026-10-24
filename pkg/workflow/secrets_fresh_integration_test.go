@@ -28,8 +28,8 @@ func (p *freshIntegrationProvider) ResolveSecrets(_ context.Context, req jobdb.S
 
 func TestFreshSecretsBootstrapTasksAndRenewal(t *testing.T) {
 	for _, transport := range []string{"embedded", "http"} {
-		for _, versioned := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/versioned=%t", transport, versioned), func(t *testing.T) {
+		for _, callback := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/callback=%t", transport, callback), func(t *testing.T) {
 				t.Parallel()
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
@@ -99,10 +99,12 @@ func TestFreshSecretsBootstrapTasksAndRenewal(t *testing.T) {
 					}
 					return NewTaskDataOrPanic("done"), nil
 				}
-				var worker JobWorker = cacheTestJob{run: func(jc JobContext, data JobData) (JobData, error) {
-					return body(jc, func() (TaskData, error) { return jc.DoTask(RunPolicy{}, task.Name(), data) })
+				var worker JobWorker = cacheTestJob{run: func(jc ExecutionContext, data JobData) (JobData, error) {
+					return body(jc, func() (TaskData, error) {
+						return jc.DoTask(TaskCall{Site: "task", Command: []byte("{}"), TaskType: task.Name(), ContractVersion: 1, Policy: RunPolicy{}}, func(context.Context) (TaskData, error) { return data, nil })
+					})
 				}}
-				if versioned {
+				if callback {
 					worker = ExecutionWorker{JobType: "cache-job", Execute: func(ec ExecutionContext, data JobData) (JobData, error) {
 						return body(ec, func() (TaskData, error) {
 							return ec.DoTask(TaskCall{Site: "read", TaskType: task.Name(), ContractVersion: 1, Command: json.RawMessage(`1`)}, func(context.Context) (TaskData, error) { return data, nil })
@@ -147,8 +149,8 @@ func TestFreshSecretsBootstrapTasksAndRenewal(t *testing.T) {
 }
 
 func TestBootstrapSecretResolverFollowsAttemptCacheReset(t *testing.T) {
-	for _, versioned := range []bool{false, true} {
-		t.Run(fmt.Sprint(versioned), func(t *testing.T) {
+	for _, callback := range []bool{false, true} {
+		t.Run(fmt.Sprint(callback), func(t *testing.T) {
 			ctx := context.Background()
 			provider := &freshIntegrationProvider{requests: make(chan jobdb.SecretResolveRequest, 8)}
 			runtime := toy.New(toy.WithSecretProvider(provider))
@@ -175,8 +177,8 @@ func TestBootstrapSecretResolverFollowsAttemptCacheReset(t *testing.T) {
 				}
 				return NewTaskDataOrPanic("done"), nil
 			}
-			var worker JobWorker = cacheTestJob{run: func(jc JobContext, _ JobData) (JobData, error) { return body(jc) }}
-			if versioned {
+			var worker JobWorker = cacheTestJob{run: func(jc ExecutionContext, _ JobData) (JobData, error) { return body(jc) }}
+			if callback {
 				worker = ExecutionWorker{JobType: "cache-job", Execute: func(ec ExecutionContext, _ JobData) (JobData, error) { return body(ec) }}
 			}
 			job, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: worker.Name(), Data: NewTaskDataOrPanic(1), RunPolicy: RunPolicy{Retry: RetryPolicy{MaximumAttempts: 2, BackoffCoefficient: 1}}}})

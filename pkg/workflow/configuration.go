@@ -22,7 +22,7 @@ func (r *workerRunner) GetConfiguration(ctx context.Context) (ConfigurationSnaps
 	if r.replay {
 		return ConfigurationSnapshot{}, replayMutationError("get configuration")
 	}
-	if r.lease == nil || r.rescheduled.Load() {
+	if r.lease == nil {
 		return ConfigurationSnapshot{}, jobdb.ErrExecutionLeaseLost
 	}
 	callCtx, cancel := invocationCallContext(ctx, r.ctx)
@@ -31,9 +31,6 @@ func (r *workerRunner) GetConfiguration(ctx context.Context) (ConfigurationSnaps
 		return ConfigurationSnapshot{}, jobdb.ErrConfigurationUnavailable
 	}
 	defer r.configurationCache.unlock()
-	if r.rescheduled.Load() {
-		return ConfigurationSnapshot{}, jobdb.ErrExecutionLeaseLost
-	}
 	result := r.configurationCache.value
 	if result == nil {
 		fetched, err := r.lease.GetConfiguration(callCtx)
@@ -42,10 +39,8 @@ func (r *workerRunner) GetConfiguration(ctx context.Context) (ConfigurationSnaps
 		}
 		result = &fetched
 	}
-	if r.rescheduled.Load() {
-		return ConfigurationSnapshot{}, jobdb.ErrExecutionLeaseLost
-	}
-	if callCtx.Err() != nil {
+	// Check the execution directly too: AfterFunc cancellation may still be queued.
+	if callCtx.Err() != nil || (r.ctx != nil && r.ctx.Err() != nil) {
 		return ConfigurationSnapshot{}, jobdb.ErrConfigurationUnavailable
 	}
 	if r.configurationCache.value == nil {

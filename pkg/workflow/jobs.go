@@ -2,40 +2,16 @@ package workflow
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
 )
 
-type JobContext interface {
-	// GetConfiguration returns a copy of the first successful tenant snapshot in
-	// this live job attempt. Tasks share the same cache; whole-job retries reset it.
-	GetConfiguration(context.Context) (ConfigurationSnapshot, error)
-	// ResolveSecrets retrieves allowed names under this invocation's live lease.
-	// Values and omissions are cached by name for this live job attempt, never
-	// recorded. New names refresh all cached available names together; known omissions
-	// are not retried. Offline replay rejects reads;
-	// use task-level resolution for workflows that must support offline replay.
-	ResolveSecrets(context.Context, []string) (SecretResolveResult, error)
-	// ResolveSecretsFresh refreshes only the requested names in this attempt's cache.
-	ResolveSecretsFresh(context.Context, []string) (SecretResolveResult, error)
-	ClientPayload() json.RawMessage
-	ClientPayloadRevision() int64
-	// Yield reschedules and stops this invocation. It never writes a chapter.
-	Yield(context.Context, YieldRequest) error
-	GetJobKey() JobKey
-	Logger() *slog.Logger
-	DoTask(policy RunPolicy, taskType string, data TaskData) (TaskData, error)
-	AwaitDuration(waitFor Duration) error
-	AwaitJobs(jobIds ...string) error
-	SubmitJob(ctx context.Context, submit SubmitJob) (JobKey, error)
-	SubmitRestartJob(ctx context.Context, restart SubmitRestartJob) (JobKey, error)
-}
-
+// JobWorker orchestrates tasks and scopes through the versioned execution engine.
+// ExecutionWorker is the callback-based implementation of this interface.
 type JobWorker interface {
 	Name() string
-	Run(JobContext, JobData) (JobData, error)
+	Run(ExecutionContext, JobData) (JobData, error)
 }
 
 type jobRunApi interface {

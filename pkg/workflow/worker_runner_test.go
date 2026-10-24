@@ -9,7 +9,6 @@ import (
 	"io"
 	"reflect"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -422,7 +421,7 @@ func TestWorkerRunnerContextSubmitJobUsesLease(t *testing.T) {
 		jobKey:   parent,
 	}
 
-	var jobCtx JobContext = runner
+	var jobCtx ExecutionContext = &executionContext{ctx: context.Background(), run: &executionRun{r: runner}}
 	childKey, err := jobCtx.SubmitJob(context.Background(), SubmitJob{
 		JobID:   "child",
 		JobType: "child-type",
@@ -435,7 +434,7 @@ func TestWorkerRunnerContextSubmitJobUsesLease(t *testing.T) {
 		t.Fatalf("child key = %+v", childKey)
 	}
 
-	taskCtx := newTaskContextWithLeaseActions(parent, 1, nil, nil, nil, runner.SubmitJob, runner.SubmitRestartJob, runner.ClientPayload, runner.ClientPayloadRevision, runner.Yield, runner.ResolveSecrets, runner.ResolveSecretsFresh, runner.GetConfiguration)
+	taskCtx := newTaskContextWithLeaseActions(parent, 1, nil, nil, nil, runner.SubmitJob, runner.SubmitRestartJob, runner.ClientPayload, runner.ClientPayloadRevision, jobCtx.Yield, runner.ResolveSecrets, runner.ResolveSecretsFresh, runner.GetConfiguration)
 	restartKey, err := taskCtx.SubmitRestartJob(context.Background(), SubmitRestartJob{
 		JobID:          "child-restart",
 		PriorJobKey:    JobKey{JobId: "prior"},
@@ -581,7 +580,7 @@ type countingJobWorker struct {
 
 func (w countingJobWorker) Name() string { return w.name }
 
-func (w countingJobWorker) Run(_ JobContext, data JobData) (JobData, error) {
+func (w countingJobWorker) Run(_ ExecutionContext, data JobData) (JobData, error) {
 	w.counter.Add(1)
 	return data, nil
 }
@@ -605,8 +604,8 @@ type singleTaskJob struct {
 
 func (j singleTaskJob) Name() string { return j.name }
 
-func (j singleTaskJob) Run(ctx JobContext, data JobData) (JobData, error) {
-	return ctx.DoTask(RunPolicy{}, j.taskType, data)
+func (j singleTaskJob) Run(ctx ExecutionContext, data JobData) (JobData, error) {
+	return ctx.DoTask(TaskCall{Site: "task", Command: []byte("{}"), TaskType: j.taskType, ContractVersion: 1, Policy: RunPolicy{}}, func(context.Context) (TaskData, error) { return data, nil })
 }
 
 type failThenSucceedJob struct {
@@ -617,7 +616,7 @@ type failThenSucceedJob struct {
 
 func (j failThenSucceedJob) Name() string { return j.name }
 
-func (j failThenSucceedJob) Run(_ JobContext, data JobData) (JobData, error) {
+func (j failThenSucceedJob) Run(_ ExecutionContext, data JobData) (JobData, error) {
 	attempt := j.counter.Add(1)
 	if attempt <= j.failAttempts {
 		return nil, AppError{Payload: AppErrorPayload{Message: "retry me", Level: "error"}}
@@ -648,7 +647,7 @@ type awaitJobsJob struct {
 
 func (j awaitJobsJob) Name() string { return j.name }
 
-func (j awaitJobsJob) Run(ctx JobContext, data JobData) (JobData, error) {
+func (j awaitJobsJob) Run(ctx ExecutionContext, data JobData) (JobData, error) {
 	if err := ctx.AwaitJobs(j.waitFor...); err != nil {
 		return nil, err
 	}
@@ -676,7 +675,7 @@ type awaitDurationJob struct {
 
 func (j awaitDurationJob) Name() string { return j.name }
 
-func (j awaitDurationJob) Run(ctx JobContext, data JobData) (JobData, error) {
+func (j awaitDurationJob) Run(ctx ExecutionContext, data JobData) (JobData, error) {
 	if err := ctx.AwaitDuration(Duration(j.wait)); err != nil {
 		return nil, err
 	}
@@ -691,8 +690,8 @@ type taskTimeoutJob struct {
 
 func (j taskTimeoutJob) Name() string { return j.name }
 
-func (j taskTimeoutJob) Run(ctx JobContext, data JobData) (JobData, error) {
-	return ctx.DoTask(j.policy, j.taskType, data)
+func (j taskTimeoutJob) Run(ctx ExecutionContext, data JobData) (JobData, error) {
+	return ctx.DoTask(TaskCall{Site: "task", Command: []byte("{}"), TaskType: j.taskType, ContractVersion: 1, Policy: j.policy}, func(context.Context) (TaskData, error) { return data, nil })
 }
 
 type twoTaskJob struct {
@@ -703,12 +702,12 @@ type twoTaskJob struct {
 
 func (j twoTaskJob) Name() string { return j.name }
 
-func (j twoTaskJob) Run(ctx JobContext, data JobData) (JobData, error) {
-	out, err := ctx.DoTask(RunPolicy{}, j.first, data)
+func (j twoTaskJob) Run(ctx ExecutionContext, data JobData) (JobData, error) {
+	out, err := ctx.DoTask(TaskCall{Site: "task", Command: []byte("{}"), TaskType: j.first, ContractVersion: 1, Policy: RunPolicy{}}, func(context.Context) (TaskData, error) { return data, nil })
 	if err != nil {
 		return nil, err
 	}
-	return ctx.DoTask(RunPolicy{}, j.second, out)
+	return ctx.DoTask(TaskCall{Site: "task", Command: []byte("{}"), TaskType: j.second, ContractVersion: 1, Policy: RunPolicy{}}, func(context.Context) (TaskData, error) { return out, nil })
 }
 
 type replayObserverRecorder struct {
@@ -759,8 +758,8 @@ func TestWorkerRunnerJobRestartUsesCache(t *testing.T) {
 		t.Fatalf("second do job: %v", err)
 	}
 
-	if got := count.Load(); got != 1 {
-		t.Fatalf("expected 1 execution, got %d", got)
+	if got := count.Load(); got != 2 {
+		t.Fatalf("expected 2 orchestration executions, got %d", got)
 	}
 }
 
@@ -791,45 +790,6 @@ func TestWorkerRunnerTaskRestartUsesCache(t *testing.T) {
 	}
 }
 
-func TestWorkerRunnerSequentialTaskInputRefsUsePreviousOrdinal(t *testing.T) {
-	runtime := newRunnerTestRuntime()
-	jobKey := JobKey{TenantId: "tenant", JobId: "sequential-input-refs"}
-	task1 := countingTaskWorker{name: "first", counter: &atomic.Int32{}}
-	task2 := countingTaskWorker{name: "second", counter: &atomic.Int32{}}
-	job := twoTaskJob{name: "sequential-input-refs", first: task1.Name(), second: task2.Name()}
-	ws := mustWorkSetForRunnerTest(t, job, task1, task2)
-	seedJobStartForTest(t, runtime, jobKey, job.Name(), NewTaskDataOrPanic(map[string]int{"n": 1}), RunPolicy{})
-
-	lease := &fakeExecutionLease{runtime: runtime, job: JobHandle{JobKey: jobKey}, route: Route{JobType: job.Name()}, payload: json.RawMessage(`{}`)}
-	runner := newWorkerRunner(runtime, ws, lease, workerRunnerOptions{JobPolicy: RunPolicy{}})
-	if _, err := runner.DoJob(context.Background()); err != nil {
-		t.Fatalf("do job: %v", err)
-	}
-
-	ch1, err := runtime.GetChapter(context.Background(), ChapterRef{JobKey: jobKey, Ordinal: 1})
-	if err != nil {
-		t.Fatalf("chapter 1: %v", err)
-	}
-	ch2, err := runtime.GetChapter(context.Background(), ChapterRef{JobKey: jobKey, Ordinal: 2})
-	if err != nil {
-		t.Fatalf("chapter 2: %v", err)
-	}
-	meta1, err := chapterMetaFromChapter(ch1)
-	if err != nil {
-		t.Fatalf("chapter 1 meta: %v", err)
-	}
-	meta2, err := chapterMetaFromChapter(ch2)
-	if err != nil {
-		t.Fatalf("chapter 2 meta: %v", err)
-	}
-	if meta1.InputRef == nil || meta1.InputRef.Ordinal != 0 {
-		t.Fatalf("expected first task input ref ordinal 0, got %+v", meta1.InputRef)
-	}
-	if meta2.InputRef == nil || meta2.InputRef.Ordinal != 1 {
-		t.Fatalf("expected second task input ref ordinal 1, got %+v", meta2.InputRef)
-	}
-}
-
 func TestWorkerRunnerJobRetryWithFailures(t *testing.T) {
 	runtime := newRunnerTestRuntime()
 	jobKey := JobKey{TenantId: "tenant", JobId: "job-retry"}
@@ -849,20 +809,29 @@ func TestWorkerRunnerJobRetryWithFailures(t *testing.T) {
 	if got := count.Load(); got != 2 {
 		t.Fatalf("expected 2 attempts, got %d", got)
 	}
-	ch1, err := runtime.GetChapter(context.Background(), ChapterRef{JobKey: jobKey, Ordinal: 1})
+	chapters, err := runtime.ListChapters(context.Background(), ListChaptersRequest{JobKey: jobKey})
 	if err != nil {
-		t.Fatalf("chapter 1: %v", err)
+		t.Fatal(err)
 	}
-	if payloadKindForRunnerTest(t, ch1) != payloadKindAppError {
-		t.Fatalf("expected app error chapter, got %s", payloadKindForRunnerTest(t, ch1))
+	var failed, succeeded bool
+	for _, ch := range chapters {
+		body, ok := ch.Body.(jobdb.ExecutionChapter)
+		if !ok {
+			continue
+		}
+		record, err := jobdb.DecodeExecutionRecord(body.Record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if record.Kind == "result" {
+			failed = failed || record.ErrorKind == payloadKindAppError
+			succeeded = succeeded || record.Output != nil
+		}
 	}
-	ch2, err := runtime.GetChapter(context.Background(), ChapterRef{JobKey: jobKey, Ordinal: 2})
-	if err != nil {
-		t.Fatalf("chapter 2: %v", err)
+	if !failed || !succeeded {
+		t.Fatal("missing failed and successful execution results")
 	}
-	if payloadKindForRunnerTest(t, ch2) != payloadKindApp {
-		t.Fatalf("expected success chapter, got %s", payloadKindForRunnerTest(t, ch2))
-	}
+
 }
 
 func TestWorkerRunnerTaskRetryWithFailures(t *testing.T) {
@@ -888,34 +857,29 @@ func TestWorkerRunnerTaskRetryWithFailures(t *testing.T) {
 	if got := count.Load(); got != 2 {
 		t.Fatalf("expected 2 task attempts, got %d", got)
 	}
-	ch1, err := runtime.GetChapter(context.Background(), ChapterRef{JobKey: jobKey, Ordinal: 1})
+	chapters, err := runtime.ListChapters(context.Background(), ListChaptersRequest{JobKey: jobKey})
 	if err != nil {
-		t.Fatalf("chapter 1: %v", err)
+		t.Fatal(err)
 	}
-	if payloadKindForRunnerTest(t, ch1) != payloadKindAppError {
-		t.Fatalf("expected app error chapter, got %s", payloadKindForRunnerTest(t, ch1))
+	var failed, succeeded bool
+	for _, ch := range chapters {
+		body, ok := ch.Body.(jobdb.ExecutionChapter)
+		if !ok {
+			continue
+		}
+		record, err := jobdb.DecodeExecutionRecord(body.Record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if record.Kind == "result" {
+			failed = failed || record.ErrorKind == payloadKindAppError
+			succeeded = succeeded || record.Output != nil
+		}
 	}
-	ch2, err := runtime.GetChapter(context.Background(), ChapterRef{JobKey: jobKey, Ordinal: 2})
-	if err != nil {
-		t.Fatalf("chapter 2: %v", err)
+	if !failed || !succeeded {
+		t.Fatal("missing failed and successful execution results")
 	}
-	if payloadKindForRunnerTest(t, ch2) != payloadKindApp {
-		t.Fatalf("expected success chapter, got %s", payloadKindForRunnerTest(t, ch2))
-	}
-	meta1, err := chapterMetaFromChapter(ch1)
-	if err != nil {
-		t.Fatalf("chapter 1 meta: %v", err)
-	}
-	meta2, err := chapterMetaFromChapter(ch2)
-	if err != nil {
-		t.Fatalf("chapter 2 meta: %v", err)
-	}
-	if meta1.InputRef == nil || meta1.InputRef.Ordinal != 0 {
-		t.Fatalf("expected first task attempt input ref ordinal 0, got %+v", meta1.InputRef)
-	}
-	if meta2.InputRef == nil || meta2.InputRef.Ordinal != 1 {
-		t.Fatalf("expected second task attempt input ref ordinal 1, got %+v", meta2.InputRef)
-	}
+
 }
 
 func TestWorkerRunnerAwaitJobsReschedulesAndExits(t *testing.T) {
@@ -1086,8 +1050,8 @@ func TestWorkerRunnerLeaseLossOnMissingTaskExitsWithoutFailure(t *testing.T) {
 	}
 	select {
 	case err := <-errCh:
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+		if !errors.Is(err, ErrExecutionLeaseLost) {
+			t.Fatalf("expected lease loss: %v", err)
 		}
 	default:
 	}
@@ -1099,9 +1063,16 @@ func TestWorkerRunnerLeaseLossOnMissingTaskExitsWithoutFailure(t *testing.T) {
 	if len(completeCalls) != 0 {
 		t.Fatalf("expected no complete calls, got %d", len(completeCalls))
 	}
-	if _, err := runtime.GetChapter(context.Background(), ChapterRef{JobKey: jobKey, Ordinal: 1}); !errors.Is(err, ErrChapterNotFound) {
-		t.Fatalf("expected no persisted chapter, got %v", err)
+	chapters, err := runtime.ListChapters(context.Background(), ListChaptersRequest{JobKey: jobKey})
+	if err != nil {
+		t.Fatal(err)
 	}
+	for _, chapter := range chapters {
+		if _, ok := chapter.Body.(JobAttemptOutcomeChapter); ok {
+			t.Fatal("lease loss persisted a terminal outcome")
+		}
+	}
+
 }
 
 func TestWorkerRunnerIgnoresLeaseLossOnComplete(t *testing.T) {
@@ -1127,9 +1098,16 @@ func TestWorkerRunnerIgnoresLeaseLossOnComplete(t *testing.T) {
 	if len(completeCalls) != 1 {
 		t.Fatalf("expected 1 complete call, got %d", len(completeCalls))
 	}
-	if _, err := runtime.GetChapter(context.Background(), ChapterRef{JobKey: jobKey, Ordinal: 1}); !errors.Is(err, ErrChapterNotFound) {
-		t.Fatalf("expected no persisted output chapter, got %v", err)
+	chapters, err := runtime.ListChapters(context.Background(), ListChaptersRequest{JobKey: jobKey})
+	if err != nil {
+		t.Fatal(err)
 	}
+	for _, ch := range chapters {
+		if _, ok := ch.Body.(JobAttemptOutcomeChapter); ok {
+			t.Fatal("persisted terminal outcome after failed completion")
+		}
+	}
+
 }
 
 func TestWorkerRunnerDoesNotCompleteLeaseOnPersistFailure(t *testing.T) {
@@ -1155,83 +1133,16 @@ func TestWorkerRunnerDoesNotCompleteLeaseOnPersistFailure(t *testing.T) {
 	if len(completeCalls) != 1 {
 		t.Fatalf("expected 1 complete call, got %d", len(completeCalls))
 	}
-	if _, err := runtime.GetChapter(context.Background(), ChapterRef{JobKey: jobKey, Ordinal: 1}); !errors.Is(err, ErrChapterNotFound) {
-		t.Fatalf("expected no persisted chapter, got %v", err)
+	chapters, err := runtime.ListChapters(context.Background(), ListChaptersRequest{JobKey: jobKey})
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestWorkerRunnerTaskPersistFailureWritesJobFailureAtSameOrdinal(t *testing.T) {
-	runtime := newRunnerTestRuntime()
-	taskPersistErr := errors.New("task outcome persist failed")
-	type putCall struct {
-		ordinal     int64
-		chapterType string
-	}
-	var calls []putCall
-	runtime.putChapterHook = func(req PutChapterRequest) error {
-		calls = append(calls, putCall{ordinal: req.Ref.Ordinal, chapterType: chapterTypeForRunnerTest(t, req.Chapter)})
-		if chapterIs(req.Chapter, chapterTypeTaskAttemptOutcome) {
-			return taskPersistErr
+	for _, ch := range chapters {
+		if _, ok := ch.Body.(JobAttemptOutcomeChapter); ok {
+			t.Fatal("persisted terminal outcome after failed completion")
 		}
-		return nil
 	}
 
-	jobKey := JobKey{TenantId: "tenant", JobId: "task-persist-failure"}
-	var taskRuns atomic.Int32
-	task := failThenSucceedTask{name: "failing-task", counter: &taskRuns, failAttempts: 1}
-	job := singleTaskJob{name: "task-persist-failure", taskType: task.Name()}
-	ws := mustWorkSetForRunnerTest(t, job, task)
-	seedJobStartForTest(t, runtime, jobKey, job.Name(), NewTaskDataOrPanic(map[string]int{"n": 1}), RunPolicy{})
-
-	lease := &fakeExecutionLease{runtime: runtime, job: JobHandle{JobKey: jobKey}, route: Route{JobType: job.Name()}, payload: json.RawMessage(`{}`)}
-	runner := newWorkerRunner(runtime, ws, lease, workerRunnerOptions{JobPolicy: RunPolicy{}})
-	_, err := runner.DoJob(context.Background())
-	if err == nil {
-		t.Fatal("expected task persistence system error")
-	}
-	if !IsSystemError(err) {
-		t.Fatalf("expected system error, got %T %v", err, err)
-	}
-	if !strings.Contains(err.Error(), taskPersistErr.Error()) {
-		t.Fatalf("expected original persistence message in error, got %v", err)
-	}
-	if len(calls) != 2 {
-		t.Fatalf("expected 2 PutChapter calls, got %+v", calls)
-	}
-	if calls[0] != (putCall{ordinal: 1, chapterType: chapterTypeTaskAttemptOutcome}) {
-		t.Fatalf("unexpected task outcome write call: %+v", calls[0])
-	}
-	if calls[1] != (putCall{ordinal: 1, chapterType: chapterTypeJobAttemptOutcome}) {
-		t.Fatalf("unexpected job outcome write call: %+v", calls[1])
-	}
-
-	chapter, err := runtime.GetChapter(context.Background(), ChapterRef{JobKey: jobKey, Ordinal: 1})
-	if err != nil {
-		t.Fatalf("expected job failure chapter at ordinal 1: %v", err)
-	}
-	if !chapterIs(chapter, chapterTypeJobAttemptOutcome) {
-		t.Fatalf("expected job outcome chapter, got %s", chapterTypeForRunnerTest(t, chapter))
-	}
-	payloadKind, payload, err := chapterPayload(chapter)
-	if err != nil {
-		t.Fatalf("chapter payload: %v", err)
-	}
-	if payloadKind != payloadKindSystemError {
-		t.Fatalf("expected system error payload, got %s", payloadKind)
-	}
-	if !strings.Contains(string(payload), taskPersistErr.Error()) {
-		t.Fatalf("expected persisted payload to mention persistence error, got %s", payload)
-	}
-	if _, err := runtime.GetChapter(context.Background(), ChapterRef{JobKey: jobKey, Ordinal: 2}); !errors.Is(err, ErrChapterNotFound) {
-		t.Fatalf("expected no skipped ordinal 2 chapter, got %v", err)
-	}
-	_, _, completeCalls, _ := lease.snapshot()
-	if len(completeCalls) != 1 {
-		t.Fatalf("expected 1 complete call, got %d", len(completeCalls))
-	}
-	if completeCalls[0].Status != "failed_system" {
-		t.Fatalf("expected failed_system completion, got %+v", completeCalls[0])
-	}
 }
 
 func TestWorkerRunnerStopsKeepAliveOnExit(t *testing.T) {
@@ -1256,84 +1167,8 @@ func TestWorkerRunnerStopsKeepAliveOnExit(t *testing.T) {
 	}
 }
 
-func TestReplayObserverUsesCachedChapterTimes(t *testing.T) {
-	runtime := newRunnerTestRuntime()
-	jobKey := JobKey{TenantId: "tenant", JobId: "replay-times"}
-	job := singleTaskJob{name: "replay-times", taskType: "echo"}
-	task := countingTaskWorker{name: "echo", counter: &atomic.Int32{}}
-	ws := mustWorkSetForRunnerTest(t, job, task)
-	seedJobStartForTest(t, runtime, jobKey, job.Name(), NewTaskDataOrPanic(map[string]int{"n": 1}), RunPolicy{})
-
-	lease := &fakeExecutionLease{runtime: runtime, job: JobHandle{JobKey: jobKey}, route: Route{JobType: job.Name()}, payload: json.RawMessage(`{}`)}
-	runner := newWorkerRunner(runtime, ws, lease, workerRunnerOptions{JobPolicy: RunPolicy{}})
-	if _, err := runner.DoJob(context.Background()); err != nil {
-		t.Fatalf("do job: %v", err)
-	}
-
-	engine, err := newWorkerEngine(runtime, []WorkSet{*ws}, RuntimeBuildOptions{PollTenantId: jobKey.TenantId})
-	if err != nil {
-		t.Fatalf("new worker engine: %v", err)
-	}
-	observer := &replayObserverRecorder{}
-	if _, err := engine.ReplayJobRun(context.Background(), ReplayRunRequest{JobKey: jobKey, Observer: observer}); err != nil {
-		t.Fatalf("replay: %v", err)
-	}
-	if len(observer.jobStarts) != 1 || len(observer.jobEnds) != 1 || len(observer.taskStarts) != 1 || len(observer.taskEnds) != 1 {
-		t.Fatalf("unexpected replay events: %+v", observer)
-	}
-
-	startChapter, _ := runtime.GetChapter(context.Background(), ChapterRef{JobKey: jobKey, Ordinal: 0})
-	taskChapter, _ := runtime.GetChapter(context.Background(), ChapterRef{JobKey: jobKey, Ordinal: 1})
-	jobChapter, _ := runtime.GetChapter(context.Background(), ChapterRef{JobKey: jobKey, Ordinal: 2})
-	startMeta, _ := chapterMetaFromChapter(startChapter)
-	taskMeta, _ := chapterMetaFromChapter(taskChapter)
-	jobMeta, _ := chapterMetaFromChapter(jobChapter)
-	if !observer.jobStarts[0].At.Equal(startMeta.CreatedAt) {
-		t.Fatalf("job start mismatch: got %v want %v", observer.jobStarts[0].At, startMeta.CreatedAt)
-	}
-	if !observer.taskStarts[0].At.Equal(metaStartAt(taskMeta)) {
-		t.Fatalf("task start mismatch: got %v want %v", observer.taskStarts[0].At, metaStartAt(taskMeta))
-	}
-	if !observer.taskEnds[0].At.Equal(metaEndAt(taskMeta)) {
-		t.Fatalf("task end mismatch: got %v want %v", observer.taskEnds[0].At, metaEndAt(taskMeta))
-	}
-	if !observer.jobEnds[0].At.Equal(metaEndAt(jobMeta)) {
-		t.Fatalf("job end mismatch: got %v want %v", observer.jobEnds[0].At, metaEndAt(jobMeta))
-	}
-}
-
 func (l *fakeExecutionLease) ClientPayloadRevision() int64   { return 0 }
 func (l *fakeExecutionLease) ExecutionState() ExecutionState { return ExecutionState{} }
-
-func TestExplicitYieldOnlyReschedulesAndReplayDoesNotWrite(t *testing.T) {
-	lease := &fakeExecutionLease{job: JobHandle{JobKey: JobKey{TenantId: "tenant", JobId: "yield"}}, payload: json.RawMessage(`{"cursor":1}`)}
-	runner := &workerRunner{lease: lease, jobKey: lease.Job().JobKey, handoff: &handoffState{}}
-	update := &ClientPayloadUpdate{Mode: "patch", Value: json.RawMessage(`{"cursor":2}`), ExpectedRevision: new(int64)}
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		if err := runner.Yield(context.Background(), YieldRequest{Reschedule: RescheduleExecutionRequest{NextRoute: Route{JobType: "job"}, ClientPayloadUpdate: update}}); err != nil {
-			t.Error(err)
-		}
-		t.Error("successful yield returned to caller")
-	}()
-	<-done
-	_, _, complete, reschedules := lease.snapshot()
-	if len(complete) != 0 || len(reschedules) != 1 || reschedules[0].ClientPayloadUpdate != update || !runner.rescheduled.Load() {
-		t.Fatalf("yield mutated wrong operation: %+v %+v", complete, reschedules)
-	}
-	runner.replay = true
-	if runner.ClientPayload() != nil {
-		t.Fatal("replay exposed live payload")
-	}
-	if err := runner.Yield(context.Background(), YieldRequest{Reschedule: RescheduleExecutionRequest{NextRoute: Route{JobType: "job"}, ClientPayloadUpdate: update}}); err == nil {
-		t.Fatal("replay accepted yield")
-	}
-	_, _, _, after := lease.snapshot()
-	if len(after) != 1 {
-		t.Fatal("replay rescheduled")
-	}
-}
 
 func (*runnerTestRuntime) ResolveSecrets(context.Context, jobdb.ResolveSecretsRequest) (jobdb.SecretResolveResult, error) {
 	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider

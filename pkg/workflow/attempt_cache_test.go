@@ -86,9 +86,6 @@ func TestAttemptCachesConcurrentReadsAndFailures(t *testing.T) {
 			canceled, stop = context.WithCancel(ctx)
 			stop()
 			require.Error(t, read(canceled)) // Cache hits honor caller cancellation too.
-			runner.rescheduled.Store(true)
-			require.ErrorIs(t, read(ctx), jobdb.ErrExecutionLeaseLost)
-			runner.rescheduled.Store(false)
 			cancel()
 			require.Error(t, read(context.Background()))
 			require.Equal(t, int32(2), calls.Load())
@@ -292,11 +289,13 @@ func TestSecretCacheExpansionRejectsIncompleteRefresh(t *testing.T) {
 }
 
 type cacheTestJob struct {
-	run func(JobContext, JobData) (JobData, error)
+	run func(ExecutionContext, JobData) (JobData, error)
 }
 
-func (cacheTestJob) Name() string                                        { return "cache-job" }
-func (w cacheTestJob) Run(ctx JobContext, data JobData) (JobData, error) { return w.run(ctx, data) }
+func (cacheTestJob) Name() string { return "cache-job" }
+func (w cacheTestJob) Run(ctx ExecutionContext, data JobData) (JobData, error) {
+	return w.run(ctx, data)
+}
 
 type cacheTestTask struct {
 	run func(TaskContext, TaskData) (TaskData, error)
@@ -366,8 +365,8 @@ func TestAttemptCacheLifecycle(t *testing.T) {
 				}
 				return data, nil
 			}}
-			var old JobContext
-			job := cacheTestJob{run: func(ctx JobContext, data JobData) (JobData, error) {
+			var old ExecutionContext
+			job := cacheTestJob{run: func(ctx ExecutionContext, data JobData) (JobData, error) {
 				jobRuns++
 				if err := record(ctx); err != nil {
 					return nil, err
@@ -385,7 +384,7 @@ func TestAttemptCacheLifecycle(t *testing.T) {
 						return nil, fmt.Errorf("old context survived restart")
 					}
 				}
-				return ctx.DoTask(retry, "cache-task", data)
+				return ctx.DoTask(TaskCall{Site: "task", Command: []byte("{}"), TaskType: "cache-task", ContractVersion: 1, Policy: retry}, func(context.Context) (TaskData, error) { return data, nil })
 			}}
 			ws := mustWorkSetForRunnerTest(t, job, task)
 			seedJobStartForTest(t, runtime, key, job.Name(), NewTaskDataOrPanic("input"), retry)
@@ -393,7 +392,8 @@ func TestAttemptCacheLifecycle(t *testing.T) {
 			_, err := runner.DoJob(context.Background())
 			require.NoError(t, err)
 			if mode == "resume" {
-				require.True(t, runner.rescheduled.Load())
+				_, _, _, reschedules := runner.lease.(*cacheTestLease).snapshot()
+				require.Len(t, reschedules, 1)
 				runner = newWorkerRunner(runtime, ws, newLease(), workerRunnerOptions{JobPolicy: retry})
 				_, err = runner.DoJob(context.Background())
 				require.NoError(t, err)

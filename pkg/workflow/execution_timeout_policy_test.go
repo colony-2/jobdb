@@ -82,17 +82,17 @@ func TestExecutionTimeoutPolicyPersistence(t *testing.T) {
 	}
 }
 
-type timeoutPolicyLegacyJob struct{ policy jobdb.RunPolicy }
+type timeoutPolicyJob struct{ policy jobdb.RunPolicy }
 
-func (timeoutPolicyLegacyJob) Name() string { return "timeout-policy-legacy" }
-func (w timeoutPolicyLegacyJob) Run(c wf.JobContext, in jobdb.JobData) (jobdb.JobData, error) {
-	return c.DoTask(w.policy, "echo", in)
+func (timeoutPolicyJob) Name() string { return "timeout-policy-job" }
+func (w timeoutPolicyJob) Run(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
+	return c.DoTask(wf.TaskCall{Site: "task", Command: []byte("{}"), TaskType: "echo", ContractVersion: 1, Policy: w.policy}, func(context.Context) (wf.TaskData, error) { return in, nil })
 }
 
 func TestDefaultPoliciesPermitLongRunningWork(t *testing.T) {
-	for _, versioned := range []bool{false, true} {
+	for _, callback := range []bool{false, true} {
 		for _, limit := range []string{"none", "job-attempt", "job-total", "task-attempt", "task-total"} {
-			t.Run(fmt.Sprintf("versioned=%t/%s", versioned, limit), func(t *testing.T) {
+			t.Run(fmt.Sprintf("callback=%t/%s", callback, limit), func(t *testing.T) {
 				synctest.Test(t, func(t *testing.T) {
 					rt := alternateRuntime(t, "toy")
 					policy, taskPolicy := jobdb.DefaultRunPolicy(), wf.DefaultRunPolicy()
@@ -125,8 +125,8 @@ func TestDefaultPoliciesPermitLongRunningWork(t *testing.T) {
 						time.Sleep(time.Hour)
 						return in, nil
 					}}
-					var worker wf.JobWorker = timeoutPolicyLegacyJob{taskPolicy}
-					if versioned {
+					var worker wf.JobWorker = timeoutPolicyJob{taskPolicy}
+					if callback {
 						call := invocation("long-task")
 						call.Policy = taskPolicy
 						worker = wf.ExecutionWorker{JobType: "timeout-policy-execution", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {

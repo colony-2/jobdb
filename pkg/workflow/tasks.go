@@ -41,10 +41,10 @@ type TaskContext struct {
 	Step int64
 	// InvocationID identifies the logical task within JobKey in the versioned
 	// engine. It survives task retries and recovery, but changes when an enclosing
-	// scope or whole job retries. It is empty for the legacy JobWorker engine.
+	// scope or whole job retries. It is empty for manually constructed contexts.
 	InvocationID string
 	// AttemptNumber is one-based in the versioned engine. Recovery of unfinished
-	// work retains the attempt; a task retry increments it. Legacy contexts use 0.
+	// work retains the attempt; a task retry increments it. Manual contexts use 0.
 	AttemptNumber int
 	Logger        *slog.Logger
 	// await is set by the runner so AwaitDuration can be engine-directed.

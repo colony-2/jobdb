@@ -235,13 +235,13 @@ type sequenceJob struct {
 
 func (sequenceJob) Name() string { return SequenceJobName }
 
-func (j sequenceJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
+func (j sequenceJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 	var (
 		out jobdb.TaskData = data
 		err error
 	)
 	for _, step := range j.Steps {
-		out, err = ctx.DoTask(jobdb.RunPolicy{}, step, out)
+		out, err = ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: step, ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (workflow.TaskData, error) { return out, nil })
 		if err != nil {
 			return nil, err
 		}
@@ -277,7 +277,7 @@ type failingJob struct{}
 
 func (failingJob) Name() string { return FailingJobName }
 
-func (failingJob) Run(_ workflow.JobContext, _ jobdb.JobData) (jobdb.JobData, error) {
+func (failingJob) Run(_ workflow.ExecutionContext, _ jobdb.JobData) (jobdb.JobData, error) {
 	return nil, errors.New("intentional failure")
 }
 

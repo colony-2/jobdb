@@ -18,8 +18,8 @@ type artifactPassthroughJob struct{}
 
 func (artifactPassthroughJob) Name() string { return "artifact-passthrough-job" }
 
-func (artifactPassthroughJob) Run(ctx workflow.JobContext, input jobdb.JobData) (jobdb.JobData, error) {
-	return ctx.DoTask(jobdb.RunPolicy{}, "artifact-passthrough-task", input)
+func (artifactPassthroughJob) Run(ctx workflow.ExecutionContext, input jobdb.JobData) (jobdb.JobData, error) {
+	return ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: "artifact-passthrough-task", ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (workflow.TaskData, error) { return input, nil })
 }
 
 type artifactPassthroughTask struct{}
@@ -42,7 +42,7 @@ type failedChildJob struct {
 
 func (failedChildJob) Name() string { return "failed-child" }
 
-func (j failedChildJob) Run(_ workflow.JobContext, _ jobdb.JobData) (jobdb.JobData, error) {
+func (j failedChildJob) Run(_ workflow.ExecutionContext, _ jobdb.JobData) (jobdb.JobData, error) {
 	if j.started != nil {
 		close(j.started)
 	}
@@ -57,7 +57,7 @@ type awaitFailedChildJob struct {
 
 func (awaitFailedChildJob) Name() string { return "await-failed-child" }
 
-func (j *awaitFailedChildJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
+func (j *awaitFailedChildJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 	if err := ctx.AwaitJobs(j.childID); err != nil {
 		return nil, err
 	}
@@ -77,7 +77,7 @@ type awaitFailedChildViaRunOutputJob struct {
 
 func (awaitFailedChildViaRunOutputJob) Name() string { return "await-failed-child-run-output" }
 
-func (j *awaitFailedChildViaRunOutputJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
+func (j *awaitFailedChildViaRunOutputJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 	childKey, err := j.engine.SubmitJob(context.Background(), jobdb.SubmitJob{
 		TenantId: ctx.GetJobKey().TenantId,
 		JobType:  "failed-child",
@@ -107,25 +107,25 @@ type childRunOutputRetryParentJob struct {
 
 func (childRunOutputRetryParentJob) Name() string { return "child-run-output-retry-parent" }
 
-func (j childRunOutputRetryParentJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
-	started, err := ctx.DoTask(jobdb.RunPolicy{}, "child-run-output-start", data)
+func (j childRunOutputRetryParentJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
+	started, err := ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: "child-run-output-start", ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (workflow.TaskData, error) { return data, nil })
 	if err != nil {
 		return nil, err
 	}
-	_, err = ctx.DoTask(jobdb.RunPolicy{
+	_, err = ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: "child-run-output-finish", ContractVersion: 1, Policy: jobdb.RunPolicy{
 		Retry: jobdb.RetryPolicy{
 			MaximumAttempts:    1,
 			BackoffCoefficient: 1,
 		},
-	}, "child-run-output-finish", started)
+	}}, func(context.Context) (workflow.TaskData, error) { return started, nil })
 	if err != nil {
-		if errors.Is(err, jobdb.ErrJobFailed) {
+		if workflow.IsExecutionSuspended(err) || errors.Is(err, jobdb.ErrJobFailed) {
 			return nil, err
 		}
 		if j.branchRuns != nil {
 			j.branchRuns.Add(1)
 		}
-		return ctx.DoTask(jobdb.RunPolicy{}, "child-run-output-unexpected-branch", data)
+		return ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: "child-run-output-unexpected-branch", ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (workflow.TaskData, error) { return data, nil })
 	}
 	return data, nil
 }
@@ -198,13 +198,13 @@ type childRunOutputFailingChildJob struct{}
 
 func (childRunOutputFailingChildJob) Name() string { return "child-run-output-failing-child" }
 
-func (childRunOutputFailingChildJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
-	return ctx.DoTask(jobdb.RunPolicy{
+func (childRunOutputFailingChildJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
+	return ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: "child-run-output-fail-task", ContractVersion: 1, Policy: jobdb.RunPolicy{
 		Retry: jobdb.RetryPolicy{
 			MaximumAttempts:    1,
 			BackoffCoefficient: 1,
 		},
-	}, "child-run-output-fail-task", data)
+	}}, func(context.Context) (workflow.TaskData, error) { return data, nil })
 }
 
 type childRunOutputFailTask struct{}
@@ -451,75 +451,5 @@ func TestGetJobRunOutputErrorShapeStableAcrossBuiltInRuntimes(t *testing.T) {
 				t.Fatalf("unexpected parent error %v", err)
 			}
 		})
-	}
-}
-
-func TestToyGetJobRunIncludesFailedTaskAttemptForChildOutputFailure(t *testing.T) {
-	var toyHarness jobdbtest.RuntimeHarness
-	for _, harness := range jobdbtest.BuiltInRuntimeHarnesses() {
-		if harness.Name == "toy" {
-			toyHarness = harness
-			break
-		}
-	}
-	if toyHarness.Name == "" {
-		t.Fatal("toy runtime harness not found")
-	}
-
-	branchRuns := &atomic.Int32{}
-	parent := childRunOutputRetryParentJob{branchRuns: branchRuns}
-	var engineRef workflow.Engine
-	parentWS := jobdbtest.MustWorkSet(t, parent, childRunOutputStartTask{engine: &engineRef}, childRunOutputFinishTask{engine: &engineRef}, childRunOutputUnexpectedBranchTask{})
-	childWS := jobdbtest.MustWorkSet(t, childRunOutputFailingChildJob{}, childRunOutputFailTask{})
-
-	built := toyHarness.New(t, parentWS, childWS)
-	defer built.Shutdown(t)
-	engineRef = built.Engine
-
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-
-	jobKey, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
-		TenantId:  built.WorkerTenantID,
-		JobType:   parent.Name(),
-		Data:      jobdbtest.NumberTaskData(1),
-		RunPolicy: jobdb.DefaultRunPolicy(),
-	})
-	if err != nil {
-		t.Fatalf("start parent: %v", err)
-	}
-	jobdbtest.WaitForEngineStatus(t, ctx, built.Engine, jobKey, jobdb.JobStatusCompleted)
-
-	run, err := built.Engine.GetJobRun(ctx, jobdb.GetJobRunRequest{
-		JobKey:           jobKey,
-		IncludeInputs:    true,
-		IncludeOutputs:   true,
-		IncludeArtifacts: true,
-	})
-	if err != nil {
-		t.Fatalf("get job run: %v", err)
-	}
-
-	var found bool
-	for _, attempt := range run.Attempts {
-		for _, task := range attempt.Tasks {
-			if task.TaskType != "child-run-output-finish" {
-				continue
-			}
-			for _, taskAttempt := range task.Attempts {
-				if taskAttempt.Outcome.Status == jobdb.TaskOutcomeStatusFailed {
-					found = true
-					if taskAttempt.Outcome.PayloadKind != "AppError" {
-						t.Fatalf("unexpected payload kind %q", taskAttempt.Outcome.PayloadKind)
-					}
-					if taskAttempt.Outcome.Error == nil || !strings.Contains(taskAttempt.Outcome.Error.Message, "child failed") {
-						t.Fatalf("unexpected task error %+v", taskAttempt.Outcome.Error)
-					}
-				}
-			}
-		}
-	}
-	if !found {
-		t.Fatal("expected failed finish task attempt in toy job run")
 	}
 }

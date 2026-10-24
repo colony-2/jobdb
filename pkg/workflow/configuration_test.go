@@ -57,13 +57,13 @@ func (w *configurationReadingTask) Run(ctx TaskContext, input TaskData) (TaskDat
 }
 
 type configurationReadingJob struct {
-	captured JobContext
+	captured ExecutionContext
 	admin    jobdb.ConfigurationAdmin
 	read     bool
 }
 
 func (*configurationReadingJob) Name() string { return "configuration-job" }
-func (w *configurationReadingJob) Run(ctx JobContext, input JobData) (JobData, error) {
+func (w *configurationReadingJob) Run(ctx ExecutionContext, input JobData) (JobData, error) {
 	w.captured = ctx
 	if w.read {
 		first, err := ctx.GetConfiguration(context.Background())
@@ -82,7 +82,7 @@ func (w *configurationReadingJob) Run(ctx JobContext, input JobData) (JobData, e
 			return nil, fmt.Errorf("job configuration changed")
 		}
 	}
-	return ctx.DoTask(RunPolicy{}, "configuration-task", input)
+	return ctx.DoTask(TaskCall{Site: "task", Command: []byte("{}"), TaskType: "configuration-task", ContractVersion: 1, Policy: RunPolicy{}}, func(context.Context) (TaskData, error) { return input, nil })
 }
 func TestConfigurationContextsAreCachedAndInvocationBound(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite"} {
@@ -252,8 +252,8 @@ func (w *expiredConfigurationTask) Run(ctx TaskContext, input TaskData) (TaskDat
 type catchesConfigurationTaskTimeout struct{ task *expiredConfigurationTask }
 
 func (*catchesConfigurationTaskTimeout) Name() string { return "catches-timeout" }
-func (w *catchesConfigurationTaskTimeout) Run(ctx JobContext, input JobData) (JobData, error) {
-	_, err := ctx.DoTask(RunPolicy{InvocationTimeout: AsDuration(20 * time.Millisecond)}, w.task.Name(), input)
+func (w *catchesConfigurationTaskTimeout) Run(ctx ExecutionContext, input JobData) (JobData, error) {
+	_, err := ctx.DoTask(TaskCall{Site: "task", Command: []byte("{}"), TaskType: w.task.Name(), ContractVersion: 1, Policy: RunPolicy{InvocationTimeout: AsDuration(20 * time.Millisecond)}}, func(context.Context) (TaskData, error) { return input, nil })
 	if err == nil {
 		return nil, fmt.Errorf("task did not time out")
 	}

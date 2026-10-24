@@ -96,7 +96,7 @@ type blockingJobWorker struct {
 
 func (w blockingJobWorker) Name() string { return w.name }
 
-func (w blockingJobWorker) Run(_ JobContext, input JobData) (JobData, error) {
+func (w blockingJobWorker) Run(_ ExecutionContext, input JobData) (JobData, error) {
 	select {
 	case w.started <- struct{}{}:
 	default:

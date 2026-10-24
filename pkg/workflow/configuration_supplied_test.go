@@ -16,7 +16,7 @@ func TestSuppliedLeaseConfigurationReads(t *testing.T) {
 	_, err := f.backend.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "tenant", Name: "x", Value: json.RawMessage(`1`)})
 	require.NoError(t, err)
 	lease := f.imported(t)
-	job := suppliedJob{run: func(work workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
+	job := suppliedJob{run: func(work workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 		a, e := work.GetConfiguration(context.Background())
 		if e != nil {
 			return nil, e

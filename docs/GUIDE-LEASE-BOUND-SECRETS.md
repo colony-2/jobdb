@@ -33,7 +33,7 @@ authorized for the current request.
 
 ## Workflow reads
 
-`JobContext`, `ExecutionContext`, and `TaskContext` expose both methods:
+`ExecutionContext` and `TaskContext` expose both methods:
 
 ```go
 cached, err := execution.ResolveSecrets(ctx, []string{"git_token"})

@@ -37,10 +37,10 @@ func TestReplayJobRun_LocalTaskCacheMissDoesNotExecuteWorker(t *testing.T) {
 	if !errors.As(err, &miss) {
 		t.Fatalf("expected ReplayCacheMissError, got %T %v", err, err)
 	}
-	if miss.Reason != ReplayCacheMissTaskResultMissing {
-		t.Fatalf("unexpected cache miss reason: got %q want %q", miss.Reason, ReplayCacheMissTaskResultMissing)
+	if miss.Reason != ReplayCacheMissJobResultMissing {
+		t.Fatalf("unexpected cache miss reason: got %q want %q", miss.Reason, ReplayCacheMissJobResultMissing)
 	}
-	if miss.TaskType != "local_task" || miss.Ordinal != 1 || miss.Attempt != 1 {
+	if miss.Ordinal != 1 || miss.Attempt != 0 {
 		t.Fatalf("unexpected cache miss details: %+v", miss)
 	}
 	if got := taskRuns.Load(); got != 0 {
@@ -81,11 +81,11 @@ func TestReplayJobRun_MissingJobOutcomeReturnsCacheMissWithoutWriting(t *testing
 	if miss.Reason != ReplayCacheMissJobResultMissing {
 		t.Fatalf("unexpected cache miss reason: got %q want %q", miss.Reason, ReplayCacheMissJobResultMissing)
 	}
-	if miss.Ordinal != 1 || miss.Attempt != 1 {
+	if miss.Ordinal != 1 || miss.Attempt != 0 {
 		t.Fatalf("unexpected cache miss details: %+v", miss)
 	}
-	if got := jobRuns.Load(); got != 1 {
-		t.Fatalf("expected replay to run job orchestration once, got %d", got)
+	if got := jobRuns.Load(); got != 0 {
+		t.Fatalf("expected no orchestration without an execution header, got %d", got)
 	}
 	if got := putCalls.Load(); got != 0 {
 		t.Fatalf("replay attempted %d chapter writes", got)
@@ -175,21 +175,5 @@ func TestReplayReadOnlyRuntimeAllowsReads(t *testing.T) {
 	}
 	if chapter.Ordinal != 0 || chapter.TaskType != job.Name() {
 		t.Fatalf("unexpected chapter: %+v", chapter)
-	}
-}
-
-func TestWorkerRunnerRejectsReplayJobOutcomePersistence(t *testing.T) {
-	runtime := newRunnerTestRuntime()
-	jobKey := JobKey{TenantId: "tenant", JobId: "replay-persist-guard"}
-	job := countingJobWorker{name: "replay-persist-guard", counter: &atomic.Int32{}}
-	ws := mustWorkSetForRunnerTest(t, job)
-	runner := newWorkerRunner(runtime, ws, nil, workerRunnerOptions{
-		JobKey: jobKey,
-		Replay: true,
-	})
-
-	_, err := runner.persistJobOutcome(context.Background(), 1, nil, nil, payloadKindApp, "hash", 1, &InputReference{}, nil, nil)
-	if !errors.Is(err, ErrReplayShouldNeverMutate) {
-		t.Fatalf("expected ErrReplayShouldNeverMutate, got %v", err)
 	}
 }

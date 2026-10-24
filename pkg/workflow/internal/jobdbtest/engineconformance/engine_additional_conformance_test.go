@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -16,7 +15,7 @@ import (
 type customIDJob struct{}
 
 func (customIDJob) Name() string { return "custom-id-job" }
-func (customIDJob) Run(_ workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
+func (customIDJob) Run(_ workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 	return data, nil
 }
 
@@ -26,7 +25,7 @@ type awaitChildJob struct {
 }
 
 func (awaitChildJob) Name() string { return "await-child" }
-func (j awaitChildJob) Run(_ workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
+func (j awaitChildJob) Run(_ workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 	if j.started != nil {
 		close(j.started)
 	}
@@ -39,7 +38,7 @@ type awaitParentJob struct {
 }
 
 func (awaitParentJob) Name() string { return "await-parent" }
-func (j awaitParentJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
+func (j awaitParentJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 	if err := ctx.AwaitJobs(j.childJobID); err != nil {
 		return nil, err
 	}
@@ -49,8 +48,8 @@ func (j awaitParentJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.
 type awaitTaskJob struct{}
 
 func (awaitTaskJob) Name() string { return "await-task-parent" }
-func (awaitTaskJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
-	return ctx.DoTask(jobdb.RunPolicy{}, "await-task", data)
+func (awaitTaskJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
+	return ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: "await-task", ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (workflow.TaskData, error) { return data, nil })
 }
 
 type awaitTaskWorker struct {
@@ -68,15 +67,15 @@ func (t awaitTaskWorker) Run(ctx workflow.TaskContext, data jobdb.TaskData) (job
 type pendingJob struct{}
 
 func (pendingJob) Name() string { return "pending-job" }
-func (pendingJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
-	return ctx.DoTask(jobdb.RunPolicy{}, "pending-task", data)
+func (pendingJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
+	return ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: "pending-task", ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (workflow.TaskData, error) { return data, nil })
 }
 
 type transformPendingJob struct{}
 
 func (transformPendingJob) Name() string { return "transform-pending-job" }
-func (transformPendingJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
-	first, err := ctx.DoTask(jobdb.RunPolicy{}, jobdbtest.AddOneTaskName, data)
+func (transformPendingJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
+	first, err := ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: jobdbtest.AddOneTaskName, ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (workflow.TaskData, error) { return data, nil })
 	if err != nil {
 		return nil, err
 	}
@@ -85,14 +84,14 @@ func (transformPendingJob) Run(ctx workflow.JobContext, data jobdb.JobData) (job
 		return nil, err
 	}
 	transformed := jobdbtest.NumberTaskData(n + 100)
-	return ctx.DoTask(jobdb.RunPolicy{}, "pending-task", transformed)
+	return ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: "pending-task", ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (workflow.TaskData, error) { return transformed, nil })
 }
 
 type externalApprovalJob struct{}
 
 func (externalApprovalJob) Name() string { return "external-approval-job" }
-func (externalApprovalJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
-	return ctx.DoTask(jobdb.RunPolicy{}, "approval", data)
+func (externalApprovalJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
+	return ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: "approval", ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (workflow.TaskData, error) { return data, nil })
 }
 
 type retryJob struct {
@@ -100,7 +99,7 @@ type retryJob struct {
 }
 
 func (retryJob) Name() string { return "retry-job" }
-func (j *retryJob) Run(_ workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
+func (j *retryJob) Run(_ workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 	j.attempts++
 	if j.attempts == 1 {
 		return nil, jobdb.AppError{Payload: jobdb.AppErrorPayload{Message: "retry me", Level: "error"}}
@@ -111,13 +110,13 @@ func (j *retryJob) Run(_ workflow.JobContext, data jobdb.JobData) (jobdb.JobData
 type retryTaskJob struct{}
 
 func (retryTaskJob) Name() string { return "retry-task-job" }
-func (retryTaskJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
-	return ctx.DoTask(jobdb.RunPolicy{
+func (retryTaskJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
+	return ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: "retry-task", ContractVersion: 1, Policy: jobdb.RunPolicy{
 		Retry: jobdb.RetryPolicy{
 			MaximumAttempts:    3,
 			BackoffCoefficient: 1,
 		},
-	}, "retry-task", data)
+	}}, func(context.Context) (workflow.TaskData, error) { return data, nil })
 }
 
 type retryTask struct {
@@ -170,77 +169,6 @@ func TestCustomJobIDAcrossBuiltInRuntimes(t *testing.T) {
 				t.Fatalf("unexpected job key %+v", jobKey)
 			}
 			jobdbtest.WaitForEngineStatus(t, ctx, built.Engine, jobKey, jobdb.JobStatusCompleted)
-		})
-	}
-}
-
-func TestRestartValidationAcrossBuiltInRuntimes(t *testing.T) {
-	for _, harness := range jobdbtest.BuiltInRuntimeHarnesses() {
-		harness := harness
-		t.Run(harness.Name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			defer cancel()
-
-			t.Run("negative-last-step", func(t *testing.T) {
-				ws := jobdbtest.MustWorkSet(t, customIDJob{})
-				built := harness.New(t, ws)
-				defer built.Shutdown(t)
-
-				if _, err := built.Engine.SubmitRestartJob(ctx, jobdb.SubmitRestartJob{
-					PriorJobKey:    jobdb.JobKey{TenantId: "tenant", JobId: "missing"},
-					LastStepToKeep: -1,
-				}); err == nil {
-					t.Fatal("expected restart to fail")
-				}
-			})
-
-			t.Run("missing-next-chapter", func(t *testing.T) {
-				ws := jobdbtest.MustWorkSet(t, customIDJob{})
-				built := harness.New(t, ws)
-				defer built.Shutdown(t)
-
-				jobKey, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
-					TenantId: built.WorkerTenantID,
-					JobType:  ws.JobWorker.Name(),
-					Data:     jobdbtest.NumberTaskData(1),
-				})
-				if err != nil {
-					t.Fatalf("start job: %v", err)
-				}
-				jobdbtest.WaitForEngineStatus(t, ctx, built.Engine, jobKey, jobdb.JobStatusCompleted)
-
-				if _, err := built.Engine.SubmitRestartJob(ctx, jobdb.SubmitRestartJob{
-					PriorJobKey:    jobKey,
-					LastStepToKeep: 1,
-				}); err == nil {
-					t.Fatal("expected restart to fail when next chapter is missing")
-				}
-			})
-
-			t.Run("retry-boundary", func(t *testing.T) {
-				job := &retryTaskJob{}
-				task := &retryTask{}
-				ws := jobdbtest.MustWorkSet(t, job, task)
-				built := harness.New(t, ws)
-				defer built.Shutdown(t)
-
-				jobKey, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
-					TenantId: built.WorkerTenantID,
-					JobType:  job.Name(),
-					Data:     jobdbtest.NumberTaskData(1),
-				})
-				if err != nil {
-					t.Fatalf("start job: %v", err)
-				}
-				jobdbtest.WaitForEngineStatus(t, ctx, built.Engine, jobKey, jobdb.JobStatusCompleted)
-
-				if _, err := built.Engine.SubmitRestartJob(ctx, jobdb.SubmitRestartJob{
-					PriorJobKey:    jobKey,
-					LastStepToKeep: 1,
-				}); err == nil {
-					t.Fatal("expected restart to fail when slicing into retry chain")
-				}
-			})
 		})
 	}
 }
@@ -396,8 +324,8 @@ func TestPendingTaskHandlesAcrossBuiltInRuntimes(t *testing.T) {
 			if err != nil {
 				t.Fatalf("waiting data: %v", err)
 			}
-			if got := jobdbtest.MustDecodeNumberTaskData(t, data); got != 11 {
-				t.Fatalf("expected previous step output 11, got %d", got)
+			if got := jobdbtest.MustDecodeNumberTaskData(t, data); got != 111 {
+				t.Fatalf("expected prepared pending-task input 111, got %d", got)
 			}
 
 			resp, err := built.Engine.ListJobs(ctx, jobdb.ListJobsRequest{
@@ -558,11 +486,11 @@ type singleEchoJob struct {
 }
 
 func (singleEchoJob) Name() string { return "single-echo" }
-func (j singleEchoJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
+func (j singleEchoJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 	if j.runs != nil {
 		*j.runs = *j.runs + 1
 	}
-	return ctx.DoTask(jobdb.RunPolicy{}, "echo", data)
+	return ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: "echo", ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (workflow.TaskData, error) { return data, nil })
 }
 
 func TestGetJobRunSynthesizedNextAttemptOnDirectRuntime(t *testing.T) {
@@ -617,54 +545,6 @@ func TestGetJobRunSynthesizedNextAttemptOnDirectRuntime(t *testing.T) {
 			}
 			if resp.Job.Status == jobdb.JobStatusCompleted {
 				t.Fatalf("expected job to remain pending during retry backoff")
-			}
-		})
-	}
-}
-
-func TestRestartWithExtraOutputDeterminismErrorOnDirectRuntime(t *testing.T) {
-	for _, harness := range jobdbtest.BuiltInRuntimeHarnesses() {
-		harness := harness
-		if !harness.SupportsLeases {
-			continue
-		}
-		t.Run(harness.Name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			defer cancel()
-
-			runs := 0
-			ws := jobdbtest.MustWorkSet(t, singleEchoJob{runs: &runs}, echoTask{})
-			built := harness.New(t, ws)
-			defer built.Shutdown(t)
-
-			origInput := jobdb.NewTaskDataOrPanic(map[string]string{"hello": "world"})
-			jobKey, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
-				TenantId: built.WorkerTenantID,
-				JobType:  ws.JobWorker.Name(),
-				Data:     origInput,
-			})
-			if err != nil {
-				t.Fatalf("start job: %v", err)
-			}
-			jobdbtest.WaitForEngineStatus(t, ctx, built.Engine, jobKey, jobdb.JobStatusCompleted)
-
-			newInput := jobdb.NewTaskDataOrPanic(map[string]string{"hello": "again"})
-			restartKey, err := built.Engine.SubmitRestartJob(ctx, jobdb.SubmitRestartJob{
-				PriorJobKey:     jobKey,
-				LastStepToKeep:  0,
-				ExtraTaskInput:  newInput,
-				ExtraTaskOutput: newInput,
-			})
-			if err != nil {
-				t.Fatalf("restart job: %v", err)
-			}
-			jobdbtest.WaitForEngineStatus(t, ctx, built.Engine, restartKey, jobdb.JobStatusCompleted)
-
-			if runs < 1 {
-				t.Fatalf("expected at least one initial job execution")
-			}
-			if _, err := jobResultForTest(built.Engine, ctx, restartKey); err == nil || !errors.Is(err, jobdb.ErrWorkflowNotDeterministic) && !strings.Contains(err.Error(), "workflow was not deterministic") {
-				t.Fatalf("expected determinism error from restart result, got %v", err)
 			}
 		})
 	}

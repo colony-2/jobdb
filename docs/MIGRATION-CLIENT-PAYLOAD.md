@@ -90,7 +90,7 @@ provide the initial value for each occurrence.
   `lease.ExecutionState()`. `JobInfo` and `JobSummary` expose equivalent fields.
 - Set `SubmitJob.ClientPayloadUpdate` (also supported by restart jobs and schedule
   targets). Reschedule and complete-job requests expose the same field.
-- Use `JobContext.Yield(ctx, workflow.YieldRequest{Reschedule: request})` or
+- Use `ExecutionContext.Yield(ctx, workflow.YieldRequest{Reschedule: request})` or
   `TaskContext.Yield` to publish a change during execution. Supply `NextRoute` and,
   for a task route, `TaskWait`. A successful yield stops the invocation without
   writing a chapter; gate it on persisted state so resumption does not repeat it.

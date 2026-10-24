@@ -110,12 +110,12 @@ type remoteRestartSequenceJob struct{}
 
 func (remoteRestartSequenceJob) Name() string { return remoteRestartSequenceJobName }
 
-func (remoteRestartSequenceJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
-	first, err := ctx.DoTask(jobdb.RunPolicy{}, remoteRestartAddOneTaskName, data)
+func (remoteRestartSequenceJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
+	first, err := ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: remoteRestartAddOneTaskName, ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (workflow.TaskData, error) { return data, nil })
 	if err != nil {
 		return nil, err
 	}
-	second, err := ctx.DoTask(jobdb.RunPolicy{}, remoteRestartDoubleTaskName, first)
+	second, err := ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: remoteRestartDoubleTaskName, ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (workflow.TaskData, error) { return first, nil })
 	if err != nil {
 		return nil, err
 	}

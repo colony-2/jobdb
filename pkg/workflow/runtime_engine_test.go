@@ -112,7 +112,7 @@ type fakeJobWorker struct{}
 
 func (fakeJobWorker) Name() string { return "fake-job" }
 
-func (fakeJobWorker) Run(JobContext, JobData) (JobData, error) {
+func (fakeJobWorker) Run(ExecutionContext, JobData) (JobData, error) {
 	return NewTaskData(map[string]any{"ok": true})
 }
 

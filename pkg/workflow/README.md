@@ -44,12 +44,18 @@ type DataProcessingJob struct{}
 
 func (DataProcessingJob) Name() string { return "data_processing" }
 
-func (DataProcessingJob) Run(ctx workflow.JobContext, input jobdb.JobData) (jobdb.JobData, error) {
-    result, err := ctx.DoTask(jobdb.DefaultRunPolicy(), "validate", input)
+func (DataProcessingJob) Run(ctx workflow.ExecutionContext, input jobdb.JobData) (jobdb.JobData, error) {
+    result, err := ctx.DoTask(workflow.TaskCall{
+        Site: "validate", TaskType: "validate", ContractVersion: 1,
+        Command: []byte("{}"), Policy: jobdb.DefaultRunPolicy(),
+    }, func(context.Context) (jobdb.TaskData, error) { return input, nil })
     if err != nil {
         return nil, err
     }
-    return ctx.DoTask(jobdb.DefaultRunPolicy(), "transform", result)
+    return ctx.DoTask(workflow.TaskCall{
+        Site: "transform", TaskType: "transform", ContractVersion: 1,
+        Command: []byte("{}"), Policy: jobdb.DefaultRunPolicy(),
+    }, func(context.Context) (jobdb.TaskData, error) { return result, nil })
 }
 
 type ValidateTask struct{}
@@ -106,7 +112,7 @@ func main() {
 ```go
 type JobWorker interface {
     Name() string
-    Run(workflow.JobContext, jobdb.JobData) (jobdb.JobData, error)
+    Run(workflow.ExecutionContext, jobdb.JobData) (jobdb.JobData, error)
 }
 
 type TaskWorker interface {
@@ -115,11 +121,18 @@ type TaskWorker interface {
 }
 ```
 
-Jobs use `workflow.JobContext`:
+All job workers use the versioned execution engine and `workflow.ExecutionContext`.
+`workflow.ExecutionWorker{JobType: name, Execute: callback}` is an alternative
+to implementing `JobWorker` directly. See the [migration guide](../../docs/MIGRATION-EXECUTION-SCOPES.md).
+
+Jobs use `workflow.ExecutionContext`:
 
 ```go
-func (j MyJob) Run(ctx workflow.JobContext, input jobdb.JobData) (jobdb.JobData, error) {
-    output, err := ctx.DoTask(jobdb.DefaultRunPolicy(), "task-name", input)
+func (j MyJob) Run(ctx workflow.ExecutionContext, input jobdb.JobData) (jobdb.JobData, error) {
+    output, err := ctx.DoTask(workflow.TaskCall{
+        Site: "task-name", TaskType: "task-name", ContractVersion: 1,
+        Command: []byte("{}"), Policy: jobdb.DefaultRunPolicy(),
+    }, func(context.Context) (jobdb.TaskData, error) { return input, nil })
     if err != nil {
         return nil, err
     }
@@ -272,7 +285,7 @@ runs the workflow package with the race detector to check timeout/worker overlap
 
 ## Tenant configuration
 
-Both `JobContext` and `TaskContext` expose:
+Both `ExecutionContext` and `TaskContext` expose:
 
 ```go
 snapshot, err := ctx.GetConfiguration(context.Background())

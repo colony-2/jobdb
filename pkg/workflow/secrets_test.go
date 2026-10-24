@@ -46,11 +46,11 @@ func (w *secretReadingTask) Run(ctx TaskContext, input TaskData) (TaskData, erro
 
 type secretReadingJob struct {
 	readJob  bool
-	captured JobContext
+	captured ExecutionContext
 }
 
 func (*secretReadingJob) Name() string { return "secret-job" }
-func (w *secretReadingJob) Run(ctx JobContext, input JobData) (JobData, error) {
+func (w *secretReadingJob) Run(ctx ExecutionContext, input JobData) (JobData, error) {
 	w.captured = ctx
 	if w.readJob {
 		result, err := ctx.ResolveSecrets(context.Background(), []string{"token"})
@@ -61,7 +61,7 @@ func (w *secretReadingJob) Run(ctx JobContext, input JobData) (JobData, error) {
 			return nil, fmt.Errorf("unexpected secret result")
 		}
 	}
-	return ctx.DoTask(RunPolicy{}, "secret-task", input)
+	return ctx.DoTask(TaskCall{Site: "task", Command: []byte("{}"), TaskType: "secret-task", ContractVersion: 1, Policy: RunPolicy{}}, func(context.Context) (TaskData, error) { return input, nil })
 }
 
 func TestWorkflowContextsResolveSecretsWithoutRecordingOrReplayingValues(t *testing.T) {
@@ -151,8 +151,8 @@ func (w *expiredSecretTask) Run(ctx TaskContext, input TaskData) (TaskData, erro
 type catchesSecretTaskTimeout struct{ task *expiredSecretTask }
 
 func (*catchesSecretTaskTimeout) Name() string { return "catches-timeout" }
-func (w *catchesSecretTaskTimeout) Run(ctx JobContext, input JobData) (JobData, error) {
-	_, err := ctx.DoTask(RunPolicy{InvocationTimeout: AsDuration(20 * time.Millisecond)}, w.task.Name(), input)
+func (w *catchesSecretTaskTimeout) Run(ctx ExecutionContext, input JobData) (JobData, error) {
+	_, err := ctx.DoTask(TaskCall{Site: "task", Command: []byte("{}"), TaskType: w.task.Name(), ContractVersion: 1, Policy: RunPolicy{InvocationTimeout: AsDuration(20 * time.Millisecond)}}, func(context.Context) (TaskData, error) { return input, nil })
 	if err == nil {
 		return nil, fmt.Errorf("task did not time out")
 	}

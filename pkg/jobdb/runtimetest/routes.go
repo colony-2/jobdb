@@ -2,6 +2,7 @@ package runtimetest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -17,11 +18,11 @@ type routeJob struct {
 }
 
 func (j routeJob) Name() string { return j.name }
-func (j routeJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
+func (j routeJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 	var out jobdb.TaskData = data
 	for _, task := range j.tasks {
 		var err error
-		out, err = ctx.DoTask(jobdb.RunPolicy{}, task, out)
+		out, err = ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: task, ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (workflow.TaskData, error) { return out, nil })
 		if err != nil {
 			return nil, err
 		}
@@ -81,17 +82,26 @@ func RunRouteConformance(t *testing.T, harnesses ...Harness) {
 				if calls.Load() != 1 {
 					t.Fatalf("local task executed %d times, including replay", calls.Load())
 				}
-				chapters, err := built.Runtime.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: key})
+				run, err := built.Engine.GetJobRun(ctx, jobdb.GetJobRunRequest{JobKey: key})
 				if err != nil {
 					t.Fatal(err)
 				}
 				seen := map[string]bool{}
-				for _, chapter := range chapters {
-					seen[chapter.TaskType] = true
+				for _, entry := range run.Execution {
+					if entry.Record.Kind != "task" {
+						continue
+					}
+					var descriptor struct {
+						Call workflow.TaskCall `json:"call"`
+					}
+					if err := json.Unmarshal(entry.Record.Descriptor, &descriptor); err != nil {
+						t.Fatal(err)
+					}
+					seen[descriptor.Call.TaskType] = true
 				}
 				for _, taskType := range job.tasks {
 					if !seen[taskType] {
-						t.Fatalf("missing exact chapter identity %q", taskType)
+						t.Fatalf("missing exact execution task identity %q", taskType)
 					}
 				}
 			})

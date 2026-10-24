@@ -101,7 +101,7 @@ Higher-level workflow SDK built on top of `pkg/jobdb`. This package owns the
 worker-facing API and engine orchestration surface.
 
 This includes `Engine`, `EngineBuilder`, `JobWorker`, `TaskWorker`,
-`JobContext`, `TaskContext`, worker loops, replay execution, task discovery,
+`ExecutionContext`, `TaskContext`, worker loops, replay execution, task discovery,
 run-if-leaseable helpers, and worker-level determinism errors.
 
 This package may alias stable lower-level `jobdb` data types for ergonomics,

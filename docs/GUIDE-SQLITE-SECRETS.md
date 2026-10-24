@@ -68,7 +68,7 @@ if !allowed {
 // Use token.Value for the external call; keep it out of workflow output.
 ```
 
-`JobContext.ResolveSecrets` has the same signature. Workers holding an embedded
+`ExecutionContext.ResolveSecrets` has the same signature. Workers holding an embedded
 or remote `ExecutionLease` can call `lease.ResolveSecrets(ctx, names)` directly.
 There are no optional capability assertions or resolution helper functions.
 Both context methods use the current lease, including renewal, and reject reads

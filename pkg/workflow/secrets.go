@@ -54,7 +54,7 @@ func (r *workerRunner) resolveSecrets(ctx context.Context, names []string, fresh
 	if r.replay {
 		return SecretResolveResult{}, replayMutationError("resolve secrets")
 	}
-	if r.lease == nil || r.rescheduled.Load() {
+	if r.lease == nil {
 		return SecretResolveResult{}, jobdb.ErrExecutionLeaseLost
 	}
 	callCtx, cancel := invocationCallContext(ctx, r.ctx)
@@ -64,9 +64,6 @@ func (r *workerRunner) resolveSecrets(ctx context.Context, names []string, fresh
 		return SecretResolveResult{}, jobdb.ErrSecretsUnavailable
 	}
 	defer cache.unlock()
-	if r.rescheduled.Load() {
-		return SecretResolveResult{}, jobdb.ErrExecutionLeaseLost
-	}
 	// Validate even cache hits; malformed requests must not become valid merely
 	// because some of their names have already been resolved.
 	if len(names) == 0 {
@@ -113,10 +110,8 @@ func (r *workerRunner) resolveSecrets(ctx context.Context, names []string, fresh
 			next[name] = value
 		}
 	}
-	if r.rescheduled.Load() {
-		return SecretResolveResult{}, jobdb.ErrExecutionLeaseLost
-	}
-	if callCtx.Err() != nil {
+	// Check the execution directly too: AfterFunc cancellation may still be queued.
+	if callCtx.Err() != nil || (r.ctx != nil && r.ctx.Err() != nil) {
 		return SecretResolveResult{}, jobdb.ErrSecretsUnavailable
 	}
 	result := SecretResolveResult{Secrets: make(map[string]SecretValue)}

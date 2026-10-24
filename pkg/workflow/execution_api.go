@@ -13,16 +13,18 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
-// ExecutionWorker selects the versioned invocation/scope engine. It is the
-// temporary registration surface while consumers migrate off JobWorker.Run.
+// ExecutionWorker implements JobWorker with an execution callback.
 type ExecutionWorker struct {
 	JobType string
 	Execute func(ExecutionContext, JobData) (JobData, error)
 }
 
 func (w ExecutionWorker) Name() string { return w.JobType }
-func (w ExecutionWorker) Run(JobContext, JobData) (JobData, error) {
-	return nil, fmt.Errorf("execution worker requires the versioned engine")
+func (w ExecutionWorker) Run(ctx ExecutionContext, input JobData) (JobData, error) {
+	if w.Execute == nil {
+		return nil, fmt.Errorf("execution worker callback is required")
+	}
+	return w.Execute(ctx, input)
 }
 
 type ExecutionContext interface {
@@ -34,7 +36,11 @@ type ExecutionContext interface {
 	DoScope(string, ScopeOptions, func(ExecutionContext) (JobData, error)) (JobData, error)
 	AwaitDuration(Duration) error
 	AwaitJobs(...string) error
+	// GetConfiguration returns a copy of the first successful tenant snapshot
+	// in this live job attempt. Tasks share it; whole-job retries reset it.
 	GetConfiguration(context.Context) (ConfigurationSnapshot, error)
+	// ResolveSecrets caches allowed values and omissions by name for this live
+	// job attempt. Nothing is recorded; offline replay rejects these reads.
 	ResolveSecrets(context.Context, []string) (SecretResolveResult, error)
 	// ResolveSecretsFresh refreshes only the requested names in this attempt's cache.
 	ResolveSecretsFresh(context.Context, []string) (SecretResolveResult, error)
@@ -103,8 +109,6 @@ func copyConsumerVersions(in map[string]string) (map[string]string, error) {
 	}
 	return maps.Clone(in), nil
 }
-
-func (w ExecutionWorker) executionDefinition() ExecutionWorker { return w }
 
 // IsExecutionSuspended recognizes the suspension control error through wrappers.
 // Propagate it to stop task execution. It does not order post-Yield code before

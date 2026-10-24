@@ -9,10 +9,10 @@ downstream tools need to list the jobs started by that parent.
 
 ## Start a Child Job from a Workflow
 
-Inside a job worker, call `SubmitJob` on `workflow.JobContext`:
+Inside a job worker, call `SubmitJob` on `workflow.ExecutionContext`:
 
 ```go
-func (w MyJob) Run(ctx workflow.JobContext, input jobdb.JobData) (jobdb.JobData, error) {
+func (w MyJob) Run(ctx workflow.ExecutionContext, input jobdb.JobData) (jobdb.JobData, error) {
 	childKey, err := ctx.SubmitJob(context.Background(), jobdb.SubmitJob{
 		JobID:   "parent-123/fetch-profile",
 		JobType: "fetch-profile",

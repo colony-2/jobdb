@@ -74,7 +74,7 @@ type runJobIfLeaseableTestJob struct {
 
 func (j runJobIfLeaseableTestJob) Name() string { return j.name }
 
-func (j runJobIfLeaseableTestJob) Run(_ JobContext, data JobData) (JobData, error) {
+func (j runJobIfLeaseableTestJob) Run(_ ExecutionContext, data JobData) (JobData, error) {
 	return data, nil
 }
 

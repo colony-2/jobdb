@@ -484,10 +484,7 @@ func (c *executionContext) ExecutionVersions() jobdb.ExecutionVersions {
 	v.ConsumerVersions = maps.Clone(v.ConsumerVersions)
 	return v
 }
-func (r *workerRunner) runExecution(ctx context.Context, w ExecutionWorker, input JobData, meta chapterMeta) (JobData, error) {
-	if w.Execute == nil {
-		return nil, fmt.Errorf("execution worker callback is required")
-	}
+func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobData, meta chapterMeta) (JobData, error) {
 	chapters, err := r.runtime.ListChapters(ctx, ListChaptersRequest{JobKey: r.jobKey})
 	if err != nil {
 		return nil, err
@@ -613,7 +610,7 @@ func (r *workerRunner) runExecution(ctx context.Context, w ExecutionWorker, inpu
 	policy := r.jobPolicy
 	out, err := root.DoScope("$job", ScopeOptions{TotalTimeout: durationPtrToDuration(policy.TotalTimeout), AttemptTimeout: durationPtrToDuration(policy.InvocationTimeout), Retry: policy.Retry}, func(c ExecutionContext) (JobData, error) {
 		r.bindExecutionSecrets(c.(*executionContext).cacheOwner())
-		return w.Execute(c, snapshotData(e.jobInput))
+		return w.Run(c, snapshotData(e.jobInput))
 	})
 	if errors.Is(err, errExecutionSuspended) {
 		return nil, nil

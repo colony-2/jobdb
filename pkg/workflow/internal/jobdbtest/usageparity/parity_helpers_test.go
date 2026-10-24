@@ -674,22 +674,22 @@ type passthroughJob struct {
 }
 
 func (j passthroughJob) Name() string { return j.name }
-func (j passthroughJob) Run(_ workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
+func (j passthroughJob) Run(_ workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 	return data, nil
 }
 
 type pendingJob struct{}
 
 func (pendingJob) Name() string { return "pending-job" }
-func (pendingJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
-	return ctx.DoTask(jobdb.RunPolicy{}, "pending-task", data)
+func (pendingJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
+	return ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: "pending-task", ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (workflow.TaskData, error) { return data, nil })
 }
 
 type externalApprovalJob struct{}
 
 func (externalApprovalJob) Name() string { return "external-approval-job" }
-func (externalApprovalJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
-	return ctx.DoTask(jobdb.RunPolicy{}, "approval", data)
+func (externalApprovalJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
+	return ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: "approval", ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (workflow.TaskData, error) { return data, nil })
 }
 
 type awaitChildJob struct {
@@ -698,7 +698,7 @@ type awaitChildJob struct {
 }
 
 func (awaitChildJob) Name() string { return "await-child" }
-func (j awaitChildJob) Run(_ workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
+func (j awaitChildJob) Run(_ workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 	if j.started != nil {
 		close(j.started)
 	}
@@ -711,7 +711,7 @@ type awaitParentJob struct {
 }
 
 func (awaitParentJob) Name() string { return "await-parent" }
-func (j awaitParentJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
+func (j awaitParentJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 	if err := ctx.AwaitJobs(j.childJobID); err != nil {
 		return nil, err
 	}
@@ -724,7 +724,7 @@ type awaitDurationJob struct {
 }
 
 func (j awaitDurationJob) Name() string { return j.name }
-func (j awaitDurationJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
+func (j awaitDurationJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 	if err := ctx.AwaitDuration(jobdb.Duration(j.wait)); err != nil {
 		return nil, err
 	}
@@ -736,7 +736,7 @@ type retryJob struct {
 }
 
 func (retryJob) Name() string { return "retry-job" }
-func (j *retryJob) Run(_ workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
+func (j *retryJob) Run(_ workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 	j.attempts++
 	if j.attempts == 1 {
 		return nil, jobdb.AppError{Payload: jobdb.AppErrorPayload{Message: "retry me", Level: "error"}}
@@ -747,13 +747,13 @@ func (j *retryJob) Run(_ workflow.JobContext, data jobdb.JobData) (jobdb.JobData
 type retryTaskJob struct{}
 
 func (retryTaskJob) Name() string { return "retry-task-job" }
-func (retryTaskJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
-	return ctx.DoTask(jobdb.RunPolicy{
+func (retryTaskJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
+	return ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: "retry-task", ContractVersion: 1, Policy: jobdb.RunPolicy{
 		Retry: jobdb.RetryPolicy{
 			MaximumAttempts:    3,
 			BackoffCoefficient: 1,
 		},
-	}, "retry-task", data)
+	}}, func(context.Context) (workflow.TaskData, error) { return data, nil })
 }
 
 type retryTask struct {
@@ -775,7 +775,7 @@ type namedFailingJob struct {
 }
 
 func (j namedFailingJob) Name() string { return j.name }
-func (j namedFailingJob) Run(_ workflow.JobContext, _ jobdb.JobData) (jobdb.JobData, error) {
+func (j namedFailingJob) Run(_ workflow.ExecutionContext, _ jobdb.JobData) (jobdb.JobData, error) {
 	if j.message == "" {
 		j.message = "intentional failure"
 	}
@@ -788,8 +788,8 @@ type failingTaskJob struct {
 }
 
 func (j failingTaskJob) Name() string { return j.name }
-func (j failingTaskJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
-	return ctx.DoTask(jobdb.RunPolicy{}, j.task, data)
+func (j failingTaskJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
+	return ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: j.task, ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (workflow.TaskData, error) { return data, nil })
 }
 
 type namedFailingTask struct {
@@ -811,8 +811,8 @@ type taskErrorWithArtifactJob struct {
 }
 
 func (j taskErrorWithArtifactJob) Name() string { return j.name }
-func (j taskErrorWithArtifactJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
-	return ctx.DoTask(jobdb.RunPolicy{}, j.task, data)
+func (j taskErrorWithArtifactJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
+	return ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: j.task, ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (workflow.TaskData, error) { return data, nil })
 }
 
 type artifactFailingTask struct {
@@ -844,7 +844,7 @@ type jobErrorWithArtifact struct {
 }
 
 func (j jobErrorWithArtifact) Name() string { return j.name }
-func (j jobErrorWithArtifact) Run(_ workflow.JobContext, _ jobdb.JobData) (jobdb.JobData, error) {
+func (j jobErrorWithArtifact) Run(_ workflow.ExecutionContext, _ jobdb.JobData) (jobdb.JobData, error) {
 	output := j.output
 	if output == "" {
 		output = `{"status":"job-failed"}`
@@ -858,8 +858,8 @@ func (j jobErrorWithArtifact) Run(_ workflow.JobContext, _ jobdb.JobData) (jobdb
 type awaitTaskJob struct{}
 
 func (awaitTaskJob) Name() string { return "await-task-parent" }
-func (awaitTaskJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
-	return ctx.DoTask(jobdb.RunPolicy{}, "await-task", data)
+func (awaitTaskJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
+	return ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: "await-task", ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (workflow.TaskData, error) { return data, nil })
 }
 
 type awaitTaskWorker struct {
@@ -877,8 +877,8 @@ func (t awaitTaskWorker) Run(ctx workflow.TaskContext, data jobdb.TaskData) (job
 type transformPendingJob struct{}
 
 func (transformPendingJob) Name() string { return "transform-pending-job" }
-func (transformPendingJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
-	first, err := ctx.DoTask(jobdb.RunPolicy{}, jobdbtest.AddOneTaskName, data)
+func (transformPendingJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
+	first, err := ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: jobdbtest.AddOneTaskName, ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (workflow.TaskData, error) { return data, nil })
 	if err != nil {
 		return nil, err
 	}
@@ -886,7 +886,7 @@ func (transformPendingJob) Run(ctx workflow.JobContext, data jobdb.JobData) (job
 	if err != nil {
 		return nil, err
 	}
-	return ctx.DoTask(jobdb.RunPolicy{}, "pending-task", jobdbtest.NumberTaskData(n+100))
+	return ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: "pending-task", ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (workflow.TaskData, error) { return jobdbtest.NumberTaskData(n + 100), nil })
 }
 
 type cleanupArtifactJob struct {
@@ -898,8 +898,8 @@ type cleanupArtifactJob struct {
 }
 
 func (j cleanupArtifactJob) Name() string { return "cleanup-artifact-job" }
-func (j cleanupArtifactJob) Run(ctx workflow.JobContext, input jobdb.JobData) (jobdb.JobData, error) {
-	taskOutput, err := ctx.DoTask(jobdb.RunPolicy{}, j.taskName, input)
+func (j cleanupArtifactJob) Run(ctx workflow.ExecutionContext, input jobdb.JobData) (jobdb.JobData, error) {
+	taskOutput, err := ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: j.taskName, ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (workflow.TaskData, error) { return input, nil })
 	if err != nil {
 		return nil, err
 	}
@@ -990,9 +990,9 @@ type singleEchoJob struct {
 }
 
 func (singleEchoJob) Name() string { return "single-echo" }
-func (j singleEchoJob) Run(ctx workflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
+func (j singleEchoJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 	if j.runs != nil {
 		*j.runs++
 	}
-	return ctx.DoTask(jobdb.RunPolicy{}, "echo", data)
+	return ctx.DoTask(workflow.TaskCall{Site: "task", Command: []byte("{}"), TaskType: "echo", ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (workflow.TaskData, error) { return data, nil })
 }

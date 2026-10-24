@@ -85,7 +85,7 @@ func TestFreshSecretsRejectLateOrInvalidResultsWithoutUpdatingCache(t *testing.T
 						cancel()
 						<-ctx.Done()
 					case "handoff":
-						runner.rescheduled.Store(true)
+						cancel() // Suspension cancels the execution context.
 					case "expired":
 						expiry := time.Now().Add(-time.Second)
 						value.ExpiresAt = &expiry

@@ -1,6 +1,6 @@
 # Workflow configuration and secrets caching
 
-`JobContext.GetConfiguration`, `TaskContext.GetConfiguration`, and both
+`ExecutionContext.GetConfiguration`, `TaskContext.GetConfiguration`, and both
 `ResolveSecrets` methods now cache reads within a **live job attempt**. Signatures
 are unchanged. This change is independent of task preparation.
 
