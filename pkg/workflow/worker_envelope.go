@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"log/slog"
 	"sort"
 	"time"
@@ -202,6 +203,9 @@ func envelopeToTaskData(env chapterEnvelope, artifacts []Artifact) (TaskData, er
 		var p AppErrorPayload
 		if err := json.Unmarshal(env.Payload, &p); err != nil {
 			return td, err
+		}
+		if goalErr, ok := jobdb.GoalFailureFromAppError(p); ok {
+			return td, goalErr
 		}
 		if jobFailedErr, ok := decodeJobFailedAppError(p); ok {
 			return td, jobFailedErr

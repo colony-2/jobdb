@@ -50,7 +50,7 @@ func (r *Runtime) ValidateExecutionLeaseByID(ctx context.Context, key jobdb.JobK
 	if leaseID == "" || workerID == "" || record.leaseID != leaseID || record.leaseWorkerID != workerID || !record.leased || !record.leaseExpiresAt.After(time.Now().UTC()) || record.cancelled || record.archived != nil {
 		return jobdb.LeaseValidity{}, jobdb.ErrExecutionLeaseLost
 	}
-	return jobdb.LeaseValidity{ExpiresAt: record.leaseExpiresAt, Route: record.route}, nil
+	return jobdb.LeaseValidity{GoalID: record.goalID, ExpiresAt: record.leaseExpiresAt, Route: record.route}, nil
 }
 
 func (r *Runtime) SubmitJobWithLeaseByID(ctx context.Context, parentJobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {

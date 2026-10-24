@@ -15,6 +15,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate"
 	"github.com/segmentio/ksuid"
 )
 
@@ -37,6 +38,18 @@ func (r *Runtime) submitJobWithSchedule(ctx context.Context, req jobdb.SubmitJob
 	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	preparation, err := goalstate.SubmitPreparation(ctx, req, parentJobID)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	reserved, err := r.scheduler.PrepareJob(ctx, preparation)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	req.Job.JobID = reserved.Key.JobId
+	if reserved.Published {
+		return jobdb.JobHandle{JobKey: reserved.Key, GoalID: reserved.GoalID}, nil
 	}
 	jobID := req.Job.JobID
 	if jobID == "" {
@@ -141,13 +154,13 @@ func (r *Runtime) submitJobWithSchedule(ctx context.Context, req jobdb.SubmitJob
 				schemaHash, parentJobID, metadata, policy, occurrence); err != nil {
 				return jobdb.JobHandle{}, err
 			}
-			return jobdb.JobHandle{JobKey: key}, nil
+			return jobdb.JobHandle{JobKey: key, GoalID: reserved.GoalID}, nil
 		}
 		if !errors.Is(err, jobdb.ErrJobNotFound) {
 			return jobdb.JobHandle{}, err
 		}
 	}
-	created, err := r.scheduler.CreateJob(ctx, CreateJobRequest{
+	created, err := r.scheduler.CreateJob(ctx, CreateJobRequest{GoalID: reserved.GoalID, ShareGoal: preparation.ShareGoal, Dependencies: preparation.Dependencies,
 		JobKey: key, JobType: req.Job.JobType, ParentJobID: parentJobID, RunPolicy: policy,
 		ClientPayload: initialPayload, ClientPayloadRevision: initialRevision, InitialPayloadDigest: initialDigest,
 		AppMetadata: metadata, SchemaHash: schemaHash, Schedule: occurrence,
@@ -161,7 +174,7 @@ func (r *Runtime) submitJobWithSchedule(ctx context.Context, req jobdb.SubmitJob
 		schemaHash, parentJobID, metadata, policy, occurrence); err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	return jobdb.JobHandle{JobKey: key}, nil
+	return jobdb.JobHandle{JobKey: key, GoalID: reserved.GoalID}, nil
 }
 
 func validateStoredJobFacts(stored StoredJob, key jobdb.JobKey, jobType, schemaHash, parentJobID string,

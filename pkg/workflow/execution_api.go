@@ -36,6 +36,10 @@ type ExecutionContext interface {
 	DoScope(string, ScopeOptions, func(ExecutionContext) (JobData, error)) (JobData, error)
 	AwaitDuration(Duration) error
 	AwaitJobs(...string) error
+	// AwaitGoals waits for successful goal outcomes and returns their committed job bindings.
+	AwaitGoals(...string) ([]jobdb.DependencyResolution, error)
+	// AwaitDependencies supports mixed exact-job and goal dependencies.
+	AwaitDependencies(...jobdb.Dependency) ([]jobdb.DependencyResolution, error)
 	// GetConfiguration returns a copy of the first successful tenant snapshot
 	// in this live job attempt. Tasks share it; whole-job retries reset it.
 	GetConfiguration(context.Context) (ConfigurationSnapshot, error)

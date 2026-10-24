@@ -11,8 +11,10 @@ import (
 
 // JobSummary is a lightweight view of a job from the selected runtime.
 type JobSummary struct {
-	JobKey JobKey
-	Status JobStatus
+	GoalID       string
+	OtherGoalIDs []string
+	JobKey       JobKey
+	Status       JobStatus
 	// CompletionStatus is the persisted terminal outcome, independent of Status.
 	// Empty means unavailable; unfamiliar values must be preserved.
 	CompletionStatus string
@@ -53,6 +55,7 @@ type JobTaskFilter struct {
 // ListJobsRequest filters and paginates the union of active + archived jobs.
 // TenantIds must contain at least one tenant ID.
 type ListJobsRequest struct {
+	GoalIDs []string
 	// IncludeHidden includes jobs hidden by DeleteJobs. Direct history lookups
 	// use this option so deletion does not break thin clones or references.
 	IncludeHidden bool

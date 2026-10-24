@@ -10,6 +10,7 @@ import (
 // WorkflowRuntime is the backend-agnostic facade used to isolate jobdb from
 // concrete persistence, artifact storage, and lease-management backends.
 type WorkflowRuntime interface {
+	GoalRuntime
 	// GetConfiguration reads current tenant configuration using verified lease claims.
 	GetConfiguration(context.Context, GetConfigurationRequest) (ConfigurationSnapshot, error)
 
@@ -52,6 +53,7 @@ type WorkflowRuntime interface {
 
 // JobHandle identifies a job owned by a runtime implementation.
 type JobHandle struct {
+	GoalID string
 	JobKey JobKey
 }
 
@@ -85,6 +87,7 @@ type SubmitJobRequest struct {
 }
 
 type SubmitRestartJobRequest struct {
+	RequestID   string
 	Job         SubmitRestartJob
 	WorkerID    string
 	RequestTime time.Time
@@ -181,7 +184,8 @@ type CompleteExecutionRequest struct {
 }
 
 type RescheduleExecutionRequest struct {
-	NextRoute Route
+	DependencyWait *DependencyWait
+	NextRoute      Route
 	// WaitUntil delays eligibility when no jobs are listed. With WaitForJobIDs,
 	// it is a deadline: resume when all listed jobs terminate OR this time arrives.
 	WaitUntil           *time.Time

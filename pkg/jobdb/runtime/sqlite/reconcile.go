@@ -34,7 +34,8 @@ func (r *Runtime) reconcileExistingSubmitJob(ctx context.Context, req jobdb.Subm
 	if err := r.ensureSubmittedJobRecord(ctx, jobKey, req.Job.JobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, req.Job.AvailableAt, req.Job.ClientPayloadUpdate); err != nil {
 		return jobdb.JobHandle{}, true, err
 	}
-	return jobdb.JobHandle{JobKey: jobKey}, true, nil
+	handle, err := r.goalHandle(ctx, jobKey)
+	return handle, true, err
 }
 
 func (r *Runtime) reconcileExistingRestartJob(ctx context.Context, req jobdb.SubmitRestartJobRequest, jobKey jobdb.JobKey, prereqs []jobdb.JobPrerequisite, waitFor []string, jobType string, jobPolicy jobdb.RunPolicy, extra restartExtraExpectation, storedMetadata json.RawMessage) (jobdb.JobHandle, bool, error) {
@@ -54,7 +55,8 @@ func (r *Runtime) reconcileExistingRestartJob(ctx context.Context, req jobdb.Sub
 	if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, nil, req.Job.ClientPayloadUpdate); err != nil {
 		return jobdb.JobHandle{}, true, err
 	}
-	return jobdb.JobHandle{JobKey: jobKey}, true, nil
+	handle, err := r.goalHandle(ctx, jobKey)
+	return handle, true, err
 }
 
 func (r *Runtime) loadExistingStartChapter(ctx context.Context, jobKey jobdb.JobKey) (story.Chapter, bool, error) {

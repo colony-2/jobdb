@@ -52,6 +52,7 @@ func newRootCmd() *cobra.Command {
 		newSecretsCmd(),
 		newConfigurationCmd(),
 		newJobsCmd(),
+		newGoalsCmd(),
 		newToyCmd(&listenAddr, &secretProvidersFile),
 		newHealthcheckCmd(),
 	)

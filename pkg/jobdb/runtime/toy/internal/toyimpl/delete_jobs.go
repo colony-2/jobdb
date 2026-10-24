@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate"
 )
 
 var _ jobdb.JobDeletionRuntime = (*Runtime)(nil)
@@ -78,6 +79,10 @@ func (r *Runtime) DeleteJobs(ctx context.Context, req jobdb.DeleteJobsRequest) (
 		record.leaseWorkerID = ""
 		record.leaseExpiresAt = time.Time{}
 		record.mu.Unlock()
+		r.engine.initGoalsLocked()
+		if err := (goalstate.Engine{Store: r.engine.goals, Now: now}).Complete(record.key); err != nil {
+			return jobdb.DeleteJobsResponse{}, err
+		}
 	}
 	out.DeletedCount = out.MatchedCount
 	return out, nil

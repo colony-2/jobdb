@@ -80,6 +80,7 @@ type DelegationInfo struct {
 // LeaseValidity is a read-only transport check of the current execution lease.
 // It deliberately excludes job payloads, configuration and chapter contents.
 type LeaseValidity struct {
+	GoalID    string
 	ExpiresAt time.Time
 	Route     Route
 }

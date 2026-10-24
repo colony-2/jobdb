@@ -38,7 +38,7 @@ func (r *Runtime) ValidateExecutionLeaseByID(ctx context.Context, key jobdb.JobK
 	if err != nil {
 		return jobdb.LeaseValidity{}, err
 	}
-	return jobdb.LeaseValidity{ExpiresAt: snapshot.Identity.ExpiresAt, Route: lease.Route()}, nil
+	return jobdb.LeaseValidity{GoalID: snapshot.GoalID, ExpiresAt: snapshot.Identity.ExpiresAt, Route: lease.Route()}, nil
 }
 
 // KeepAliveLeaseByID renews the current lease for remote transport callers.

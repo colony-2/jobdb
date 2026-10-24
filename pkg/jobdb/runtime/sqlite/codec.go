@@ -229,6 +229,9 @@ func envelopeToTaskData(env chapterEnvelope, artifacts []jobdb.Artifact) (jobdb.
 		if err := json.Unmarshal(env.Payload, &p); err != nil {
 			return td, err
 		}
+		if err, ok := jobdb.GoalFailureFromAppError(p); ok {
+			return td, err
+		}
 		return td, &jobdb.AppError{Payload: p}
 	case payloadKindSystemError:
 		var p jobdb.SystemErrorPayload

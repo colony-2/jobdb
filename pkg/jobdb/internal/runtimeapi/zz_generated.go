@@ -38,12 +38,18 @@ const (
 	DelegationDeadlineReached     ErrorCode = "delegation_deadline_reached"
 	DelegationNotSupported        ErrorCode = "delegation_not_supported"
 	DelegationUnavailable         ErrorCode = "delegation_unavailable"
+	DependencyCycle               ErrorCode = "dependency_cycle"
+	DependencyWaitConflict        ErrorCode = "dependency_wait_conflict"
+	DependencyWaitNotFound        ErrorCode = "dependency_wait_not_found"
 	ExecutionLeaseLost            ErrorCode = "execution_lease_lost"
 	ExistingJobMismatch           ErrorCode = "existing_job_mismatch"
+	GoalConflict                  ErrorCode = "goal_conflict"
+	GoalNotFound                  ErrorCode = "goal_not_found"
 	Internal                      ErrorCode = "internal"
 	InvalidConfigurationRequest   ErrorCode = "invalid_configuration_request"
 	InvalidDelegationCredential   ErrorCode = "invalid_delegation_credential"
 	InvalidDelegationRequest      ErrorCode = "invalid_delegation_request"
+	InvalidDependency             ErrorCode = "invalid_dependency"
 	InvalidRequest                ErrorCode = "invalid_request"
 	JobNotComplete                ErrorCode = "job_not_complete"
 	JobNotFound                   ErrorCode = "job_not_found"
@@ -63,6 +69,11 @@ const (
 // Defines values for JobAttemptOutcomeChapterKind.
 const (
 	JobAttemptOutcome JobAttemptOutcomeChapterKind = "jobAttemptOutcome"
+)
+
+// Defines values for JobDependencyFailureCode.
+const (
+	JobDependencyFailed JobDependencyFailureCode = "job_dependency_failed"
 )
 
 // Defines values for JobPrerequisiteCondition.
@@ -374,6 +385,24 @@ type DeleteJobsResponse struct {
 	MatchedCount int64 `json:"matchedCount"`
 }
 
+// Dependency defines model for Dependency.
+type Dependency = jobdb.Dependency
+
+// DependencyFailure defines model for DependencyFailure.
+type DependencyFailure = jobdb.GoalFailure
+
+// DependencyResolution defines model for DependencyResolution.
+type DependencyResolution = jobdb.DependencyResolution
+
+// DependencyTarget defines model for DependencyTarget.
+type DependencyTarget = jobdb.DependencyTarget
+
+// DependencyWait defines model for DependencyWait.
+type DependencyWait = jobdb.DependencyWait
+
+// DependencyWaitInfo defines model for DependencyWaitInfo.
+type DependencyWaitInfo = jobdb.DependencyWaitInfo
+
 // ErrorCode defines model for ErrorCode.
 type ErrorCode string
 
@@ -430,6 +459,9 @@ type ExecutionState struct {
 	TaskWait  *TaskWait  `json:"taskWait,omitempty"`
 }
 
+// FailGoalRequest defines model for FailGoalRequest.
+type FailGoalRequest = jobdb.FailGoalRequest
+
 // GetJobLeaseRequest defines model for GetJobLeaseRequest.
 type GetJobLeaseRequest struct {
 	// LeaseDuration Duration string controlling how long the acquired lease should be held.
@@ -443,6 +475,18 @@ type GetJobLeaseResponse struct {
 	// Lease Targeted lease when the job is currently leaseable; `null` otherwise.
 	Lease *ExecutionLease `json:"lease"`
 }
+
+// GoalCandidateInfo defines model for GoalCandidateInfo.
+type GoalCandidateInfo = jobdb.GoalCandidateInfo
+
+// GoalFailure defines model for GoalFailure.
+type GoalFailure = jobdb.GoalFailure
+
+// GoalInfo defines model for GoalInfo.
+type GoalInfo = jobdb.GoalInfo
+
+// GoalKey defines model for GoalKey.
+type GoalKey = jobdb.GoalKey
 
 // InputReference defines model for InputReference.
 type InputReference struct {
@@ -459,8 +503,19 @@ type JobAttemptOutcomeChapter struct {
 // JobAttemptOutcomeChapterKind defines model for JobAttemptOutcomeChapter.Kind.
 type JobAttemptOutcomeChapterKind string
 
+// JobDependencyFailure defines model for JobDependencyFailure.
+type JobDependencyFailure struct {
+	Code    JobDependencyFailureCode `json:"code"`
+	JobId   string                   `json:"jobId"`
+	Message string                   `json:"message"`
+}
+
+// JobDependencyFailureCode defines model for JobDependencyFailure.Code.
+type JobDependencyFailureCode string
+
 // JobHandle defines model for JobHandle.
 type JobHandle struct {
+	GoalId string `json:"goalId"`
 	JobKey JobKey `json:"jobKey"`
 }
 
@@ -474,6 +529,8 @@ type JobInfo struct {
 	// has not completed yet.
 	Data           *StoredTaskData `json:"data"`
 	ExecutionState ExecutionState  `json:"executionState"`
+	GoalId         string          `json:"goalId"`
+	OtherGoalIds   []string        `json:"otherGoalIds"`
 	SchemaHash     *JobSchemaHash  `json:"schemaHash,omitempty"`
 	Status         JobStatus       `json:"status"`
 }
@@ -559,11 +616,13 @@ type JobSummary struct {
 	CreatedAt        time.Time      `json:"createdAt"`
 	ExecutionState   ExecutionState `json:"executionState"`
 	ExpiresAt        *time.Time     `json:"expiresAt,omitempty"`
+	GoalId           string         `json:"goalId"`
 	JobKey           JobKey         `json:"jobKey"`
 	JobType          string         `json:"jobType"`
 	LeaseExpiresAt   *time.Time     `json:"leaseExpiresAt,omitempty"`
 	Metadata         *Metadata      `json:"metadata,omitempty"`
 	NextRoute        *Route         `json:"nextRoute,omitempty"`
+	OtherGoalIds     []string       `json:"otherGoalIds"`
 	ParentJobId      *string        `json:"parentJobId,omitempty"`
 	SchemaHash       *JobSchemaHash `json:"schemaHash,omitempty"`
 	Status           JobStatus      `json:"status"`
@@ -606,6 +665,7 @@ type ListJobsRequest struct {
 	AvailableRoutes *[]Route   `json:"availableRoutes,omitempty"`
 	CreatedAfter    *time.Time `json:"createdAfter,omitempty"`
 	CreatedBefore   *time.Time `json:"createdBefore,omitempty"`
+	GoalIds         *[]string  `json:"goalIds,omitempty"`
 
 	// IncludeHidden Include jobs hidden by deleteJobs, for direct history lookup or inspection. Does not make them runnable again.
 	IncludeHidden *bool            `json:"includeHidden,omitempty"`
@@ -781,6 +841,7 @@ type RescheduleExecutionRequest struct {
 	AlternateAfter      *string              `json:"alternateAfter,omitempty"`
 	AlternateRoute      *Route               `json:"alternateRoute,omitempty"`
 	ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
+	DependencyWait      *DependencyWait      `json:"dependencyWait,omitempty"`
 	NextRoute           Route                `json:"nextRoute"`
 	TaskWait            *TaskWait            `json:"taskWait,omitempty"`
 	WaitForJobIds       *[]string            `json:"waitForJobIds,omitempty"`
@@ -963,6 +1024,7 @@ type SubmitJob struct {
 	AvailableAt         *time.Time           `json:"availableAt,omitempty"`
 	ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
 	Data                TaskDataWrite        `json:"data"`
+	Dependencies        *[]Dependency        `json:"dependencies,omitempty"`
 	JobType             string               `json:"jobType"`
 	Metadata            *Metadata            `json:"metadata,omitempty"`
 	Prerequisites       *[]JobPrerequisite   `json:"prerequisites,omitempty"`
@@ -980,6 +1042,7 @@ type SubmitJobRequest struct {
 // SubmitRestartJob defines model for SubmitRestartJob.
 type SubmitRestartJob struct {
 	ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
+	Dependencies        *[]Dependency        `json:"dependencies,omitempty"`
 	ExecutionRestart    *ExecutionRestart    `json:"executionRestart,omitempty"`
 	ExtraTaskInput      *TaskDataWrite       `json:"extraTaskInput,omitempty"`
 	ExtraTaskOutput     *TaskDataWrite       `json:"extraTaskOutput,omitempty"`
@@ -987,11 +1050,13 @@ type SubmitRestartJob struct {
 	Prerequisites       *[]JobPrerequisite   `json:"prerequisites,omitempty"`
 	PriorJobKey         JobKey               `json:"priorJobKey"`
 	Schema              *JobSchemaSelector   `json:"schema,omitempty"`
+	ShareGoal           *bool                `json:"shareGoal,omitempty"`
 }
 
 // SubmitRestartJobRequest defines model for SubmitRestartJobRequest.
 type SubmitRestartJobRequest struct {
 	Job         SubmitRestartJob `json:"job"`
+	RequestId   *string          `json:"requestId,omitempty"`
 	RequestTime *time.Time       `json:"requestTime,omitempty"`
 	WorkerId    *string          `json:"workerId,omitempty"`
 }
@@ -1247,6 +1312,9 @@ type RemoveTenantConfigurationValueJSONRequestBody = RemoveConfigurationBody
 
 // SetTenantConfigurationValueJSONRequestBody defines body for SetTenantConfigurationValue for application/json ContentType.
 type SetTenantConfigurationValueJSONRequestBody = SetConfigurationBody
+
+// FailGoalJSONRequestBody defines body for FailGoal for application/json ContentType.
+type FailGoalJSONRequestBody = FailGoalRequest
 
 // SubmitJobJSONRequestBody defines body for SubmitJob for application/json ContentType.
 type SubmitJobJSONRequestBody = SubmitJobRequest
@@ -1984,6 +2052,17 @@ type ClientInterface interface {
 
 	SetTenantConfigurationValue(ctx context.Context, tenantId TenantId, params *SetTenantConfigurationValueParams, body SetTenantConfigurationValueJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetGoal request
+	GetGoal(ctx context.Context, tenantId string, goalId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AddGoalCandidate request
+	AddGoalCandidate(ctx context.Context, tenantId string, goalId string, jobId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// FailGoalWithBody request with any body
+	FailGoalWithBody(ctx context.Context, tenantId string, goalId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	FailGoal(ctx context.Context, tenantId string, goalId string, body FailGoalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// SubmitJobWithBody request with any body
 	SubmitJobWithBody(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -2030,6 +2109,9 @@ type ClientInterface interface {
 	CommitChapterIfWaitingWithBody(ctx context.Context, tenantId TenantId, jobId JobId, ordinal Ordinal, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	CommitChapterIfWaiting(ctx context.Context, tenantId TenantId, jobId JobId, ordinal Ordinal, body CommitChapterIfWaitingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetDependencyWait request
+	GetDependencyWait(ctx context.Context, tenantId string, jobId string, waitId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetJobLeaseWithBody request with any body
 	GetJobLeaseWithBody(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -2228,6 +2310,54 @@ func (c *Client) SetTenantConfigurationValueWithBody(ctx context.Context, tenant
 
 func (c *Client) SetTenantConfigurationValue(ctx context.Context, tenantId TenantId, params *SetTenantConfigurationValueParams, body SetTenantConfigurationValueJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSetTenantConfigurationValueRequest(c.Server, tenantId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetGoal(ctx context.Context, tenantId string, goalId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetGoalRequest(c.Server, tenantId, goalId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AddGoalCandidate(ctx context.Context, tenantId string, goalId string, jobId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAddGoalCandidateRequest(c.Server, tenantId, goalId, jobId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) FailGoalWithBody(ctx context.Context, tenantId string, goalId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewFailGoalRequestWithBody(c.Server, tenantId, goalId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) FailGoal(ctx context.Context, tenantId string, goalId string, body FailGoalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewFailGoalRequest(c.Server, tenantId, goalId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2444,6 +2574,18 @@ func (c *Client) CommitChapterIfWaitingWithBody(ctx context.Context, tenantId Te
 
 func (c *Client) CommitChapterIfWaiting(ctx context.Context, tenantId TenantId, jobId JobId, ordinal Ordinal, body CommitChapterIfWaitingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCommitChapterIfWaitingRequest(c.Server, tenantId, jobId, ordinal, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetDependencyWait(ctx context.Context, tenantId string, jobId string, waitId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetDependencyWaitRequest(c.Server, tenantId, jobId, waitId)
 	if err != nil {
 		return nil, err
 	}
@@ -3216,6 +3358,149 @@ func NewSetTenantConfigurationValueRequestWithBody(server string, tenantId Tenan
 	return req, nil
 }
 
+// NewGetGoalRequest generates requests for GetGoal
+func NewGetGoalRequest(server string, tenantId string, goalId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "goalId", runtime.ParamLocationPath, goalId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/goals/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewAddGoalCandidateRequest generates requests for AddGoalCandidate
+func NewAddGoalCandidateRequest(server string, tenantId string, goalId string, jobId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "goalId", runtime.ParamLocationPath, goalId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithLocation("simple", false, "jobId", runtime.ParamLocationPath, jobId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/goals/%s/candidates/%s", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PUT", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewFailGoalRequest calls the generic FailGoal builder with application/json body
+func NewFailGoalRequest(server string, tenantId string, goalId string, body FailGoalJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewFailGoalRequestWithBody(server, tenantId, goalId, "application/json", bodyReader)
+}
+
+// NewFailGoalRequestWithBody generates requests for FailGoal with any type of body
+func NewFailGoalRequestWithBody(server string, tenantId string, goalId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "goalId", runtime.ParamLocationPath, goalId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/goals/%s/fail", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewSubmitJobRequest calls the generic SubmitJob builder with application/json body
 func NewSubmitJobRequest(server string, tenantId TenantId, body SubmitJobJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -3788,6 +4073,54 @@ func NewCommitChapterIfWaitingRequestWithBody(server string, tenantId TenantId, 
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetDependencyWaitRequest generates requests for GetDependencyWait
+func NewGetDependencyWaitRequest(server string, tenantId string, jobId string, waitId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "jobId", runtime.ParamLocationPath, jobId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithLocation("simple", false, "waitId", runtime.ParamLocationPath, waitId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs/%s/dependency-waits/%s", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -5584,6 +5917,17 @@ type ClientWithResponsesInterface interface {
 
 	SetTenantConfigurationValueWithResponse(ctx context.Context, tenantId TenantId, params *SetTenantConfigurationValueParams, body SetTenantConfigurationValueJSONRequestBody, reqEditors ...RequestEditorFn) (*SetTenantConfigurationValueHTTPResponse, error)
 
+	// GetGoalWithResponse request
+	GetGoalWithResponse(ctx context.Context, tenantId string, goalId string, reqEditors ...RequestEditorFn) (*GetGoalHTTPResponse, error)
+
+	// AddGoalCandidateWithResponse request
+	AddGoalCandidateWithResponse(ctx context.Context, tenantId string, goalId string, jobId string, reqEditors ...RequestEditorFn) (*AddGoalCandidateHTTPResponse, error)
+
+	// FailGoalWithBodyWithResponse request with any body
+	FailGoalWithBodyWithResponse(ctx context.Context, tenantId string, goalId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*FailGoalHTTPResponse, error)
+
+	FailGoalWithResponse(ctx context.Context, tenantId string, goalId string, body FailGoalJSONRequestBody, reqEditors ...RequestEditorFn) (*FailGoalHTTPResponse, error)
+
 	// SubmitJobWithBodyWithResponse request with any body
 	SubmitJobWithBodyWithResponse(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SubmitJobHTTPResponse, error)
 
@@ -5630,6 +5974,9 @@ type ClientWithResponsesInterface interface {
 	CommitChapterIfWaitingWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, ordinal Ordinal, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CommitChapterIfWaitingHTTPResponse, error)
 
 	CommitChapterIfWaitingWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, ordinal Ordinal, body CommitChapterIfWaitingJSONRequestBody, reqEditors ...RequestEditorFn) (*CommitChapterIfWaitingHTTPResponse, error)
+
+	// GetDependencyWaitWithResponse request
+	GetDependencyWaitWithResponse(ctx context.Context, tenantId string, jobId string, waitId string, reqEditors ...RequestEditorFn) (*GetDependencyWaitHTTPResponse, error)
 
 	// GetJobLeaseWithBodyWithResponse request with any body
 	GetJobLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*GetJobLeaseHTTPResponse, error)
@@ -5856,6 +6203,72 @@ func (r SetTenantConfigurationValueHTTPResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r SetTenantConfigurationValueHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetGoalHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *GoalInfo
+}
+
+// Status returns HTTPResponse.Status
+func (r GetGoalHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetGoalHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type AddGoalCandidateHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *GoalCandidateInfo
+}
+
+// Status returns HTTPResponse.Status
+func (r AddGoalCandidateHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AddGoalCandidateHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type FailGoalHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *GoalInfo
+}
+
+// Status returns HTTPResponse.Status
+func (r FailGoalHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r FailGoalHTTPResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -6096,6 +6509,28 @@ func (r CommitChapterIfWaitingHTTPResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r CommitChapterIfWaitingHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetDependencyWaitHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *DependencyWaitInfo
+}
+
+// Status returns HTTPResponse.Status
+func (r GetDependencyWaitHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetDependencyWaitHTTPResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -6791,6 +7226,41 @@ func (c *ClientWithResponses) SetTenantConfigurationValueWithResponse(ctx contex
 	return ParseSetTenantConfigurationValueHTTPResponse(rsp)
 }
 
+// GetGoalWithResponse request returning *GetGoalHTTPResponse
+func (c *ClientWithResponses) GetGoalWithResponse(ctx context.Context, tenantId string, goalId string, reqEditors ...RequestEditorFn) (*GetGoalHTTPResponse, error) {
+	rsp, err := c.GetGoal(ctx, tenantId, goalId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetGoalHTTPResponse(rsp)
+}
+
+// AddGoalCandidateWithResponse request returning *AddGoalCandidateHTTPResponse
+func (c *ClientWithResponses) AddGoalCandidateWithResponse(ctx context.Context, tenantId string, goalId string, jobId string, reqEditors ...RequestEditorFn) (*AddGoalCandidateHTTPResponse, error) {
+	rsp, err := c.AddGoalCandidate(ctx, tenantId, goalId, jobId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAddGoalCandidateHTTPResponse(rsp)
+}
+
+// FailGoalWithBodyWithResponse request with arbitrary body returning *FailGoalHTTPResponse
+func (c *ClientWithResponses) FailGoalWithBodyWithResponse(ctx context.Context, tenantId string, goalId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*FailGoalHTTPResponse, error) {
+	rsp, err := c.FailGoalWithBody(ctx, tenantId, goalId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseFailGoalHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) FailGoalWithResponse(ctx context.Context, tenantId string, goalId string, body FailGoalJSONRequestBody, reqEditors ...RequestEditorFn) (*FailGoalHTTPResponse, error) {
+	rsp, err := c.FailGoal(ctx, tenantId, goalId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseFailGoalHTTPResponse(rsp)
+}
+
 // SubmitJobWithBodyWithResponse request with arbitrary body returning *SubmitJobHTTPResponse
 func (c *ClientWithResponses) SubmitJobWithBodyWithResponse(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SubmitJobHTTPResponse, error) {
 	rsp, err := c.SubmitJobWithBody(ctx, tenantId, contentType, body, reqEditors...)
@@ -6944,6 +7414,15 @@ func (c *ClientWithResponses) CommitChapterIfWaitingWithResponse(ctx context.Con
 		return nil, err
 	}
 	return ParseCommitChapterIfWaitingHTTPResponse(rsp)
+}
+
+// GetDependencyWaitWithResponse request returning *GetDependencyWaitHTTPResponse
+func (c *ClientWithResponses) GetDependencyWaitWithResponse(ctx context.Context, tenantId string, jobId string, waitId string, reqEditors ...RequestEditorFn) (*GetDependencyWaitHTTPResponse, error) {
+	rsp, err := c.GetDependencyWait(ctx, tenantId, jobId, waitId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetDependencyWaitHTTPResponse(rsp)
 }
 
 // GetJobLeaseWithBodyWithResponse request with arbitrary body returning *GetJobLeaseHTTPResponse
@@ -7582,6 +8061,84 @@ func ParseSetTenantConfigurationValueHTTPResponse(rsp *http.Response) (*SetTenan
 	return response, nil
 }
 
+// ParseGetGoalHTTPResponse parses an HTTP response from a GetGoalWithResponse call
+func ParseGetGoalHTTPResponse(rsp *http.Response) (*GetGoalHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetGoalHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GoalInfo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseAddGoalCandidateHTTPResponse parses an HTTP response from a AddGoalCandidateWithResponse call
+func ParseAddGoalCandidateHTTPResponse(rsp *http.Response) (*AddGoalCandidateHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AddGoalCandidateHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GoalCandidateInfo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseFailGoalHTTPResponse parses an HTTP response from a FailGoalWithResponse call
+func ParseFailGoalHTTPResponse(rsp *http.Response) (*FailGoalHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &FailGoalHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GoalInfo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseSubmitJobHTTPResponse parses an HTTP response from a SubmitJobWithResponse call
 func ParseSubmitJobHTTPResponse(rsp *http.Response) (*SubmitJobHTTPResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -7840,6 +8397,32 @@ func ParseCommitChapterIfWaitingHTTPResponse(rsp *http.Response) (*CommitChapter
 	response := &CommitChapterIfWaitingHTTPResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParseGetDependencyWaitHTTPResponse parses an HTTP response from a GetDependencyWaitWithResponse call
+func ParseGetDependencyWaitHTTPResponse(rsp *http.Response) (*GetDependencyWaitHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetDependencyWaitHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest DependencyWaitInfo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
 	}
 
 	return response, nil
@@ -8669,6 +9252,15 @@ type ServerInterface interface {
 	// Set one tenant configuration value
 	// (POST /v1/tenants/{tenantId}/configuration/set)
 	SetTenantConfigurationValue(w http.ResponseWriter, r *http.Request, tenantId TenantId, params SetTenantConfigurationValueParams)
+
+	// (GET /v1/tenants/{tenantId}/goals/{goalId})
+	GetGoal(w http.ResponseWriter, r *http.Request, tenantId string, goalId string)
+
+	// (PUT /v1/tenants/{tenantId}/goals/{goalId}/candidates/{jobId})
+	AddGoalCandidate(w http.ResponseWriter, r *http.Request, tenantId string, goalId string, jobId string)
+
+	// (POST /v1/tenants/{tenantId}/goals/{goalId}/fail)
+	FailGoal(w http.ResponseWriter, r *http.Request, tenantId string, goalId string)
 	// Submit job
 	// (POST /v1/tenants/{tenantId}/jobs)
 	SubmitJob(w http.ResponseWriter, r *http.Request, tenantId TenantId)
@@ -8702,6 +9294,9 @@ type ServerInterface interface {
 	// Commit chapter if waiting
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/chapters/{ordinal}/commit-if-waiting)
 	CommitChapterIfWaiting(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, ordinal Ordinal)
+
+	// (GET /v1/tenants/{tenantId}/jobs/{jobId}/dependency-waits/{waitId})
+	GetDependencyWait(w http.ResponseWriter, r *http.Request, tenantId string, jobId string, waitId string)
 	// Get job lease
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/lease)
 	GetJobLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId)
@@ -8816,6 +9411,21 @@ func (_ Unimplemented) SetTenantConfigurationValue(w http.ResponseWriter, r *htt
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// (GET /v1/tenants/{tenantId}/goals/{goalId})
+func (_ Unimplemented) GetGoal(w http.ResponseWriter, r *http.Request, tenantId string, goalId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /v1/tenants/{tenantId}/goals/{goalId}/candidates/{jobId})
+func (_ Unimplemented) AddGoalCandidate(w http.ResponseWriter, r *http.Request, tenantId string, goalId string, jobId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /v1/tenants/{tenantId}/goals/{goalId}/fail)
+func (_ Unimplemented) FailGoal(w http.ResponseWriter, r *http.Request, tenantId string, goalId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Submit job
 // (POST /v1/tenants/{tenantId}/jobs)
 func (_ Unimplemented) SubmitJob(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
@@ -8879,6 +9489,11 @@ func (_ Unimplemented) OpenArtifact(w http.ResponseWriter, r *http.Request, tena
 // Commit chapter if waiting
 // (POST /v1/tenants/{tenantId}/jobs/{jobId}/chapters/{ordinal}/commit-if-waiting)
 func (_ Unimplemented) CommitChapterIfWaiting(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, ordinal Ordinal) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /v1/tenants/{tenantId}/jobs/{jobId}/dependency-waits/{waitId})
+func (_ Unimplemented) GetDependencyWait(w http.ResponseWriter, r *http.Request, tenantId string, jobId string, waitId string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -9211,6 +9826,135 @@ func (siw *ServerInterfaceWrapper) SetTenantConfigurationValue(w http.ResponseWr
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetTenantConfigurationValue(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetGoal operation middleware
+func (siw *ServerInterfaceWrapper) GetGoal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "goalId" -------------
+	var goalId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "goalId", chi.URLParam(r, "goalId"), &goalId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "goalId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetGoal(w, r, tenantId, goalId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddGoalCandidate operation middleware
+func (siw *ServerInterfaceWrapper) AddGoalCandidate(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "goalId" -------------
+	var goalId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "goalId", chi.URLParam(r, "goalId"), &goalId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "goalId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "jobId" -------------
+	var jobId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobId", chi.URLParam(r, "jobId"), &jobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddGoalCandidate(w, r, tenantId, goalId, jobId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// FailGoal operation middleware
+func (siw *ServerInterfaceWrapper) FailGoal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "goalId" -------------
+	var goalId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "goalId", chi.URLParam(r, "goalId"), &goalId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "goalId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.FailGoal(w, r, tenantId, goalId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -9677,6 +10421,55 @@ func (siw *ServerInterfaceWrapper) CommitChapterIfWaiting(w http.ResponseWriter,
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CommitChapterIfWaiting(w, r, tenantId, jobId, ordinal)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDependencyWait operation middleware
+func (siw *ServerInterfaceWrapper) GetDependencyWait(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "jobId" -------------
+	var jobId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobId", chi.URLParam(r, "jobId"), &jobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "waitId" -------------
+	var waitId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "waitId", chi.URLParam(r, "waitId"), &waitId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "waitId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDependencyWait(w, r, tenantId, jobId, waitId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -11484,6 +12277,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/configuration/set", wrapper.SetTenantConfigurationValue)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/tenants/{tenantId}/goals/{goalId}", wrapper.GetGoal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/v1/tenants/{tenantId}/goals/{goalId}/candidates/{jobId}", wrapper.AddGoalCandidate)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/goals/{goalId}/fail", wrapper.FailGoal)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs", wrapper.SubmitJob)
 	})
 	r.Group(func(r chi.Router) {
@@ -11515,6 +12317,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/chapters/{ordinal}/commit-if-waiting", wrapper.CommitChapterIfWaiting)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/dependency-waits/{waitId}", wrapper.GetDependencyWait)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/lease", wrapper.GetJobLease)
@@ -12042,6 +12847,62 @@ func (response SetTenantConfigurationValue503JSONResponse) VisitSetTenantConfigu
 	return json.NewEncoder(w).Encode(response.Body)
 }
 
+type GetGoalRequestObject struct {
+	TenantId string `json:"tenantId"`
+	GoalId   string `json:"goalId"`
+}
+
+type GetGoalResponseObject interface {
+	VisitGetGoalResponse(w http.ResponseWriter) error
+}
+
+type GetGoal200JSONResponse GoalInfo
+
+func (response GetGoal200JSONResponse) VisitGetGoalResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AddGoalCandidateRequestObject struct {
+	TenantId string `json:"tenantId"`
+	GoalId   string `json:"goalId"`
+	JobId    string `json:"jobId"`
+}
+
+type AddGoalCandidateResponseObject interface {
+	VisitAddGoalCandidateResponse(w http.ResponseWriter) error
+}
+
+type AddGoalCandidate200JSONResponse GoalCandidateInfo
+
+func (response AddGoalCandidate200JSONResponse) VisitAddGoalCandidateResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type FailGoalRequestObject struct {
+	TenantId string `json:"tenantId"`
+	GoalId   string `json:"goalId"`
+	Body     *FailGoalJSONRequestBody
+}
+
+type FailGoalResponseObject interface {
+	VisitFailGoalResponse(w http.ResponseWriter) error
+}
+
+type FailGoal200JSONResponse GoalInfo
+
+func (response FailGoal200JSONResponse) VisitFailGoalResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type SubmitJobRequestObject struct {
 	TenantId TenantId `json:"tenantId"`
 	Body     *SubmitJobJSONRequestBody
@@ -12287,6 +13148,25 @@ type CommitChapterIfWaiting409Response struct {
 func (response CommitChapterIfWaiting409Response) VisitCommitChapterIfWaitingResponse(w http.ResponseWriter) error {
 	w.WriteHeader(409)
 	return nil
+}
+
+type GetDependencyWaitRequestObject struct {
+	TenantId string `json:"tenantId"`
+	JobId    string `json:"jobId"`
+	WaitId   string `json:"waitId"`
+}
+
+type GetDependencyWaitResponseObject interface {
+	VisitGetDependencyWaitResponse(w http.ResponseWriter) error
+}
+
+type GetDependencyWait200JSONResponse DependencyWaitInfo
+
+func (response GetDependencyWait200JSONResponse) VisitGetDependencyWaitResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type GetJobLeaseRequestObject struct {
@@ -13107,6 +13987,15 @@ type StrictServerInterface interface {
 	// Set one tenant configuration value
 	// (POST /v1/tenants/{tenantId}/configuration/set)
 	SetTenantConfigurationValue(ctx context.Context, request SetTenantConfigurationValueRequestObject) (SetTenantConfigurationValueResponseObject, error)
+
+	// (GET /v1/tenants/{tenantId}/goals/{goalId})
+	GetGoal(ctx context.Context, request GetGoalRequestObject) (GetGoalResponseObject, error)
+
+	// (PUT /v1/tenants/{tenantId}/goals/{goalId}/candidates/{jobId})
+	AddGoalCandidate(ctx context.Context, request AddGoalCandidateRequestObject) (AddGoalCandidateResponseObject, error)
+
+	// (POST /v1/tenants/{tenantId}/goals/{goalId}/fail)
+	FailGoal(ctx context.Context, request FailGoalRequestObject) (FailGoalResponseObject, error)
 	// Submit job
 	// (POST /v1/tenants/{tenantId}/jobs)
 	SubmitJob(ctx context.Context, request SubmitJobRequestObject) (SubmitJobResponseObject, error)
@@ -13140,6 +14029,9 @@ type StrictServerInterface interface {
 	// Commit chapter if waiting
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/chapters/{ordinal}/commit-if-waiting)
 	CommitChapterIfWaiting(ctx context.Context, request CommitChapterIfWaitingRequestObject) (CommitChapterIfWaitingResponseObject, error)
+
+	// (GET /v1/tenants/{tenantId}/jobs/{jobId}/dependency-waits/{waitId})
+	GetDependencyWait(ctx context.Context, request GetDependencyWaitRequestObject) (GetDependencyWaitResponseObject, error)
 	// Get job lease
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/lease)
 	GetJobLease(ctx context.Context, request GetJobLeaseRequestObject) (GetJobLeaseResponseObject, error)
@@ -13373,6 +14265,95 @@ func (sh *strictHandler) SetTenantConfigurationValue(w http.ResponseWriter, r *h
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetTenantConfigurationValueResponseObject); ok {
 		if err := validResponse.VisitSetTenantConfigurationValueResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetGoal operation middleware
+func (sh *strictHandler) GetGoal(w http.ResponseWriter, r *http.Request, tenantId string, goalId string) {
+	var request GetGoalRequestObject
+
+	request.TenantId = tenantId
+	request.GoalId = goalId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetGoal(ctx, request.(GetGoalRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetGoal")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetGoalResponseObject); ok {
+		if err := validResponse.VisitGetGoalResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AddGoalCandidate operation middleware
+func (sh *strictHandler) AddGoalCandidate(w http.ResponseWriter, r *http.Request, tenantId string, goalId string, jobId string) {
+	var request AddGoalCandidateRequestObject
+
+	request.TenantId = tenantId
+	request.GoalId = goalId
+	request.JobId = jobId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AddGoalCandidate(ctx, request.(AddGoalCandidateRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AddGoalCandidate")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AddGoalCandidateResponseObject); ok {
+		if err := validResponse.VisitAddGoalCandidateResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// FailGoal operation middleware
+func (sh *strictHandler) FailGoal(w http.ResponseWriter, r *http.Request, tenantId string, goalId string) {
+	var request FailGoalRequestObject
+
+	request.TenantId = tenantId
+	request.GoalId = goalId
+
+	var body FailGoalJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.FailGoal(ctx, request.(FailGoalRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "FailGoal")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(FailGoalResponseObject); ok {
+		if err := validResponse.VisitFailGoalResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -13720,6 +14701,34 @@ func (sh *strictHandler) CommitChapterIfWaiting(w http.ResponseWriter, r *http.R
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CommitChapterIfWaitingResponseObject); ok {
 		if err := validResponse.VisitCommitChapterIfWaitingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetDependencyWait operation middleware
+func (sh *strictHandler) GetDependencyWait(w http.ResponseWriter, r *http.Request, tenantId string, jobId string, waitId string) {
+	var request GetDependencyWaitRequestObject
+
+	request.TenantId = tenantId
+	request.JobId = jobId
+	request.WaitId = waitId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetDependencyWait(ctx, request.(GetDependencyWaitRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetDependencyWait")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetDependencyWaitResponseObject); ok {
+		if err := validResponse.VisitGetDependencyWaitResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

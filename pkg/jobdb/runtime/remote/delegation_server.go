@@ -89,6 +89,7 @@ func (s *proxyServer) checkedDelegation(ctx context.Context, token string, key j
 	}
 	c.setExpiry(v.ExpiresAt)
 	c.Route = v.Route
+	c.GoalID = v.GoalID
 	return c, v, nil
 }
 
@@ -198,7 +199,7 @@ func (s *proxyServer) prepareDelegationRequest(w http.ResponseWriter, r *http.Re
 }
 
 func delegationSnapshot(c delegationClaims, token string) runtimeapi.ExecutionLease {
-	return runtimeapi.ExecutionLease{LeaseId: c.Parent.LeaseID, LeaseToken: token, Job: toAPIJobHandle(jobdb.JobHandle{JobKey: c.key()}),
+	return runtimeapi.ExecutionLease{LeaseId: c.Parent.LeaseID, LeaseToken: token, Job: toAPIJobHandle(jobdb.JobHandle{JobKey: c.key(), GoalID: c.GoalID}),
 		WorkerId: &c.Parent.WorkerID, ExpiresAt: &c.ExpiresAt, Route: runtimeapi.Route(c.Route),
 		ClientPayloadRevision: "0", ExecutionState: runtimeapi.ExecutionState{}, Delegation: &c.Grant}
 }
@@ -229,6 +230,7 @@ func (s *proxyServer) CreateLeaseDelegation(ctx context.Context, req runtimeapi.
 	}
 	c.setExpiry(v.ExpiresAt)
 	c.Route = v.Route
+	c.GoalID = v.GoalID
 	return runtimeapi.CreateLeaseDelegation200JSONResponse(delegationSnapshot(c, token)), nil
 }
 

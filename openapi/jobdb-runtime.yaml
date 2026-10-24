@@ -35,6 +35,100 @@ tags:
 security:
   - bearerAuth: []
 paths:
+  /v1/tenants/{tenantId}/goals/{goalId}:
+    get:
+      tags: [jobs]
+      operationId: getGoal
+      parameters:
+        - name: tenantId
+          in: path
+          required: true
+          schema: {type: string}
+        - name: goalId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoalInfo'
+  /v1/tenants/{tenantId}/goals/{goalId}/fail:
+    post:
+      tags: [jobs]
+      operationId: failGoal
+      parameters:
+        - name: tenantId
+          in: path
+          required: true
+          schema: {type: string}
+        - name: goalId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FailGoalRequest'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoalInfo'
+  /v1/tenants/{tenantId}/goals/{goalId}/candidates/{jobId}:
+    put:
+      tags: [jobs]
+      operationId: addGoalCandidate
+      parameters:
+        - name: tenantId
+          in: path
+          required: true
+          schema: {type: string}
+        - name: goalId
+          in: path
+          required: true
+          schema: {type: string}
+        - name: jobId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoalCandidateInfo'
+  /v1/tenants/{tenantId}/jobs/{jobId}/dependency-waits/{waitId}:
+    get:
+      tags: [jobs]
+      operationId: getDependencyWait
+      parameters:
+        - name: tenantId
+          in: path
+          required: true
+          schema: {type: string}
+        - name: jobId
+          in: path
+          required: true
+          schema: {type: string}
+        - name: waitId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DependencyWaitInfo'
   /v1/tenants/{tenantId}/configuration:
     get:
       tags: [configuration]
@@ -1439,6 +1533,154 @@ components:
       schema:
         type: string
   schemas:
+    GoalKey:
+      type: object
+      additionalProperties: false
+      required: [tenantId, goalId]
+      x-go-type: jobdb.GoalKey
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
+      properties:
+        tenantId: {type: string}
+        goalId: {type: string}
+    GoalFailure:
+      type: object
+      additionalProperties: false
+      required: [code, goalId, message, terminalJobIds, nonTerminalJobIds, failedAt]
+      x-go-type: jobdb.GoalFailure
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
+      properties:
+        code: {type: string}
+        goalId: {type: string}
+        jobId: {type: string}
+        message: {type: string}
+        terminalJobIds: {type: array, items: {type: string}}
+        nonTerminalJobIds: {type: array, items: {type: string}}
+        failedAt: {type: string, format: date-time}
+    GoalInfo:
+      type: object
+      additionalProperties: false
+      required: [goalKey, state, revision, createdAt, updatedAt]
+      x-go-type: jobdb.GoalInfo
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
+      properties:
+        goalKey: {$ref: '#/components/schemas/GoalKey'}
+        state: {type: string, enum: [OPEN, SUCCEEDED, FAILED]}
+        revision: {type: string, pattern: '^[0-9]+$'}
+        successfulJobId: {type: string}
+        failure: {$ref: '#/components/schemas/GoalFailure'}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+        closedAt: {type: string, format: date-time}
+    GoalCandidateInfo:
+      type: object
+      additionalProperties: false
+      required: [goalKey, jobId, addedAt, goalState]
+      x-go-type: jobdb.GoalCandidateInfo
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
+      properties:
+        goalKey: {$ref: '#/components/schemas/GoalKey'}
+        jobId: {type: string}
+        addedAt: {type: string, format: date-time}
+        goalState: {type: string, enum: [OPEN, SUCCEEDED, FAILED]}
+        successfulJobId: {type: string}
+    FailGoalRequest:
+      type: object
+      additionalProperties: false
+      required: [message]
+      x-go-type: jobdb.FailGoalRequest
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
+      properties:
+        message: {type: string, minLength: 1}
+    DependencyTarget:
+      type: object
+      additionalProperties: false
+      x-go-type: jobdb.DependencyTarget
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
+      properties:
+        jobId: {type: string}
+        goalId: {type: string}
+    Dependency:
+      type: object
+      additionalProperties: false
+      required: [target, condition]
+      x-go-type: jobdb.Dependency
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
+      properties:
+        target: {$ref: '#/components/schemas/DependencyTarget'}
+        condition: {type: string, enum: [complete, success]}
+    DependencyWait:
+      type: object
+      additionalProperties: false
+      required: [waitId, dependencies]
+      x-go-type: jobdb.DependencyWait
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
+      properties:
+        waitId: {type: string}
+        dependencies: {type: array, minItems: 1, items: {$ref: '#/components/schemas/Dependency'}}
+        deadline: {type: string, format: date-time}
+    JobDependencyFailure:
+      type: object
+      additionalProperties: false
+      required: [code, jobId, message]
+      properties:
+        code: {type: string, enum: [job_dependency_failed]}
+        jobId: {type: string}
+        message: {type: string}
+    DependencyFailure:
+      x-go-type: jobdb.GoalFailure
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
+      oneOf:
+        - $ref: '#/components/schemas/GoalFailure'
+        - $ref: '#/components/schemas/JobDependencyFailure'
+    DependencyResolution:
+      type: object
+      additionalProperties: false
+      required: [target, condition, state]
+      x-go-type: jobdb.DependencyResolution
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
+      properties:
+        target: {$ref: '#/components/schemas/DependencyTarget'}
+        condition: {type: string, enum: [complete, success]}
+        state: {type: string, enum: [PENDING, SATISFIED, FAILED, TIMED_OUT, CANCELLED]}
+        satisfiedByJobId: {type: string}
+        blockedReason: {type: string}
+        failure: {$ref: '#/components/schemas/DependencyFailure'}
+    DependencyWaitInfo:
+      type: object
+      additionalProperties: false
+      required: [jobKey, waitId, state, dependencies]
+      x-go-type: jobdb.DependencyWaitInfo
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
+      properties:
+        jobKey: {$ref: '#/components/schemas/JobKey'}
+        waitId: {type: string}
+        state: {type: string, enum: [PENDING, SATISFIED, FAILED, TIMED_OUT, CANCELLED]}
+        deadline: {type: string, format: date-time}
+        dependencies: {type: array, items: {$ref: '#/components/schemas/DependencyResolution'}}
+        failedDependencyIndex: {type: integer}
+        failure: {$ref: '#/components/schemas/DependencyFailure'}
     DelegationNames:
       type: object
       additionalProperties: false
@@ -1614,6 +1856,12 @@ components:
         - job_schema_archived
         - job_schema_validation_failed
         - workflow_not_deterministic
+        - goal_not_found
+        - goal_conflict
+        - invalid_dependency
+        - dependency_wait_not_found
+        - dependency_wait_conflict
+        - dependency_cycle
         - internal
     ErrorResponse:
       type: object
@@ -1873,9 +2121,11 @@ components:
           type: string
     JobHandle:
       type: object
-      required: [jobKey]
+      required: [goalId, jobKey]
       additionalProperties: false
       properties:
+        goalId:
+          type: string
         jobKey:
           $ref: '#/components/schemas/JobKey'
     ScheduleState:
@@ -2284,6 +2534,10 @@ components:
       required: [jobType, data]
       additionalProperties: false
       properties:
+        dependencies:
+          type: array
+          items:
+            $ref: '#/components/schemas/Dependency'
         clientPayloadUpdate:
           $ref: '#/components/schemas/ClientPayloadUpdate'
         jobType:
@@ -2320,6 +2574,12 @@ components:
       required: [priorJobKey, lastStepToKeep]
       additionalProperties: false
       properties:
+        shareGoal:
+          type: boolean
+        dependencies:
+          type: array
+          items:
+            $ref: '#/components/schemas/Dependency'
         clientPayloadUpdate:
           $ref: '#/components/schemas/ClientPayloadUpdate'
         priorJobKey:
@@ -2344,6 +2604,8 @@ components:
       required: [job]
       additionalProperties: false
       properties:
+        requestId:
+          type: string
         job:
           $ref: '#/components/schemas/SubmitRestartJob'
         workerId:
@@ -2536,6 +2798,8 @@ components:
       required: [nextRoute]
       additionalProperties: false
       properties:
+        dependencyWait:
+          $ref: '#/components/schemas/DependencyWait'
         taskWait:
           $ref: '#/components/schemas/TaskWait'
         clientPayloadUpdate:
@@ -2759,9 +3023,14 @@ components:
             $ref: '#/components/schemas/ArtifactWrite'
     JobInfo:
       type: object
-      required: [status, data, executionState, clientPayloadRevision]
+      required: [goalId, otherGoalIds, status, data, executionState, clientPayloadRevision]
       additionalProperties: false
       properties:
+        goalId:
+          type: string
+        otherGoalIds:
+          type: array
+          items: {type: string}
         clientPayload:
           x-go-type: json.RawMessage
           x-go-type-skip-optional-pointer: true
@@ -2835,6 +3104,9 @@ components:
       type: object
       additionalProperties: false
       properties:
+        goalIds:
+          type: array
+          items: {type: string}
         includeHidden:
           type: boolean
           default: false
@@ -2900,9 +3172,14 @@ components:
           type: string
     JobSummary:
       type: object
-      required: [jobKey, status, jobType, waitFor, availableAt, cancelRequested, createdAt, executionState, clientPayloadRevision]
+      required: [goalId, otherGoalIds, jobKey, status, jobType, waitFor, availableAt, cancelRequested, createdAt, executionState, clientPayloadRevision]
       additionalProperties: false
       properties:
+        goalId:
+          type: string
+        otherGoalIds:
+          type: array
+          items: {type: string}
         completionStatus:
           type: string
           description: Persisted terminal outcome, independent of scheduler status. Absent or empty means unavailable. Unfamiliar values are preserved.

@@ -404,3 +404,16 @@ func (*fakeWorkflowRuntime) ResolveSecrets(context.Context, jobdb.ResolveSecrets
 func (*fakeWorkflowRuntime) GetConfiguration(context.Context, jobdb.GetConfigurationRequest) (jobdb.ConfigurationSnapshot, error) {
 	return jobdb.ConfigurationSnapshot{}, jobdb.ErrExecutionLeaseLost
 }
+
+func (r *fakeWorkflowRuntime) GetGoal(context.Context, jobdb.GoalKey) (jobdb.GoalInfo, error) {
+	return jobdb.GoalInfo{}, jobdb.ErrGoalNotFound
+}
+func (r *fakeWorkflowRuntime) GetDependencyWait(context.Context, jobdb.DependencyWaitKey) (jobdb.DependencyWaitInfo, error) {
+	return jobdb.DependencyWaitInfo{}, jobdb.ErrDependencyWaitNotFound
+}
+func (r *fakeWorkflowRuntime) AddGoalCandidate(context.Context, jobdb.AddGoalCandidateRequest) (jobdb.GoalCandidateInfo, error) {
+	panic("unexpected goal mutation")
+}
+func (r *fakeWorkflowRuntime) FailGoal(context.Context, jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
+	panic("unexpected goal mutation")
+}

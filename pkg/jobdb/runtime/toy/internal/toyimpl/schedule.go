@@ -156,7 +156,8 @@ func (r *Runtime) TriggerSchedule(ctx context.Context, req jobdb.TriggerSchedule
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	return jobdb.JobHandle{JobKey: key}, nil
+	jobInfo, err := r.GetJob(ctx, key)
+	return jobdb.JobHandle{JobKey: key, GoalID: jobInfo.GoalID}, err
 }
 
 func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRunsRequest) (jobdb.ListScheduleRunsResponse, error) {
@@ -232,7 +233,7 @@ func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRu
 				continue
 			}
 		}
-		job := jobdb.JobSummary{
+		job := jobdb.JobSummary{GoalID: rec.goalID, OtherGoalIDs: r.engine.otherGoalsLocked(key),
 			JobKey:           key,
 			Status:           rec.currentStatus(time.Now()),
 			CompletionStatus: rec.completionStatus,
@@ -416,6 +417,11 @@ func (r *Runtime) submitScheduledOccurrenceWithJobID(ctx context.Context, info j
 		return jobKey, nil
 	}
 	r.engine.jobRecords[jobKey] = record
+	if err := r.engine.publishGoalLocked(jobKey, record); err != nil {
+		delete(r.engine.jobRecords, jobKey)
+		r.engine.mu.Unlock()
+		return jobdb.JobKey{}, err
+	}
 	if r.engine.runtimeChapters[jobKey] == nil {
 		r.engine.runtimeChapters[jobKey] = make(map[int64]jobdb.Chapter)
 	}

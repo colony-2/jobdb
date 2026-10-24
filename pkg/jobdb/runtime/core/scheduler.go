@@ -11,6 +11,7 @@ import (
 // Scheduler persists job and schedule state and performs atomic lease
 // mutations for runtime core.
 type Scheduler interface {
+	GoalScheduler
 	CreateJob(ctx context.Context, req CreateJobRequest) (StoredJob, error)
 	GetJob(ctx context.Context, key jobdb.JobKey) (StoredJob, error)
 	ListJobs(ctx context.Context, req ListJobsRequest) (ListJobsResponse, error)
@@ -36,6 +37,9 @@ type Scheduler interface {
 // CreateJobRequest contains the immutable job facts and initial route written
 // after runtime core has validated and encoded the first chapter.
 type CreateJobRequest struct {
+	GoalID                string
+	ShareGoal             bool
+	Dependencies          []jobdb.Dependency
 	ClientPayload         json.RawMessage
 	ClientPayloadRevision int64
 	InitialPayloadDigest  string
@@ -70,6 +74,8 @@ type AlternateRoute struct {
 
 // StoredJob joins immutable facts with current or archived scheduler state.
 type StoredJob struct {
+	GoalID                string
+	OtherGoalIDs          []string
 	JobKey                jobdb.JobKey
 	Store                 jobdb.JobStore
 	JobType               string
@@ -109,6 +115,7 @@ type CompletionSnapshot struct {
 
 // ListJobsRequest is the scheduler-side form of job listing.
 type ListJobsRequest struct {
+	GoalIDs []string
 	// IncludeHidden must be applied before pagination by deletion-capable stores.
 	IncludeHidden bool
 	TenantIds     []string
@@ -173,6 +180,7 @@ type LeaseIdentity struct {
 
 // LeaseSnapshot is the typed lease returned by the scheduler.
 type LeaseSnapshot struct {
+	GoalID                string
 	Identity              LeaseIdentity
 	JobType               string
 	RouteJobType          string
@@ -209,6 +217,7 @@ type CompletionMutation struct {
 // terminating OR reaching the deadline makes work eligible. Without dependencies,
 // WaitUntil is a not-before time.
 type RescheduleMutation struct {
+	DependencyWait      *jobdb.DependencyWait
 	Identity            LeaseIdentity
 	RouteJobType        string
 	WorkKind            WorkKind

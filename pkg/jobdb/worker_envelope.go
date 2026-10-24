@@ -203,6 +203,9 @@ func envelopeToTaskData(env chapterEnvelope, artifacts []Artifact) (TaskData, er
 		if err := json.Unmarshal(env.Payload, &p); err != nil {
 			return td, err
 		}
+		if goalErr, ok := GoalFailureFromAppError(p); ok {
+			return td, goalErr
+		}
 		if jobFailedErr, ok := decodeJobFailedAppError(p); ok {
 			return td, jobFailedErr
 		}

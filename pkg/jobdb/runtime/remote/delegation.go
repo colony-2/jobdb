@@ -41,6 +41,7 @@ func (r *Runtime) CreateDelegation(ctx context.Context, parent jobdb.ExecutionLe
 		return nil, jobdb.ErrExecutionLeaseLost
 	}
 	c.Route = parent.Route()
+	c.GoalID = parent.Job().GoalID
 	c.setExpiry(leaseExpiry(parent))
 	snapshot := delegationSnapshot(c, token)
 	if err := ctx.Err(); err != nil {

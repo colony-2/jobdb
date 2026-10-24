@@ -65,15 +65,18 @@ func (d *jobInfoTaskData) TaskDataResult() (jobdb.TaskData, error) {
 }
 
 func toAPIJobHandle(handle jobdb.JobHandle) runtimeapi.JobHandle {
-	return runtimeapi.JobHandle{
+	return runtimeapi.JobHandle{GoalId: handle.GoalID,
 		JobKey: toAPIJobKey(handle.JobKey),
 	}
 }
 
-func fromAPIJobHandle(handle runtimeapi.JobHandle) jobdb.JobHandle {
-	return jobdb.JobHandle{
-		JobKey: fromAPIJobKey(handle.JobKey),
+func fromAPIJobHandle(handle runtimeapi.JobHandle) (jobdb.JobHandle, error) {
+	if handle.GoalId == "" {
+		return jobdb.JobHandle{}, fmt.Errorf("server response missing required goalId")
 	}
+	return jobdb.JobHandle{GoalID: handle.GoalId,
+		JobKey: fromAPIJobKey(handle.JobKey),
+	}, nil
 }
 
 func toAPIJobKey(key jobdb.JobKey) runtimeapi.JobKey {
@@ -885,6 +888,9 @@ func taskDataFromOutcome(artifacts []jobdb.Artifact, outcome runtimeapi.TaskOutc
 			return nil, err
 		}
 		td := envelopedTaskData(artifacts, runtimecodec.PayloadKindAppError, raw)
+		if err, ok := jobdb.GoalFailureFromAppError(payload); ok {
+			return td, err
+		}
 		if err, ok := decodeJobFailedAppError(payload); ok {
 			return td, err
 		}
@@ -1401,7 +1407,7 @@ func jobInfoToAPI(ctx context.Context, info jobdb.JobInfo) (runtimeapi.JobInfo, 
 	if err != nil {
 		return runtimeapi.JobInfo{}, err
 	}
-	out := runtimeapi.JobInfo{
+	out := runtimeapi.JobInfo{GoalId: info.GoalID, OtherGoalIds: nonNilStrings(info.OtherGoalIDs),
 		ExecutionState: state, ClientPayload: cloneRawMessage(info.ClientPayload), ClientPayloadRevision: strconv.FormatInt(info.ClientPayloadRevision, 10),
 		SchemaHash: schemaHashPtr(info.SchemaHash),
 		Status:     runtimeapi.JobStatus(info.Status),
@@ -1419,6 +1425,9 @@ func jobInfoToAPI(ctx context.Context, info jobdb.JobInfo) (runtimeapi.JobInfo, 
 }
 
 func jobInfoFromAPI(runtime *Runtime, jobKey jobdb.JobKey, info runtimeapi.JobInfo) (jobdb.JobInfo, error) {
+	if info.GoalId == "" || info.OtherGoalIds == nil {
+		return jobdb.JobInfo{}, fmt.Errorf("server response missing required goal fields")
+	}
 	state, err := executionStateFromAPI(info.ExecutionState)
 	if err != nil {
 		return jobdb.JobInfo{}, err
@@ -1427,7 +1436,7 @@ func jobInfoFromAPI(runtime *Runtime, jobKey jobdb.JobKey, info runtimeapi.JobIn
 	if err != nil {
 		return jobdb.JobInfo{}, err
 	}
-	out := jobdb.JobInfo{
+	out := jobdb.JobInfo{GoalID: info.GoalId, OtherGoalIDs: info.OtherGoalIds,
 		ExecutionState: state, ClientPayload: cloneRawMessage(info.ClientPayload), ClientPayloadRevision: revision,
 		Status:     jobdb.JobStatus(info.Status),
 		Data:       &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
@@ -1453,7 +1462,7 @@ func jobSummaryToAPI(summary jobdb.JobSummary) (runtimeapi.JobSummary, error) {
 	if err != nil {
 		return runtimeapi.JobSummary{}, err
 	}
-	out := runtimeapi.JobSummary{
+	out := runtimeapi.JobSummary{GoalId: summary.GoalID, OtherGoalIds: nonNilStrings(summary.OtherGoalIDs),
 		CompletionStatus:      stringPtrOrNil(summary.CompletionStatus),
 		CompletionDetail:      stringPtrOrNil(summary.CompletionDetail),
 		ArchivedAt:            summary.ArchivedAt,
@@ -1478,19 +1487,22 @@ func jobSummaryToAPI(summary jobdb.JobSummary) (runtimeapi.JobSummary, error) {
 }
 
 func jobSummaryFromAPI(summary runtimeapi.JobSummary) (jobdb.JobSummary, error) {
+	if summary.GoalId == "" || summary.OtherGoalIds == nil {
+		return jobdb.JobSummary{}, fmt.Errorf("server response missing required goal fields")
+	}
 	revision, err := payloadRevision(summary.ClientPayloadRevision)
 	if err != nil {
-		return jobdb.JobSummary{}, err
+		return jobdb.JobSummary{GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds}, err
 	}
 	state, err := executionStateFromAPI(summary.ExecutionState)
 	if err != nil {
-		return jobdb.JobSummary{}, err
+		return jobdb.JobSummary{GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds}, err
 	}
 	metadata, err := metadataAPIToJSON(summary.Metadata)
 	if err != nil {
-		return jobdb.JobSummary{}, err
+		return jobdb.JobSummary{GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds}, err
 	}
-	return jobdb.JobSummary{
+	return jobdb.JobSummary{GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds,
 		CompletionStatus:      stringValue(summary.CompletionStatus),
 		CompletionDetail:      stringValue(summary.CompletionDetail),
 		JobKey:                fromAPIJobKey(summary.JobKey),

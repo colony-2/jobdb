@@ -120,6 +120,9 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 				})
 				return
 			}
+			if writeGoalError(w, err) {
+				return
+			}
 			status := http.StatusInternalServerError
 			var statusErr *httpStatusError
 			if errors.As(err, &statusErr) {
@@ -301,7 +304,7 @@ func submitJobRequestFromAPI(body runtimeapi.SubmitJobRequest, tenantID string, 
 		return jobdb.SubmitJobRequest{}, err
 	}
 	return jobdb.SubmitJobRequest{
-		Job: jobdb.SubmitJob{
+		Job: jobdb.SubmitJob{Dependencies: dependenciesFromAPI(body.Job.Dependencies),
 			ClientPayloadUpdate: body.Job.ClientPayloadUpdate,
 			AvailableAt:         cloneTime(body.Job.AvailableAt),
 			TenantId:            tenantID,
@@ -326,7 +329,7 @@ func (s *proxyServer) ListJobs(ctx context.Context, request runtimeapi.ListJobsR
 	if err != nil {
 		return nil, badRequest(err.Error())
 	}
-	req := jobdb.ListJobsRequest{
+	req := jobdb.ListJobsRequest{GoalIDs: cloneStringSlice(request.Body.GoalIds),
 		IncludeHidden:  boolValue(request.Body.IncludeHidden),
 		TenantIds:      []string{request.TenantId},
 		MetadataFilter: metadataFilter,
@@ -670,7 +673,7 @@ func (s *proxyServer) PutRestartJob(ctx context.Context, request runtimeapi.PutR
 }
 
 func submitRestartJobRequestFromAPI(body runtimeapi.SubmitRestartJobRequest, tenantID string, jobID string) (jobdb.SubmitRestartJobRequest, error) {
-	job := jobdb.SubmitRestartJob{
+	job := jobdb.SubmitRestartJob{ShareGoal: boolValue(body.Job.ShareGoal), Dependencies: dependenciesFromAPI(body.Job.Dependencies),
 		ClientPayloadUpdate: body.Job.ClientPayloadUpdate,
 		PriorJobKey:         fromAPIJobKey(body.Job.PriorJobKey),
 		LastStepToKeep:      body.Job.LastStepToKeep,
@@ -706,7 +709,7 @@ func submitRestartJobRequestFromAPI(body runtimeapi.SubmitRestartJobRequest, ten
 		}
 		job.ExtraTaskOutput = data
 	}
-	return jobdb.SubmitRestartJobRequest{
+	return jobdb.SubmitRestartJobRequest{RequestID: stringValue(body.RequestId),
 		Job:         job,
 		RequestTime: derefTime(body.RequestTime),
 		WorkerID:    stringValue(body.WorkerId),
@@ -1011,7 +1014,7 @@ func (s *proxyServer) RescheduleJobWithLease(ctx context.Context, request runtim
 	if err != nil {
 		return nil, err
 	}
-	err = ops.RescheduleJobWithLeaseByID(ctx, jobKey, request.LeaseId, claims.WorkerID, jobdb.RescheduleExecutionRequest{
+	err = ops.RescheduleJobWithLeaseByID(ctx, jobKey, request.LeaseId, claims.WorkerID, jobdb.RescheduleExecutionRequest{DependencyWait: request.Body.DependencyWait,
 		AlternateAfter:      alternateAfter,
 		AlternateRoute:      routePtrFromAPI(request.Body.AlternateRoute),
 		NextRoute:           jobdb.Route(request.Body.NextRoute),

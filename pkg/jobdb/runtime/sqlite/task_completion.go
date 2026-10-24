@@ -22,7 +22,7 @@ func (r *Runtime) claimWaitingTask(ctx context.Context, expected jobRow, resumeJ
 	if err != nil {
 		return nil, err
 	}
-	lease := &executionLease{runtime: r, jobKey: key, leaseID: ksuid.New().String(),
+	lease := &executionLease{runtime: r, jobKey: key, goalID: expected.goalID, leaseID: ksuid.New().String(),
 		workerID: r.workerID, route: jobdb.Route{JobType: resumeJobType}, payload: payload,
 		duration: defaultRemoteLeaseDuration}
 	err = r.withTx(ctx, func(tx *sql.Tx) error {

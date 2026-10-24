@@ -1185,3 +1185,16 @@ func (*runnerTestRuntime) GetConfiguration(context.Context, jobdb.GetConfigurati
 func (*fakeExecutionLease) GetConfiguration(context.Context) (jobdb.ConfigurationSnapshot, error) {
 	return jobdb.ConfigurationSnapshot{}, jobdb.ErrExecutionLeaseLost
 }
+
+func (r *runnerTestRuntime) GetGoal(context.Context, jobdb.GoalKey) (jobdb.GoalInfo, error) {
+	return jobdb.GoalInfo{}, jobdb.ErrGoalNotFound
+}
+func (r *runnerTestRuntime) GetDependencyWait(context.Context, jobdb.DependencyWaitKey) (jobdb.DependencyWaitInfo, error) {
+	return jobdb.DependencyWaitInfo{}, jobdb.ErrDependencyWaitNotFound
+}
+func (r *runnerTestRuntime) AddGoalCandidate(context.Context, jobdb.AddGoalCandidateRequest) (jobdb.GoalCandidateInfo, error) {
+	panic("unexpected goal mutation")
+}
+func (r *runnerTestRuntime) FailGoal(context.Context, jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
+	panic("unexpected goal mutation")
+}

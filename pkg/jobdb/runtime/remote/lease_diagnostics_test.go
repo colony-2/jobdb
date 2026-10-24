@@ -145,7 +145,7 @@ func TestLeaseDiagnosticsTransportFailures(t *testing.T) {
 
 func validDiagnosticSnapshot() runtimeapi.ExecutionLease {
 	expiry, worker := time.Now().Add(time.Hour), "worker"
-	return runtimeapi.ExecutionLease{Job: runtimeapi.JobHandle{JobKey: runtimeapi.JobKey{TenantId: "tenant", JobId: "job"}}, LeaseId: "lease", LeaseToken: "replacement", WorkerId: &worker, ExpiresAt: &expiry, ClientPayloadRevision: "0"}
+	return runtimeapi.ExecutionLease{Job: runtimeapi.JobHandle{GoalId: "goal", JobKey: runtimeapi.JobKey{TenantId: "tenant", JobId: "job"}}, LeaseId: "lease", LeaseToken: "replacement", WorkerId: &worker, ExpiresAt: &expiry, ClientPayloadRevision: "0"}
 }
 
 func TestLeaseDiagnosticsResponses(t *testing.T) {

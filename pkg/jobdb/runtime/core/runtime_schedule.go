@@ -213,7 +213,8 @@ func (r *Runtime) TriggerSchedule(ctx context.Context, req jobdb.TriggerSchedule
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	return jobdb.JobHandle{JobKey: key}, nil
+	jobInfo, err := r.GetJob(ctx, key)
+	return jobdb.JobHandle{JobKey: key, GoalID: jobInfo.GoalID}, err
 }
 
 func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRunsRequest) (jobdb.ListScheduleRunsResponse, error) {

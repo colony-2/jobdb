@@ -23,7 +23,7 @@ func (r *Runtime) GetJob(ctx context.Context, key jobdb.JobKey) (jobdb.JobInfo, 
 	if err != nil {
 		return jobdb.JobInfo{}, err
 	}
-	info := jobdb.JobInfo{
+	info := jobdb.JobInfo{GoalID: stored.GoalID, OtherGoalIDs: stored.OtherGoalIDs,
 		Status: stored.Status, SchemaHash: stored.SchemaHash,
 		ClientPayload: append([]byte(nil), stored.ClientPayload...), ClientPayloadRevision: stored.ClientPayloadRevision, ExecutionState: executionState(stored.RunPolicy, stored.TaskWork),
 		Data: &runtimeJobData{err: jobdb.ErrJobNotComplete},
@@ -81,7 +81,12 @@ func (r *Runtime) GetJob(ctx context.Context, key jobdb.JobKey) (jobdb.JobInfo, 
 		dataErr = decodeOutcomeError(payload, &value, func() error { return &jobdb.TimeoutError{Payload: value} })
 	case runtimecodec.PayloadKindAppError:
 		var value jobdb.AppErrorPayload
-		dataErr = decodeOutcomeError(payload, &value, func() error { return &jobdb.AppError{Payload: value} })
+		dataErr = decodeOutcomeError(payload, &value, func() error {
+			if err, ok := jobdb.GoalFailureFromAppError(value); ok {
+				return err
+			}
+			return &jobdb.AppError{Payload: value}
+		})
 	case runtimecodec.PayloadKindSystemError:
 		var value jobdb.SystemErrorPayload
 		dataErr = decodeOutcomeError(payload, &value, func() error { return &jobdb.SystemError{Payload: value} })

@@ -14,6 +14,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/crashconcern"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
 	"github.com/segmentio/ksuid"
 )
@@ -44,6 +45,9 @@ func WithJobIDGenerator(gen JobIDGenerator) Option {
 
 // ToyEngine holds the in-memory state backing the toy WorkflowRuntime.
 type ToyEngine struct {
+	goals               *goalstate.Memory
+	preparedGoals       map[jobdb.JobKey]preparedGoalJob
+	goalRequests        map[jobdb.GoalKey]jobdb.JobKey
 	configurationLimits jobdb.ConfigurationLimits
 	secretProvider      jobdb.SecretProvider
 	secretLimits        jobdb.SecretLimits
@@ -64,6 +68,9 @@ type runtimeArtifactKey struct {
 }
 
 type jobRecord struct {
+	key                   jobdb.JobKey
+	goalID                string
+	dependencyWaitID      string
 	hidden                bool
 	clientPayload         json.RawMessage
 	clientPayloadRevision int64
@@ -875,7 +882,21 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 		}
 
 		metadataCopy := jobdb.StripRuntimeMetadata(rec.metadata)
-		summary := jobdb.JobSummary{
+		otherGoals := e.otherGoalsLocked(key)
+		if len(req.GoalIDs) > 0 && !slices.Contains(req.GoalIDs, rec.goalID) {
+			matched := false
+			for _, id := range otherGoals {
+				if slices.Contains(req.GoalIDs, id) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				rec.mu.Unlock()
+				continue
+			}
+		}
+		summary := jobdb.JobSummary{GoalID: rec.goalID, OtherGoalIDs: otherGoals,
 			JobKey:           key,
 			Status:           status,
 			CompletionStatus: rec.completionStatus,

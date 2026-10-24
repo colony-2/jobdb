@@ -144,7 +144,7 @@ func (r *Runtime) wrapLease(snapshot LeaseSnapshot) (*executionLease, error) {
 func (l *executionLease) LeaseID() string { return l.snapshot.Identity.LeaseID }
 
 func (l *executionLease) Job() jobdb.JobHandle {
-	return jobdb.JobHandle{JobKey: l.snapshot.Identity.JobKey}
+	return jobdb.JobHandle{JobKey: l.snapshot.Identity.JobKey, GoalID: l.snapshot.GoalID}
 }
 
 func (l *executionLease) Route() jobdb.Route {
@@ -277,7 +277,10 @@ func (l *executionLease) Reschedule(ctx context.Context, req jobdb.RescheduleExe
 	if err := clientpayload.ValidateUpdate(req.ClientPayloadUpdate, false); err != nil {
 		return err
 	}
-	mutation := RescheduleMutation{
+	if err := jobdb.ValidateDependencyReschedule(req); err != nil {
+		return err
+	}
+	mutation := RescheduleMutation{DependencyWait: req.DependencyWait,
 		Identity: l.snapshot.Identity, RouteJobType: req.NextRoute.JobType, ClientPayloadUpdate: req.ClientPayloadUpdate,
 		WorkKind: WorkKindJob, WaitUntil: req.WaitUntil,
 		WaitForJobIDs: append([]string(nil), req.WaitForJobIDs...),

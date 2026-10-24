@@ -87,7 +87,7 @@ func ResolveExecutionRestart(ctx context.Context, r executionHistoryReader, job 
 	if !header || !found {
 		return job, nil, fmt.Errorf("execution restart boundary not found")
 	}
-	return job, &jobdb.ExecutionRecord{Version: version, Kind: "restart", ID: target.ScopeID, Descriptor: retained, Source: &job.PriorJobKey, Payload: append(json.RawMessage(nil), target.Payload...), Prerequisites: append([]jobdb.JobPrerequisite(nil), job.Prerequisites...)}, nil
+	return job, &jobdb.ExecutionRecord{Version: version, Kind: "restart", ID: target.ScopeID, Descriptor: retained, Source: &job.PriorJobKey, Payload: append(json.RawMessage(nil), target.Payload...), Dependencies: append([]jobdb.Dependency(nil), job.Dependencies...), Prerequisites: append([]jobdb.JobPrerequisite(nil), job.Prerequisites...)}, nil
 }
 
 // ExecutionCompletion preserves a wait's explicit invocation/input association.

@@ -21,6 +21,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/core"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/pagination"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/leaseauth"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
@@ -41,6 +42,18 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	}
 	if err := r.validate(); err != nil {
 		return jobdb.JobHandle{}, err
+	}
+	prep, err := goalstate.SubmitPreparation(ctx, req, parentJobID)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	reserved, err := r.PrepareJob(ctx, prep)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	req.Job.JobID = reserved.Key.JobId
+	if reserved.Published {
+		return jobdb.JobHandle{JobKey: reserved.Key, GoalID: reserved.GoalID}, nil
 	}
 	jobID := req.Job.JobID
 	if jobID == "" {
@@ -112,7 +125,7 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	if err := r.ensureSubmittedJobRecord(ctx, jobKey, req.Job.JobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, req.Job.AvailableAt, req.Job.ClientPayloadUpdate); err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	return jobdb.JobHandle{JobKey: jobKey}, nil
+	return r.goalHandle(ctx, jobKey)
 }
 
 func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
@@ -128,6 +141,18 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	}
 	if err := clientpayload.ValidateUpdate(req.Job.ClientPayloadUpdate, true); err != nil {
 		return jobdb.JobHandle{}, err
+	}
+	prep, err := goalstate.RestartPreparation(ctx, req, parentJobID)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	reserved, err := r.PrepareJob(ctx, prep)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	req.Job.JobID = reserved.Key.JobId
+	if reserved.Published {
+		return jobdb.JobHandle{JobKey: reserved.Key, GoalID: reserved.GoalID}, nil
 	}
 	job, executionRestart, err := runtimecore.ResolveExecutionRestart(ctx, r, req.Job)
 	if err != nil {
@@ -273,7 +298,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, nil, req.Job.ClientPayloadUpdate); err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	return jobdb.JobHandle{JobKey: jobKey}, nil
+	return r.goalHandle(ctx, jobKey)
 }
 
 func (r *Runtime) CancelJob(ctx context.Context, req jobdb.CancelJobRequest) error {
@@ -284,7 +309,8 @@ func (r *Runtime) CancelJob(ctx context.Context, req jobdb.CancelJobRequest) err
 		return err
 	}
 	now := time.Now().UTC()
-	result, err := r.db.ExecContext(ctx, `
+	return r.withTx(ctx, func(tx *sql.Tx) error {
+		result, err := tx.ExecContext(ctx, `
 UPDATE jobdb_jobs
 SET cancel_requested = 1,
 	archived_at_ns = COALESCE(archived_at_ns, ?),
@@ -295,17 +321,18 @@ SET cancel_requested = 1,
 	lease_expires_at_ns = NULL,
 	updated_at_ns = ?
 WHERE tenant_id = ? AND job_id = ? AND archived_at_ns IS NULL`,
-		timeToNS(now), req.Reason, timeToNS(now), req.JobKey.TenantId, req.JobKey.JobId)
-	if err != nil {
-		return err
-	}
-	n, _ := result.RowsAffected()
-	if n == 0 {
-		// Cancellation is a no-op after finalization; preserve its outcome.
-		_, err := r.loadJobRow(ctx, req.JobKey)
-		return err
-	}
-	return nil
+			timeToNS(now), req.Reason, timeToNS(now), req.JobKey.TenantId, req.JobKey.JobId)
+		if err != nil {
+			return err
+		}
+		n, _ := result.RowsAffected()
+		if n == 0 {
+			// Cancellation is a no-op after finalization; preserve its outcome.
+			_, err := r.loadJobRowTx(ctx, tx, req.JobKey)
+			return err
+		}
+		return goalEngine(ctx, tx).Complete(req.JobKey)
+	})
 }
 
 func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jobdb.ExecutionLease, error) {
@@ -470,6 +497,7 @@ WHERE tenant_id = ? AND job_id = ?`,
 				continue
 			}
 			lease = &executionLease{
+				goalID:   row.goalID,
 				runtime:  r,
 				jobKey:   jobdb.JobKey{TenantId: row.tenantID, JobId: row.jobID},
 				leaseID:  leaseID,
@@ -561,6 +589,7 @@ WHERE tenant_id = ? AND job_id = ?`,
 			return err
 		}
 		lease = &executionLease{
+			goalID:   row.goalID,
 			runtime:  r,
 			jobKey:   req.JobKey,
 			leaseID:  leaseID,
@@ -637,7 +666,12 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 	if err != nil {
 		return jobdb.JobInfo{}, err
 	}
+	otherGoals, err := (goalStore{ctx, r.db}).otherGoals(jobKey)
+	if err != nil {
+		return jobdb.JobInfo{}, err
+	}
 	job := jobdb.JobInfo{
+		GoalID: row.goalID, OtherGoalIDs: otherGoals,
 		ClientPayload: cloneJSON(row.clientPayload), ClientPayloadRevision: row.clientPayloadRevision, ExecutionState: jobExecutionState(row.payload),
 		Status:     status,
 		Data:       &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
@@ -700,11 +734,8 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 		cursorJob = jobKey.String()
 		hasCursor = true
 	}
-	visibility := " WHERE hidden_at_ns IS NULL"
-	if req.IncludeHidden {
-		visibility = ""
-	}
-	rows, err := r.db.QueryContext(ctx, `SELECT `+jobColumns+` FROM jobdb_jobs`+visibility+` ORDER BY created_at_ns DESC, job_id DESC`)
+	where, args := goalListPredicate(req)
+	rows, err := r.db.QueryContext(ctx, "SELECT "+jobColumns+" FROM jobdb_jobs WHERE "+where+" ORDER BY created_at_ns DESC, job_id DESC", args...)
 	if err != nil {
 		return jobdb.ListJobsResponse{}, err
 	}
@@ -814,6 +845,7 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 		}
 		nextRoute := row.nextRoute
 		summary := jobdb.JobSummary{
+			GoalID:           row.goalID,
 			JobKey:           key,
 			Status:           status,
 			CompletionStatus: row.completionStatus.String,
@@ -846,6 +878,16 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 			nextToken = tok
 		}
 		out = out[:pageSize]
+	}
+	extraGoals, err := r.batchOtherGoals(ctx, out)
+	if err != nil {
+		return jobdb.ListJobsResponse{}, err
+	}
+	for i := range out {
+		out[i].OtherGoalIDs = extraGoals[out[i].JobKey]
+		if out[i].OtherGoalIDs == nil {
+			out[i].OtherGoalIDs = []string{}
+		}
 	}
 	return jobdb.ListJobsResponse{Jobs: out, NextPageToken: nextToken}, nil
 }

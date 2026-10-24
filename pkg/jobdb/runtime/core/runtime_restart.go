@@ -12,6 +12,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate"
 	"github.com/segmentio/ksuid"
 )
 
@@ -29,6 +30,18 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	preparation, err := goalstate.RestartPreparation(ctx, req, parentJobID)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	reserved, err := r.scheduler.PrepareJob(ctx, preparation)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	req.Job.JobID = reserved.Key.JobId
+	if reserved.Published {
+		return jobdb.JobHandle{JobKey: reserved.Key, GoalID: reserved.GoalID}, nil
 	}
 	job, executionRestart, err := ResolveExecutionRestart(ctx, r, req.Job)
 	if err != nil {
@@ -222,13 +235,13 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 			if err := validateStoredJobFacts(stored, key, jobType, schemaHash, parentJobID, metadata, policy, nil); err != nil {
 				return jobdb.JobHandle{}, err
 			}
-			return jobdb.JobHandle{JobKey: key}, nil
+			return jobdb.JobHandle{JobKey: key, GoalID: reserved.GoalID}, nil
 		}
 		if !errors.Is(err, jobdb.ErrJobNotFound) {
 			return jobdb.JobHandle{}, err
 		}
 	}
-	stored, err := r.scheduler.CreateJob(ctx, CreateJobRequest{
+	stored, err := r.scheduler.CreateJob(ctx, CreateJobRequest{GoalID: reserved.GoalID, ShareGoal: preparation.ShareGoal, Dependencies: preparation.Dependencies,
 		ClientPayload: initial, ClientPayloadRevision: revision, InitialPayloadDigest: digest,
 		JobKey: key, JobType: jobType, ParentJobID: parentJobID, RunPolicy: policy,
 		AppMetadata: metadata, SchemaHash: schemaHash,
@@ -243,7 +256,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if err := validateStoredJobFacts(stored, key, jobType, schemaHash, parentJobID, metadata, policy, nil); err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	return jobdb.JobHandle{JobKey: key}, nil
+	return jobdb.JobHandle{JobKey: key, GoalID: reserved.GoalID}, nil
 }
 
 func (r *Runtime) validateExistingRestart(ctx context.Context, source, target ChapterLogKey,

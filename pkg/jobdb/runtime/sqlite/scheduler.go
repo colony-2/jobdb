@@ -14,13 +14,15 @@ import (
 )
 
 const jobColumns = `
-tenant_id, job_id, job_type, route_job_type, route_task_type, payload, client_payload, client_payload_revision, initial_payload_digest, metadata, parent_job_id, wait_for,
+tenant_id, job_id, goal_id, dependency_wait_id, job_type, route_job_type, route_task_type, payload, client_payload, client_payload_revision, initial_payload_digest, metadata, parent_job_id, wait_for,
 available_at_ns, wait_deadline_ns, created_at_ns, updated_at_ns, archived_at_ns,
 cancel_requested, completion_status, completion_detail,
 consecutive_expirations, lease_id, lease_worker_id, lease_expires_at_ns, alternate_job_type, alternate_task_type, alternate_at_ns
 `
 
 type jobRow struct {
+	goalID                string
+	dependencyWaitID      string
 	clientPayload         json.RawMessage
 	clientPayloadRevision int64
 	initialPayloadDigest  string
@@ -59,6 +61,7 @@ func scanJobRow(scanner interface{ Scan(dest ...any) error }) (jobRow, error) {
 	if err := scanner.Scan(
 		&row.tenantID,
 		&row.jobID,
+		&row.goalID, &row.dependencyWaitID,
 		&row.jobType,
 		&row.nextRoute.JobType, &row.nextRoute.TaskType,
 		&payload, &client, &row.clientPayloadRevision, &row.initialPayloadDigest,
@@ -131,27 +134,50 @@ func (r *Runtime) insertJobRecord(ctx context.Context, jobKey jobdb.JobKey, jobT
 	if availableAt != nil {
 		leaseableAt = availableAt.UTC()
 	}
-	_, err = r.db.ExecContext(ctx, `
+	return r.withTx(ctx, func(tx *sql.Tx) error {
+		// Never overwrite a published goal during equivalent submission recovery.
+		var count int
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM jobdb_jobs WHERE tenant_id=? AND job_id=?", jobKey.TenantId, jobKey.JobId).Scan(&count); err != nil {
+			return err
+		}
+		if count > 0 {
+			return jobdb.ErrConflict
+		}
+		goalID, deps, err := publishGoal(ctx, tx, jobKey, now)
+		if err != nil {
+			return err
+		}
+		waitID := ""
+		if len(deps) > 0 {
+			waitID = "submission"
+		}
+		_, err = tx.ExecContext(ctx, `
 INSERT INTO jobdb_jobs (
-	tenant_id, job_id, job_type, route_job_type, route_task_type, payload, client_payload, client_payload_revision, initial_payload_digest, metadata, parent_job_id, wait_for,
+	tenant_id, job_id, goal_id, dependency_wait_id, job_type, route_job_type, route_task_type, payload, client_payload, client_payload_revision, initial_payload_digest, metadata, parent_job_id, wait_for,
 	available_at_ns, created_at_ns, updated_at_ns
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		jobKey.TenantId,
-		jobKey.JobId,
-		jobType,
-		jobType, "",
-		payloadBytes, nullableJSON(initial), revision, digest,
-		cloneJSON(metadata),
-		parentJobIDFromMetadata(metadata),
-		waitBytes,
-		timeToNS(leaseableAt),
-		timeToNS(now),
-		timeToNS(now),
-	)
-	if err != nil {
-		return fmt.Errorf("sqlite runtime: insert job: %w", err)
-	}
-	return nil
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			jobKey.TenantId,
+			jobKey.JobId, goalID, waitID,
+			jobType,
+			jobType, "",
+			payloadBytes, nullableJSON(initial), revision, digest,
+			cloneJSON(metadata),
+			parentJobIDFromMetadata(metadata),
+			waitBytes,
+			timeToNS(leaseableAt),
+			timeToNS(now),
+			timeToNS(now),
+		)
+		if err != nil {
+			return fmt.Errorf("sqlite runtime: insert job: %w", err)
+		}
+		if len(deps) > 0 {
+			if _, err = goalEngine(ctx, tx).Register(jobKey, jobdb.DependencyWait{WaitID: "submission", Dependencies: deps}, true); err != nil {
+				return err
+			}
+		}
+		return goalEngine(ctx, tx).CheckCycle(jobKey.TenantId, jobdb.DependencyTarget{GoalID: goalID})
+	})
 }
 
 func parentJobIDFromMetadata(metadata json.RawMessage) any {
@@ -197,6 +223,11 @@ func (r *Runtime) withTx(ctx context.Context, fn func(*sql.Tx) error) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	// Acquire the SQLite writer reservation before reading scheduler facts. This
+	// prevents deferred read transactions racing into SQLITE_BUSY_SNAPSHOT.
+	if _, err := tx.ExecContext(ctx, "UPDATE jobdb_goals SET payload=payload WHERE 0"); err != nil {
+		return err
+	}
 	if err := fn(tx); err != nil {
 		return err
 	}
@@ -266,6 +297,13 @@ func statusFromRow(ctx context.Context, tx queryer, row jobRow, now time.Time) (
 		if row.leaseExpiresAtNS.Valid && timeFromNS(row.leaseExpiresAtNS.Int64).After(now) {
 			return jobdb.JobStatusActive, nil
 		}
+	}
+	readyStructured, err := structuredWaitReady(ctx, tx, row, now)
+	if err != nil {
+		return "", err
+	}
+	if !readyStructured {
+		return jobdb.JobStatusPendingJobs, nil
 	}
 	waitFor, err := decodeWaitFor(row.waitForRaw)
 	if err != nil {

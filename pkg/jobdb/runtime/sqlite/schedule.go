@@ -283,7 +283,7 @@ func (r *Runtime) TriggerSchedule(ctx context.Context, req jobdb.TriggerSchedule
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	return jobdb.JobHandle{JobKey: key}, nil
+	return r.goalHandle(ctx, key)
 }
 
 func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRunsRequest) (jobdb.ListScheduleRunsResponse, error) {
@@ -367,7 +367,7 @@ func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRu
 			return jobdb.ListScheduleRunsResponse{}, err
 		}
 		nextRoute := row.nextRoute
-		job := jobdb.JobSummary{
+		job := jobdb.JobSummary{GoalID: row.goalID,
 			JobKey:           key,
 			Status:           status,
 			CompletionStatus: row.completionStatus.String,
@@ -400,6 +400,21 @@ func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRu
 		if tok, err := jobdb.EncodeListJobsPageToken(last.CreatedAt, last.JobKey); err == nil {
 			resp.NextPageToken = tok
 		}
+	}
+	jobs := make([]jobdb.JobSummary, len(resp.Runs))
+	for i := range resp.Runs {
+		jobs[i] = resp.Runs[i].JobSummary
+	}
+	extras, err := r.batchOtherGoals(ctx, jobs)
+	if err != nil {
+		return jobdb.ListScheduleRunsResponse{}, err
+	}
+	for i := range resp.Runs {
+		ids := extras[resp.Runs[i].JobKey]
+		if ids == nil {
+			ids = []string{}
+		}
+		resp.Runs[i].OtherGoalIDs = ids
 	}
 	return resp, nil
 }

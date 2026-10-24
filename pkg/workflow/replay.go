@@ -194,3 +194,16 @@ func (r replayReadOnlyRuntime) ResolveSecrets(context.Context, jobdb.ResolveSecr
 func (r replayReadOnlyRuntime) GetConfiguration(context.Context, jobdb.GetConfigurationRequest) (jobdb.ConfigurationSnapshot, error) {
 	return jobdb.ConfigurationSnapshot{}, replayMutationError("get configuration")
 }
+
+func (r replayReadOnlyRuntime) GetGoal(ctx context.Context, k jobdb.GoalKey) (jobdb.GoalInfo, error) {
+	return r.runtime.GetGoal(ctx, k)
+}
+func (r replayReadOnlyRuntime) GetDependencyWait(ctx context.Context, k jobdb.DependencyWaitKey) (jobdb.DependencyWaitInfo, error) {
+	return r.runtime.GetDependencyWait(ctx, k)
+}
+func (r replayReadOnlyRuntime) AddGoalCandidate(context.Context, jobdb.AddGoalCandidateRequest) (jobdb.GoalCandidateInfo, error) {
+	return jobdb.GoalCandidateInfo{}, replayMutationError("add goal candidate")
+}
+func (r replayReadOnlyRuntime) FailGoal(context.Context, jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
+	return jobdb.GoalInfo{}, replayMutationError("fail goal")
+}

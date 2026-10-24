@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -66,7 +67,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 		if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 			return jobdb.JobHandle{}, explicitJobCreateError("put job", resp.StatusCode(), resp.Body, resp.JSON409)
 		}
-		return fromAPIJobHandle(*resp.JSON200), nil
+		return fromAPIJobHandle(*resp.JSON200)
 	}
 	resp, err := r.client.SubmitJobWithResponse(ctx, req.Job.TenantId, body)
 	if err != nil {
@@ -75,7 +76,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 		return jobdb.JobHandle{}, responseError("submit job", resp.StatusCode(), resp.Body, nil)
 	}
-	return fromAPIJobHandle(*resp.JSON200), nil
+	return fromAPIJobHandle(*resp.JSON200)
 }
 
 func submitJobRequestToAPI(ctx context.Context, req jobdb.SubmitJobRequest) (runtimeapi.SubmitJobRequest, error) {
@@ -95,7 +96,7 @@ func submitJobRequestToAPI(ctx context.Context, req jobdb.SubmitJobRequest) (run
 		return runtimeapi.SubmitJobRequest{}, err
 	}
 	return runtimeapi.SubmitJobRequest{
-		Job: runtimeapi.SubmitJob{
+		Job: runtimeapi.SubmitJob{Dependencies: dependenciesToAPI(req.Job.Dependencies),
 			ClientPayloadUpdate: req.Job.ClientPayloadUpdate,
 			AvailableAt:         cloneTime(req.Job.AvailableAt),
 			Data:                data,
@@ -126,7 +127,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 		if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 			return jobdb.JobHandle{}, explicitJobCreateError("put restart job", resp.StatusCode(), resp.Body, resp.JSON409)
 		}
-		return fromAPIJobHandle(*resp.JSON200), nil
+		return fromAPIJobHandle(*resp.JSON200)
 	}
 	resp, err := r.client.SubmitRestartJobWithResponse(ctx, req.Job.PriorJobKey.TenantId, body)
 	if err != nil {
@@ -135,12 +136,13 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 		return jobdb.JobHandle{}, responseError("submit restart job", resp.StatusCode(), resp.Body, nil)
 	}
-	return fromAPIJobHandle(*resp.JSON200), nil
+	return fromAPIJobHandle(*resp.JSON200)
 }
 
 func submitRestartJobRequestToAPI(ctx context.Context, req jobdb.SubmitRestartJobRequest) (runtimeapi.SubmitRestartJobRequest, error) {
 	body := runtimeapi.SubmitRestartJobRequest{
-		Job: runtimeapi.SubmitRestartJob{
+		RequestId: stringPtrOrNil(req.RequestID),
+		Job: runtimeapi.SubmitRestartJob{ShareGoal: &req.Job.ShareGoal, Dependencies: dependenciesToAPI(req.Job.Dependencies),
 			ClientPayloadUpdate: req.Job.ClientPayloadUpdate,
 			LastStepToKeep:      req.Job.LastStepToKeep,
 			PriorJobKey:         toAPIJobKey(req.Job.PriorJobKey),
@@ -309,7 +311,7 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 	if err != nil {
 		return jobdb.ListJobsResponse{}, err
 	}
-	body := runtimeapi.ListJobsRequest{
+	body := runtimeapi.ListJobsRequest{GoalIds: &req.GoalIDs,
 		IncludeHidden:      &req.IncludeHidden,
 		CreatedAfter:       req.CreatedAfter,
 		CreatedBefore:      req.CreatedBefore,
@@ -600,7 +602,7 @@ func (r *Runtime) TriggerSchedule(ctx context.Context, req jobdb.TriggerSchedule
 	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 		return jobdb.JobHandle{}, responseErrorWithConflict("trigger schedule", resp.StatusCode(), resp.Body, jobdb.ErrJobNotFound, jobdb.ErrConflict)
 	}
-	return fromAPIJobHandle(*resp.JSON200), nil
+	return fromAPIJobHandle(*resp.JSON200)
 }
 
 func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRunsRequest) (jobdb.ListScheduleRunsResponse, error) {
@@ -736,6 +738,7 @@ type remoteExecutionLease struct {
 	runtime        *Runtime
 	leaseID        string
 	jobKey         jobdb.JobKey
+	goalID         string
 	route          jobdb.Route
 	schemaHash     string
 	clientPayload  json.RawMessage
@@ -745,9 +748,11 @@ type remoteExecutionLease struct {
 	leaseToken     string
 }
 
-func (l *remoteExecutionLease) LeaseID() string      { return l.leaseID }
-func (l *remoteExecutionLease) Job() jobdb.JobHandle { return jobdb.JobHandle{JobKey: l.jobKey} }
-func (l *remoteExecutionLease) Route() jobdb.Route   { return l.route }
+func (l *remoteExecutionLease) LeaseID() string { return l.leaseID }
+func (l *remoteExecutionLease) Job() jobdb.JobHandle {
+	return jobdb.JobHandle{JobKey: l.jobKey, GoalID: l.goalID}
+}
+func (l *remoteExecutionLease) Route() jobdb.Route { return l.route }
 func (l *remoteExecutionLease) LeaseSchemaHash() string {
 	return l.schemaHash
 }
@@ -836,6 +841,18 @@ func optionalArtifactWrites(items []runtimeapi.ArtifactWrite) *[]runtimeapi.Arti
 }
 
 func (l *remoteExecutionLease) Reschedule(ctx context.Context, req jobdb.RescheduleExecutionRequest) error {
+	if err := jobdb.ValidateDependencyReschedule(req); err != nil {
+		return err
+	}
+	if req.DependencyWait != nil {
+		// Verify the read contract before an older server could silently discard a
+		// structured wait and release this lease as ordinary ready work.
+		_, err := l.runtime.GetDependencyWait(ctx, jobdb.DependencyWaitKey{JobKey: l.jobKey, WaitID: req.DependencyWait.WaitID})
+		if err != nil && !errors.Is(err, jobdb.ErrDependencyWaitNotFound) {
+			return err
+		}
+	}
+
 	if l.delegation != nil {
 		return jobdb.ErrLeasePermissionDenied
 	}
@@ -846,7 +863,7 @@ func (l *remoteExecutionLease) Reschedule(ctx context.Context, req jobdb.Resched
 	if err := jobdb.ValidateAlternateRoute(req.AlternateRoute, req.AlternateAfter, task); err != nil {
 		return err
 	}
-	body := runtimeapi.RescheduleExecutionRequest{
+	body := runtimeapi.RescheduleExecutionRequest{DependencyWait: req.DependencyWait,
 		AlternateAfter:      toAPIStdDurationValue(req.AlternateAfter),
 		AlternateRoute:      routePtrToAPI(req.AlternateRoute),
 		NextRoute:           runtimeapi.Route(req.NextRoute),
@@ -896,7 +913,7 @@ func (l *remoteExecutionLease) SubmitJob(ctx context.Context, req jobdb.SubmitJo
 		if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 			return jobdb.JobHandle{}, explicitLeaseJobCreateError("put child job", resp.StatusCode(), resp.Body, resp.JSON409)
 		}
-		return fromAPIJobHandle(*resp.JSON200), nil
+		return fromAPIJobHandle(*resp.JSON200)
 	}
 	resp, err := l.runtime.client.SubmitJobWithLeaseWithResponse(
 		ctx,
@@ -912,7 +929,7 @@ func (l *remoteExecutionLease) SubmitJob(ctx context.Context, req jobdb.SubmitJo
 	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 		return jobdb.JobHandle{}, responseError("submit child job", resp.StatusCode(), resp.Body, jobdb.ErrExecutionLeaseLost)
 	}
-	return fromAPIJobHandle(*resp.JSON200), nil
+	return fromAPIJobHandle(*resp.JSON200)
 }
 
 func (l *remoteExecutionLease) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
@@ -939,7 +956,7 @@ func (l *remoteExecutionLease) SubmitRestartJob(ctx context.Context, req jobdb.S
 		if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 			return jobdb.JobHandle{}, explicitLeaseJobCreateError("put child restart job", resp.StatusCode(), resp.Body, resp.JSON409)
 		}
-		return fromAPIJobHandle(*resp.JSON200), nil
+		return fromAPIJobHandle(*resp.JSON200)
 	}
 	resp, err := l.runtime.client.SubmitRestartJobWithLeaseWithResponse(
 		ctx,
@@ -955,10 +972,13 @@ func (l *remoteExecutionLease) SubmitRestartJob(ctx context.Context, req jobdb.S
 	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 		return jobdb.JobHandle{}, responseError("submit child restart job", resp.StatusCode(), resp.Body, jobdb.ErrExecutionLeaseLost)
 	}
-	return fromAPIJobHandle(*resp.JSON200), nil
+	return fromAPIJobHandle(*resp.JSON200)
 }
 
 func (r *Runtime) executionLeaseFromAPI(lease runtimeapi.ExecutionLease) (jobdb.ExecutionLease, error) {
+	if _, err := fromAPIJobHandle(lease.Job); err != nil {
+		return nil, err
+	}
 	state, err := executionStateFromAPI(lease.ExecutionState)
 	if err != nil {
 		return nil, err
@@ -968,10 +988,10 @@ func (r *Runtime) executionLeaseFromAPI(lease runtimeapi.ExecutionLease) (jobdb.
 		return nil, err
 	}
 	return &remoteExecutionLease{
-		delegation:    lease.Delegation,
-		runtime:       r,
-		leaseID:       lease.LeaseId,
-		jobKey:        fromAPIJobKey(lease.Job.JobKey),
+		delegation: lease.Delegation,
+		runtime:    r,
+		leaseID:    lease.LeaseId,
+		jobKey:     fromAPIJobKey(lease.Job.JobKey), goalID: lease.Job.GoalId,
 		route:         jobdb.Route(lease.Route),
 		schemaHash:    stringValue(lease.SchemaHash),
 		clientPayload: cloneRawMessage(lease.ClientPayload), clientRevision: revision, state: state,
@@ -1009,6 +1029,9 @@ func toAPIPrerequisites(prereqs []jobdb.JobPrerequisite) *[]runtimeapi.JobPrereq
 }
 
 func responseError(operation string, status int, body []byte, sentinel error) error {
+	if err := goalResponseError(body); err != nil {
+		return err
+	}
 	if err := delegationResponseError(status, body); err != nil {
 		return err
 	}
@@ -1095,6 +1118,9 @@ func responseErrorWithConflict(operation string, status int, body []byte, notFou
 }
 
 func explicitJobCreateError(operation string, status int, body []byte, conflict *runtimeapi.ErrorResponse) error {
+	if err := goalResponseError(body); err != nil {
+		return err
+	}
 	message := strings.TrimSpace(string(body))
 	if conflict != nil && conflict.Message != "" {
 		message = conflict.Message

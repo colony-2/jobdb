@@ -14,6 +14,7 @@ import (
 )
 
 type executionLease struct {
+	goalID                string
 	mu                    sync.Mutex // protects this handle's expiry during KeepAlive
 	clientPayload         json.RawMessage
 	clientPayloadRevision int64
@@ -48,7 +49,7 @@ func (l *executionLease) checkExpiry() error {
 func (l *executionLease) LeaseSchemaHash() string { return l.schemaHash }
 
 func (l *executionLease) Job() jobdb.JobHandle {
-	return jobdb.JobHandle{JobKey: l.jobKey}
+	return jobdb.JobHandle{JobKey: l.jobKey, GoalID: l.goalID}
 }
 
 func (l *executionLease) Route() jobdb.Route { return l.route }
@@ -188,7 +189,10 @@ SET archived_at_ns = ?, completion_status = ?, completion_detail = ?,
 	alternate_job_type = NULL, alternate_task_type = NULL, alternate_at_ns = NULL, updated_at_ns = ?
 WHERE tenant_id = ? AND job_id = ?`,
 			timeToNS(now), status, nullableString(req.Detail), cancelRequested, timeToNS(now), jobKey.TenantId, jobKey.JobId)
-		return err
+		if err != nil {
+			return err
+		}
+		return goalEngine(ctx, tx).Complete(jobKey)
 	})
 }
 
@@ -201,6 +205,9 @@ func (r *Runtime) RescheduleJobWithLeaseByID(ctx context.Context, jobKey jobdb.J
 	}
 	if leaseID == "" || workerID == "" {
 		return jobdb.ErrExecutionLeaseLost
+	}
+	if err := jobdb.ValidateDependencyReschedule(req); err != nil {
+		return err
 	}
 	task, err := jobdb.RescheduleTaskWait(req.NextRoute, req.TaskWait)
 	if err != nil {
@@ -243,6 +250,21 @@ func (r *Runtime) RescheduleJobWithLeaseByID(ctx context.Context, jobKey jobdb.J
 			return err
 		}
 		if err := validateLeaseRow(row, leaseID, workerID, time.Now().UTC()); err != nil {
+			return err
+		}
+		waitID := ""
+		if row.dependencyWaitID != "" && (req.DependencyWait == nil || req.DependencyWait.WaitID != row.dependencyWaitID) {
+			if err := goalEngine(ctx, tx).CloseConsumer(jobKey); err != nil {
+				return err
+			}
+		}
+		if req.DependencyWait != nil {
+			if _, err := goalEngine(ctx, tx).Register(jobKey, *req.DependencyWait, false); err != nil {
+				return err
+			}
+			waitID = req.DependencyWait.WaitID
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE jobdb_jobs SET dependency_wait_id=? WHERE tenant_id=? AND job_id=?", waitID, jobKey.TenantId, jobKey.JobId); err != nil {
 			return err
 		}
 		storedPayload, err := decodeJobPayload(row.payload)
@@ -317,7 +339,7 @@ func (r *Runtime) ValidateExecutionLeaseByID(ctx context.Context, key jobdb.JobK
 	if err != nil {
 		return jobdb.LeaseValidity{}, err
 	}
-	return jobdb.LeaseValidity{ExpiresAt: timeFromNS(row.leaseExpiresAtNS.Int64), Route: row.nextRoute}, nil
+	return jobdb.LeaseValidity{GoalID: row.goalID, ExpiresAt: timeFromNS(row.leaseExpiresAtNS.Int64), Route: row.nextRoute}, nil
 }
 
 func (r *Runtime) validateLease(ctx context.Context, jobKey jobdb.JobKey, leaseID string, workerID string) (jobRow, error) {

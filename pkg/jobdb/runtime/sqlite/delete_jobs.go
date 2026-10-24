@@ -83,6 +83,11 @@ WHERE tenant_id=? AND job_id=? AND hidden_at_ns IS NULL`, now, now, now, req.Ten
 				return err
 			}
 		}
+		for _, id := range matches {
+			if err := goalEngine(ctx, tx).Complete(jobdb.JobKey{TenantId: req.TenantID, JobId: id}); err != nil {
+				return err
+			}
+		}
 		out.DeletedCount = out.MatchedCount
 		return nil
 	})

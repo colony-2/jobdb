@@ -54,6 +54,7 @@ type ExecutionRecord struct {
 	WakeAt            time.Time          `json:"wake_at,omitempty"`
 	Source            *JobKey            `json:"source,omitempty"`
 	Payload           json.RawMessage    `json:"payload,omitempty"`
+	Dependencies      []Dependency       `json:"dependencies,omitempty"`
 	Prerequisites     []JobPrerequisite  `json:"prerequisites,omitempty"`
 	AlternateAt       *time.Time         `json:"alternate_at,omitempty"`
 	ExecutionTaskType string             `json:"execution_task_type,omitempty"`
@@ -80,7 +81,7 @@ func DecodeExecutionRecord(raw []byte) (ExecutionRecord, error) {
 		if r.Versions == nil || r.Versions.ExecutionPatternVersion != r.Version || r.Versions.JobDBVersion == "" {
 			return r, fmt.Errorf("invalid execution versions")
 		}
-	case "checkpoint", "dispatch", "join_result", "admission", "scope", "task", "attempt", "result", "catch", "handled", "decision", "end", "wait", "restart", "continuation", "sleep", "join":
+	case "dependency_binding", "checkpoint", "dispatch", "join_result", "admission", "scope", "task", "attempt", "result", "catch", "handled", "decision", "end", "wait", "restart", "continuation", "sleep", "join":
 		if r.ID == "" {
 			return r, fmt.Errorf("execution %s requires identity", r.Kind)
 		}
@@ -95,6 +96,11 @@ func DecodeExecutionRecord(raw []byte) (ExecutionRecord, error) {
 		}
 	}
 	switch r.Kind {
+	case "dependency_binding":
+		var wait DependencyWaitInfo
+		if json.Unmarshal(r.Payload, &wait) != nil || wait.WaitID == "" || wait.State == DependencyPending || wait.State == "" {
+			return r, fmt.Errorf("invalid dependency binding")
+		}
 	case "dispatch":
 		if r.ExecutionTaskType == "" {
 			return r, fmt.Errorf("execution dispatch requires task type")

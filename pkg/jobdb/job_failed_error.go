@@ -60,6 +60,9 @@ func taskErrorToError(taskErr *TaskError, payloadKind string) error {
 	if taskErr == nil {
 		return nil
 	}
+	if err, ok := GoalFailureFromAppError(AppErrorPayload{Attrs: taskErr.Attrs}); ok {
+		return err
+	}
 	switch taskErr.Kind {
 	case TaskErrorKindTimeout:
 		after := Duration(0)

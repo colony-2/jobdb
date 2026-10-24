@@ -12,7 +12,7 @@ import (
 func TestCompletionSummaryWireCompatibility(t *testing.T) {
 	for _, status := range []string{"", "success", "failed_app", "failed_system", "failed_timeout", "cancelled", "future_category"} {
 		t.Run(status, func(t *testing.T) {
-			want := jobdb.JobSummary{JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}, JobType: "job", Status: jobdb.JobStatusCompleted, CompletionStatus: status}
+			want := jobdb.JobSummary{GoalID: "goal", OtherGoalIDs: []string{}, JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}, JobType: "job", Status: jobdb.JobStatusCompleted, CompletionStatus: status}
 			if status != "" && status != "success" {
 				want.CompletionDetail = "exact detail\nwith unicode: \u2603"
 			}

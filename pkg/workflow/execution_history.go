@@ -31,29 +31,30 @@ type executionEvent struct {
 	ordinal int64
 }
 type executionRun struct {
-	jobInput        *jobdb.ExecutionSnapshot
-	observerMu      sync.Mutex
-	suspended       bool
-	restarts        map[string]*jobdb.ExecutionRecord
-	restartApplied  bool
-	initialVersions jobdb.ExecutionVersions
-	budgets         map[string]continuationBudget
-	r               *workerRunner
-	mu              sync.Mutex
-	events          []executionEvent
-	pending         []jobdb.ExecutionRecord
-	anchor          time.Time
-	timeoutError    json.RawMessage
-	cursor          int
-	ordinal         int64
-	activation      string
-	activated       bool
-	versions        jobdb.ExecutionVersions
-	fatal           error
-	live            bool
-	active          map[*executionContext]bool
-	final           *Chapter
-	restart         *jobdb.ExecutionRecord
+	dependencyBindings map[string]jobdb.DependencyWaitInfo
+	jobInput           *jobdb.ExecutionSnapshot
+	observerMu         sync.Mutex
+	suspended          bool
+	restarts           map[string]*jobdb.ExecutionRecord
+	restartApplied     bool
+	initialVersions    jobdb.ExecutionVersions
+	budgets            map[string]continuationBudget
+	r                  *workerRunner
+	mu                 sync.Mutex
+	events             []executionEvent
+	pending            []jobdb.ExecutionRecord
+	anchor             time.Time
+	timeoutError       json.RawMessage
+	cursor             int
+	ordinal            int64
+	activation         string
+	activated          bool
+	versions           jobdb.ExecutionVersions
+	fatal              error
+	live               bool
+	active             map[*executionContext]bool
+	final              *Chapter
+	restart            *jobdb.ExecutionRecord
 }
 type executionContext struct {
 	policy        executionPolicy
@@ -97,7 +98,7 @@ func isExecutionControl(err error) bool {
 	return errors.As(err, &c) || errors.Is(err, errExecutionSuspended) || errors.Is(err, errRecordedBoundary) || errors.Is(err, context.Canceled) || IsExecutionLeaseLost(err) || isReplayCacheMiss(err)
 }
 func (e *executionRun) peekLocked() *executionEvent {
-	for e.cursor < len(e.events) && (e.events[e.cursor].record.Kind == "activation" || e.events[e.cursor].record.Kind == "restart" || e.events[e.cursor].record.Kind == "checkpoint") {
+	for e.cursor < len(e.events) && (e.events[e.cursor].record.Kind == "activation" || e.events[e.cursor].record.Kind == "restart" || e.events[e.cursor].record.Kind == "checkpoint" || e.events[e.cursor].record.Kind == "dependency_binding") {
 		e.cursor++
 	}
 	if e.cursor < len(e.events) {
@@ -489,7 +490,7 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 	if err != nil {
 		return nil, err
 	}
-	e := &executionRun{restarts: map[string]*jobdb.ExecutionRecord{}, r: r, ordinal: int64(len(chapters)), activation: ksuid.New().String(), active: map[*executionContext]bool{}, versions: jobdb.ExecutionVersions{ExecutionPatternVersion: jobdb.ExecutionPatternVersion, JobDBVersion: jobdbBuildVersion(), ConsumerVersions: maps.Clone(r.worker.Options.ConsumerVersions)}}
+	e := &executionRun{dependencyBindings: map[string]jobdb.DependencyWaitInfo{}, restarts: map[string]*jobdb.ExecutionRecord{}, r: r, ordinal: int64(len(chapters)), activation: ksuid.New().String(), active: map[*executionContext]bool{}, versions: jobdb.ExecutionVersions{ExecutionPatternVersion: jobdb.ExecutionPatternVersion, JobDBVersion: jobdbBuildVersion(), ConsumerVersions: maps.Clone(r.worker.Options.ConsumerVersions)}}
 	for i, ch := range chapters {
 		if i == 0 {
 			continue
@@ -522,6 +523,13 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 				e.events = append(e.events, executionEvent{item, ch.Ordinal})
 			}
 			e.events = append(e.events, executionEvent{rec, ch.Ordinal})
+			if rec.Kind == "dependency_binding" {
+				var wait jobdb.DependencyWaitInfo
+				if err := json.Unmarshal(rec.Payload, &wait); err != nil {
+					return nil, err
+				}
+				e.dependencyBindings[rec.ID] = wait
+			}
 			if rec.Kind == "restart" {
 				copy := rec
 				e.restart = &copy
@@ -581,6 +589,23 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 				return nil, fmt.Errorf("%w: execution record version differs from pinned header", ErrWorkflowNotDeterministic)
 			}
 		}
+	}
+	if failure, admissionErr := root.goalAdmission(); admissionErr != nil {
+		return nil, admissionErr
+	} else if failure != nil {
+		if e.final != nil {
+			recorded, recordErr := chapterToTaskData(r.runtime, r.jobKey, *e.final)
+			if !r.replay {
+				if err := r.completeLeaseWithChapter(ctx, *e.final, recordErr); err != nil {
+					return nil, err
+				}
+			}
+			return recorded, recordErr
+		}
+		if r.replay {
+			return nil, ReplayCacheMissError{JobKey: r.jobKey, Ordinal: e.ordinal, Reason: ReplayCacheMissJobResultMissing}
+		}
+		return r.completeExecutionFailure(ctx, e.ordinal, w.Name(), failure)
 	}
 	if len(meta.Prerequisites) > 0 {
 		admission, err := root.event("admission", "$job", func() *jobdb.ExecutionRecord {

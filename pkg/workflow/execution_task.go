@@ -145,6 +145,7 @@ func (c *executionContext) taskContext() TaskContext {
 	// c.id ends with the engine-owned task attempt suffix. Consumer call sites
 	// are JSON-quoted earlier in the identity and cannot replace this suffix.
 	if pos := strings.LastIndex(c.id, "/attempt:"); pos >= 0 {
+		tc.awaitDependencies = c.awaitTaskDependencies
 		tc.InvocationID = c.id[:pos]
 		tc.AttemptNumber, _ = strconv.Atoi(c.id[pos+len("/attempt:"):])
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/leaseauth"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
@@ -70,6 +71,18 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	}
 	if err := ctx.Err(); err != nil {
 		return jobdb.JobHandle{}, err
+	}
+	prep, err := goalstate.SubmitPreparation(ctx, req, parentJobID)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	reserved, err := r.PrepareJob(ctx, prep)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	req.Job.JobID = reserved.Key.JobId
+	if reserved.Published {
+		return jobdb.JobHandle{JobKey: reserved.Key, GoalID: reserved.GoalID}, nil
 	}
 	var jobKey jobdb.JobKey
 	if req.Job.JobID != "" {
@@ -180,14 +193,23 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	}
 
 	r.engine.mu.Lock()
+	if existing := r.engine.jobRecords[jobKey]; existing != nil {
+		r.engine.mu.Unlock()
+		return jobdb.JobHandle{JobKey: jobKey, GoalID: existing.goalID}, nil
+	}
 	r.engine.jobRecords[jobKey] = record
+	if err := r.engine.publishGoalLocked(jobKey, record); err != nil {
+		delete(r.engine.jobRecords, jobKey)
+		r.engine.mu.Unlock()
+		return jobdb.JobHandle{}, err
+	}
 	if r.engine.runtimeChapters[jobKey] == nil {
 		r.engine.runtimeChapters[jobKey] = make(map[int64]jobdb.Chapter)
 	}
 	r.engine.runtimeChapters[jobKey][0] = stored
 	r.engine.mu.Unlock()
 
-	return jobdb.JobHandle{JobKey: jobKey}, nil
+	return jobdb.JobHandle{JobKey: jobKey, GoalID: record.goalID}, nil
 }
 
 func (r *Runtime) existingEquivalentJob(jobKey jobdb.JobKey, job jobdb.SubmitJob, inputHash string, schemaHash string, parentJobID string) (jobdb.JobHandle, bool, error) {
@@ -240,7 +262,7 @@ func (r *Runtime) existingEquivalentJob(jobKey jobdb.JobKey, job jobdb.SubmitJob
 	if !reflect.DeepEqual(prereqs, job.Prerequisites) {
 		return jobdb.JobHandle{}, false, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different prerequisites", jobKey))
 	}
-	return jobdb.JobHandle{JobKey: jobKey}, true, nil
+	return jobdb.JobHandle{JobKey: jobKey, GoalID: record.goalID}, true, nil
 }
 
 func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
@@ -248,6 +270,19 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 }
 
 func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.SubmitRestartJobRequest, parentJobID string) (jobdb.JobHandle, error) {
+	preparation, err := goalstate.RestartPreparation(ctx, req, parentJobID)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	reserved, err := r.PrepareJob(ctx, preparation)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	req.Job.JobID = reserved.Key.JobId
+	if reserved.Published {
+		return jobdb.JobHandle{JobKey: reserved.Key, GoalID: reserved.GoalID}, nil
+	}
+
 	job, executionRestart, resolveErr := runtimecore.ResolveExecutionRestart(ctx, r, req.Job)
 	if resolveErr != nil {
 		return jobdb.JobHandle{}, resolveErr
@@ -388,8 +423,12 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		}
 	}
 	r.engine.jobRecords[jobKey] = record
+	if err := r.engine.publishGoalLocked(jobKey, record); err != nil {
+		delete(r.engine.jobRecords, jobKey)
+		return jobdb.JobHandle{}, err
+	}
 	r.engine.runtimeChapters[jobKey] = targetChapters
-	return jobdb.JobHandle{JobKey: jobKey}, nil
+	return jobdb.JobHandle{JobKey: jobKey, GoalID: record.goalID}, nil
 }
 
 func (r *Runtime) existingEquivalentRestartJob(jobKey jobdb.JobKey, job jobdb.SubmitRestartJob, expected map[int64]jobdb.Chapter, expectedMetadata json.RawMessage) (jobdb.JobHandle, bool, error) {
@@ -442,7 +481,7 @@ func (r *Runtime) existingEquivalentRestartJob(jobKey jobdb.JobKey, job jobdb.Su
 	if next, ok := existing[job.LastStepToKeep+1]; ok && runtimecodec.ChapterIs(next, runtimecodec.ChapterTypeRestartExtra) && job.ExtraTaskOutput == nil {
 		return jobdb.JobHandle{}, false, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with restart extra output that was not requested", jobKey))
 	}
-	return jobdb.JobHandle{JobKey: jobKey}, true, nil
+	return jobdb.JobHandle{JobKey: jobKey, GoalID: record.goalID}, true, nil
 }
 
 func (r *Runtime) CancelJob(ctx context.Context, req jobdb.CancelJobRequest) error {
@@ -450,6 +489,8 @@ func (r *Runtime) CancelJob(ctx context.Context, req jobdb.CancelJobRequest) err
 	if record == nil {
 		return jobdb.ErrJobNotFound
 	}
+	r.engine.mu.Lock()
+	defer r.engine.mu.Unlock()
 	record.mu.Lock()
 	defer record.mu.Unlock()
 	if record.archived != nil {
@@ -464,7 +505,8 @@ func (r *Runtime) CancelJob(ctx context.Context, req jobdb.CancelJobRequest) err
 	record.archived = &now
 	record.leased = false
 	record.leaseID = ""
-	return nil
+	r.engine.initGoalsLocked()
+	return (goalstate.Engine{Store: r.engine.goals, Now: now}).Complete(req.JobKey)
 }
 
 func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jobdb.ExecutionLease, error) {
@@ -691,11 +733,13 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 	if record == nil {
 		return jobdb.JobInfo{}, jobdb.ErrJobNotFound
 	}
+	r.engine.mu.Lock()
+	defer r.engine.mu.Unlock()
 	record.mu.Lock()
 	defer record.mu.Unlock()
-	job := jobdb.JobInfo{
+	job := jobdb.JobInfo{GoalID: record.goalID, OtherGoalIDs: r.engine.otherGoalsLocked(jobKey),
 		ClientPayload: cloneJSON(record.clientPayload), ClientPayloadRevision: record.clientPayloadRevision, ExecutionState: toyExecutionState(record.payload),
-		Status:     record.currentStatus(time.Now()),
+		Status:     r.engine.availableStatusLocked(jobKey.TenantId, time.Now(), record),
 		Data:       &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
 		SchemaHash: jobmetadata.SchemaHashFromStoredMetadata(record.metadata),
 	}
@@ -1076,6 +1120,15 @@ func (r *Runtime) advanceRecordStateLocked(tenantId string, now time.Time, recor
 // The caller holds the engine and record locks, as in lease acquisition.
 func (e *ToyEngine) availableStatusLocked(tenantId string, now time.Time, record *jobRecord) jobdb.JobStatus {
 	status := record.currentStatus(now)
+	if record.archived == nil && !record.cancelled && !(record.leased && record.leaseExpiresAt.After(now)) {
+		ready, err := e.dependencyReadyLocked(record, now)
+		if err != nil || !ready {
+			return jobdb.JobStatusPendingJobs
+		}
+		if record.dependencyWaitID != "" && status == jobdb.JobStatusPendingJobs {
+			status = jobdb.JobStatusReady
+		}
+	}
 	if status == jobdb.JobStatusAwaitingFuture && !record.availableAt.IsZero() && !record.availableAt.After(now) {
 		status = jobdb.JobStatusReady
 	}
@@ -1132,6 +1185,8 @@ func (r *Runtime) completeLease(ctx context.Context, jobKey jobdb.JobKey, leaseI
 		return err
 	}
 
+	r.engine.mu.Lock()
+	defer r.engine.mu.Unlock()
 	record.mu.Lock()
 	defer record.mu.Unlock()
 	if leaseID == "" || record.leaseID != leaseID || record.leaseWorkerID != workerID || !record.leased || !record.leaseExpiresAt.After(time.Now().UTC()) || record.cancelled || record.archived != nil {
@@ -1159,7 +1214,8 @@ func (r *Runtime) completeLease(ctx context.Context, jobKey jobdb.JobKey, leaseI
 	default:
 		record.status = jobdb.JobStatusCompleted
 	}
-	return nil
+	r.engine.initGoalsLocked()
+	return (goalstate.Engine{Store: r.engine.goals, Now: now}).Complete(jobKey)
 }
 
 func (r *Runtime) ensureCompletionChapter(ctx context.Context, jobKey jobdb.JobKey, leaseID string, schemaHash string, req jobdb.CompleteExecutionRequest) (jobdb.Chapter, error) {
@@ -1224,10 +1280,15 @@ func (r *Runtime) rescheduleLease(jobKey jobdb.JobKey, leaseID string, workerID 
 	if record == nil {
 		return jobdb.ErrJobNotFound
 	}
+	r.engine.mu.Lock()
+	defer r.engine.mu.Unlock()
 	record.mu.Lock()
 	defer record.mu.Unlock()
 	if leaseID == "" || record.leaseID != leaseID || record.leaseWorkerID != workerID || !record.leased || !record.leaseExpiresAt.After(time.Now().UTC()) || record.cancelled || record.archived != nil {
 		return jobdb.ErrExecutionLeaseLost
+	}
+	if err := jobdb.ValidateDependencyReschedule(req); err != nil {
+		return err
 	}
 	task, err := jobdb.RescheduleTaskWait(req.NextRoute, req.TaskWait)
 	if err != nil {
@@ -1248,6 +1309,22 @@ func (r *Runtime) rescheduleLease(jobKey jobdb.JobKey, leaseID string, workerID 
 	if task != nil {
 		state.TaskWait = &workerTaskWait{InputStep: task.InputOrdinal, OutputStep: task.OutputOrdinal, InputHash: task.InputHash, Next: task.ResumeJobType}
 	}
+	r.engine.initGoalsLocked()
+	nextGoals := r.engine.goals.Clone()
+	waitID := ""
+	if record.dependencyWaitID != "" && (req.DependencyWait == nil || req.DependencyWait.WaitID != record.dependencyWaitID) {
+		if err := (goalstate.Engine{Store: nextGoals, Now: time.Now().UTC()}).CloseConsumer(jobKey); err != nil {
+			return err
+		}
+	}
+	if req.DependencyWait != nil {
+		if _, err := (goalstate.Engine{Store: nextGoals, Now: time.Now().UTC()}).Register(jobKey, *req.DependencyWait, false); err != nil {
+			return err
+		}
+		waitID = req.DependencyWait.WaitID
+	}
+	r.engine.goals = nextGoals
+	record.dependencyWaitID = waitID
 	record.clientPayload, record.clientPayloadRevision = value, revision
 	record.leased = false
 	record.leaseID = ""
@@ -1311,8 +1388,16 @@ type runtimeLease struct {
 	schemaHash            string
 }
 
-func (l *runtimeLease) LeaseID() string                      { return l.leaseID }
-func (l *runtimeLease) Job() jobdb.JobHandle                 { return jobdb.JobHandle{JobKey: l.jobKey} }
+func (l *runtimeLease) LeaseID() string { return l.leaseID }
+func (l *runtimeLease) Job() jobdb.JobHandle {
+	l.runtime.engine.mu.Lock()
+	defer l.runtime.engine.mu.Unlock()
+	record := l.runtime.engine.jobRecords[l.jobKey]
+	if record == nil {
+		return jobdb.JobHandle{JobKey: l.jobKey}
+	}
+	return jobdb.JobHandle{JobKey: l.jobKey, GoalID: record.goalID}
+}
 func (l *runtimeLease) Route() jobdb.Route                   { return l.route }
 func (l *runtimeLease) ClientPayload() json.RawMessage       { return cloneJSON(l.clientPayload) }
 func (l *runtimeLease) ClientPayloadRevision() int64         { return l.clientPayloadRevision }
@@ -1677,6 +1762,9 @@ func cloneJSON(raw json.RawMessage) json.RawMessage {
 }
 
 func decodeToyJobFailedAppError(payload jobdb.AppErrorPayload) (error, bool) {
+	if err, ok := jobdb.GoalFailureFromAppError(payload); ok {
+		return err, true
+	}
 	attrs := payload.Attrs
 	if len(attrs) == 0 {
 		return nil, false

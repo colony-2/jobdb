@@ -62,6 +62,7 @@ type grantStep struct {
 
 // Expiry and route are backend/local snapshots, never authenticated grant bounds.
 type delegationClaims struct {
+	GoalID    string
 	Parent    leaseTokenClaims
 	Grant     jobdb.DelegationInfo
 	Route     jobdb.Route

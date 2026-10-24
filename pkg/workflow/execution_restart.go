@@ -80,5 +80,16 @@ func (c *executionContext) applyRestart(id string, opts ScopeOptions) error {
 			_, err = resultData(admission)
 		}
 	}
+	if err == nil && len(restart.Dependencies) > 0 {
+		admission, eventErr := c.event("admission", id+"/restart-goals", func() *jobdb.ExecutionRecord {
+			wait, waitErr := e.r.runtime.GetDependencyWait(c.ctx, jobdb.DependencyWaitKey{JobKey: c.GetJobKey(), WaitID: "submission"})
+			record, _ := recordResult(c.ctx, NewTaskDataOrPanic(wait), waitErr)
+			return record
+		})
+		if eventErr != nil {
+			return eventErr
+		}
+		_, err = dependencyResult(admission)
+	}
 	return err
 }

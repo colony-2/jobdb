@@ -168,9 +168,11 @@ type testExecutionLease struct {
 	payloadJSON json.RawMessage
 }
 
-func (l *testExecutionLease) LeaseID() string      { return l.leaseID }
-func (l *testExecutionLease) Job() jobdb.JobHandle { return jobdb.JobHandle{JobKey: l.jobKey} }
-func (l *testExecutionLease) Route() jobdb.Route   { return l.route }
+func (l *testExecutionLease) LeaseID() string { return l.leaseID }
+func (l *testExecutionLease) Job() jobdb.JobHandle {
+	return jobdb.JobHandle{JobKey: l.jobKey, GoalID: "goal"}
+}
+func (l *testExecutionLease) Route() jobdb.Route { return l.route }
 func (l *testExecutionLease) ClientPayload() json.RawMessage {
 	return append(json.RawMessage(nil), l.payloadJSON...)
 }
@@ -309,4 +311,17 @@ func (*claimsCapturingRuntime) GetConfiguration(context.Context, jobdb.GetConfig
 
 func (*testExecutionLease) GetConfiguration(context.Context) (jobdb.ConfigurationSnapshot, error) {
 	return jobdb.ConfigurationSnapshot{}, jobdb.ErrExecutionLeaseLost
+}
+
+func (r *claimsCapturingRuntime) GetGoal(context.Context, jobdb.GoalKey) (jobdb.GoalInfo, error) {
+	return jobdb.GoalInfo{}, jobdb.ErrGoalNotFound
+}
+func (r *claimsCapturingRuntime) GetDependencyWait(context.Context, jobdb.DependencyWaitKey) (jobdb.DependencyWaitInfo, error) {
+	return jobdb.DependencyWaitInfo{}, jobdb.ErrDependencyWaitNotFound
+}
+func (r *claimsCapturingRuntime) AddGoalCandidate(context.Context, jobdb.AddGoalCandidateRequest) (jobdb.GoalCandidateInfo, error) {
+	panic("unexpected goal mutation")
+}
+func (r *claimsCapturingRuntime) FailGoal(context.Context, jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
+	panic("unexpected goal mutation")
 }

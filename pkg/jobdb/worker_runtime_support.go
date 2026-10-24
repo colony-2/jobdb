@@ -193,6 +193,9 @@ func chapterToTaskData(runtime WorkflowRuntime, jobKey JobKey, ch Chapter) (Task
 		if err := json.Unmarshal(data, &p); err != nil {
 			return td, err
 		}
+		if goalErr, ok := GoalFailureFromAppError(p); ok {
+			return td, goalErr
+		}
 		if jobFailedErr, ok := decodeJobFailedAppError(p); ok {
 			return td, jobFailedErr
 		}

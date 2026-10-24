@@ -144,7 +144,7 @@ func TestAttenuationDeadlineInheritanceAndParentRotation(t *testing.T) {
 	// remains usable while the backend lease lives (including for local issuance).
 	expired, err := f.signer.mintWithPrincipal(owner.jobKey, owner.leaseID, owner.workerID, owner.schemaHash, time.Now().Add(-time.Second), time.Minute, nil)
 	require.NoError(t, err)
-	old := &remoteExecutionLease{runtime: f.client, jobKey: owner.jobKey, leaseID: owner.leaseID, workerID: owner.workerID, leaseToken: expired, expiresAt: time.Now().Add(-time.Minute), route: owner.route}
+	old := &remoteExecutionLease{goalID: owner.goalID, runtime: f.client, jobKey: owner.jobKey, leaseID: owner.leaseID, workerID: owner.workerID, leaseToken: expired, expiresAt: time.Now().Add(-time.Minute), route: owner.route}
 	require.ErrorIs(t, old.KeepAlive(context.Background()), jobdb.ErrExecutionLeaseLost)
 	deadline := time.Now().UTC().Add(10 * time.Second)
 	child, err := f.client.CreateDelegation(context.Background(), old, jobdb.CreateDelegationRequest{Permissions: delegationPolicy(), NotAfter: &deadline})

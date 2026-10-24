@@ -51,10 +51,11 @@ type TaskContext struct {
 	AttemptNumber int
 	Logger        *slog.Logger
 	// await is set by the runner so AwaitDuration can be engine-directed.
-	await            func(wakeAt time.Time) error
-	awaitJobs        func(jobIds ...string) error
-	submitJob        func(context.Context, SubmitJob) (JobKey, error)
-	submitRestartJob func(context.Context, SubmitRestartJob) (JobKey, error)
+	await             func(wakeAt time.Time) error
+	awaitJobs         func(jobIds ...string) error
+	awaitDependencies func(...jobdb.Dependency) ([]jobdb.DependencyResolution, error)
+	submitJob         func(context.Context, SubmitJob) (JobKey, error)
+	submitRestartJob  func(context.Context, SubmitRestartJob) (JobKey, error)
 }
 
 // AwaitDuration pauses task execution for the specified duration.
@@ -186,4 +187,15 @@ func (tc TaskContext) Context() context.Context {
 		return tc.executionContext
 	}
 	return context.Background()
+}
+
+// AwaitGoals waits for the committed success of every goal.
+func (tc TaskContext) AwaitGoals(ids ...string) ([]jobdb.DependencyResolution, error) {
+	return tc.AwaitDependencies(goalDependencies(ids)...)
+}
+func (tc TaskContext) AwaitDependencies(deps ...jobdb.Dependency) ([]jobdb.DependencyResolution, error) {
+	if tc.awaitDependencies == nil {
+		return nil, fmt.Errorf("awaiting dependencies not supported in this context")
+	}
+	return tc.awaitDependencies(deps...)
 }

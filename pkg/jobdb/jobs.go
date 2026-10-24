@@ -8,6 +8,7 @@ import (
 // SubmitJob defines the parameters for starting a new workflow job.
 // If JobID is provided, it will be used as the job identifier; otherwise, a new unique ID will be generated.
 type SubmitJob struct {
+	Dependencies        []Dependency
 	ClientPayloadUpdate *ClientPayloadUpdate
 	TenantId            string             // REQUIRED: Tenant for this job
 	JobType             string             // The type of job to start
@@ -28,6 +29,8 @@ type ExecutionRestart struct {
 }
 
 type SubmitRestartJob struct {
+	ShareGoal           bool
+	Dependencies        []Dependency
 	ExecutionRestart    *ExecutionRestart
 	ClientPayloadUpdate *ClientPayloadUpdate
 	PriorJobKey         JobKey
@@ -72,6 +75,8 @@ const (
 )
 
 type JobInfo struct {
+	GoalID                string
+	OtherGoalIDs          []string
 	ClientPayload         json.RawMessage
 	ClientPayloadRevision int64
 	ExecutionState        ExecutionState

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"io"
 	"log/slog"
 	"os"
@@ -180,6 +181,9 @@ func chapterToTaskData(runtime WorkflowRuntime, jobKey JobKey, ch Chapter) (Task
 		var p AppErrorPayload
 		if err := json.Unmarshal(data, &p); err != nil {
 			return td, err
+		}
+		if goalErr, ok := jobdb.GoalFailureFromAppError(p); ok {
+			return td, goalErr
 		}
 		if jobFailedErr, ok := decodeJobFailedAppError(p); ok {
 			return td, jobFailedErr

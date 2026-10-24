@@ -39,7 +39,7 @@ func (r *Runtime) RenewExecutionLeaseByID(ctx context.Context, key jobdb.JobKey,
 		if _, err := tx.ExecContext(ctx, `UPDATE jobdb_jobs SET lease_expires_at_ns = ?, updated_at_ns = ? WHERE tenant_id = ? AND job_id = ?`, timeToNS(expires), timeToNS(now), key.TenantId, key.JobId); err != nil {
 			return err
 		}
-		lease = &executionLease{runtime: r, jobKey: key, leaseID: leaseID, workerID: workerID,
+		lease = &executionLease{runtime: r, jobKey: key, goalID: row.goalID, leaseID: leaseID, workerID: workerID,
 			route:   row.nextRoute,
 			payload: cloneBytes(row.payload), clientPayload: cloneJSON(row.clientPayload), clientPayloadRevision: row.clientPayloadRevision,
 			duration: duration, expiresAt: expires, schemaHash: jobmetadata.SchemaHashFromStoredMetadata(row.metadata)}

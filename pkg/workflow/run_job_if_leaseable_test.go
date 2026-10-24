@@ -332,3 +332,16 @@ func (*runJobIfLeaseableStubRuntime) ResolveSecrets(context.Context, jobdb.Resol
 func (*runJobIfLeaseableStubRuntime) GetConfiguration(context.Context, jobdb.GetConfigurationRequest) (jobdb.ConfigurationSnapshot, error) {
 	return jobdb.ConfigurationSnapshot{}, jobdb.ErrExecutionLeaseLost
 }
+
+func (r *runJobIfLeaseableStubRuntime) GetGoal(context.Context, jobdb.GoalKey) (jobdb.GoalInfo, error) {
+	return jobdb.GoalInfo{}, jobdb.ErrGoalNotFound
+}
+func (r *runJobIfLeaseableStubRuntime) GetDependencyWait(context.Context, jobdb.DependencyWaitKey) (jobdb.DependencyWaitInfo, error) {
+	return jobdb.DependencyWaitInfo{}, jobdb.ErrDependencyWaitNotFound
+}
+func (r *runJobIfLeaseableStubRuntime) AddGoalCandidate(context.Context, jobdb.AddGoalCandidateRequest) (jobdb.GoalCandidateInfo, error) {
+	panic("unexpected goal mutation")
+}
+func (r *runJobIfLeaseableStubRuntime) FailGoal(context.Context, jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
+	panic("unexpected goal mutation")
+}
