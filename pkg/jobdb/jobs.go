@@ -28,6 +28,8 @@ type ExecutionRestart struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
+// SubmitRestartJob creates a new job with a retained history prefix and a copy
+// of PriorJobKey's application metadata. Metadata cannot be overridden.
 type SubmitRestartJob struct {
 	ShareGoal           bool
 	Dependencies        []Dependency

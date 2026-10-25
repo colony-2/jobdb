@@ -157,6 +157,12 @@ The API intentionally does not expose a standalone durable artifact-upload opera
 
 A restart clones a prefix of an earlier run into a new job and then resumes execution from that copied history.
 
+The new job automatically copies the source job's immutable application metadata.
+Restart requests cannot override it. Runtime-owned parent, schema, and schedule
+metadata are not inherited; they are determined independently for the new job.
+This does not change client payload behavior: the restart request initializes
+the new job's client payload rather than inheriting the source's payload.
+
 The restart boundary must obey these rules:
 
 - `lastStepToKeep` must be `>= 0`.

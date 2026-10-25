@@ -323,7 +323,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	storedMetadata, err := jobdb.BuildJobMetadataEnvelope(nil, jobdb.RuntimeJobMetadata{SchemaHash: schemaHash, ParentJobID: parentJobID})
+	storedMetadata, err := jobdb.BuildJobMetadataEnvelope(jobdb.AppMetadataFromStoredMetadata(prior.metadata), jobdb.RuntimeJobMetadata{SchemaHash: schemaHash, ParentJobID: parentJobID})
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}

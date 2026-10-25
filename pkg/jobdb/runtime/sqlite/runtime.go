@@ -173,7 +173,11 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	storedMetadata, err := jobdb.BuildJobMetadataEnvelope(nil, jobdb.RuntimeJobMetadata{SchemaHash: schemaHash, ParentJobID: parentJobID})
+	prior, err := r.loadJobRow(ctx, job.PriorJobKey)
+	if err != nil {
+		return jobdb.JobHandle{}, fmt.Errorf("load source job metadata: %w", err)
+	}
+	storedMetadata, err := jobdb.BuildJobMetadataEnvelope(jobdb.AppMetadataFromStoredMetadata(prior.metadata), jobdb.RuntimeJobMetadata{SchemaHash: schemaHash, ParentJobID: parentJobID})
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}

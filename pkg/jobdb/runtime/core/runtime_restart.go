@@ -72,6 +72,11 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if key == job.PriorJobKey {
 		return jobdb.JobHandle{}, fmt.Errorf("restart job id must differ from source job id")
 	}
+	prior, err := r.scheduler.GetJob(ctx, job.PriorJobKey)
+	if err != nil {
+		return jobdb.JobHandle{}, fmt.Errorf("load source job metadata: %w", err)
+	}
+	metadata := cloneRaw(prior.AppMetadata)
 	schemaHash, err := ResolveActiveSchemaForNewJob(ctx, r.schemas, key.TenantId, job.Schema)
 	if err != nil {
 		return jobdb.JobHandle{}, err
@@ -225,7 +230,6 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		})
 		_ = artifact.Cleanup()
 	}
-	metadata := json.RawMessage(`{}`)
 	if existing {
 		stored, err := r.scheduler.GetJob(ctx, key)
 		if err == nil {
