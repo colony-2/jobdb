@@ -35,6 +35,48 @@ tags:
 security:
   - bearerAuth: []
 paths:
+  /v1/tenants/{tenantId}/goals/query:
+    post:
+      tags: [jobs]
+      operationId: listGoals
+      description: Read-only discovery. Every page is scoped to the authorized tenant.
+      parameters:
+        - name: tenantId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ListGoalsRequest'}
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ListGoalsResponse'}
+  /v1/tenants/{tenantId}/dependency-waits/query:
+    post:
+      tags: [jobs]
+      operationId: listDependencyWaits
+      description: Read-only discovery. Every page is scoped to the authorized tenant.
+      parameters:
+        - name: tenantId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ListDependencyWaitsRequest'}
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ListDependencyWaitsResponse'}
   /v1/tenants/{tenantId}/goals/{goalId}:
     get:
       tags: [jobs]
@@ -1560,6 +1602,90 @@ components:
         terminalJobIds: {type: array, items: {type: string}}
         nonTerminalJobIds: {type: array, items: {type: string}}
         failedAt: {type: string, format: date-time}
+    GoalSummary:
+      type: object
+      additionalProperties: false
+      required: [goalKey, state, revision, createdAt, updatedAt, candidateCount, nonTerminalCandidateCount, terminalCandidateCount, unavailableCandidateCount]
+      x-go-type: jobdb.GoalSummary
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
+      properties:
+        goalKey: {$ref: '#/components/schemas/GoalKey'}
+        state: {type: string, enum: [OPEN, SUCCEEDED, FAILED]}
+        revision: {type: string, pattern: '^[0-9]+$'}
+        successfulJobId: {type: string}
+        failure: {$ref: '#/components/schemas/GoalFailure'}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+        closedAt: {type: string, format: date-time}
+        candidateCount: {type: integer, format: int64}
+        nonTerminalCandidateCount: {type: integer, format: int64}
+        terminalCandidateCount: {type: integer, format: int64}
+        unavailableCandidateCount: {type: integer, format: int64}
+    GoalCandidateFilter:
+      type: object
+      x-go-type: jobdb.GoalCandidateFilter
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
+      properties:
+        jobIds: {type: array, items: {type: string}}
+        jobTypes: {type: array, items: {type: string}}
+        metadataEquals:
+          type: array
+          items:
+            type: object
+            required: [path, values]
+            properties:
+              path: {type: array, items: {type: string}}
+              values: {type: array, items: {oneOf: [{type: string}, {type: number}, {type: boolean}]}}
+    ListGoalsRequest:
+      type: object
+      x-go-type: jobdb.ListGoalsRequest
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
+      properties:
+        goalIds: {type: array, items: {type: string}}
+        states: {type: array, items: {type: string, enum: [OPEN, SUCCEEDED, FAILED]}}
+        createdAfter: {type: string, format: date-time}
+        createdBefore: {type: string, format: date-time}
+        updatedAfter: {type: string, format: date-time}
+        updatedBefore: {type: string, format: date-time}
+        candidate: {$ref: '#/components/schemas/GoalCandidateFilter'}
+        pageSize: {type: integer}
+        pageToken: {type: string}
+    ListGoalsResponse:
+      type: object
+      x-go-type: jobdb.ListGoalsResponse
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
+      properties:
+        goals: {type: array, items: {$ref: '#/components/schemas/GoalSummary'}}
+        nextPageToken: {type: string}
+    ListDependencyWaitsRequest:
+      type: object
+      x-go-type: jobdb.ListDependencyWaitsRequest
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
+      properties:
+        consumerJobId: {type: string}
+        target: {$ref: '#/components/schemas/DependencyTarget'}
+        states: {type: array, items: {type: string, enum: [PENDING, SATISFIED, FAILED, TIMED_OUT, CANCELLED]}}
+        pageSize: {type: integer}
+        pageToken: {type: string}
+    ListDependencyWaitsResponse:
+      type: object
+      x-go-type: jobdb.ListDependencyWaitsResponse
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
+      properties:
+        waits: {type: array, items: {$ref: '#/components/schemas/DependencyWaitInfo'}}
+        nextPageToken: {type: string}
     GoalInfo:
       type: object
       additionalProperties: false
@@ -3026,6 +3152,8 @@ components:
       required: [goalId, otherGoalIds, status, data, executionState, clientPayloadRevision]
       additionalProperties: false
       properties:
+        blockingWait:
+          $ref: '#/components/schemas/DependencyWaitInfo'
         goalId:
           type: string
         otherGoalIds:
@@ -3175,6 +3303,8 @@ components:
       required: [goalId, otherGoalIds, jobKey, status, jobType, waitFor, availableAt, cancelRequested, createdAt, executionState, clientPayloadRevision]
       additionalProperties: false
       properties:
+        blockingWait:
+          $ref: '#/components/schemas/DependencyWaitInfo'
         goalId:
           type: string
         otherGoalIds:

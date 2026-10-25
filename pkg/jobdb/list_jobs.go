@@ -11,6 +11,7 @@ import (
 
 // JobSummary is a lightweight view of a job from the selected runtime.
 type JobSummary struct {
+	BlockingWait *DependencyWaitInfo
 	GoalID       string
 	OtherGoalIDs []string
 	JobKey       JobKey
@@ -103,8 +104,8 @@ type metadataAnd struct {
 }
 
 type MetadataPredicate struct {
-	Path   []string
-	Values []any
+	Path   []string `json:"path"`
+	Values []any    `json:"values"`
 }
 
 func Metadata() MetadataFilter {

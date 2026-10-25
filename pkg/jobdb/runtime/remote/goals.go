@@ -146,3 +146,54 @@ func goalResponseError(body []byte) error {
 	}
 	return nil
 }
+
+func (r *Runtime) ListGoals(ctx context.Context, req jobdb.ListGoalsRequest) (jobdb.ListGoalsResponse, error) {
+	if err := req.Validate(); err != nil {
+		return jobdb.ListGoalsResponse{}, err
+	}
+	resp, err := r.client.ListGoalsWithResponse(ctx, req.TenantId, req)
+	if err != nil {
+		return jobdb.ListGoalsResponse{}, err
+	}
+	if resp.StatusCode() != 200 || resp.JSON200 == nil {
+		return jobdb.ListGoalsResponse{}, responseError("list goals", resp.StatusCode(), resp.Body, nil)
+	}
+	return *resp.JSON200, nil
+}
+func (r *Runtime) ListDependencyWaits(ctx context.Context, req jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error) {
+	if err := req.Validate(); err != nil {
+		return jobdb.ListDependencyWaitsResponse{}, err
+	}
+	resp, err := r.client.ListDependencyWaitsWithResponse(ctx, req.TenantId, req)
+	if err != nil {
+		return jobdb.ListDependencyWaitsResponse{}, err
+	}
+	if resp.StatusCode() != 200 || resp.JSON200 == nil {
+		return jobdb.ListDependencyWaitsResponse{}, responseError("list dependency waits", resp.StatusCode(), resp.Body, nil)
+	}
+	return *resp.JSON200, nil
+}
+func (s *proxyServer) ListGoals(ctx context.Context, req runtimeapi.ListGoalsRequestObject) (runtimeapi.ListGoalsResponseObject, error) {
+	if req.Body == nil {
+		return nil, badRequest("body is required")
+	}
+	request := *req.Body
+	request.TenantId = req.TenantId
+	if err := request.Validate(); err != nil {
+		return nil, err
+	}
+	out, err := s.runtime.ListGoals(ctx, request)
+	return runtimeapi.ListGoals200JSONResponse(out), err
+}
+func (s *proxyServer) ListDependencyWaits(ctx context.Context, req runtimeapi.ListDependencyWaitsRequestObject) (runtimeapi.ListDependencyWaitsResponseObject, error) {
+	if req.Body == nil {
+		return nil, badRequest("body is required")
+	}
+	request := *req.Body
+	request.TenantId = req.TenantId
+	if err := request.Validate(); err != nil {
+		return nil, err
+	}
+	out, err := s.runtime.ListDependencyWaits(ctx, request)
+	return runtimeapi.ListDependencyWaits200JSONResponse(out), err
+}

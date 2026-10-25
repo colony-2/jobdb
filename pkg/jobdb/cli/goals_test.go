@@ -40,6 +40,14 @@ func TestGoalsCommands(t *testing.T) {
 	require.Len(t, info.Failure.NonTerminalJobIDs, 2)
 	require.NoError(t, json.Unmarshal(run("get", a.GoalID), &info))
 	run("candidates", a.GoalID)
+	var page jobdb.ListGoalsResponse
+	require.NoError(t, json.Unmarshal(run("list", "--state", "FAILED", "--page-size", "1"), &page))
+	require.Len(t, page.Goals, 1)
+	require.Equal(t, a.GoalID, page.Goals[0].GoalKey.GoalID)
+	var waits jobdb.ListDependencyWaitsResponse
+	require.NoError(t, json.Unmarshal(run("waits", "--target-goal", b.GoalID), &waits))
+	require.Empty(t, waits.Waits)
+
 	state, err := rt.GetJob(ctx, b.JobKey)
 	require.NoError(t, err)
 	require.Equal(t, jobdb.JobStatusReady, state.Status)

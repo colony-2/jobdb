@@ -94,7 +94,7 @@ func main() {
     go engine.Run(ctx)
 
     input := jobdb.NewTaskDataOrPanic(map[string]any{"value": 42})
-    jobKey, err := engine.SubmitJob(ctx, jobdb.SubmitJob{
+    handle, err := engine.SubmitJob(ctx, jobdb.SubmitJob{
         TenantId: "tenant-a",
         JobType:  "data_processing",
         Data:     input,
@@ -103,7 +103,7 @@ func main() {
         log.Fatal(err)
     }
 
-    log.Printf("started job: %s", jobKey)
+    log.Printf("started job: %s (goal %s)", handle.JobKey, handle.GoalID)
 }
 ```
 

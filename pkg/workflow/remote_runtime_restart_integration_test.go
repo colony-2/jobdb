@@ -46,12 +46,13 @@ func TestRemoteRuntimeSupportsExplicitRestartJobIDs(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	originalKey, err := engine.SubmitJob(ctx, jobdb.SubmitJob{
+	originalKeyHandle, err := engine.SubmitJob(ctx, jobdb.SubmitJob{
 		TenantId: tenantID,
 		JobID:    "restart-source",
 		JobType:  remoteRestartSequenceJobName,
 		Data:     jobdb.NewTaskDataOrPanic(map[string]int{"n": 1}),
 	})
+	originalKey := originalKeyHandle.JobKey
 	if err != nil {
 		t.Fatalf("submit source job: %v", err)
 	}

@@ -88,7 +88,7 @@ func jobSummaryFromStored(row StoredJob) (jobdb.JobSummary, error) {
 	if row.WorkKind == WorkKindTask && row.TaskWork != nil {
 		nextRoute.TaskType = row.TaskWork.TaskType
 	}
-	summary := jobdb.JobSummary{GoalID: row.GoalID, OtherGoalIDs: row.OtherGoalIDs,
+	summary := jobdb.JobSummary{BlockingWait: row.BlockingWait, GoalID: row.GoalID, OtherGoalIDs: row.OtherGoalIDs,
 		JobKey: row.JobKey, Status: row.Status, JobType: row.JobType,
 		ClientPayload: append([]byte(nil), row.ClientPayload...), ClientPayloadRevision: row.ClientPayloadRevision, ExecutionState: executionState(row.RunPolicy, row.TaskWork),
 		NextRoute: &nextRoute, WaitFor: append([]string(nil), row.WaitForJobIDs...),

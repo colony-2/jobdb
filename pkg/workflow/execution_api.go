@@ -30,6 +30,8 @@ func (w ExecutionWorker) Run(ctx ExecutionContext, input JobData) (JobData, erro
 type ExecutionContext interface {
 	Context() context.Context
 	GetJobKey() JobKey
+	// Job returns the authoritative tenant, primary goal and job identity.
+	Job() JobHandle
 	Logger() *slog.Logger
 	ExecutionVersions() jobdb.ExecutionVersions
 	DoTask(TaskCall, func(context.Context) (TaskData, error)) (TaskData, error)
@@ -50,8 +52,8 @@ type ExecutionContext interface {
 	ResolveSecretsFresh(context.Context, []string) (SecretResolveResult, error)
 	ClientPayload() json.RawMessage
 	ClientPayloadRevision() int64
-	SubmitJob(context.Context, SubmitJob) (JobKey, error)
-	SubmitRestartJob(context.Context, SubmitRestartJob) (JobKey, error)
+	SubmitJob(context.Context, SubmitJob) (JobHandle, error)
+	SubmitRestartJob(context.Context, SubmitRestartJobRequest) (JobHandle, error)
 	// Yield reschedules and stops execution. Read JobRunOutcome.Handoff after
 	// Run returns for confirmation; post-Yield user code may still be running.
 	Yield(context.Context, YieldRequest) error

@@ -408,7 +408,12 @@ func replayRuntimeJob(ctx context.Context, runtime WorkflowRuntime, spec *replay
 		}
 	}
 
+	info, err := replayRuntime.GetJob(ctx, jobKey)
+	if err != nil {
+		return nil, err
+	}
 	runner := newWorkerRunner(replayRuntime, ws, nil, workerRunnerOptions{
+		GoalID:         info.GoalID,
 		JobKey:         jobKey,
 		Logger:         spec.engine.logger.With("job", jobKey.String(), "route", jobType),
 		WorkerID:       spec.engine.workerID,

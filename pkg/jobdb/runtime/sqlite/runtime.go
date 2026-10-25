@@ -670,7 +670,11 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 	if err != nil {
 		return jobdb.JobInfo{}, err
 	}
-	job := jobdb.JobInfo{
+	blocking, err := blockingWait(ctx, r.db, row, time.Now().UTC())
+	if err != nil {
+		return jobdb.JobInfo{}, err
+	}
+	job := jobdb.JobInfo{BlockingWait: blocking,
 		GoalID: row.goalID, OtherGoalIDs: otherGoals,
 		ClientPayload: cloneJSON(row.clientPayload), ClientPayloadRevision: row.clientPayloadRevision, ExecutionState: jobExecutionState(row.payload),
 		Status:     status,
@@ -844,7 +848,11 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 			return jobdb.ListJobsResponse{}, err
 		}
 		nextRoute := row.nextRoute
-		summary := jobdb.JobSummary{
+		blocking, err := blockingWait(ctx, r.db, row, now)
+		if err != nil {
+			return jobdb.ListJobsResponse{}, err
+		}
+		summary := jobdb.JobSummary{BlockingWait: blocking,
 			GoalID:           row.goalID,
 			JobKey:           key,
 			Status:           status,

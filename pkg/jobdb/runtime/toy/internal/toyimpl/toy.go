@@ -896,7 +896,13 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 				continue
 			}
 		}
-		summary := jobdb.JobSummary{GoalID: rec.goalID, OtherGoalIDs: otherGoals,
+		blocking, err := e.blockingWaitLocked(key, rec, now)
+		if err != nil {
+			rec.mu.Unlock()
+			e.mu.Unlock()
+			return jobdb.ListJobsResponse{}, err
+		}
+		summary := jobdb.JobSummary{BlockingWait: blocking, GoalID: rec.goalID, OtherGoalIDs: otherGoals,
 			JobKey:           key,
 			Status:           status,
 			CompletionStatus: rec.completionStatus,

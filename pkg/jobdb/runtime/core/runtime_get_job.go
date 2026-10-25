@@ -23,7 +23,7 @@ func (r *Runtime) GetJob(ctx context.Context, key jobdb.JobKey) (jobdb.JobInfo, 
 	if err != nil {
 		return jobdb.JobInfo{}, err
 	}
-	info := jobdb.JobInfo{GoalID: stored.GoalID, OtherGoalIDs: stored.OtherGoalIDs,
+	info := jobdb.JobInfo{BlockingWait: stored.BlockingWait, GoalID: stored.GoalID, OtherGoalIDs: stored.OtherGoalIDs,
 		Status: stored.Status, SchemaHash: stored.SchemaHash,
 		ClientPayload: append([]byte(nil), stored.ClientPayload...), ClientPayloadRevision: stored.ClientPayloadRevision, ExecutionState: executionState(stored.RunPolicy, stored.TaskWork),
 		Data: &runtimeJobData{err: jobdb.ErrJobNotComplete},

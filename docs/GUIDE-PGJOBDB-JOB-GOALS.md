@@ -384,3 +384,33 @@ Reference scenarios in this repository:
 
 Port the scenarios through public interfaces; do not import private SQLite or
 goalstate implementation packages into pgjobdb.
+
+## Discovery extension
+
+`GoalRuntime` now additionally requires `ListGoals` and
+`ListDependencyWaits`. Forward both through the scheduler adapter and expose
+the shared remote query endpoints. The
+[discovery contract](GUIDE-C2J-GOAL-DISCOVERY.md) is normative for these reads.
+
+Index goals by tenant/state/goal ID and tenant/creation or update time. Use keyset
+pagination ordered by goal ID. Compute candidate counts only for returned goals
+from the union of retained primary and additional memberships, including hidden
+and archived jobs. Candidate filters select goals with matching members; they
+do not restrict the counts. No candidate-change revision or timestamp is needed.
+
+Consumer wait lookup uses tenant/consumer/wait ID. Reverse lookup uses the
+existing pending-target index, extended with consumer/wait ID for ordered pages.
+Do not retain historical reverse edges. Apply read-only timeout projection before
+state filtering and pagination, including removal of expired waits from reverse
+results. Read committed goal winners and recorded bindings without settling waits.
+
+Populate `runtimecore.StoredJob.BlockingWait` from the scheduler's current wait
+pointer for a genuinely pending structured wait. Runtime core and the shared
+HTTP codec propagate it to job inspection and summaries. Do not use private
+workflow history IDs to discover it.
+
+The companion pgjobdb checkout implements these reads in `goal_discovery.go`
+and adds discovery indexes through `goal_discovery.sql`. Updating that checkout's
+JobDB dependency is required to compile against the expanded port. Workflow SDK
+return/request signature changes also require migrating callers and test harnesses
+as described in the c2j guide.

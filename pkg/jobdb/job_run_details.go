@@ -28,6 +28,9 @@ type GetJobRunResponse struct {
 }
 
 type JobRunSummary struct {
+	GoalID           string
+	OtherGoalIDs     []string
+	BlockingWait     *DependencyWaitInfo
 	JobKey           JobKey
 	JobType          string
 	Status           JobStatus

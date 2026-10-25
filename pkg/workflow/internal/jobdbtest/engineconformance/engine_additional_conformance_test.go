@@ -156,12 +156,13 @@ func TestCustomJobIDAcrossBuiltInRuntimes(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 
-			jobKey, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
+			jobKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
 				TenantId: built.WorkerTenantID,
 				JobType:  ws.JobWorker.Name(),
 				JobID:    "custom-job-id",
 				Data:     jobdbtest.NumberTaskData(7),
 			})
+			jobKey := jobKeyHandle.JobKey
 			if err != nil {
 				t.Fatalf("start job: %v", err)
 			}
@@ -423,7 +424,7 @@ func TestGetJobRunRetryRepresentationOnDirectRuntime(t *testing.T) {
 				built := harness.New(t, ws)
 				defer built.Shutdown(t)
 
-				jobKey, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
+				jobKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
 					TenantId: built.WorkerTenantID,
 					JobType:  job.Name(),
 					Data:     jobdbtest.NumberTaskData(1),
@@ -431,6 +432,7 @@ func TestGetJobRunRetryRepresentationOnDirectRuntime(t *testing.T) {
 						Retry: jobdb.RetryPolicy{MaximumAttempts: 3, BackoffCoefficient: 1},
 					},
 				})
+				jobKey := jobKeyHandle.JobKey
 				if err != nil {
 					t.Fatalf("start job: %v", err)
 				}
@@ -452,11 +454,12 @@ func TestGetJobRunRetryRepresentationOnDirectRuntime(t *testing.T) {
 				built := harness.New(t, ws)
 				defer built.Shutdown(t)
 
-				jobKey, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
+				jobKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
 					TenantId: built.WorkerTenantID,
 					JobType:  job.Name(),
 					Data:     jobdbtest.NumberTaskData(1),
 				})
+				jobKey := jobKeyHandle.JobKey
 				if err != nil {
 					t.Fatalf("start job: %v", err)
 				}
@@ -508,7 +511,7 @@ func TestGetJobRunSynthesizedNextAttemptOnDirectRuntime(t *testing.T) {
 			built := harness.New(t, ws)
 			defer built.Shutdown(t)
 
-			jobKey, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
+			jobKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
 				TenantId: built.WorkerTenantID,
 				JobType:  job.Name(),
 				Data:     jobdbtest.NumberTaskData(1),
@@ -520,6 +523,7 @@ func TestGetJobRunSynthesizedNextAttemptOnDirectRuntime(t *testing.T) {
 					},
 				},
 			})
+			jobKey := jobKeyHandle.JobKey
 			if err != nil {
 				t.Fatalf("start job: %v", err)
 			}
@@ -597,23 +601,25 @@ func TestEngineMetadataFilteredWorkersAndManualJobLeaseAcrossBuiltInRuntimes(t *
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 
-			blueKey, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
+			blueKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
 				TenantId: built.WorkerTenantID,
 				JobType:  ws.JobWorker.Name(),
 				JobID:    "blue",
 				Data:     jobdbtest.NumberTaskData(1),
 				Metadata: json.RawMessage(`{"queue":"blue"}`),
 			})
+			blueKey := blueKeyHandle.JobKey
 			if err != nil {
 				t.Fatalf("submit blue job: %v", err)
 			}
-			greenKey, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
+			greenKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
 				TenantId: blueKey.TenantId,
 				JobType:  ws.JobWorker.Name(),
 				JobID:    "green",
 				Data:     jobdbtest.NumberTaskData(2),
 				Metadata: json.RawMessage(`{"queue":"green"}`),
 			})
+			greenKey := greenKeyHandle.JobKey
 			if err != nil {
 				t.Fatalf("submit green job: %v", err)
 			}
@@ -665,13 +671,14 @@ func TestFindTasksWaitingWithMetadataFilterAcrossBuiltInRuntimes(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 
-			blueKey, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
+			blueKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
 				TenantId: built.WorkerTenantID,
 				JobType:  ws.JobWorker.Name(),
 				JobID:    "blue-pending",
 				Data:     jobdbtest.NumberTaskData(3),
 				Metadata: json.RawMessage(`{"rank":1}`),
 			})
+			blueKey := blueKeyHandle.JobKey
 			if err != nil {
 				t.Fatalf("submit blue pending job: %v", err)
 			}

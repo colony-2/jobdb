@@ -34,3 +34,10 @@ func (r *Runtime) FailGoal(ctx context.Context, req jobdb.FailGoalRequest) (jobd
 func (r *Runtime) GetDependencyWait(ctx context.Context, k jobdb.DependencyWaitKey) (jobdb.DependencyWaitInfo, error) {
 	return r.scheduler.GetDependencyWait(ctx, k)
 }
+
+func (r *Runtime) ListGoals(ctx context.Context, req jobdb.ListGoalsRequest) (jobdb.ListGoalsResponse, error) {
+	return r.scheduler.ListGoals(ctx, req)
+}
+func (r *Runtime) ListDependencyWaits(ctx context.Context, req jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error) {
+	return r.scheduler.ListDependencyWaits(ctx, req)
+}

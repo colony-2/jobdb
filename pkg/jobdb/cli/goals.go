@@ -80,5 +80,6 @@ func newGoalsCmd() *cobra.Command {
 	candidates.Flags().IntVar(&pageSize, "page-size", jobdb.DefaultListJobsPageSize, "maximum jobs per page")
 	candidates.Flags().BoolVar(&hidden, "include-hidden", false, "include deleted jobs")
 	root.AddCommand(get, add, fail, candidates)
+	addGoalDiscoveryCommands(root, &tenant, client)
 	return root
 }

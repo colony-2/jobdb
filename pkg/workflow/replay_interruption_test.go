@@ -49,7 +49,7 @@ func TestTimedOutAttemptCannotWriteIntoRetry(t *testing.T) {
 			<-releaseJob // delayed cleanup tries to use the expired attempt
 			_, taskErr := ctx.DoTask(TaskCall{Site: "task", Command: []byte("{}"), TaskType: task.Name(), ContractVersion: 1, Policy: RunPolicy{}}, func(context.Context) (TaskData, error) { return in, nil })
 			_, submitErr := ctx.SubmitJob(context.Background(), SubmitJob{})
-			_, restartErr := ctx.SubmitRestartJob(context.Background(), SubmitRestartJob{})
+			_, restartErr := ctx.SubmitRestartJob(context.Background(), SubmitRestartJobRequest{Job: SubmitRestartJob{}})
 			yieldErr := ctx.Yield(context.Background(), YieldRequest{Reschedule: RescheduleExecutionRequest{}})
 			jobExited <- []error{taskErr, submitErr, restartErr, yieldErr}
 		}

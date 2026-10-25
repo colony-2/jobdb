@@ -60,12 +60,13 @@ type jobFailedChainParentJob struct {
 func (jobFailedChainParentJob) Name() string { return "job-failed-chain-parent" }
 
 func (j *jobFailedChainParentJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (_ jobdb.JobData, runErr error) {
-	childKey, err := j.engine.SubmitJob(context.Background(), jobdb.SubmitJob{
+	childKeyHandle, err := j.engine.SubmitJob(context.Background(), jobdb.SubmitJob{
 		TenantId: ctx.GetJobKey().TenantId,
 		JobType:  j.child,
 		JobID:    ctx.GetJobKey().JobId + "-child",
 		Data:     data,
 	})
+	childKey := childKeyHandle.JobKey
 	if err != nil {
 		return nil, err
 	}
@@ -150,12 +151,13 @@ func TestGetJobRunOutputErrorChainComparableAcrossBuiltInRuntimes(t *testing.T) 
 				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 				defer cancel()
 
-				jobKey, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
+				jobKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
 					TenantId: built.WorkerTenantID,
 					JobType:  parent.Name(),
 					JobID:    "parent",
 					Data:     jobdbtest.NumberTaskData(1),
 				})
+				jobKey := jobKeyHandle.JobKey
 				if err != nil {
 					t.Fatalf("start parent: %v", err)
 				}

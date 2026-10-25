@@ -41,11 +41,13 @@ type engineSurface struct {
 }
 
 func (s engineSurface) SubmitJob(ctx context.Context, start jobdb.SubmitJob) (jobdb.JobKey, error) {
-	return s.engine.SubmitJob(ctx, start)
+	h, err := s.engine.SubmitJob(ctx, start)
+	return h.JobKey, err
 }
 
 func (s engineSurface) SubmitRestartJob(ctx context.Context, restart jobdb.SubmitRestartJob) (jobdb.JobKey, error) {
-	return s.engine.SubmitRestartJob(ctx, restart)
+	h, err := s.engine.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: restart})
+	return h.JobKey, err
 }
 
 func (s engineSurface) CancelJob(ctx context.Context, cancel jobdb.CancelJob) error {

@@ -18,6 +18,7 @@ type workerRunnerOptions struct {
 	JobPolicy      RunPolicy
 	WorkerID       string
 	JobKey         JobKey
+	GoalID         string
 	Observer       ReplayObserver
 	Replay         bool
 	AwaitThreshold time.Duration
@@ -39,6 +40,7 @@ type workerRunner struct {
 
 	ctx                context.Context
 	jobKey             JobKey
+	goalID             string
 	configurationCache attemptCache[*ConfigurationSnapshot]
 	secretCache        *attemptCache[map[string]*SecretValue]
 	secretCacheInit    sync.Once
@@ -51,8 +53,10 @@ func newWorkerRunner(runtime WorkflowRuntime, ws *WorkSet, lease ExecutionLease,
 		logger = slog.Default()
 	}
 	jobKey := JobKey{}
+	goalID := opts.GoalID
 	if lease != nil {
 		jobKey = lease.Job().JobKey
+		goalID = lease.Job().GoalID
 	} else if opts.JobKey != (JobKey{}) {
 		jobKey = opts.JobKey
 	}
@@ -69,6 +73,7 @@ func newWorkerRunner(runtime WorkflowRuntime, ws *WorkSet, lease ExecutionLease,
 		replay:         opts.Replay,
 		awaitThreshold: opts.AwaitThreshold,
 		jobKey:         jobKey,
+		goalID:         goalID,
 	}
 }
 
@@ -147,12 +152,12 @@ func (r *workerRunner) awaitJobsComplete(ctx context.Context, jobIds []string) (
 	return true, nil
 }
 
-func (r *workerRunner) SubmitJob(ctx context.Context, submit SubmitJob) (JobKey, error) {
+func (r *workerRunner) SubmitJob(ctx context.Context, submit SubmitJob) (JobHandle, error) {
 	if r.ctx != nil && context.Cause(r.ctx) != nil {
-		return JobKey{}, context.Cause(r.ctx)
+		return JobHandle{}, context.Cause(r.ctx)
 	}
 	if r.lease == nil || r.replay {
-		return JobKey{}, fmt.Errorf("submitting jobs requires an active execution lease")
+		return JobHandle{}, fmt.Errorf("submitting jobs requires an active execution lease")
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -166,33 +171,35 @@ func (r *workerRunner) SubmitJob(ctx context.Context, submit SubmitJob) (JobKey,
 		WorkerID:    r.workerID,
 	})
 	if err != nil {
-		return JobKey{}, err
+		return JobHandle{}, err
 	}
-	return handle.JobKey, nil
+	return handle, nil
 }
 
-func (r *workerRunner) SubmitRestartJob(ctx context.Context, restart SubmitRestartJob) (JobKey, error) {
+func (r *workerRunner) SubmitRestartJob(ctx context.Context, restart SubmitRestartJobRequest) (JobHandle, error) {
 	if r.ctx != nil && context.Cause(r.ctx) != nil {
-		return JobKey{}, context.Cause(r.ctx)
+		return JobHandle{}, context.Cause(r.ctx)
 	}
 	if r.lease == nil || r.replay {
-		return JobKey{}, fmt.Errorf("submitting restart jobs requires an active execution lease")
+		return JobHandle{}, fmt.Errorf("submitting restart jobs requires an active execution lease")
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if restart.PriorJobKey.TenantId == "" {
-		restart.PriorJobKey.TenantId = r.GetJobKey().TenantId
+	if restart.Job.PriorJobKey.TenantId == "" {
+		restart.Job.PriorJobKey.TenantId = r.GetJobKey().TenantId
 	}
-	handle, err := r.lease.SubmitRestartJob(ctx, SubmitRestartJobRequest{
-		Job:         restart,
-		RequestTime: nowUTC(),
-		WorkerID:    r.workerID,
-	})
+	if restart.WorkerID == "" {
+		restart.WorkerID = r.workerID
+	}
+	if restart.RequestTime.IsZero() {
+		restart.RequestTime = nowUTC()
+	}
+	handle, err := r.lease.SubmitRestartJob(ctx, restart)
 	if err != nil {
-		return JobKey{}, err
+		return JobHandle{}, err
 	}
-	return handle.JobKey, nil
+	return handle, nil
 }
 
 func (r *workerRunner) loadInitialChapterAndPolicy(ctx context.Context) (TaskData, Chapter, chapterMeta, error) {

@@ -28,26 +28,26 @@ func newRuntimeEngine(runtime WorkflowRuntime, worker workerEngineAPI) Engine {
 	}
 }
 
-func (e *runtimeEngine) SubmitJob(ctx context.Context, submit SubmitJob) (JobKey, error) {
+func (e *runtimeEngine) SubmitJob(ctx context.Context, submit SubmitJob) (JobHandle, error) {
 	handle, err := e.runtime.SubmitJob(ctx, SubmitJobRequest{
 		Job:         submit,
 		RequestTime: nowUTC(),
 	})
 	if err != nil {
-		return JobKey{}, err
+		return JobHandle{}, err
 	}
-	return handle.JobKey, nil
+	return handle, nil
 }
 
-func (e *runtimeEngine) SubmitRestartJob(ctx context.Context, restart SubmitRestartJob) (JobKey, error) {
-	handle, err := e.runtime.SubmitRestartJob(ctx, SubmitRestartJobRequest{
-		Job:         restart,
-		RequestTime: nowUTC(),
-	})
-	if err != nil {
-		return JobKey{}, err
+func (e *runtimeEngine) SubmitRestartJob(ctx context.Context, restart SubmitRestartJobRequest) (JobHandle, error) {
+	if restart.RequestTime.IsZero() {
+		restart.RequestTime = nowUTC()
 	}
-	return handle.JobKey, nil
+	handle, err := e.runtime.SubmitRestartJob(ctx, restart)
+	if err != nil {
+		return JobHandle{}, err
+	}
+	return handle, nil
 }
 
 func (e *runtimeEngine) CancelJob(ctx context.Context, cancel CancelJob) error {

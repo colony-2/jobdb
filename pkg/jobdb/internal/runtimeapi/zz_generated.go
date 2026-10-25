@@ -476,6 +476,9 @@ type GetJobLeaseResponse struct {
 	Lease *ExecutionLease `json:"lease"`
 }
 
+// GoalCandidateFilter defines model for GoalCandidateFilter.
+type GoalCandidateFilter = jobdb.GoalCandidateFilter
+
 // GoalCandidateInfo defines model for GoalCandidateInfo.
 type GoalCandidateInfo = jobdb.GoalCandidateInfo
 
@@ -487,6 +490,9 @@ type GoalInfo = jobdb.GoalInfo
 
 // GoalKey defines model for GoalKey.
 type GoalKey = jobdb.GoalKey
+
+// GoalSummary defines model for GoalSummary.
+type GoalSummary = jobdb.GoalSummary
 
 // InputReference defines model for InputReference.
 type InputReference struct {
@@ -521,8 +527,9 @@ type JobHandle struct {
 
 // JobInfo defines model for JobInfo.
 type JobInfo struct {
-	ClientPayload         json.RawMessage `json:"clientPayload,omitempty"`
-	ClientPayloadRevision string          `json:"clientPayloadRevision"`
+	BlockingWait          *DependencyWaitInfo `json:"blockingWait,omitempty"`
+	ClientPayload         json.RawMessage     `json:"clientPayload,omitempty"`
+	ClientPayloadRevision string              `json:"clientPayloadRevision"`
 
 	// Data Terminal task data when materialized. A `null` value should be
 	// treated as a lazily unavailable `TaskData`, for example when the job
@@ -602,11 +609,12 @@ type JobStore string
 
 // JobSummary defines model for JobSummary.
 type JobSummary struct {
-	ArchivedAt            *time.Time      `json:"archivedAt,omitempty"`
-	AvailableAt           time.Time       `json:"availableAt"`
-	CancelRequested       bool            `json:"cancelRequested"`
-	ClientPayload         json.RawMessage `json:"clientPayload,omitempty"`
-	ClientPayloadRevision string          `json:"clientPayloadRevision"`
+	ArchivedAt            *time.Time          `json:"archivedAt,omitempty"`
+	AvailableAt           time.Time           `json:"availableAt"`
+	BlockingWait          *DependencyWaitInfo `json:"blockingWait,omitempty"`
+	CancelRequested       bool                `json:"cancelRequested"`
+	ClientPayload         json.RawMessage     `json:"clientPayload,omitempty"`
+	ClientPayloadRevision string              `json:"clientPayloadRevision"`
 
 	// CompletionDetail Persisted terminal completion detail. Empty is valid, including for success.
 	CompletionDetail *string `json:"completionDetail,omitempty"`
@@ -648,6 +656,18 @@ type KeepAliveLeaseResponse struct {
 type ListChaptersResponse struct {
 	Chapters []ChapterRecord `json:"chapters"`
 }
+
+// ListDependencyWaitsRequest defines model for ListDependencyWaitsRequest.
+type ListDependencyWaitsRequest = jobdb.ListDependencyWaitsRequest
+
+// ListDependencyWaitsResponse defines model for ListDependencyWaitsResponse.
+type ListDependencyWaitsResponse = jobdb.ListDependencyWaitsResponse
+
+// ListGoalsRequest defines model for ListGoalsRequest.
+type ListGoalsRequest = jobdb.ListGoalsRequest
+
+// ListGoalsResponse defines model for ListGoalsResponse.
+type ListGoalsResponse = jobdb.ListGoalsResponse
 
 // ListJobSchemasResponse defines model for ListJobSchemasResponse.
 type ListJobSchemasResponse struct {
@@ -1312,6 +1332,12 @@ type RemoveTenantConfigurationValueJSONRequestBody = RemoveConfigurationBody
 
 // SetTenantConfigurationValueJSONRequestBody defines body for SetTenantConfigurationValue for application/json ContentType.
 type SetTenantConfigurationValueJSONRequestBody = SetConfigurationBody
+
+// ListDependencyWaitsJSONRequestBody defines body for ListDependencyWaits for application/json ContentType.
+type ListDependencyWaitsJSONRequestBody = ListDependencyWaitsRequest
+
+// ListGoalsJSONRequestBody defines body for ListGoals for application/json ContentType.
+type ListGoalsJSONRequestBody = ListGoalsRequest
 
 // FailGoalJSONRequestBody defines body for FailGoal for application/json ContentType.
 type FailGoalJSONRequestBody = FailGoalRequest
@@ -2052,6 +2078,16 @@ type ClientInterface interface {
 
 	SetTenantConfigurationValue(ctx context.Context, tenantId TenantId, params *SetTenantConfigurationValueParams, body SetTenantConfigurationValueJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListDependencyWaitsWithBody request with any body
+	ListDependencyWaitsWithBody(ctx context.Context, tenantId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ListDependencyWaits(ctx context.Context, tenantId string, body ListDependencyWaitsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListGoalsWithBody request with any body
+	ListGoalsWithBody(ctx context.Context, tenantId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ListGoals(ctx context.Context, tenantId string, body ListGoalsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetGoal request
 	GetGoal(ctx context.Context, tenantId string, goalId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -2310,6 +2346,54 @@ func (c *Client) SetTenantConfigurationValueWithBody(ctx context.Context, tenant
 
 func (c *Client) SetTenantConfigurationValue(ctx context.Context, tenantId TenantId, params *SetTenantConfigurationValueParams, body SetTenantConfigurationValueJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSetTenantConfigurationValueRequest(c.Server, tenantId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListDependencyWaitsWithBody(ctx context.Context, tenantId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListDependencyWaitsRequestWithBody(c.Server, tenantId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListDependencyWaits(ctx context.Context, tenantId string, body ListDependencyWaitsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListDependencyWaitsRequest(c.Server, tenantId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListGoalsWithBody(ctx context.Context, tenantId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListGoalsRequestWithBody(c.Server, tenantId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListGoals(ctx context.Context, tenantId string, body ListGoalsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListGoalsRequest(c.Server, tenantId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3354,6 +3438,100 @@ func NewSetTenantConfigurationValueRequestWithBody(server string, tenantId Tenan
 		}
 
 	}
+
+	return req, nil
+}
+
+// NewListDependencyWaitsRequest calls the generic ListDependencyWaits builder with application/json body
+func NewListDependencyWaitsRequest(server string, tenantId string, body ListDependencyWaitsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewListDependencyWaitsRequestWithBody(server, tenantId, "application/json", bodyReader)
+}
+
+// NewListDependencyWaitsRequestWithBody generates requests for ListDependencyWaits with any type of body
+func NewListDependencyWaitsRequestWithBody(server string, tenantId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/dependency-waits/query", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListGoalsRequest calls the generic ListGoals builder with application/json body
+func NewListGoalsRequest(server string, tenantId string, body ListGoalsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewListGoalsRequestWithBody(server, tenantId, "application/json", bodyReader)
+}
+
+// NewListGoalsRequestWithBody generates requests for ListGoals with any type of body
+func NewListGoalsRequestWithBody(server string, tenantId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/goals/query", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -5917,6 +6095,16 @@ type ClientWithResponsesInterface interface {
 
 	SetTenantConfigurationValueWithResponse(ctx context.Context, tenantId TenantId, params *SetTenantConfigurationValueParams, body SetTenantConfigurationValueJSONRequestBody, reqEditors ...RequestEditorFn) (*SetTenantConfigurationValueHTTPResponse, error)
 
+	// ListDependencyWaitsWithBodyWithResponse request with any body
+	ListDependencyWaitsWithBodyWithResponse(ctx context.Context, tenantId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListDependencyWaitsHTTPResponse, error)
+
+	ListDependencyWaitsWithResponse(ctx context.Context, tenantId string, body ListDependencyWaitsJSONRequestBody, reqEditors ...RequestEditorFn) (*ListDependencyWaitsHTTPResponse, error)
+
+	// ListGoalsWithBodyWithResponse request with any body
+	ListGoalsWithBodyWithResponse(ctx context.Context, tenantId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListGoalsHTTPResponse, error)
+
+	ListGoalsWithResponse(ctx context.Context, tenantId string, body ListGoalsJSONRequestBody, reqEditors ...RequestEditorFn) (*ListGoalsHTTPResponse, error)
+
 	// GetGoalWithResponse request
 	GetGoalWithResponse(ctx context.Context, tenantId string, goalId string, reqEditors ...RequestEditorFn) (*GetGoalHTTPResponse, error)
 
@@ -6203,6 +6391,50 @@ func (r SetTenantConfigurationValueHTTPResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r SetTenantConfigurationValueHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ListDependencyWaitsHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ListDependencyWaitsResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r ListDependencyWaitsHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListDependencyWaitsHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ListGoalsHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ListGoalsResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r ListGoalsHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListGoalsHTTPResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -7226,6 +7458,40 @@ func (c *ClientWithResponses) SetTenantConfigurationValueWithResponse(ctx contex
 	return ParseSetTenantConfigurationValueHTTPResponse(rsp)
 }
 
+// ListDependencyWaitsWithBodyWithResponse request with arbitrary body returning *ListDependencyWaitsHTTPResponse
+func (c *ClientWithResponses) ListDependencyWaitsWithBodyWithResponse(ctx context.Context, tenantId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListDependencyWaitsHTTPResponse, error) {
+	rsp, err := c.ListDependencyWaitsWithBody(ctx, tenantId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListDependencyWaitsHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) ListDependencyWaitsWithResponse(ctx context.Context, tenantId string, body ListDependencyWaitsJSONRequestBody, reqEditors ...RequestEditorFn) (*ListDependencyWaitsHTTPResponse, error) {
+	rsp, err := c.ListDependencyWaits(ctx, tenantId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListDependencyWaitsHTTPResponse(rsp)
+}
+
+// ListGoalsWithBodyWithResponse request with arbitrary body returning *ListGoalsHTTPResponse
+func (c *ClientWithResponses) ListGoalsWithBodyWithResponse(ctx context.Context, tenantId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListGoalsHTTPResponse, error) {
+	rsp, err := c.ListGoalsWithBody(ctx, tenantId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListGoalsHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) ListGoalsWithResponse(ctx context.Context, tenantId string, body ListGoalsJSONRequestBody, reqEditors ...RequestEditorFn) (*ListGoalsHTTPResponse, error) {
+	rsp, err := c.ListGoals(ctx, tenantId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListGoalsHTTPResponse(rsp)
+}
+
 // GetGoalWithResponse request returning *GetGoalHTTPResponse
 func (c *ClientWithResponses) GetGoalWithResponse(ctx context.Context, tenantId string, goalId string, reqEditors ...RequestEditorFn) (*GetGoalHTTPResponse, error) {
 	rsp, err := c.GetGoal(ctx, tenantId, goalId, reqEditors...)
@@ -8055,6 +8321,58 @@ func ParseSetTenantConfigurationValueHTTPResponse(rsp *http.Response) (*SetTenan
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListDependencyWaitsHTTPResponse parses an HTTP response from a ListDependencyWaitsWithResponse call
+func ParseListDependencyWaitsHTTPResponse(rsp *http.Response) (*ListDependencyWaitsHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListDependencyWaitsHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ListDependencyWaitsResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListGoalsHTTPResponse parses an HTTP response from a ListGoalsWithResponse call
+func ParseListGoalsHTTPResponse(rsp *http.Response) (*ListGoalsHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListGoalsHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ListGoalsResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	}
 
@@ -9253,6 +9571,12 @@ type ServerInterface interface {
 	// (POST /v1/tenants/{tenantId}/configuration/set)
 	SetTenantConfigurationValue(w http.ResponseWriter, r *http.Request, tenantId TenantId, params SetTenantConfigurationValueParams)
 
+	// (POST /v1/tenants/{tenantId}/dependency-waits/query)
+	ListDependencyWaits(w http.ResponseWriter, r *http.Request, tenantId string)
+
+	// (POST /v1/tenants/{tenantId}/goals/query)
+	ListGoals(w http.ResponseWriter, r *http.Request, tenantId string)
+
 	// (GET /v1/tenants/{tenantId}/goals/{goalId})
 	GetGoal(w http.ResponseWriter, r *http.Request, tenantId string, goalId string)
 
@@ -9408,6 +9732,16 @@ func (_ Unimplemented) RemoveTenantConfigurationValue(w http.ResponseWriter, r *
 // Set one tenant configuration value
 // (POST /v1/tenants/{tenantId}/configuration/set)
 func (_ Unimplemented) SetTenantConfigurationValue(w http.ResponseWriter, r *http.Request, tenantId TenantId, params SetTenantConfigurationValueParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /v1/tenants/{tenantId}/dependency-waits/query)
+func (_ Unimplemented) ListDependencyWaits(w http.ResponseWriter, r *http.Request, tenantId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /v1/tenants/{tenantId}/goals/query)
+func (_ Unimplemented) ListGoals(w http.ResponseWriter, r *http.Request, tenantId string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -9826,6 +10160,68 @@ func (siw *ServerInterfaceWrapper) SetTenantConfigurationValue(w http.ResponseWr
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetTenantConfigurationValue(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDependencyWaits operation middleware
+func (siw *ServerInterfaceWrapper) ListDependencyWaits(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDependencyWaits(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListGoals operation middleware
+func (siw *ServerInterfaceWrapper) ListGoals(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListGoals(w, r, tenantId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -12277,6 +12673,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/configuration/set", wrapper.SetTenantConfigurationValue)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/dependency-waits/query", wrapper.ListDependencyWaits)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/goals/query", wrapper.ListGoals)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/tenants/{tenantId}/goals/{goalId}", wrapper.GetGoal)
 	})
 	r.Group(func(r chi.Router) {
@@ -12845,6 +13247,42 @@ func (response SetTenantConfigurationValue503JSONResponse) VisitSetTenantConfigu
 	w.WriteHeader(503)
 
 	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListDependencyWaitsRequestObject struct {
+	TenantId string `json:"tenantId"`
+	Body     *ListDependencyWaitsJSONRequestBody
+}
+
+type ListDependencyWaitsResponseObject interface {
+	VisitListDependencyWaitsResponse(w http.ResponseWriter) error
+}
+
+type ListDependencyWaits200JSONResponse ListDependencyWaitsResponse
+
+func (response ListDependencyWaits200JSONResponse) VisitListDependencyWaitsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListGoalsRequestObject struct {
+	TenantId string `json:"tenantId"`
+	Body     *ListGoalsJSONRequestBody
+}
+
+type ListGoalsResponseObject interface {
+	VisitListGoalsResponse(w http.ResponseWriter) error
+}
+
+type ListGoals200JSONResponse ListGoalsResponse
+
+func (response ListGoals200JSONResponse) VisitListGoalsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type GetGoalRequestObject struct {
@@ -13988,6 +14426,12 @@ type StrictServerInterface interface {
 	// (POST /v1/tenants/{tenantId}/configuration/set)
 	SetTenantConfigurationValue(ctx context.Context, request SetTenantConfigurationValueRequestObject) (SetTenantConfigurationValueResponseObject, error)
 
+	// (POST /v1/tenants/{tenantId}/dependency-waits/query)
+	ListDependencyWaits(ctx context.Context, request ListDependencyWaitsRequestObject) (ListDependencyWaitsResponseObject, error)
+
+	// (POST /v1/tenants/{tenantId}/goals/query)
+	ListGoals(ctx context.Context, request ListGoalsRequestObject) (ListGoalsResponseObject, error)
+
 	// (GET /v1/tenants/{tenantId}/goals/{goalId})
 	GetGoal(ctx context.Context, request GetGoalRequestObject) (GetGoalResponseObject, error)
 
@@ -14265,6 +14709,72 @@ func (sh *strictHandler) SetTenantConfigurationValue(w http.ResponseWriter, r *h
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetTenantConfigurationValueResponseObject); ok {
 		if err := validResponse.VisitSetTenantConfigurationValueResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListDependencyWaits operation middleware
+func (sh *strictHandler) ListDependencyWaits(w http.ResponseWriter, r *http.Request, tenantId string) {
+	var request ListDependencyWaitsRequestObject
+
+	request.TenantId = tenantId
+
+	var body ListDependencyWaitsJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListDependencyWaits(ctx, request.(ListDependencyWaitsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListDependencyWaits")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListDependencyWaitsResponseObject); ok {
+		if err := validResponse.VisitListDependencyWaitsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListGoals operation middleware
+func (sh *strictHandler) ListGoals(w http.ResponseWriter, r *http.Request, tenantId string) {
+	var request ListGoalsRequestObject
+
+	request.TenantId = tenantId
+
+	var body ListGoalsJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListGoals(ctx, request.(ListGoalsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListGoals")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListGoalsResponseObject); ok {
+		if err := validResponse.VisitListGoalsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

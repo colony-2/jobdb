@@ -967,7 +967,8 @@ func TestExecutionChildJoinOutcomes(t *testing.T) {
 			var submits, after atomic.Int32
 			task := executionTestTask{"echo", func(c wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
 				submits.Add(1)
-				key, err := c.SubmitJob(c.Context(), jobdb.SubmitJob{JobID: "child", JobType: "child", Data: in})
+				keyHandle, err := c.SubmitJob(c.Context(), jobdb.SubmitJob{JobID: "child", JobType: "child", Data: in})
+				key := keyHandle.JobKey
 				if err != nil {
 					return nil, err
 				}

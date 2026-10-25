@@ -383,7 +383,7 @@ func (l *fakeExecutionLease) SubmitJob(_ context.Context, req SubmitJobRequest) 
 	}
 	l.submitJobCalls = append(l.submitJobCalls, req)
 	l.mu.Unlock()
-	return JobHandle{JobKey: JobKey{TenantId: req.Job.TenantId, JobId: req.Job.JobID}}, nil
+	return JobHandle{GoalID: "child-goal", JobKey: JobKey{TenantId: req.Job.TenantId, JobId: req.Job.JobID}}, nil
 }
 
 func (l *fakeExecutionLease) SubmitRestartJob(_ context.Context, req SubmitRestartJobRequest) (JobHandle, error) {
@@ -396,7 +396,7 @@ func (l *fakeExecutionLease) SubmitRestartJob(_ context.Context, req SubmitResta
 	}
 	l.submitRestartCalls = append(l.submitRestartCalls, req)
 	l.mu.Unlock()
-	return JobHandle{JobKey: JobKey{TenantId: req.Job.PriorJobKey.TenantId, JobId: req.Job.JobID}}, nil
+	return JobHandle{GoalID: "restart-goal", JobKey: JobKey{TenantId: req.Job.PriorJobKey.TenantId, JobId: req.Job.JobID}}, nil
 }
 
 func (l *fakeExecutionLease) snapshot() (int, int, []CompleteExecutionRequest, []RescheduleExecutionRequest) {
@@ -422,11 +422,12 @@ func TestWorkerRunnerContextSubmitJobUsesLease(t *testing.T) {
 	}
 
 	var jobCtx ExecutionContext = &executionContext{ctx: context.Background(), run: &executionRun{r: runner}}
-	childKey, err := jobCtx.SubmitJob(context.Background(), SubmitJob{
+	childKeyHandle, err := jobCtx.SubmitJob(context.Background(), SubmitJob{
 		JobID:   "child",
 		JobType: "child-type",
 		Data:    &SimpleTaskData{Data: json.RawMessage(`{"n":1}`)},
 	})
+	childKey := childKeyHandle.JobKey
 	if err != nil {
 		t.Fatalf("job context submit job: %v", err)
 	}
@@ -435,11 +436,12 @@ func TestWorkerRunnerContextSubmitJobUsesLease(t *testing.T) {
 	}
 
 	taskCtx := newTaskContextWithLeaseActions(parent, 1, nil, nil, nil, runner.SubmitJob, runner.SubmitRestartJob, runner.ClientPayload, runner.ClientPayloadRevision, jobCtx.Yield, runner.ResolveSecrets, runner.ResolveSecretsFresh, runner.GetConfiguration)
-	restartKey, err := taskCtx.SubmitRestartJob(context.Background(), SubmitRestartJob{
+	restartKeyHandle, err := taskCtx.SubmitRestartJob(context.Background(), SubmitRestartJobRequest{RequestID: "stable-restart", Job: SubmitRestartJob{
 		JobID:          "child-restart",
 		PriorJobKey:    JobKey{JobId: "prior"},
 		LastStepToKeep: 0,
-	})
+	}})
+	restartKey := restartKeyHandle.JobKey
 	if err != nil {
 		t.Fatalf("task context submit restart job: %v", err)
 	}
@@ -447,6 +449,12 @@ func TestWorkerRunnerContextSubmitJobUsesLease(t *testing.T) {
 		t.Fatalf("restart key = %+v", restartKey)
 	}
 
+	if childKeyHandle.GoalID != "child-goal" || restartKeyHandle.GoalID != "restart-goal" {
+		t.Fatal("submission lost goal identity")
+	}
+	if lease.submitRestartCalls[0].RequestID != "stable-restart" {
+		t.Fatal("restart lost request ID")
+	}
 	lease.mu.Lock()
 	defer lease.mu.Unlock()
 	if len(lease.submitJobCalls) != 1 {
@@ -1197,4 +1205,11 @@ func (r *runnerTestRuntime) AddGoalCandidate(context.Context, jobdb.AddGoalCandi
 }
 func (r *runnerTestRuntime) FailGoal(context.Context, jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
 	panic("unexpected goal mutation")
+}
+
+func (r *runnerTestRuntime) ListGoals(context.Context, jobdb.ListGoalsRequest) (jobdb.ListGoalsResponse, error) {
+	return jobdb.ListGoalsResponse{}, nil
+}
+func (r *runnerTestRuntime) ListDependencyWaits(context.Context, jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error) {
+	return jobdb.ListDependencyWaitsResponse{}, nil
 }

@@ -75,6 +75,7 @@ const (
 )
 
 type JobInfo struct {
+	BlockingWait          *DependencyWaitInfo
 	GoalID                string
 	OtherGoalIDs          []string
 	ClientPayload         json.RawMessage

@@ -325,3 +325,10 @@ func (r *claimsCapturingRuntime) AddGoalCandidate(context.Context, jobdb.AddGoal
 func (r *claimsCapturingRuntime) FailGoal(context.Context, jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
 	panic("unexpected goal mutation")
 }
+
+func (r *claimsCapturingRuntime) ListGoals(context.Context, jobdb.ListGoalsRequest) (jobdb.ListGoalsResponse, error) {
+	return jobdb.ListGoalsResponse{}, nil
+}
+func (r *claimsCapturingRuntime) ListDependencyWaits(context.Context, jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error) {
+	return jobdb.ListDependencyWaitsResponse{}, nil
+}

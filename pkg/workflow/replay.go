@@ -207,3 +207,10 @@ func (r replayReadOnlyRuntime) AddGoalCandidate(context.Context, jobdb.AddGoalCa
 func (r replayReadOnlyRuntime) FailGoal(context.Context, jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
 	return jobdb.GoalInfo{}, replayMutationError("fail goal")
 }
+
+func (r replayReadOnlyRuntime) ListGoals(ctx context.Context, req jobdb.ListGoalsRequest) (jobdb.ListGoalsResponse, error) {
+	return r.runtime.ListGoals(ctx, req)
+}
+func (r replayReadOnlyRuntime) ListDependencyWaits(ctx context.Context, req jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error) {
+	return r.runtime.ListDependencyWaits(ctx, req)
+}

@@ -162,11 +162,12 @@ func runConstructAndExecuteThroughBuilder(t *testing.T, harnesses []Harness) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 
-			jobKey, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
+			jobKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
 				TenantId: built.WorkerTenantID,
 				JobType:  SequenceJobName,
 				Data:     NumberTaskData(1),
 			})
+			jobKey := jobKeyHandle.JobKey
 			if err != nil {
 				t.Fatalf("start job: %v", err)
 			}
@@ -1008,11 +1009,12 @@ func runConflictBehavior(t *testing.T, harnesses []Harness) {
 				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 				defer cancel()
 
-				jobKey, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
+				jobKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
 					TenantId: built.WorkerTenantID,
 					JobType:  SequenceJobName,
 					Data:     NumberTaskData(1),
 				})
+				jobKey := jobKeyHandle.JobKey
 				if err != nil {
 					t.Fatalf("submit waiting job: %v", err)
 				}
@@ -1105,12 +1107,13 @@ func runExplicitJobIDIdempotency(t *testing.T, harnesses []Harness) {
 				t.Fatalf("expected explicit submit mismatch, got %v", err)
 			}
 
-			originalKey, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
+			originalKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
 				TenantId: built.WorkerTenantID,
 				JobID:    "explicit-restart-source",
 				JobType:  SequenceJobName,
 				Data:     NumberTaskData(1),
 			})
+			originalKey := originalKeyHandle.JobKey
 			if err != nil {
 				t.Fatalf("submit restart source: %v", err)
 			}

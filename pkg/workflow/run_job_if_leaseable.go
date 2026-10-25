@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -52,6 +53,7 @@ type GetJobForRunRequest struct {
 }
 
 type JobRunOutcome struct {
+	BlockingWait *jobdb.DependencyWaitInfo
 	// Handoff is set only for an explicit Yield acknowledged during this Run.
 	// Read it after Run returns; no task callback needs to finish first.
 	Handoff       *Handoff
@@ -476,6 +478,7 @@ func applyJobRunSummary(ctx context.Context, runtime WorkflowRuntime, jobKey Job
 	applyJobRunStatus(outcome, summary.Status)
 	outcome.NextRoute = cloneRoute(summary.NextRoute)
 	outcome.WaitForJobIDs = append([]string(nil), summary.WaitFor...)
+	outcome.BlockingWait = summary.BlockingWait
 	if summary.NextRoute == nil {
 		return
 	}
@@ -510,6 +513,11 @@ func cloneJobRunOutcome(outcome JobRunOutcome) JobRunOutcome {
 	cloned.JobStatus = cloneJobStatusPtr(outcome.JobStatus)
 	cloned.NextRoute = cloneRoute(outcome.NextRoute)
 	cloned.WaitForJobIDs = append([]string(nil), outcome.WaitForJobIDs...)
+	if outcome.BlockingWait != nil {
+		cloned.BlockingWait = nil
+		raw, _ := json.Marshal(outcome.BlockingWait)
+		_ = json.Unmarshal(raw, &cloned.BlockingWait)
+	}
 	cloned.MissingRoute = cloneRoute(outcome.MissingRoute)
 	return cloned
 }

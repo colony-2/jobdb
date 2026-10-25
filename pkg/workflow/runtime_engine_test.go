@@ -145,8 +145,8 @@ func TestBuildEngineWithWorkflowRuntime(t *testing.T) {
 
 func TestRuntimeEngineDelegatesLifecycleMethodsToRuntime(t *testing.T) {
 	runtime := &fakeWorkflowRuntime{
-		startHandle:   JobHandle{JobKey: JobKey{TenantId: "tenant-a", JobId: "job-a"}},
-		restartHandle: JobHandle{JobKey: JobKey{TenantId: "tenant-b", JobId: "job-b"}},
+		startHandle:   JobHandle{GoalID: "submitted-goal", JobKey: JobKey{TenantId: "tenant-a", JobId: "job-a"}},
+		restartHandle: JobHandle{GoalID: "restart-goal", JobKey: JobKey{TenantId: "tenant-b", JobId: "job-b"}},
 		jobResp:       JobInfo{Status: JobStatusCompleted, Data: NewTaskDataOrPanic(map[string]int{"value": 42})},
 		listResp: ListJobsResponse{Jobs: []JobSummary{
 			{JobKey: JobKey{TenantId: "tenant-d", JobId: "job-d"}},
@@ -176,32 +176,37 @@ func TestRuntimeEngineDelegatesLifecycleMethodsToRuntime(t *testing.T) {
 		t.Fatalf("build engine: %v", err)
 	}
 
-	startKey, err := engine.SubmitJob(context.Background(), SubmitJob{
+	startKeyHandle, err := engine.SubmitJob(context.Background(), SubmitJob{
 		TenantId: "tenant-a",
 		JobType:  "type-a",
 		Data:     NewTaskDataOrPanic(map[string]int{"value": 1}),
 	})
+	startKey := startKeyHandle.JobKey
 	if err != nil {
 		t.Fatalf("start job: %v", err)
 	}
-	if startKey != runtime.startHandle.JobKey {
+	if startKeyHandle != runtime.startHandle {
 		t.Fatalf("unexpected start key %+v", startKey)
 	}
 	if runtime.startReq.Job.JobType != "type-a" || runtime.startReq.RequestTime.IsZero() {
 		t.Fatalf("unexpected start request %+v", runtime.startReq)
 	}
 
-	restartKey, err := engine.SubmitRestartJob(context.Background(), SubmitRestartJob{
+	restartKeyHandle, err := engine.SubmitRestartJob(context.Background(), SubmitRestartJobRequest{RequestID: "engine-restart", Job: SubmitRestartJob{
 		PriorJobKey:    JobKey{TenantId: "tenant-z", JobId: "prior"},
 		LastStepToKeep: 3,
-	})
+	}})
+	restartKey := restartKeyHandle.JobKey
 	if err != nil {
 		t.Fatalf("restart job: %v", err)
 	}
-	if restartKey != runtime.restartHandle.JobKey {
+	if restartKeyHandle != runtime.restartHandle {
 		t.Fatalf("unexpected restart key %+v", restartKey)
 	}
 
+	if runtime.restartReq.RequestID != "engine-restart" {
+		t.Fatal("lost restart request ID")
+	}
 	jobKey := JobKey{TenantId: "tenant-status", JobId: "job-status"}
 	job, err := engine.GetJob(context.Background(), jobKey)
 	if err != nil {
@@ -416,4 +421,11 @@ func (r *fakeWorkflowRuntime) AddGoalCandidate(context.Context, jobdb.AddGoalCan
 }
 func (r *fakeWorkflowRuntime) FailGoal(context.Context, jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
 	panic("unexpected goal mutation")
+}
+
+func (r *fakeWorkflowRuntime) ListGoals(context.Context, jobdb.ListGoalsRequest) (jobdb.ListGoalsResponse, error) {
+	return jobdb.ListGoalsResponse{}, nil
+}
+func (r *fakeWorkflowRuntime) ListDependencyWaits(context.Context, jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error) {
+	return jobdb.ListDependencyWaitsResponse{}, nil
 }

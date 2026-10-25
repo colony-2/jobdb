@@ -913,3 +913,19 @@ External implementations of runtimecore.Scheduler must implement GoalScheduler
 and honor the transaction requirements documented there. The core does not
 maintain an independent in-memory fallback. Whole-job retries remain the
 existing retry mechanism; c2j adoption is a separate integration.
+
+## Goal discovery and SDK identity
+
+Tenant-wide goal enumeration and dependency discovery are implemented through
+`ListGoals` and `ListDependencyWaits`. Reverse lookup intentionally covers only
+currently unresolved dependencies in pending waits. Consumer lookup retains wait
+history. Counts are read-time statistics; goal revision and update time continue
+to describe goal-record changes only.
+
+Engine, execution-context, and task-context submissions return `JobHandle`;
+restart helpers accept `SubmitRestartJobRequest` to retain the caller's
+`RequestID`. Live/replay contexts expose `Job()`, and job/run views expose
+`BlockingWait`.
+
+See [the discovery and SDK migration guide](GUIDE-C2J-GOAL-DISCOVERY.md) for
+filters, pagination, visibility, timeout projection, CLI, and migration examples.

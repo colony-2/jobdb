@@ -105,10 +105,10 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version == 7 {
+	if version == 8 {
 		return nil
 	}
-	if version != 6 {
+	if version != 6 && version != 7 {
 		var tables int
 		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tables); err != nil {
 			return err
@@ -126,7 +126,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		if _, err = tx.ExecContext(ctx, "ALTER TABLE jobdb_jobs ADD COLUMN goal_id TEXT NOT NULL DEFAULT ''; ALTER TABLE jobdb_jobs ADD COLUMN dependency_wait_id TEXT NOT NULL DEFAULT '';"); err != nil {
 			return err
 		}
-	} else {
+	} else if version != 7 {
 		if _, err = tx.ExecContext(ctx, schemaSQL); err != nil {
 			return err
 		}
@@ -183,7 +183,10 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			}
 		}
 	}
-	if _, err = tx.ExecContext(ctx, "PRAGMA user_version=7"); err != nil {
+	if err = migrateGoalDiscovery(ctx, tx); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "PRAGMA user_version=8"); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -195,4 +198,49 @@ func knownGoalMigrationOutcome(status string) bool {
 		return true
 	}
 	return false
+}
+
+// Derived indexed columns avoid parsing every tenant goal on each discovery page.
+func migrateGoalDiscovery(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, `ALTER TABLE jobdb_goals ADD COLUMN state TEXT NOT NULL DEFAULT '';
+ ALTER TABLE jobdb_goals ADD COLUMN created_at_ns INTEGER NOT NULL DEFAULT 0;
+ ALTER TABLE jobdb_goals ADD COLUMN updated_at_ns INTEGER NOT NULL DEFAULT 0;
+ CREATE INDEX jobdb_goals_state_idx ON jobdb_goals(tenant_id,state,goal_id);
+ CREATE INDEX jobdb_goals_created_idx ON jobdb_goals(tenant_id,created_at_ns,goal_id);
+ CREATE INDEX jobdb_goals_updated_idx ON jobdb_goals(tenant_id,updated_at_ns,goal_id);
+ CREATE INDEX jobdb_jobs_type_goal_idx ON jobdb_jobs(tenant_id,job_type,goal_id,job_id);
+ CREATE INDEX jobdb_dependency_targets_discovery_idx ON jobdb_dependency_targets(tenant_id,target_kind,target_id,job_id,wait_id);
+ CREATE INDEX jobdb_dependency_waits_state_idx ON jobdb_dependency_waits(tenant_id,job_id,state,wait_id);`)
+	if err != nil {
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, "SELECT payload FROM jobdb_goals")
+	if err != nil {
+		return err
+	}
+	var goals []jobdb.GoalInfo
+	for rows.Next() {
+		var raw []byte
+		var g jobdb.GoalInfo
+		if err = rows.Scan(&raw); err != nil {
+			rows.Close()
+			return err
+		}
+		if err = json.Unmarshal(raw, &g); err != nil {
+			rows.Close()
+			return err
+		}
+		goals = append(goals, g)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, g := range goals {
+		if _, err = tx.ExecContext(ctx, "UPDATE jobdb_goals SET state=?,created_at_ns=?,updated_at_ns=? WHERE tenant_id=? AND goal_id=?", g.State, g.CreatedAt.UnixNano(), g.UpdatedAt.UnixNano(), g.GoalKey.TenantId, g.GoalKey.GoalID); err != nil {
+			return err
+		}
+	}
+	return nil
 }

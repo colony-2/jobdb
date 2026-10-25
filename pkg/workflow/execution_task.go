@@ -141,6 +141,7 @@ func (c *executionContext) invokeTask(worker TaskWorker, input TaskData) (TaskDa
 func (c *executionContext) taskContext() TaskContext {
 	tc := newTaskContextWithLeaseActions(c.GetJobKey(), c.run.nextOrdinal(), c.Logger(), func(at time.Time) error { return c.waitUntil(at, c.deadline) }, c.awaitTaskJobs, c.SubmitJob, c.SubmitRestartJob, c.ClientPayload, c.ClientPayloadRevision, c.Yield, c.ResolveSecrets, c.ResolveSecretsFresh, c.GetConfiguration)
 	tc.executionContext = c.ctx
+	tc.goalID = c.run.r.goalID
 	tc.createDelegation = c.createTaskDelegation
 	// c.id ends with the engine-owned task attempt suffix. Consumer call sites
 	// are JSON-quoted earlier in the identity and cannot replace this suffix.
@@ -183,12 +184,12 @@ func (c *executionContext) ResolveSecretsFresh(ctx context.Context, names []stri
 }
 func (c *executionContext) ClientPayload() json.RawMessage { return c.run.r.ClientPayload() }
 func (c *executionContext) ClientPayloadRevision() int64   { return c.run.r.ClientPayloadRevision() }
-func (c *executionContext) SubmitJob(ctx context.Context, req SubmitJob) (JobKey, error) {
+func (c *executionContext) SubmitJob(ctx context.Context, req SubmitJob) (JobHandle, error) {
 	if err := context.Cause(c.ctx); err != nil {
-		return JobKey{}, err
+		return JobHandle{}, err
 	}
 	if c.run.r.replay {
-		return JobKey{}, ErrReplayShouldNeverMutate
+		return JobHandle{}, ErrReplayShouldNeverMutate
 	}
 	callCtx, cancel := invocationCallContext(ctx, c.ctx)
 	defer cancel()
@@ -278,12 +279,12 @@ func nonzeroTime(t time.Time) *time.Time {
 	return &t
 }
 
-func (c *executionContext) SubmitRestartJob(ctx context.Context, req SubmitRestartJob) (JobKey, error) {
+func (c *executionContext) SubmitRestartJob(ctx context.Context, req SubmitRestartJobRequest) (JobHandle, error) {
 	if err := context.Cause(c.ctx); err != nil {
-		return JobKey{}, err
+		return JobHandle{}, err
 	}
 	if c.run.r.replay {
-		return JobKey{}, ErrReplayShouldNeverMutate
+		return JobHandle{}, ErrReplayShouldNeverMutate
 	}
 	callCtx, cancel := invocationCallContext(ctx, c.ctx)
 	defer cancel()
@@ -315,4 +316,8 @@ func (c *executionContext) Yield(ctx context.Context, req YieldRequest) error {
 		return context.Canceled
 	}
 	return c.run.suspend()
+}
+
+func (c *executionContext) Job() JobHandle {
+	return JobHandle{JobKey: c.GetJobKey(), GoalID: c.run.r.goalID}
 }

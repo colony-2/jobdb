@@ -59,7 +59,7 @@ func (s goalStore) SaveGoal(g jobdb.GoalInfo) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.q.ExecContext(s.ctx, `INSERT INTO jobdb_goals(tenant_id,goal_id,payload) VALUES(?,?,?) ON CONFLICT(tenant_id,goal_id) DO UPDATE SET payload=excluded.payload`, g.GoalKey.TenantId, g.GoalKey.GoalID, raw)
+	_, err = s.q.ExecContext(s.ctx, `INSERT INTO jobdb_goals(tenant_id,goal_id,payload,state,created_at_ns,updated_at_ns) VALUES(?,?,?,?,?,?) ON CONFLICT(tenant_id,goal_id) DO UPDATE SET payload=excluded.payload,state=excluded.state,updated_at_ns=excluded.updated_at_ns`, g.GoalKey.TenantId, g.GoalKey.GoalID, raw, g.State, g.CreatedAt.UnixNano(), g.UpdatedAt.UnixNano())
 	return err
 }
 func (s goalStore) Candidates(key jobdb.GoalKey) ([]goalstate.Job, error) {

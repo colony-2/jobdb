@@ -32,6 +32,7 @@ func GetJobRun(ctx context.Context, runtime WorkflowRuntime, req GetJobRunReques
 
 	resp := GetJobRunResponse{
 		Job: JobRunSummary{
+			GoalID: job.GoalID, OtherGoalIDs: append([]string(nil), job.OtherGoalIDs...), BlockingWait: job.BlockingWait,
 			JobKey:           req.JobKey,
 			JobType:          job.JobType,
 			Status:           job.Status,

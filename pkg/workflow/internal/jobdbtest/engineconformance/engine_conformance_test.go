@@ -39,20 +39,22 @@ func TestRestartJobWithoutExtraOutputAcrossBuiltInRuntimes(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 
-			origKey, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
+			origKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
 				TenantId: built.WorkerTenantID,
 				JobType:  jobdbtest.SequenceJobName,
 				Data:     jobdbtest.NumberTaskData(1),
 			})
+			origKey := origKeyHandle.JobKey
 			if err != nil {
 				t.Fatalf("start job: %v", err)
 			}
 			jobdbtest.WaitForEngineStatus(t, ctx, built.Engine, origKey, jobdb.JobStatusCompleted)
 
-			restartKey, err := built.Engine.SubmitRestartJob(ctx, jobdb.SubmitRestartJob{
+			restartKeyHandle, err := built.Engine.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{
 				PriorJobKey:    origKey,
 				LastStepToKeep: 0,
-			})
+			}})
+			restartKey := restartKeyHandle.JobKey
 			if err != nil {
 				t.Fatalf("restart job: %v", err)
 			}
@@ -88,13 +90,15 @@ func TestEngineExplicitJobIDDuplicateSubmitAcrossBuiltInRuntimes(t *testing.T) {
 				Data:     jobdbtest.NumberTaskData(7),
 				Metadata: json.RawMessage(`{"queue":"blue"}`),
 			}
-			jobKey, err := built.Engine.SubmitJob(ctx, base)
+			jobKeyHandle, err := built.Engine.SubmitJob(ctx, base)
+			jobKey := jobKeyHandle.JobKey
 			if err != nil {
 				t.Fatalf("submit engine explicit job id: %v", err)
 			}
 			jobdbtest.WaitForEngineStatus(t, ctx, built.Engine, jobKey, jobdb.JobStatusCompleted)
 
-			matching, err := built.Engine.SubmitJob(ctx, base)
+			matchingHandle, err := built.Engine.SubmitJob(ctx, base)
+			matching := matchingHandle.JobKey
 			if err != nil {
 				t.Fatalf("repeat engine explicit job id: %v", err)
 			}
@@ -129,7 +133,8 @@ func TestEngineExplicitJobIDDuplicateSubmitAcrossBuiltInRuntimes(t *testing.T) {
 
 			otherTenant := base
 			otherTenant.TenantId = "tenant-engine-explicit-b-" + harness.Name
-			otherKey, err := built.Engine.SubmitJob(ctx, otherTenant)
+			otherKeyHandle, err := built.Engine.SubmitJob(ctx, otherTenant)
+			otherKey := otherKeyHandle.JobKey
 			if err != nil {
 				t.Fatalf("submit engine explicit job id in other tenant: %v", err)
 			}
@@ -156,11 +161,12 @@ func TestGetJobRunLazilyLoadsOutputAcrossBuiltInRuntimes(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 
-			jobKey, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
+			jobKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
 				TenantId: built.WorkerTenantID,
 				JobType:  jobdbtest.SequenceJobName,
 				Data:     jobdbtest.NumberTaskData(1),
 			})
+			jobKey := jobKeyHandle.JobKey
 			if err != nil {
 				t.Fatalf("start job: %v", err)
 			}
@@ -197,11 +203,12 @@ func TestGetJobRunGetOutputFailedAcrossBuiltInRuntimes(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 
-			jobKey, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
+			jobKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
 				TenantId: built.WorkerTenantID,
 				JobType:  jobdbtest.FailingJobName,
 				Data:     jobdbtest.NumberTaskData(1),
 			})
+			jobKey := jobKeyHandle.JobKey
 			if err != nil {
 				t.Fatalf("start job: %v", err)
 			}

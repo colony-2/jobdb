@@ -737,7 +737,11 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 	defer r.engine.mu.Unlock()
 	record.mu.Lock()
 	defer record.mu.Unlock()
-	job := jobdb.JobInfo{GoalID: record.goalID, OtherGoalIDs: r.engine.otherGoalsLocked(jobKey),
+	blocking, err := r.engine.blockingWaitLocked(jobKey, record, time.Now().UTC())
+	if err != nil {
+		return jobdb.JobInfo{}, err
+	}
+	job := jobdb.JobInfo{BlockingWait: blocking, GoalID: record.goalID, OtherGoalIDs: r.engine.otherGoalsLocked(jobKey),
 		ClientPayload: cloneJSON(record.clientPayload), ClientPayloadRevision: record.clientPayloadRevision, ExecutionState: toyExecutionState(record.payload),
 		Status:     r.engine.availableStatusLocked(jobKey.TenantId, time.Now(), record),
 		Data:       &jobInfoTaskData{err: jobdb.ErrJobNotComplete},

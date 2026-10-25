@@ -801,3 +801,22 @@ func (r *tenantNamespacedRuntime) GetDependencyWait(ctx context.Context, key job
 	out.JobKey = original
 	return out, err
 }
+
+func (r *tenantNamespacedRuntime) ListGoals(ctx context.Context, req jobdb.ListGoalsRequest) (jobdb.ListGoalsResponse, error) {
+	tenant := req.TenantId
+	req.TenantId = r.prefixTenant(tenant)
+	out, err := r.runtime.ListGoals(ctx, req)
+	for i := range out.Goals {
+		out.Goals[i].GoalKey.TenantId = tenant
+	}
+	return out, err
+}
+func (r *tenantNamespacedRuntime) ListDependencyWaits(ctx context.Context, req jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error) {
+	tenant := req.TenantId
+	req.TenantId = r.prefixTenant(tenant)
+	out, err := r.runtime.ListDependencyWaits(ctx, req)
+	for i := range out.Waits {
+		out.Waits[i].JobKey.TenantId = tenant
+	}
+	return out, err
+}

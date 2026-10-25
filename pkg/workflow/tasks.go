@@ -29,6 +29,7 @@ type FindTasksWaitingRequest struct {
 }
 
 type TaskContext struct {
+	goalID              string
 	executionContext    context.Context
 	createDelegation    func(context.Context, jobdb.CreateDelegationRequest) (jobdb.RenewableExecutionLease, error)
 	getConfiguration    func(context.Context) (ConfigurationSnapshot, error)
@@ -54,8 +55,8 @@ type TaskContext struct {
 	await             func(wakeAt time.Time) error
 	awaitJobs         func(jobIds ...string) error
 	awaitDependencies func(...jobdb.Dependency) ([]jobdb.DependencyResolution, error)
-	submitJob         func(context.Context, SubmitJob) (JobKey, error)
-	submitRestartJob  func(context.Context, SubmitRestartJob) (JobKey, error)
+	submitJob         func(context.Context, SubmitJob) (JobHandle, error)
+	submitRestartJob  func(context.Context, SubmitRestartJobRequest) (JobHandle, error)
 }
 
 // AwaitDuration pauses task execution for the specified duration.
@@ -83,17 +84,17 @@ func (tc TaskContext) AwaitJobs(jobIds ...string) error {
 }
 
 // SubmitJob starts a child job using the current job lease.
-func (tc TaskContext) SubmitJob(ctx context.Context, submit SubmitJob) (JobKey, error) {
+func (tc TaskContext) SubmitJob(ctx context.Context, submit SubmitJob) (JobHandle, error) {
 	if tc.submitJob == nil {
-		return JobKey{}, fmt.Errorf("submitting jobs not supported in this context")
+		return JobHandle{}, fmt.Errorf("submitting jobs not supported in this context")
 	}
 	return tc.submitJob(ctx, submit)
 }
 
 // SubmitRestartJob starts a child restart job using the current job lease.
-func (tc TaskContext) SubmitRestartJob(ctx context.Context, restart SubmitRestartJob) (JobKey, error) {
+func (tc TaskContext) SubmitRestartJob(ctx context.Context, restart SubmitRestartJobRequest) (JobHandle, error) {
 	if tc.submitRestartJob == nil {
-		return JobKey{}, fmt.Errorf("submitting restart jobs not supported in this context")
+		return JobHandle{}, fmt.Errorf("submitting restart jobs not supported in this context")
 	}
 	return tc.submitRestartJob(ctx, restart)
 }
@@ -115,8 +116,8 @@ func newTaskContextWithLeaseActions(
 	logger *slog.Logger,
 	await func(time.Time) error,
 	awaitJobs func(...string) error,
-	submitJob func(context.Context, SubmitJob) (JobKey, error),
-	submitRestartJob func(context.Context, SubmitRestartJob) (JobKey, error),
+	submitJob func(context.Context, SubmitJob) (JobHandle, error),
+	submitRestartJob func(context.Context, SubmitRestartJobRequest) (JobHandle, error),
 	clientPayload func() json.RawMessage, clientRevision func() int64, yield func(context.Context, YieldRequest) error,
 	resolveSecrets func(context.Context, []string) (SecretResolveResult, error),
 	resolveSecretsFresh func(context.Context, []string) (SecretResolveResult, error),
@@ -199,3 +200,6 @@ func (tc TaskContext) AwaitDependencies(deps ...jobdb.Dependency) ([]jobdb.Depen
 	}
 	return tc.awaitDependencies(deps...)
 }
+
+// Job returns the execution identity. Manually built contexts have no goal ID.
+func (tc TaskContext) Job() JobHandle { return JobHandle{JobKey: tc.JobKey, GoalID: tc.goalID} }

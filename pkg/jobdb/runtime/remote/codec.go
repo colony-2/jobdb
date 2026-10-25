@@ -1407,7 +1407,7 @@ func jobInfoToAPI(ctx context.Context, info jobdb.JobInfo) (runtimeapi.JobInfo, 
 	if err != nil {
 		return runtimeapi.JobInfo{}, err
 	}
-	out := runtimeapi.JobInfo{GoalId: info.GoalID, OtherGoalIds: nonNilStrings(info.OtherGoalIDs),
+	out := runtimeapi.JobInfo{BlockingWait: info.BlockingWait, GoalId: info.GoalID, OtherGoalIds: nonNilStrings(info.OtherGoalIDs),
 		ExecutionState: state, ClientPayload: cloneRawMessage(info.ClientPayload), ClientPayloadRevision: strconv.FormatInt(info.ClientPayloadRevision, 10),
 		SchemaHash: schemaHashPtr(info.SchemaHash),
 		Status:     runtimeapi.JobStatus(info.Status),
@@ -1436,7 +1436,7 @@ func jobInfoFromAPI(runtime *Runtime, jobKey jobdb.JobKey, info runtimeapi.JobIn
 	if err != nil {
 		return jobdb.JobInfo{}, err
 	}
-	out := jobdb.JobInfo{GoalID: info.GoalId, OtherGoalIDs: info.OtherGoalIds,
+	out := jobdb.JobInfo{BlockingWait: info.BlockingWait, GoalID: info.GoalId, OtherGoalIDs: info.OtherGoalIds,
 		ExecutionState: state, ClientPayload: cloneRawMessage(info.ClientPayload), ClientPayloadRevision: revision,
 		Status:     jobdb.JobStatus(info.Status),
 		Data:       &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
@@ -1462,7 +1462,7 @@ func jobSummaryToAPI(summary jobdb.JobSummary) (runtimeapi.JobSummary, error) {
 	if err != nil {
 		return runtimeapi.JobSummary{}, err
 	}
-	out := runtimeapi.JobSummary{GoalId: summary.GoalID, OtherGoalIds: nonNilStrings(summary.OtherGoalIDs),
+	out := runtimeapi.JobSummary{BlockingWait: summary.BlockingWait, GoalId: summary.GoalID, OtherGoalIds: nonNilStrings(summary.OtherGoalIDs),
 		CompletionStatus:      stringPtrOrNil(summary.CompletionStatus),
 		CompletionDetail:      stringPtrOrNil(summary.CompletionDetail),
 		ArchivedAt:            summary.ArchivedAt,
@@ -1492,17 +1492,17 @@ func jobSummaryFromAPI(summary runtimeapi.JobSummary) (jobdb.JobSummary, error) 
 	}
 	revision, err := payloadRevision(summary.ClientPayloadRevision)
 	if err != nil {
-		return jobdb.JobSummary{GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds}, err
+		return jobdb.JobSummary{BlockingWait: summary.BlockingWait, GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds}, err
 	}
 	state, err := executionStateFromAPI(summary.ExecutionState)
 	if err != nil {
-		return jobdb.JobSummary{GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds}, err
+		return jobdb.JobSummary{BlockingWait: summary.BlockingWait, GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds}, err
 	}
 	metadata, err := metadataAPIToJSON(summary.Metadata)
 	if err != nil {
-		return jobdb.JobSummary{GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds}, err
+		return jobdb.JobSummary{BlockingWait: summary.BlockingWait, GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds}, err
 	}
-	return jobdb.JobSummary{GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds,
+	return jobdb.JobSummary{BlockingWait: summary.BlockingWait, GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds,
 		CompletionStatus:      stringValue(summary.CompletionStatus),
 		CompletionDetail:      stringValue(summary.CompletionDetail),
 		JobKey:                fromAPIJobKey(summary.JobKey),

@@ -345,3 +345,10 @@ func (r *runJobIfLeaseableStubRuntime) AddGoalCandidate(context.Context, jobdb.A
 func (r *runJobIfLeaseableStubRuntime) FailGoal(context.Context, jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
 	panic("unexpected goal mutation")
 }
+
+func (r *runJobIfLeaseableStubRuntime) ListGoals(context.Context, jobdb.ListGoalsRequest) (jobdb.ListGoalsResponse, error) {
+	return jobdb.ListGoalsResponse{}, nil
+}
+func (r *runJobIfLeaseableStubRuntime) ListDependencyWaits(context.Context, jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error) {
+	return jobdb.ListDependencyWaitsResponse{}, nil
+}

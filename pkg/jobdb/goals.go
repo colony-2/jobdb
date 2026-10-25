@@ -204,6 +204,8 @@ func ValidateDependencyReschedule(r RescheduleExecutionRequest) error {
 
 // GoalRuntime is the durable, tenant-scoped goal and dependency read/mutation API.
 type GoalRuntime interface {
+	ListGoals(context.Context, ListGoalsRequest) (ListGoalsResponse, error)
+	ListDependencyWaits(context.Context, ListDependencyWaitsRequest) (ListDependencyWaitsResponse, error)
 	GetGoal(context.Context, GoalKey) (GoalInfo, error)
 	AddGoalCandidate(context.Context, AddGoalCandidateRequest) (GoalCandidateInfo, error)
 	FailGoal(context.Context, FailGoalRequest) (GoalInfo, error)

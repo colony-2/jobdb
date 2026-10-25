@@ -49,7 +49,8 @@ func RunRouteConformance(t *testing.T, harnesses ...Harness) {
 				defer built.Shutdown(t)
 				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 				defer cancel()
-				key, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: built.WorkerTenantID, JobType: job.Name(), Data: NumberTaskData(1)})
+				keyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: built.WorkerTenantID, JobType: job.Name(), Data: NumberTaskData(1)})
+				key := keyHandle.JobKey
 				if err != nil {
 					t.Fatal(err)
 				}
