@@ -124,6 +124,55 @@ func TestGoalsLifecycle(t *testing.T) {
 		require.ErrorIs(t, err, jobdb.ErrGoalConflict)
 	})
 }
+
+func TestGoalRestartRequestIDConflicts(t *testing.T) {
+	goalRuntimes(t, func(t *testing.T, r jobdb.WorkflowRuntime) {
+		for _, mode := range []string{"direct", "lease"} {
+			t.Run(mode, func(t *testing.T) {
+				ctx := context.Background()
+				submit := r.SubmitRestartJob
+				if mode == "lease" {
+					parent := goalSubmit(t, r, "restart-parent")
+					lease := goalLease(t, r, parent)
+					require.NotNil(t, lease)
+					submit = lease.SubmitRestartJob
+				}
+				source := goalSubmit(t, r, mode+"-source")
+				goalComplete(t, r, source, false)
+				req := jobdb.SubmitRestartJobRequest{
+					RequestID: mode + "-restart",
+					Job:       jobdb.SubmitRestartJob{PriorJobKey: source.JobKey, ShareGoal: true},
+				}
+				restarted, err := submit(ctx, req)
+				require.NoError(t, err)
+				require.NotEqual(t, source.JobKey, restarted.JobKey)
+				require.Equal(t, source.GoalID, restarted.GoalID)
+				assertRetry := func() {
+					t.Helper()
+					again, err := submit(ctx, req)
+					require.NoError(t, err)
+					require.Equal(t, restarted, again)
+					changed := req
+					changed.Job.ShareGoal = false
+					_, err = submit(ctx, changed)
+					require.ErrorIs(t, err, jobdb.ErrExistingJobMismatch)
+					require.ErrorIs(t, err, jobdb.ErrConflict)
+					require.NotErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
+				}
+				assertRetry()
+				goalComplete(t, r, restarted, false)
+				assertRetry() // The destination has advanced beyond its copied prefix.
+				_, err = r.FailGoal(ctx, jobdb.FailGoalRequest{GoalKey: goalKey(source), Message: "closed"})
+				require.NoError(t, err)
+				assertRetry() // Closure must not change the reserved request's result.
+				info, err := r.GetJob(ctx, restarted.JobKey)
+				require.NoError(t, err)
+				require.Equal(t, restarted.GoalID, info.GoalID)
+				require.Equal(t, jobdb.JobStatusCompleted, info.Status)
+			})
+		}
+	})
+}
 func TestGoalFailureSnapshotAndCancellation(t *testing.T) {
 	goalRuntimes(t, func(t *testing.T, r jobdb.WorkflowRuntime) {
 		ctx := context.Background()

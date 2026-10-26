@@ -1048,6 +1048,10 @@ func responseError(operation string, status int, body []byte, sentinel error) er
 			return fmt.Errorf("%w: %s", sentinel, message)
 		}
 	case http.StatusConflict:
+		var conflict runtimeapi.ErrorResponse
+		if json.Unmarshal(body, &conflict) == nil && conflict.Code == runtimeapi.ExistingJobMismatch {
+			return jobdb.NewExistingJobMismatchError(conflict.Message)
+		}
 		if strings.Contains(message, jobdb.ErrConflict.Error()) {
 			return fmt.Errorf("%w: %s", jobdb.ErrConflict, message)
 		}
