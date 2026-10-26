@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,6 +27,10 @@ import (
 type cliTestProvider struct{}
 
 func (cliTestProvider) ResolveSecrets(_ context.Context, r jobdb.SecretResolveRequest) (jobdb.SecretResolveResult, error) {
+	if os.Getenv("JOBDB_TEST_PROVIDER_OUTPUT") != "" {
+		fmt.Fprintln(os.Stdout, "provider stdout during resolution")
+		fmt.Fprintln(os.Stderr, "provider stderr during resolution")
+	}
 	out := jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{}}
 	for _, name := range r.Names {
 		if name == "token" {
@@ -37,6 +44,13 @@ func TestCLIPluginSubprocess(t *testing.T) {
 	if os.Getenv("JOBDB_SECRET_PLUGIN") == "" {
 		return
 	}
+	if mode := os.Getenv("JOBDB_TEST_PROVIDER_OUTPUT"); mode != "" {
+		fmt.Fprintln(os.Stderr, "provider startup diagnostic")
+		if mode == "fail" {
+			fmt.Println("provider invalid startup stdout")
+			os.Exit(2)
+		}
+	}
 	if marker := os.Getenv("JOBDB_TEST_PID_FILE"); marker != "" {
 		if err := os.WriteFile(marker, []byte(strconv.Itoa(os.Getpid())), 0600); err != nil {
 			os.Exit(2)
@@ -48,7 +62,33 @@ func cliPlugin(t *testing.T) providerEntry {
 	t.Helper()
 	exe, err := os.Executable()
 	require.NoError(t, err)
-	return providerEntry{ID: "external", Type: "plugin", Command: exe, Args: []string{"-test.run=^TestCLIPluginSubprocess$"}, PassEnv: []string{"JOBDB_TEST_PID_FILE"}}
+	return providerEntry{ID: "external", Type: "plugin", Command: exe, Args: []string{"-test.run=^TestCLIPluginSubprocess$"}, PassEnv: []string{"JOBDB_TEST_PID_FILE", "JOBDB_TEST_PROVIDER_OUTPUT"}}
+}
+
+type providerLogBuffer struct {
+	mu sync.Mutex
+	bytes.Buffer
+}
+
+func (b *providerLogBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.Buffer.Write(p)
+}
+
+func (b *providerLogBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.Buffer.String()
+}
+
+func captureProviderLogs(t *testing.T) *providerLogBuffer {
+	t.Helper()
+	b := &providerLogBuffer{}
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(b, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	return b
 }
 func writeProviderFile(t *testing.T, dir string, cfg providerFile) string {
 	t.Helper()
@@ -62,6 +102,8 @@ func writeProviderFile(t *testing.T, dir string, cfg providerFile) string {
 func TestCLIComposesSQLiteAndPluginAndKeepsLocalAdministration(t *testing.T) {
 	for _, mode := range []string{"default", "sqlite", "toy"} {
 		t.Run(mode, func(t *testing.T) {
+			logs := captureProviderLogs(t)
+			t.Setenv("JOBDB_TEST_PROVIDER_OUTPUT", "normal")
 			dir := t.TempDir()
 			cfg := providerFile{Version: 1, DevelopmentAdminProvider: "local", Providers: []providerEntry{{ID: "local", Type: "sqlite", Path: "local.db"}, cliPlugin(t)}}
 			path := writeProviderFile(t, dir, cfg)
@@ -95,6 +137,10 @@ func TestCLIComposesSQLiteAndPluginAndKeepsLocalAdministration(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, "external", r.Secrets["token"].ProviderID)
 				require.True(t, r.Secrets["token"].LeaseBound)
+				require.Eventually(t, func() bool {
+					output := logs.String()
+					return bytes.Contains([]byte(output), []byte("provider stdout during resolution")) && bytes.Contains([]byte(output), []byte("provider stderr during resolution"))
+				}, 3*time.Second, 10*time.Millisecond)
 				if cleanup != nil {
 					return cleanup(ctx)
 				}
@@ -107,6 +153,13 @@ func TestCLIComposesSQLiteAndPluginAndKeepsLocalAdministration(t *testing.T) {
 			cmd := newRootCmd()
 			cmd.SetArgs(args)
 			require.NoError(t, cmd.ExecuteContext(context.Background()))
+			output := logs.String()
+			require.Contains(t, output, "provider=local type=sqlite priority=1 development_admin=true")
+			require.Contains(t, output, "provider=external type=plugin priority=2 development_admin=false")
+			require.Contains(t, output, "count=2 development_admin_provider=local")
+			require.Contains(t, output, "provider startup diagnostic")
+			require.Contains(t, output, "stream=stdout")
+			require.Contains(t, output, "stream=stderr")
 			_, err := os.Stat(filepath.Join(dir, "local.db"))
 			require.NoError(t, err)
 			_, err = os.Stat(filepath.Join(dir, "jobs.db.secrets.db"))
@@ -115,11 +168,47 @@ func TestCLIComposesSQLiteAndPluginAndKeepsLocalAdministration(t *testing.T) {
 	}
 }
 
+func TestProviderFailedStartupOutputIsLogged(t *testing.T) {
+	logs := captureProviderLogs(t)
+	t.Setenv("JOBDB_TEST_PROVIDER_OUTPUT", "fail")
+	path := writeProviderFile(t, t.TempDir(), providerFile{Version: 1, Providers: []providerEntry{cliPlugin(t)}})
+	_, err := openSecretProviders(context.Background(), path)
+	require.ErrorIs(t, err, jobdb.ErrSecretsUnavailable)
+	require.NotContains(t, err.Error(), "provider startup")
+	output := logs.String()
+	require.Contains(t, output, "provider=external")
+	require.Contains(t, output, "provider startup diagnostic")
+	require.Contains(t, output, "secret provider startup failed")
+	require.Contains(t, output, "provider invalid startup stdout")
+}
+
+func TestDefaultProviderStartupIsLogged(t *testing.T) {
+	for _, mode := range []string{"sqlite", "toy"} {
+		t.Run(mode, func(t *testing.T) {
+			logs := captureProviderLogs(t)
+			previous := serveHTTPFunc
+			defer func() { serveHTTPFunc = previous }()
+			serveHTTPFunc = func(context.Context, string, http.Handler, func(context.Context) error) error { return nil }
+			cmd := newRootCmd()
+			cmd.SetArgs([]string{mode, "--db", filepath.Join(t.TempDir(), "jobs.db")})
+			require.NoError(t, cmd.ExecuteContext(context.Background()))
+			if mode == "sqlite" {
+				require.Contains(t, logs.String(), "provider=sqlite type=sqlite automatic=true development_admin=true")
+			} else {
+				require.Contains(t, logs.String(), "no secret providers configured")
+			}
+		})
+	}
+}
+
 func TestConfiguredCollectionDoesNotExposeImplicitAdmin(t *testing.T) {
+	logs := captureProviderLogs(t)
 	path := writeProviderFile(t, t.TempDir(), providerFile{Version: 1, Providers: []providerEntry{{ID: "local", Type: "sqlite", Path: "local.db"}}})
 	c, err := openSecretProviders(context.Background(), path)
 	require.NoError(t, err)
 	defer c.close()
+	require.Contains(t, logs.String(), "development_admin=false")
+	require.Contains(t, logs.String(), "development_admin_provider=none")
 
 	for _, backend := range []string{"toy", "sqlite"} {
 		var runtime jobdb.WorkflowRuntime

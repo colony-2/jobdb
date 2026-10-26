@@ -108,10 +108,14 @@ func openSecretProviders(ctx context.Context, path string) (*configuredSecrets, 
 		}
 	}()
 	members := make([]secretproviders.Member, 0, len(cfg.Providers))
-	for _, e := range cfg.Providers {
+	for i, e := range cfg.Providers {
+		logger := slog.Default().With("provider", e.ID, "type", e.Type, "priority", i+1, "development_admin", e.ID == cfg.DevelopmentAdminProvider)
+		logger.Info("starting secret provider")
 		var provider jobdb.SecretProvider
 		if e.Type == "plugin" {
-			p, err := secretplugin.Start(ctx, e.processConfig())
+			processConfig := e.processConfig()
+			processConfig.Logger = logger
+			p, err := secretplugin.Start(ctx, processConfig)
 			if err != nil {
 				return nil, err
 			}
@@ -129,6 +133,7 @@ func openSecretProviders(ctx context.Context, path string) (*configuredSecrets, 
 			}
 		}
 		members = append(members, secretproviders.Member{ID: e.ID, Provider: provider})
+		logger.Info("secret provider ready")
 	}
 	options := secretproviders.Options{MaxParallel: cfg.MaxParallel}
 	if cfg.LogSelections {
@@ -140,6 +145,11 @@ func openSecretProviders(ctx context.Context, path string) (*configuredSecrets, 
 	if err != nil {
 		return nil, err
 	}
+	adminID := cfg.DevelopmentAdminProvider
+	if adminID == "" {
+		adminID = "none"
+	}
+	slog.Info("secret providers configured", "count", len(members), "development_admin_provider", adminID)
 	ok = true
 	return out, nil
 }

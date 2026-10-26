@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -99,6 +100,9 @@ func runToy(ctx context.Context, listenAddr string, providersFile string) error 
 	}
 	defer providers.close()
 	runtime := toyruntime.New(toyruntime.WithSecretProvider(providers.provider))
+	if providers.provider == nil {
+		slog.Info("no secret providers configured", "development_admin_provider", "none")
+	}
 	return serveHTTPFunc(ctx, listenAddr, remoteruntime.NewServer(providers.wrap(runtime)), nil)
 }
 
@@ -117,6 +121,9 @@ func runSQLite(ctx context.Context, listenAddr string, cfg sqliteruntime.Config,
 	}
 	// Also closes resources when listener creation fails before ServeHTTP cleanup.
 	defer runtime.Close(context.Background())
+	if providers.provider == nil {
+		slog.Info("secret provider ready", "provider", "sqlite", "type", "sqlite", "automatic", true, "development_admin", true)
+	}
 	log.Printf("using SQLite runtime")
 	return serveHTTPFunc(ctx, listenAddr, remoteruntime.NewServer(providers.wrap(runtime)), runtime.Close)
 }

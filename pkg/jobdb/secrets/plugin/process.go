@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,6 +29,9 @@ type ProcessConfig struct {
 	Limits          jobdb.SecretLimits
 	MaxMessageBytes int
 	MaxConcurrent   int
+	// Logger receives subprocess stdout/stderr and startup diagnostics. Nil
+	// discards them. Diagnostic output is not sanitized like resolution errors.
+	Logger *slog.Logger
 }
 
 // ValidateConfig checks configuration without launching an executable.
@@ -166,7 +169,8 @@ func (p *Process) launch(ctx context.Context) (*plugin.Client, jobdb.SecretProvi
 	cmd.Env = append([]string(nil), p.env...)
 	cfg := &plugin.ClientConfig{HandshakeConfig: handshake(), Cmd: cmd, SkipHostEnv: true, AutoMTLS: true,
 		AllowedProtocols: []plugin.Protocol{plugin.ProtocolGRPC}, StartTimeout: p.config.StartTimeout,
-		Logger: hclog.NewNullLogger(), Stderr: io.Discard, SyncStdout: io.Discard, SyncStderr: io.Discard,
+		Logger: hclog.NewNullLogger(),
+		Stderr: processOutput{p.config.Logger, "stderr"}, SyncStdout: processOutput{p.config.Logger, "stdout"}, SyncStderr: processOutput{p.config.Logger, "stderr"},
 		VersionedPlugins: map[int]plugin.PluginSet{ProtocolVersion: {pluginName: &adapter{options: ServeOptions{Limits: p.config.Limits, MaxMessageBytes: p.config.MaxMessageBytes}}}},
 		GRPCDialOptions:  []grpc.DialOption{grpc.WithDisableRetry(), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(p.config.MaxMessageBytes), grpc.MaxCallSendMsgSize(p.config.MaxMessageBytes))},
 	}
@@ -193,21 +197,47 @@ func (p *Process) launch(ctx context.Context) (*plugin.Client, jobdb.SecretProvi
 		}
 		done <- started{provider, err}
 	}()
+	var launchErr error
 	select {
 	case r := <-done:
 		if r.err == nil && startCtx.Err() == nil && p.life.Err() == nil {
 			return c, r.provider, stop, nil
 		}
+		launchErr = errors.Join(r.err, startCtx.Err(), p.life.Err())
 	case <-startCtx.Done():
+		launchErr = startCtx.Err()
 		stop()
 		<-done
 	case <-p.life.Done():
+		launchErr = p.life.Err()
 		stop()
 		<-done
 	}
 	stop()
 	c.Kill()
+	if p.config.Logger != nil {
+		p.config.Logger.Error("secret provider startup failed", "error", launchErr)
+	}
 	return nil, nil, nil, jobdb.ErrSecretsUnavailable
+}
+
+// Log chunks immediately, including partial lines. go-plugin writes startup
+// stderr and synchronized stderr concurrently; slog handles that concurrency.
+// Keeping output in an attribute also escapes embedded control characters.
+type processOutput struct {
+	logger *slog.Logger
+	stream string
+}
+
+func (w processOutput) Write(p []byte) (int, error) {
+	if w.logger != nil {
+		for _, line := range strings.Split(string(p), "\n") {
+			if line != "" {
+				w.logger.Info("secret provider output", "stream", w.stream, "output", line)
+			}
+		}
+	}
+	return len(p), nil
 }
 
 func (p *Process) ResolveSecrets(ctx context.Context, r jobdb.SecretResolveRequest) (jobdb.SecretResolveResult, error) {

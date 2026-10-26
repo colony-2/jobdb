@@ -102,8 +102,10 @@ func main() {
 ```
 
 The SDK implements protobuf conversion, safe error encoding, gRPC admission,
-and the HashiCorp handshake. Initialize before `Serve`, and do not write arbitrary
-startup output to stdout. The host does not forward raw plugin output to logs.
+and the HashiCorp handshake. Initialize before `Serve`, and write startup
+diagnostics to stderr: stdout is reserved for the handshake until `Serve` takes
+over. The JobDB CLI forwards provider stdout/stderr to its server log, tagged
+with the provider ID and stream. Providers should not print credentials.
 Provider-specific configuration belongs in files or explicitly passed environment
 variables. Do not pass credentials as command-line arguments.
 
@@ -199,11 +201,33 @@ Configuration rules:
 An explicit provider file selects exactly its members. There is no automatic
 SQLite fallback, and a failed plugin is never treated as an empty response.
 
+### Startup and provider diagnostics
+
+The CLI reports each provider as it starts and becomes ready, including its ID,
+type, priority (1 wins first), and whether it handles development administration.
+The collection summary reports `development_admin_provider=none` when set/remove
+is disabled. Without a provider file, SQLite reports its automatic development
+provider; toy reports that no providers are configured.
+
+Plugin stdout and stderr appear as `secret provider output` log entries with
+`provider`, `stream`, and `output` fields. Startup stderr is included even if the
+plugin fails to start. Startup failures also include the transport diagnostic
+in the server log. These diagnostics are always enabled by the CLI, independently
+of `log_selections`, and continue after automatic plugin restarts. Output may be
+split into chunks; partial lines are emitted immediately once received.
+
+These are operator logs, not job history or secret-resolution responses. Returned
+errors remain sanitized, and JobDB does not log secret response values or plugin
+arguments/environment. A plugin's own diagnostic text is forwarded as written.
+
 ## Embed a collection in another host
 
 Use `secretplugin.Start(ctx, ProcessConfig{Command: absolutePath, Args: args})`
 to obtain a `*secretplugin.Process` implementing `SecretProvider`. The context
 bounds startup only. Keep the process handle and close it on every exit path.
+Set `ProcessConfig.Logger` to a `*slog.Logger` to receive subprocess output and
+startup diagnostics in an embedded host; nil keeps those diagnostics disabled.
+Use a logger with provider ID attributes to distinguish multiple plugins.
 
 ```go
 collection, err := secretproviders.New([]secretproviders.Member{

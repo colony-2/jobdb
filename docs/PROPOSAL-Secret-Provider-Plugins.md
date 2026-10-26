@@ -288,8 +288,11 @@ Execute a configured absolute path directly with an argument array. Plugin
 selection belongs to server/operator configuration, never job data or tenant
 configuration. Use gRPC-only negotiation and `AutoMTLS`, with explicitly allowed
 environment variables (`SkipHostEnv`); optional expected checksums use
-`SecureConfig`. Disable automatic forwarding of child output into application
-logs and emit safe lifecycle diagnostics separately. HashiCorp exposes these
+`SecureConfig`. The CLI reports configured providers and forwards child stdout
+and stderr to operator logs with provider and stream labels, including startup
+diagnostics. Library hosts opt in through `ProcessConfig.Logger`; nil discards
+diagnostics. Provider output never enters job history or resolution error
+responses, which remain sanitized. HashiCorp exposes these
 controls in [`ClientConfig`](https://github.com/hashicorp/go-plugin/blob/main/client.go).
 The handshake cookie only detects accidental invocation; it does not authenticate
 code. [Handshake contract](https://github.com/hashicorp/go-plugin/blob/main/server.go).
