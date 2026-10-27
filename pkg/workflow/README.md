@@ -259,6 +259,29 @@ context to cancel or bound replay. Recorded timeout failures remain failures.
 Replay never runs task workers or writes history. Missing outcomes and future
 waits still produce `ReplayCacheMissError`.
 
+At an unfinished task, replay reconstructs scope and task declarations without
+recording them. It emits `TaskStartEvent` with `Unfinished: true`, the attempt's
+`InvocationID`, input, and logical `State`, then returns `ReplayCacheMissError`
+with the same identity, input, and state. It emits no task/job end for that
+unfinished attempt. `At` is zero when the start is unrecorded; `Ordinal` is a
+storage position, not a stable invocation identity. Use `InvocationID` to match
+the attempt when its outcome later arrives.
+
+`DoTask` input builders are replay-safe orchestration: they must be deterministic
+and side-effect-free. Inspection may invoke the builder for an unfinished local
+task. Stored external-wait input and input from completed attempts are reused;
+completed task replay still skips builders. Put external effects and runtime
+preparation in task workers. Configuration, secret resolution, job submission,
+and other runtime mutations remain unavailable during replay. A reconstruction
+error fails inspection without fabricating a task outcome or running catches.
+
+An unfinished task in an `ACTIVE` job is logically `RUNNING`. Ready jobs yield
+`READY`, scheduler waits yield `WAITING`, and cancelled jobs yield `CANCELLED`.
+Other states yield `UNKNOWN`; an absent task outcome never implies success.
+These states reflect the job snapshot read by inspection, not instantaneous
+worker liveness. Recorded future backoff stops replay until it is due; recorded
+scope timeouts and control decisions remain authoritative.
+
 A job deadline can interrupt orchestration or an in-flight task before a task
 outcome is recorded. At that boundary, `DoTask` returns the recorded job timeout
 without consuming it or emitting task events. The job runner consumes the job

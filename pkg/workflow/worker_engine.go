@@ -421,6 +421,7 @@ func replayRuntimeJob(ctx context.Context, runtime WorkflowRuntime, spec *replay
 		Replay:         true,
 		AwaitThreshold: spec.engine.awaitThreshold,
 	})
+	runner.replayJobStatus = info.Status
 	return runner.DoJob(ctx)
 }
 

@@ -1,0 +1,388 @@
+--- a/pkg/story/live/recorder.go
++++ b/pkg/story/live/recorder.go
+@@ -390,6 +390,9 @@
+ 	attNode.StepID = strings.TrimSpace(tr.stepID)
+ 	attNode.StepType = "other"
+ 	attNode.Status = model.JobRunStoryNodeStatusRunning
++	if event.Unfinished {
++		attNode.Status = statusFromTaskState(event.State)
++	}
+ 	attNode.Attempt = event.AttemptNumber
+ 	attNode.InvocationID = event.InvocationID
+ 	ord := event.Ordinal
+@@ -402,6 +405,8 @@
+ 	applyTaskInputToNode(attNode, event.Input)
+ 	tr.attemptNodes = append(tr.attemptNodes, attNode)
+ 	tr.byAttempt[event.AttemptNumber] = attNode
++	copyAttemptIntoStep(tr.stepNode, attNode)
++	tr.stepNode.PriorAttempts = append([]*model.JobRunStoryNode(nil), tr.attemptNodes[:len(tr.attemptNodes)-1]...)
+ 	r.mu.Unlock()
+ 	r.notify()
+ }
+@@ -563,6 +568,9 @@
+ 
+ 	attNode := tree.newNode(model.JobRunStoryNodeKindRecipeSourceResolution, "recipe source resolution")
+ 	attNode.Status = model.JobRunStoryNodeStatusRunning
++	if event.Unfinished {
++		attNode.Status = statusFromTaskState(event.State)
++	}
+ 	attNode.Attempt = event.AttemptNumber
+ 	attNode.InvocationID = event.InvocationID
+ 	ord := event.Ordinal
+@@ -574,6 +582,8 @@
+ 	applyTaskInputToNode(attNode, event.Input)
+ 	tracker.attemptNodes = append(tracker.attemptNodes, attNode)
+ 	tracker.byAttempt[event.AttemptNumber] = attNode
++	copyAttemptIntoStep(tracker.node, attNode)
++	tracker.node.PriorAttempts = append([]*model.JobRunStoryNode(nil), tracker.attemptNodes[:len(tracker.attemptNodes)-1]...)
+ }
+ 
+ func (r *Recorder) handleRootSourceResolutionTaskEndLocked(event jobworkflow.TaskEndEvent) {
+@@ -1147,17 +1157,6 @@
+ 
+ 	if err != nil {
+ 		e.ensureReplayMissStepNode(opNode, opID, err)
+-		first := findFirstChildStep(opNode.Children)
+-		last := findLastChildStep(opNode.Children)
+-		if first != nil {
+-			opNode.Input = first.Input
+-		}
+-		if last != nil {
+-			opNode.Output = last.Output
+-		}
+-		opNode.Status = statusFromErr(err, opNode.Status)
+-		e.tree.pop()
+-		return err
+ 	}
+ 
+ 	first := findFirstChildStep(opNode.Children)
+@@ -1188,18 +1187,21 @@
+ 			opNode.Path = append([]string{}, ch.Path...)
+ 			opNode.InlineStack = cloneInlineBoundaryStack(ch.InlineStack)
+ 			opNode.Status = ch.Status
++			if err != nil && !isReplayCacheMissErr(err) {
++				opNode.Status = statusFromErr(err, ch.Status)
++			}
+ 			e.tree.pop()
+-			return nil
+-		}
+-	}
+-
+-	opNode.Status = deriveContainerStatus(opNode.Children)
+-	if opNode.Status == model.JobRunStoryNodeStatusUnknown {
++			return err
++		}
++	}
++
++	opNode.Status = statusFromErr(err, deriveContainerStatus(opNode.Children))
++	if err == nil && opNode.Status == model.JobRunStoryNodeStatusUnknown {
+ 		opNode.Status = model.JobRunStoryNodeStatusSucceeded
+ 	}
+ 
+ 	e.tree.pop()
+-	return nil
++	return err
+ }
+ 
+ func (e *recordingExecutor) ExecuteChildGroup(ctx coreworkflow.Context, parent *template.ResolutionContext, metadata recipe.NodeMetadata, group recipe.ChildGroupData) error {
+@@ -1227,6 +1229,11 @@
+ 	for _, ch := range opNode.Children {
+ 		if ch == nil || ch.Kind != model.JobRunStoryNodeKindOpStep {
+ 			continue
++		}
++		if miss.InvocationID != "" && ch.InvocationID == taskInvocationID(miss.InvocationID, miss.Attempt) {
++			// JobDB already delivered the unfinished attempt, including its state
++			// and input. A replay miss is not an output or an execution error.
++			return
+ 		}
+ 		if ch.TaskOrdinal != nil && *ch.TaskOrdinal == miss.Ordinal {
+ 			applyTaskOutputToNode(ch, "", miss.TaskType, nil, miss)
+@@ -1768,10 +1775,27 @@
+ 	if err == nil {
+ 		return fallback
+ 	}
++	var miss jobworkflow.ReplayCacheMissError
++	if errors.As(err, &miss) && miss.State != "" {
++		return statusFromTaskState(miss.State)
++	}
+ 	if isReplayCacheMissErr(err) {
+ 		return model.JobRunStoryNodeStatusRunning
+ 	}
+ 	return model.JobRunStoryNodeStatusFailed
++}
++
++func statusFromTaskState(state jobworkflow.TaskState) model.JobRunStoryNodeStatus {
++	switch state {
++	case jobworkflow.TaskStateRunning:
++		return model.JobRunStoryNodeStatusRunning
++	case jobworkflow.TaskStateReady, jobworkflow.TaskStateWaiting:
++		return model.JobRunStoryNodeStatusPending
++	case jobworkflow.TaskStateCancelled:
++		return model.JobRunStoryNodeStatusCanceled
++	default:
++		return model.JobRunStoryNodeStatusUnknown
++	}
+ }
+ 
+ func isReplayCacheMissErr(err error) bool {
+@@ -1790,8 +1814,8 @@
+ 		return model.JobRunStoryNodeStatusUnknown
+ 	}
+ 	last := children[len(children)-1]
+-	if last != nil && last.Status == model.JobRunStoryNodeStatusRunning {
+-		return model.JobRunStoryNodeStatusRunning
++	if last != nil && !isTerminal(last.Status) {
++		return last.Status
+ 	}
+ 	for _, ch := range children {
+ 		if ch != nil && ch.Status == model.JobRunStoryNodeStatusFailed {
+--- a/pkg/story/live/recorder_test.go
++++ b/pkg/story/live/recorder_test.go
+@@ -7,9 +7,44 @@
+ 	"time"
+ 
+ 	"github.com/colony-2/c2j/pkg/worker/compiler"
++	"github.com/colony-2/c2j/pkg/worker/ops"
+ 	"github.com/colony-2/jobdb/pkg/jobdb"
+ 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
++	"github.com/stretchr/testify/require"
+ )
++
++func TestTaskStartProjectsInputAndClearsPreviousAttempt(t *testing.T) {
++	for _, state := range []jobworkflow.TaskState{jobworkflow.TaskStateRunning, jobworkflow.TaskStateWaiting, jobworkflow.TaskStateReady, jobworkflow.TaskStateCancelled} {
++		t.Run(string(state), func(t *testing.T) {
++			r := NewRecorder(Options{})
++			r.OnJobStart(jobworkflow.JobStartEvent{AttemptNumber: 1})
++			tree := r.ensureAttemptTree()
++			op := tree.newNode(JobRunStoryNodeKindOp, "op work")
++			op.OpID = "work"
++			r.SetCurrentOpNode(op)
++			input := jobdb.NewTaskDataOrPanic(ops.ActivityInvocationRequest{Input: map[string]interface{}{"value": "resolved"}})
++			r.OnTaskStart(jobworkflow.TaskStartEvent{InvocationID: "work/attempt:1", TaskType: "work:work", AttemptNumber: 1, Input: input})
++			r.OnTaskEnd(jobworkflow.TaskEndEvent{InvocationID: "work/attempt:1", TaskType: "work:work", AttemptNumber: 1, Output: jobdb.NewTaskDataOrPanic("old output", jobdb.NewArtifactFromBytes("old.txt", []byte("old"))), At: time.Now()})
++			require.Len(t, op.Children, 1)
++			id := op.Children[0].ID
++			r.OnTaskStart(jobworkflow.TaskStartEvent{Unfinished: true, State: state, InvocationID: "work/attempt:2", TaskType: "work:work", AttemptNumber: 2, Input: input})
++			require.Len(t, op.Children, 1)
++			n := op.Children[0]
++			require.Equal(t, id, n.ID)
++			require.Equal(t, "work", n.InvocationID)
++			require.Equal(t, 2, n.Attempt)
++			require.Equal(t, map[string]interface{}{"value": "resolved"}, n.Input)
++			require.Equal(t, statusFromTaskState(state), n.Status)
++			require.Nil(t, n.Output)
++			require.Empty(t, n.ArtifactKeys)
++			require.Empty(t, n.ArtifactRefs)
++			require.Nil(t, n.FinishedAt)
++			require.Nil(t, n.Error)
++			require.Len(t, n.PriorAttempts, 1)
++			require.Equal(t, "old output", n.PriorAttempts[0].Output)
++		})
++	}
++}
+ 
+ func TestRecorderSnapshot_DoesNotDuplicateSyntheticSourceResolutionNode(t *testing.T) {
+ 	jobKey := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
+--- a/pkg/story/internal/story/replay_story_test.go
++++ b/pkg/story/internal/story/replay_story_test.go
+@@ -587,9 +587,8 @@
+ 		t.Fatalf("expected op node running, got %#v", opNode)
+ 	}
+ 
+-	step := findFirstKind(opNode.Children, model.JobRunStoryNodeKindOpStep)
+-	if step == nil || step.Status != model.JobRunStoryNodeStatusRunning {
+-		t.Fatalf("expected step running on cache miss, got %#v", step)
++	if len(opNode.Children) != 0 || opNode.TaskOrdinal == nil {
++		t.Fatalf("expected the same collapsed operation leaf used after completion, got %#v", opNode)
+ 	}
+ }
+ 
+@@ -653,12 +652,8 @@
+ 		t.Fatalf("expected op node running, got %#v", opNode)
+ 	}
+ 
+-	step := findFirstKind(opNode.Children, model.JobRunStoryNodeKindOpStep)
+-	if step == nil || step.Status != model.JobRunStoryNodeStatusRunning {
+-		t.Fatalf("expected synthesized running step on cache miss, got %#v", step)
+-	}
+-	if step.StepID != opType {
+-		t.Fatalf("expected synthesized step %q, got %#v", opType, step)
++	if len(opNode.Children) != 0 || opNode.TaskOrdinal == nil {
++		t.Fatalf("expected synthesized task details on the collapsed operation leaf, got %#v", opNode)
+ 	}
+ }
+ 
+--- /dev/null
++++ b/pkg/story/unfinished_integration_test.go
+@@ -0,0 +1,171 @@
++package story_test
++
++import (
++	"context"
++	"errors"
++	"net/http/httptest"
++	"path/filepath"
++	"sync"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	coreops "github.com/colony-2/c2j/pkg/ops"
++	"github.com/colony-2/c2j/pkg/starter"
++	"github.com/colony-2/c2j/pkg/story"
++	coretask "github.com/colony-2/c2j/pkg/task"
++	"github.com/colony-2/c2j/pkg/worker/compiler"
++	"github.com/colony-2/c2j/pkg/workflowctl"
++	"github.com/colony-2/jobdb/pkg/jobdb"
++	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
++	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
++	wf "github.com/colony-2/jobdb/pkg/workflow"
++	"github.com/stretchr/testify/require"
++)
++
++const unfinishedOp = "story_unfinished_probe"
++
++type unfinishedInput struct {
++	Value string `json:"value"`
++}
++type unfinishedTask struct {
++	entered chan struct{}
++	release chan struct{}
++	retry   bool
++	calls   atomic.Int32
++}
++
++func (*unfinishedTask) Name() string { return unfinishedOp + ":" + unfinishedOp }
++func (w *unfinishedTask) Run(c wf.TaskContext, _ jobdb.TaskData) (jobdb.TaskData, error) {
++	n := w.calls.Add(1)
++	if w.retry && n == 1 {
++		env, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, map[string]any{"output": map[string]any{"value": "old diagnostic"}})
++		if err != nil {
++			return nil, err
++		}
++		return jobdb.NewTaskDataOrPanic(env, jobdb.NewArtifactFromBytes("old.txt", []byte("old"))), errors.New("retry")
++	}
++	close(w.entered)
++	select {
++	case <-w.release:
++	case <-c.Context().Done():
++		return nil, c.Context().Err()
++	}
++	env, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, map[string]any{"output": map[string]any{"value": "done"}, "git": map[string]any{}, "nextTaskType": ""})
++	if err != nil {
++		return nil, err
++	}
++	return jobdb.NewTaskData(env)
++}
++
++func TestStoryAPIExposesUnfinishedTask(t *testing.T) {
++	coreops.Register(coreops.NewActivityMappedOpV2[unfinishedInput, map[string]any](coreops.OpMetadata{Type: unfinishedOp, RetrySteps: true}, func(coreops.OpDependencies, context.Context, unfinishedInput) (map[string]any, error) {
++		panic("inspection executed operation")
++	}))
++	for _, backend := range []string{"sqlite", "remote"} {
++		for _, mode := range []string{"local", "external", "retry", "external-retry"} {
++			t.Run(backend+"/"+mode, func(t *testing.T) {
++				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
++				defer cancel()
++				db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
++				require.NoError(t, err)
++				defer db.Close(context.Background())
++				var rt jobdb.WorkflowRuntime = db
++				if backend == "remote" {
++					server := httptest.NewServer(remote.NewServer(db))
++					defer server.Close()
++					rt, err = remote.New(server.URL, server.Client())
++					require.NoError(t, err)
++				}
++				w := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{})
++				task := &unfinishedTask{entered: make(chan struct{}), release: make(chan struct{}), retry: mode == "retry" || mode == "external-retry"}
++				unblock := sync.OnceFunc(func() { close(task.release) })
++				defer unblock()
++				engine, err := wf.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("story").PlusWorkers(w).BuildEngine()
++				require.NoError(t, err)
++				svc, err := story.New(story.ServiceConfig{Engine: engine})
++				require.NoError(t, err)
++				yaml := "id: unfinished\ninput_schema: {value: {type: string}}\nsequence:\n - id: outer\n   inputs: {value: resolved}\n   sequence:\n    - id: work\n      op: " + unfinishedOp + "\n      inputs: {value: '${{ inputs.value }}'}\n      retry: {maximum_attempts: 2, initial_interval: 1ms}\n      timeout: 5m\n"
++				data, err := jobdb.NewTaskData(workflowctl.StartJob{TenantId: "story", RecipeName: "unfinished", Inputs: map[string]any{"value": "resolved"}}, jobdb.NewArtifactFromBytes("unfinished"+starter.RecipeArtifactSuffix, []byte(yaml)))
++				require.NoError(t, err)
++				h, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "story", JobType: "recipe", Data: data})
++				require.NoError(t, err)
++				request := story.GetJobRunStoryRequest{ProjectID: h.JobKey.TenantId, JobID: h.JobKey.JobId}
++				inspect := func(status string, attempt int) *story.JobRunStoryNode {
++					t.Helper()
++					before, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: h.JobKey})
++					require.NoError(t, err)
++					st, err := svc.GetJobRunStory(ctx, request)
++					require.NoError(t, err)
++					nodes := storyNodes(st.Root, "op", unfinishedOp)
++					require.Len(t, nodes, 1)
++					n := nodes[0]
++					require.Empty(t, n.Children, "single task stays collapsed before and after completion")
++					require.Equal(t, status, string(n.Status))
++					require.Equal(t, attempt, n.Attempt)
++					require.NotEmpty(t, n.InvocationID)
++					require.NotEmpty(t, n.Path)
++					require.Equal(t, map[string]any{"value": "resolved"}, n.Input)
++					if status != "succeeded" {
++						require.Nil(t, n.Output)
++						require.Empty(t, n.ArtifactKeys)
++						require.Empty(t, n.ArtifactRefs)
++						require.Nil(t, n.FinishedAt)
++						require.Nil(t, n.Error)
++					}
++					if attempt == 2 {
++						require.Len(t, n.PriorAttempts, 1)
++						require.Equal(t, map[string]any{"value": "old diagnostic"}, n.PriorAttempts[0].Output)
++						require.NotEmpty(t, n.PriorAttempts[0].ArtifactKeys)
++					}
++					after, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: h.JobKey})
++					require.NoError(t, err)
++					require.Equal(t, before, after)
++					return n
++				}
++				if mode == "external" || mode == "external-retry" {
++					run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: w, WorkerID: "queue", LeaseDuration: time.Minute})
++					require.NoError(t, err)
++					out, err := run.Run(nil)
++					require.NoError(t, err)
++					require.Equal(t, wf.JobRunSuspended, out.Status, "job error: %v", out.JobError)
++					inspect("pending", 1)
++					require.Zero(t, task.calls.Load())
++				}
++				run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "live", LeaseDuration: time.Minute})
++				require.NoError(t, err)
++				done := make(chan error, 1)
++				go func() { out, err := run.Run(nil); done <- errors.Join(err, out.JobError) }()
++				select {
++				case <-task.entered:
++				case err := <-done:
++					t.Fatalf("job exited before task started: %v", err)
++				case <-ctx.Done():
++					t.Fatal("task did not start")
++				}
++				attempt := 1
++				if task.retry {
++					attempt = 2
++				}
++				active := inspect("running", attempt)
++				again := inspect("running", attempt)
++				require.Equal(t, active.ID, again.ID)
++				require.Equal(t, active.InvocationID, again.InvocationID)
++				require.EqualValues(t, attempt, task.calls.Load())
++				unblock()
++				select {
++				case err := <-done:
++					require.NoError(t, err)
++				case <-ctx.Done():
++					t.Fatal("task did not finish")
++				}
++				finished := inspect("succeeded", attempt)
++				require.Equal(t, active.ID, finished.ID)
++				require.Equal(t, active.InvocationID, finished.InvocationID)
++				require.Equal(t, active.Path, finished.Path)
++				require.Equal(t, map[string]any{"value": "done"}, finished.Output)
++				require.EqualValues(t, attempt, task.calls.Load())
++			})
++		}
++	}
++}

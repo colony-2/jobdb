@@ -71,11 +71,26 @@ func (c *executionContext) DoTask(call TaskCall, build func(context.Context) (Ta
 			rec, err = c.event("result", aid, func() *jobdb.ExecutionRecord { return nil })
 		} else if next := c.run.peek(); next != nil && next.record.Kind == "wait" && next.record.ID == aid {
 			rec, err = c.externalTask(call, aid, next.record.Input, start.Deadline, total, &dispatch)
+			if c.run.r.replay && isReplayCacheMiss(err) {
+				return nil, c.run.unfinishedTask(call, aid, attempt, start.At, next.record.Input)
+			}
 		} else if next := c.run.peek(); next != nil {
 			_, err = c.event("result", aid, func() *jobdb.ExecutionRecord { return nil })
 			return nil, err
 		} else if c.run.r.replay {
-			return nil, ReplayCacheMissError{JobKey: c.GetJobKey(), Ordinal: c.run.nextOrdinal(), Reason: ReplayCacheMissTaskResultMissing}
+			if input == nil {
+				// Input construction is replay-safe orchestration. Completed and
+				// externally waiting tasks use their stored snapshot instead.
+				out, buildErr := c.invoke(func() (TaskData, error) { return build(c.ctx) })
+				if buildErr != nil {
+					return nil, c.run.control(buildErr)
+				}
+				input, err = executionSnapshot(c.ctx, out)
+				if err != nil {
+					return nil, c.run.control(err)
+				}
+			}
+			return nil, c.run.unfinishedTask(call, aid, attempt, start.At, input)
 		} else {
 			// A local invocation with no committed outcome starts a fresh timer even
 			// when a prior scheduler handoff persisted its path metadata.

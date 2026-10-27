@@ -32,11 +32,12 @@ type workerRunner struct {
 	lease     ExecutionLease
 	logger    *slog.Logger
 
-	jobPolicy      RunPolicy
-	workerID       string
-	observer       ReplayObserver
-	replay         bool
-	awaitThreshold time.Duration
+	jobPolicy       RunPolicy
+	workerID        string
+	observer        ReplayObserver
+	replay          bool
+	replayJobStatus jobdb.JobStatus
+	awaitThreshold  time.Duration
 
 	ctx                context.Context
 	jobKey             JobKey

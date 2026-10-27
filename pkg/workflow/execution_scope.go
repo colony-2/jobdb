@@ -58,7 +58,7 @@ func (c *executionContext) invoke(fn func() (TaskData, error)) (TaskData, error)
 	// Timers start only at the live edge, never while consuming completed history.
 	e := c.run
 	e.mu.Lock()
-	if e.peekLocked() == nil {
+	if !e.r.replay && e.peekLocked() == nil {
 		if err := c.liveLocked(); err != nil {
 			e.mu.Unlock()
 			return nil, err
@@ -88,7 +88,7 @@ func (c *executionContext) invoke(fn func() (TaskData, error)) (TaskData, error)
 	case r := <-result:
 		e.mu.Lock()
 		var liveErr error
-		if e.peekLocked() == nil {
+		if !e.r.replay && e.peekLocked() == nil {
 			liveErr = c.liveLocked()
 		}
 		e.mu.Unlock()
@@ -240,6 +240,11 @@ func (c *executionContext) handleFailure(id string, total time.Time, p execution
 	disposition := CatchContinue
 	if bodyErr != nil {
 		selectionValue := &jobdb.ExecutionRecord{}
+		// A missing catch/retry decision is a control boundary, not permission
+		// to reevaluate predicates or live clocks during inspection.
+		if c.run.r.replay && c.run.peek() == nil {
+			return nil, nil, false, ReplayCacheMissError{JobKey: c.GetJobKey(), Ordinal: c.run.nextOrdinal(), Reason: ReplayCacheMissAwaitNotReady}
+		}
 		if c.run.peek() == nil && (total.IsZero() || time.Now().Before(total)) {
 			failure := bodyErr
 			matcher := c.child(id+"/matching", earlier(total, c.deadline), total)
@@ -386,6 +391,15 @@ func (c *executionContext) waitUntil(wake, total time.Time) error {
 	// If the next attempt is already recorded, its backoff was satisfied.
 	if c.run.peek() != nil {
 		return nil
+	}
+	if c.run.r.replay {
+		// A recorded backoff may already have elapsed while the next attempt's
+		// declarations are still deferred. Do not apply execution deadlines or
+		// sleep here; the next task remains logically waiting until the wake time.
+		if !wake.After(time.Now()) {
+			return nil
+		}
+		return ReplayCacheMissError{JobKey: c.GetJobKey(), Ordinal: c.run.nextOrdinal(), Reason: ReplayCacheMissAwaitNotReady}
 	}
 	e := c.run
 	e.mu.Lock()

@@ -1744,6 +1744,9 @@ type PutChapterRequest = github.com/colony-2/jobdb/pkg/jobdb.PutChapterRequest
 const ReplayCacheMissAwaitJobsPending ReplayCacheMissReason = "await_jobs_pending"
 const ReplayCacheMissAwaitNotReady ReplayCacheMissReason = "await_not_ready"
 type ReplayCacheMissError struct
+  field InvocationID string
+  field Input TaskData
+  field State TaskState
   field JobKey JobKey
   field TaskType string
   field Ordinal int64
@@ -1909,6 +1912,8 @@ const TaskOutcomeStatusSucceeded untyped string = "SUCCEEDED"
 type TaskRun = github.com/colony-2/jobdb/pkg/jobdb.TaskRun
 type TaskRuntime = github.com/colony-2/jobdb/pkg/jobdb.TaskRuntime
 type TaskStartEvent struct
+  field Unfinished bool
+  field State TaskState
   field InvocationID string
   field JobKey JobKey
   field TaskType string
@@ -1916,6 +1921,12 @@ type TaskStartEvent struct
   field AttemptNumber int
   field Input TaskData
   field At time.Time
+type TaskState string
+const TaskStateCancelled TaskState = "CANCELLED"
+const TaskStateReady TaskState = "READY"
+const TaskStateRunning TaskState = "RUNNING"
+const TaskStateUnknown TaskState = "UNKNOWN"
+const TaskStateWaiting TaskState = "WAITING"
 type TaskWait = github.com/colony-2/jobdb/pkg/jobdb.TaskWait
 type TaskWorker interface
   method Name func() string

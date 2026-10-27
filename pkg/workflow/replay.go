@@ -20,11 +20,15 @@ const (
 
 // ReplayCacheMissError indicates replay could not proceed due to missing cached data.
 type ReplayCacheMissError struct {
-	JobKey   JobKey
-	TaskType string
-	Ordinal  int64
-	Attempt  int
-	Reason   ReplayCacheMissReason
+	// InvocationID identifies the unfinished attempt when replay reaches DoTask.
+	InvocationID string
+	Input        TaskData
+	State        TaskState
+	JobKey       JobKey
+	TaskType     string
+	Ordinal      int64
+	Attempt      int
+	Reason       ReplayCacheMissReason
 }
 
 func (e ReplayCacheMissError) Error() string {
@@ -149,6 +153,10 @@ type JobStartEvent struct {
 }
 
 type TaskStartEvent struct {
+	// Unfinished distinguishes an inspection of the replay frontier from the
+	// start of a recorded outcome. It is never followed by a synthetic end.
+	Unfinished    bool
+	State         TaskState
 	InvocationID  string
 	JobKey        JobKey
 	TaskType      string
@@ -157,6 +165,17 @@ type TaskStartEvent struct {
 	Input         TaskData
 	At            time.Time
 }
+
+// TaskState describes logical work, not instantaneous worker liveness.
+type TaskState string
+
+const (
+	TaskStateRunning   TaskState = "RUNNING"
+	TaskStateReady     TaskState = "READY"
+	TaskStateWaiting   TaskState = "WAITING"
+	TaskStateCancelled TaskState = "CANCELLED"
+	TaskStateUnknown   TaskState = "UNKNOWN"
+)
 
 type TaskEndEvent struct {
 	InvocationID  string

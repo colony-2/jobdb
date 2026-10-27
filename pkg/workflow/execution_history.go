@@ -247,6 +247,19 @@ func (c *executionContext) recordEvent(kind, id string, build func() *jobdb.Exec
 	if e.restart != nil && !e.restartApplied && kind != "continuation" {
 		return jobdb.ExecutionRecord{}, e.controlLocked(fmt.Errorf("%w: restart target %s was not reached", ErrWorkflowNotDeterministic, e.restart.ID))
 	}
+	// Compact history commits declarations with the following durable boundary.
+	// At the unfinished frontier they are reconstruction, not missing outcomes.
+	// Do not activate timers, allocate ordinals, or append pending history here.
+	if e.r.replay && e.final == nil {
+		switch kind {
+		case "scope", "task", "attempt":
+			rec := build()
+			rec.Kind, rec.ID, rec.Version = kind, id, e.initialVersions.ExecutionPatternVersion
+			// The actual start has not been recorded; inspection must not invent it.
+			rec.At = time.Time{}
+			return *rec, nil
+		}
+	}
 	if err := c.liveLocked(); err != nil {
 		return jobdb.ExecutionRecord{}, err
 	}
@@ -746,6 +759,26 @@ func (e *executionRun) emitTask(call TaskCall, id string, attempt int, start tim
 	observer := e.r.observerOrNoop()
 	observer.OnTaskStart(TaskStartEvent{InvocationID: id, JobKey: e.r.jobKey, TaskType: call.TaskType, Ordinal: ordinal, AttemptNumber: attempt, Input: snapshotData(rec.Input), At: start})
 	observer.OnTaskEnd(TaskEndEvent{InvocationID: id, JobKey: e.r.jobKey, TaskType: call.TaskType, Ordinal: ordinal, AttemptNumber: attempt, Output: out, Err: err, At: rec.At})
+}
+
+// unfinishedTask exposes the logical replay frontier without completing it.
+func (e *executionRun) unfinishedTask(call TaskCall, id string, attempt int, at time.Time, input *jobdb.ExecutionSnapshot) error {
+	state := TaskStateUnknown
+	switch e.r.replayJobStatus {
+	case jobdb.JobStatusActive:
+		state = TaskStateRunning
+	case jobdb.JobStatusReady:
+		state = TaskStateReady
+	case jobdb.JobStatusAwaitingFuture, jobdb.JobStatusPendingJobs:
+		state = TaskStateWaiting
+	case jobdb.JobStatusCancelled:
+		state = TaskStateCancelled
+	}
+	ordinal := e.nextOrdinal()
+	e.observerMu.Lock()
+	e.r.observerOrNoop().OnTaskStart(TaskStartEvent{Unfinished: true, State: state, InvocationID: id, JobKey: e.r.jobKey, TaskType: call.TaskType, Ordinal: ordinal, AttemptNumber: attempt, Input: snapshotData(input), At: at})
+	e.observerMu.Unlock()
+	return ReplayCacheMissError{InvocationID: id, Input: snapshotData(input), State: state, JobKey: e.r.jobKey, TaskType: call.TaskType, Ordinal: ordinal, Attempt: attempt, Reason: ReplayCacheMissTaskResultMissing}
 }
 
 func (e *executionRun) controlLocked(err error) error {

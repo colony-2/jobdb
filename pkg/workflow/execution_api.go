@@ -34,6 +34,10 @@ type ExecutionContext interface {
 	Job() JobHandle
 	Logger() *slog.Logger
 	ExecutionVersions() jobdb.ExecutionVersions
+	// DoTask invokes durable work. Its input builder must be deterministic and
+	// side-effect-free: inspection may reconstruct unfinished input by calling
+	// it. Recorded results and external waits reuse their stored input instead.
+	// Put execution, preparation, and external effects in the TaskWorker.
 	DoTask(TaskCall, func(context.Context) (TaskData, error)) (TaskData, error)
 	DoScope(string, ScopeOptions, func(ExecutionContext) (JobData, error)) (JobData, error)
 	AwaitDuration(Duration) error
