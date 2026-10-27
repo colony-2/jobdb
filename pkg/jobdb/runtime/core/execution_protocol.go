@@ -32,7 +32,7 @@ func ResolveExecutionRestart(ctx context.Context, r executionHistoryReader, job 
 	if err != nil {
 		return job, nil, err
 	}
-	found, header := false, false
+	found, header, cut := false, false, false
 	var version uint32
 	var retained json.RawMessage
 	for _, chapter := range chapters {
@@ -61,6 +61,19 @@ func ResolveExecutionRestart(ctx context.Context, r executionHistoryReader, job 
 			if err != nil {
 				return job, nil, err
 			}
+			// A continuation and its admission records belong to the execution
+			// being replaced, even when compact history placed them in an older
+			// restart descriptor. Cut before the first such continuation, not
+			// just before the declaration that follows it. Still validate the
+			// declaration below: a continuation alone is not a restart target.
+			if !cut && item.ID == target.ScopeID && (item.Kind == "continuation" || item.Kind == "scope" || item.Kind == "task") {
+				retained, err = json.Marshal(prefix[:i])
+				if err != nil {
+					return job, nil, err
+				}
+				job.LastStepToKeep = chapter.Ordinal - 1
+				cut = true
+			}
 			if (item.Kind != "scope" && item.Kind != "task") || item.ID != target.ScopeID {
 				continue
 			}
@@ -76,12 +89,15 @@ func ResolveExecutionRestart(ctx context.Context, r executionHistoryReader, job 
 			if len(target.Payload) > 0 && !options.Restart {
 				return job, nil, fmt.Errorf("target scope has no restart handler")
 			}
-			retained, err = json.Marshal(prefix[:i])
+			found = true
+		}
+		if !cut && record.Kind == "continuation" && record.ID == target.ScopeID {
+			retained, err = json.Marshal(prefix)
 			if err != nil {
 				return job, nil, err
 			}
 			job.LastStepToKeep = chapter.Ordinal - 1
-			found = true
+			cut = true
 		}
 	}
 	if !header || !found {

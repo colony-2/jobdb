@@ -157,6 +157,20 @@ The API intentionally does not expose a standalone durable artifact-upload opera
 
 A restart clones a prefix of an earlier run into a new job and then resumes execution from that copied history.
 
+For a logical `ExecutionRestart` boundary, the copied prefix ends before the
+boundary's previous continuation, if present, including continuation records
+embedded in compact reconstruction metadata or earlier restart descriptors.
+The previous continuation's restart-admission results are excluded as well.
+The target declaration is still required and validated. Completed work before
+the boundary remains replayed, and the source history is never rewritten.
+
+Each explicit restart establishes a fresh continuation when execution reaches
+the selected boundary, rebasing ancestor budgets and anchoring newly entered
+work to that continuation. Repeated restarts at the same boundary follow the
+same rule. Recovery of the same restarted job preserves its committed
+continuation and deadlines; read-only replay never refreshes them. Previously
+recorded timeout outcomes remain authoritative.
+
 The new job automatically copies the source job's immutable application metadata.
 Restart requests cannot override it. Runtime-owned parent, schema, and schedule
 metadata are not inherited; they are determined independently for the new job.
