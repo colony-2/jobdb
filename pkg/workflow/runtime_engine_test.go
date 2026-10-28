@@ -263,14 +263,14 @@ func TestRuntimeEngineDelegatesWaitingTaskMethodsToRuntime(t *testing.T) {
 	}
 	runtime := &fakeWorkflowRuntime{
 		listResp: ListJobsResponse{Jobs: []JobSummary{{
-			JobKey:         waitKey,
-			JobType:        "job",
-			NextRoute:      &Route{JobType: "job", TaskType: "task"},
-			Status:         JobStatusReady,
-			CreatedAt:      time.Unix(100, 0).UTC(),
-			Metadata:       json.RawMessage(`{"ok":true}`),
-			ExecutionState: ExecutionState{TaskWait: &TaskWait{InputOrdinal: 1, OutputOrdinal: 2, InputHash: "hash-1", ResumeJobType: "job"}},
+			JobKey:    waitKey,
+			JobType:   "job",
+			NextRoute: &Route{JobType: "job", TaskType: "task"},
+			Status:    JobStatusReady,
+			CreatedAt: time.Unix(100, 0).UTC(),
+			Metadata:  json.RawMessage(`{"ok":true}`),
 		}}},
+		jobResp: JobInfo{NextRoute: &Route{JobType: "job", TaskType: "task"}, ExecutionState: ExecutionState{TaskWait: &TaskWait{InputOrdinal: 1, OutputOrdinal: 2, InputHash: "hash-1", ResumeJobType: "job"}}},
 		chapterResp: Chapter{
 			Ordinal:   1,
 			TaskType:  "task",
@@ -428,4 +428,27 @@ func (r *fakeWorkflowRuntime) ListGoals(context.Context, jobdb.ListGoalsRequest)
 }
 func (r *fakeWorkflowRuntime) ListDependencyWaits(context.Context, jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error) {
 	return jobdb.ListDependencyWaitsResponse{}, nil
+}
+
+func TestTaskDiscoveryRechecksDetailRoute(t *testing.T) {
+	key := JobKey{TenantId: "tenant", JobId: "job"}
+	runtime := &fakeWorkflowRuntime{
+		listResp: ListJobsResponse{Jobs: []JobSummary{{JobKey: key, Status: JobStatusReady, NextRoute: &Route{JobType: "job", TaskType: "requested"}}}},
+		jobResp:  JobInfo{NextRoute: &Route{JobType: "job", TaskType: "changed"}, ExecutionState: ExecutionState{TaskWait: &TaskWait{InputOrdinal: 1, OutputOrdinal: 2, InputHash: "hash", ResumeJobType: "job"}}},
+	}
+	req := FindTasksWaitingRequest{JobType: "job", TaskType: "requested", TenantIds: []string{"tenant"}}
+	handles, err := findWaitingTasksFromRuntime(context.Background(), runtime, req)
+	if err != nil || len(handles) != 0 {
+		t.Fatalf("changed task returned by discovery: %v %v", handles, err)
+	}
+	if runtime.jobReq != key {
+		t.Fatalf("detail was not inspected: %v", runtime.jobReq)
+	}
+	// Older servers do not expose NextRoute in JobInfo. Their task coordinates
+	// remain usable together with the list's route during rolling upgrades.
+	runtime.jobResp.NextRoute = nil
+	handles, err = findWaitingTasksFromRuntime(context.Background(), runtime, req)
+	if err != nil || len(handles) != 1 || handles[0].TaskType() != "requested" || handles[0].TaskOrdinalToComplete() != 2 {
+		t.Fatalf("legacy detail route: %v %v", handles, err)
+	}
 }

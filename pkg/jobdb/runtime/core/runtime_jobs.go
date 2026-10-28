@@ -74,7 +74,7 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 		NextPageToken: stored.NextPageToken,
 	}
 	for _, row := range stored.Jobs {
-		summary, err := jobSummaryFromStored(row)
+		summary, err := jobListSummaryFromStored(row)
 		if err != nil {
 			return jobdb.ListJobsResponse{}, err
 		}
@@ -84,15 +84,31 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 }
 
 func jobSummaryFromStored(row StoredJob) (jobdb.JobSummary, error) {
+	s, err := jobListSummaryFromStored(row)
+	if err != nil {
+		return s, err
+	}
+	s.BlockingWait = row.BlockingWait
+	s.OtherGoalIDs = row.OtherGoalIDs
+	s.ClientPayload = append([]byte(nil), row.ClientPayload...)
+	s.ExecutionState = executionState(row.RunPolicy, row.TaskWork)
+	s.WaitFor = append([]string(nil), row.WaitForJobIDs...)
+	if row.Completion != nil {
+		s.CompletionDetail = row.Completion.Detail
+	}
+	return s, nil
+}
+
+func jobListSummaryFromStored(row StoredJob) (jobdb.JobSummary, error) {
 	nextRoute := jobdb.Route{JobType: row.RouteJobType}
 	if row.WorkKind == WorkKindTask && row.TaskWork != nil {
 		nextRoute.TaskType = row.TaskWork.TaskType
 	}
-	summary := jobdb.JobSummary{BlockingWait: row.BlockingWait, GoalID: row.GoalID, OtherGoalIDs: row.OtherGoalIDs,
+	summary := jobdb.JobSummary{BlockingWaitSummary: row.BlockingWaitSummary, GoalID: row.GoalID,
 		JobKey: row.JobKey, Status: row.Status, JobType: row.JobType,
-		ClientPayload: append([]byte(nil), row.ClientPayload...), ClientPayloadRevision: row.ClientPayloadRevision, ExecutionState: executionState(row.RunPolicy, row.TaskWork),
-		NextRoute: &nextRoute, WaitFor: append([]string(nil), row.WaitForJobIDs...),
-		AvailableAt: row.AvailableAt, ExpiresAt: row.ExpiresAt,
+		ClientPayloadRevision: row.ClientPayloadRevision,
+		NextRoute:             &nextRoute,
+		AvailableAt:           row.AvailableAt, ExpiresAt: row.ExpiresAt,
 		LeaseExpiresAt: row.LeaseExpiresAt, CancelRequested: row.CancelRequested,
 		CreatedAt: row.CreatedAt, ArchivedAt: row.ArchivedAt,
 		Metadata:   append([]byte(nil), row.AppMetadata...),
@@ -100,7 +116,6 @@ func jobSummaryFromStored(row StoredJob) (jobdb.JobSummary, error) {
 	}
 	if row.Completion != nil {
 		summary.CompletionStatus = row.Completion.Status
-		summary.CompletionDetail = row.Completion.Detail
 	}
 	if row.WorkKind == WorkKindTask {
 		if row.TaskWork == nil {

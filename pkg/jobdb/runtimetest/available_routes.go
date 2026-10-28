@@ -97,11 +97,15 @@ func RunAvailableRoutesConformance(t *testing.T, harnesses ...Harness) {
 						require.Len(t, result.Jobs, 1)
 						require.Equal(t, key, result.Jobs[0].JobKey)
 						require.Equal(t, stored, *result.Jobs[0].NextRoute, "discovery must preserve the pending input route")
+						require.Empty(t, result.Jobs[0].WaitFor)
+						require.Equal(t, jobdb.ExecutionState{}, result.Jobs[0].ExecutionState)
+						detail, err := r.GetJob(ctx, key)
+						require.NoError(t, err)
 						if len(reschedule.WaitForJobIDs) > 0 {
-							require.Equal(t, reschedule.WaitForJobIDs, result.Jobs[0].WaitFor, "discovery must not consume dependencies")
+							require.Equal(t, reschedule.WaitForJobIDs, detail.WaitFor, "discovery must not consume dependencies")
 						}
 						if reschedule.TaskWait != nil {
-							require.Equal(t, reschedule.TaskWait, result.Jobs[0].ExecutionState.TaskWait)
+							require.Equal(t, reschedule.TaskWait, detail.ExecutionState.TaskWait)
 						}
 					}
 					check(base, true) // Omitted and empty filters preserve normal inspection.

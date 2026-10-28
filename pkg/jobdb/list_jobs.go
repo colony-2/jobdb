@@ -9,10 +9,21 @@ import (
 	"time"
 )
 
+// DependencyWaitSummary identifies a persisted pending wait without evaluating
+// dependency targets or candidate jobs. It is absent once the stored wait is
+// terminal or its deadline has elapsed.
+type DependencyWaitSummary struct {
+	WaitID   string     `json:"waitId"`
+	Deadline *time.Time `json:"deadline,omitempty"`
+}
+
 // JobSummary is a lightweight view of a job from the selected runtime.
 type JobSummary struct {
+	BlockingWaitSummary *DependencyWaitSummary
+	// Deprecated: use GetJob or GetDependencyWait. Not populated by compact lists.
 	BlockingWait *DependencyWaitInfo
 	GoalID       string
+	// Deprecated: use GetJob. Not populated by compact lists.
 	OtherGoalIDs []string
 	JobKey       JobKey
 	Status       JobStatus
@@ -20,22 +31,27 @@ type JobSummary struct {
 	// Empty means unavailable; unfamiliar values must be preserved.
 	CompletionStatus string
 	// CompletionDetail is the persisted completion detail; empty is valid.
-	CompletionDetail      string
-	JobType               string
-	NextRoute             *Route
-	WaitFor               []string // JobIds only - all WaitFor jobs must be in same tenant
-	AvailableAt           time.Time
-	ExpiresAt             *time.Time
-	LeaseExpiresAt        *time.Time
-	CancelRequested       bool
-	CreatedAt             time.Time
-	ArchivedAt            *time.Time
+	//
+	// Deprecated: use GetJob. Not populated by compact lists.
+	CompletionDetail string
+	JobType          string
+	NextRoute        *Route
+	// Deprecated: use GetJob. Not populated by compact lists.
+	WaitFor         []string // JobIds only - all WaitFor jobs must be in same tenant
+	AvailableAt     time.Time
+	ExpiresAt       *time.Time
+	LeaseExpiresAt  *time.Time
+	CancelRequested bool
+	CreatedAt       time.Time
+	ArchivedAt      *time.Time
+	// Deprecated: use GetJob. Not populated by compact lists.
 	ClientPayload         json.RawMessage
 	ClientPayloadRevision int64
-	ExecutionState        ExecutionState
-	Metadata              json.RawMessage
-	SchemaHash            string
-	ParentJobID           string
+	// Deprecated: use GetJob. Not populated by compact lists.
+	ExecutionState ExecutionState
+	Metadata       json.RawMessage
+	SchemaHash     string
+	ParentJobID    string
 }
 
 type JobStore string

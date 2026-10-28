@@ -23,10 +23,18 @@ func (r *Runtime) GetJob(ctx context.Context, key jobdb.JobKey) (jobdb.JobInfo, 
 	if err != nil {
 		return jobdb.JobInfo{}, err
 	}
-	info := jobdb.JobInfo{BlockingWait: stored.BlockingWait, GoalID: stored.GoalID, OtherGoalIDs: stored.OtherGoalIDs,
+	route := jobdb.Route{JobType: stored.RouteJobType}
+	if stored.WorkKind == WorkKindTask && stored.TaskWork != nil {
+		route.TaskType = stored.TaskWork.TaskType
+	}
+	info := jobdb.JobInfo{NextRoute: &route, WaitFor: append([]string(nil), stored.WaitForJobIDs...), BlockingWait: stored.BlockingWait, GoalID: stored.GoalID, OtherGoalIDs: stored.OtherGoalIDs,
 		Status: stored.Status, SchemaHash: stored.SchemaHash,
 		ClientPayload: append([]byte(nil), stored.ClientPayload...), ClientPayloadRevision: stored.ClientPayloadRevision, ExecutionState: executionState(stored.RunPolicy, stored.TaskWork),
 		Data: &runtimeJobData{err: jobdb.ErrJobNotComplete},
+	}
+	if stored.Completion != nil {
+		info.CompletionStatus = stored.Completion.Status
+		info.CompletionDetail = stored.Completion.Detail
 	}
 	if stored.Store != jobdb.JobStoreArchived {
 		return info, nil

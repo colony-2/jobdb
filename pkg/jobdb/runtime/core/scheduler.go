@@ -74,6 +74,7 @@ type AlternateRoute struct {
 
 // StoredJob joins immutable facts with current or archived scheduler state.
 type StoredJob struct {
+	BlockingWaitSummary   *jobdb.DependencyWaitSummary
 	BlockingWait          *jobdb.DependencyWaitInfo
 	GoalID                string
 	OtherGoalIDs          []string

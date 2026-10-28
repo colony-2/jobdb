@@ -223,8 +223,12 @@ func TestAwaitJobsAcrossBuiltInRuntimes(t *testing.T) {
 			if err != nil {
 				t.Fatalf("list jobs: %v", err)
 			}
-			if len(resp.Jobs) != 1 || len(resp.Jobs[0].WaitFor) != 1 || resp.Jobs[0].WaitFor[0] != childJobID {
-				t.Fatalf("unexpected wait_for response %+v", resp.Jobs)
+			if len(resp.Jobs) != 1 || len(resp.Jobs[0].WaitFor) != 0 {
+				t.Fatalf("unexpected compact response %+v", resp.Jobs)
+			}
+			info, err := built.Engine.GetJob(ctx, resp.Jobs[0].JobKey)
+			if err != nil || len(info.WaitFor) != 1 || info.WaitFor[0] != childJobID {
+				t.Fatalf("unexpected wait_for detail %+v: %v", info.WaitFor, err)
 			}
 
 			close(releaseChild)
@@ -339,19 +343,26 @@ func TestPendingTaskHandlesAcrossBuiltInRuntimes(t *testing.T) {
 			if len(resp.Jobs) != 1 {
 				t.Fatalf("expected 1 job summary, got %d", len(resp.Jobs))
 			}
-			if resp.Jobs[0].ExecutionState.TaskWait == nil || resp.Jobs[0].ExecutionState.TaskWait.OutputOrdinal != handle.TaskOrdinalToComplete() {
-				t.Fatalf("unexpected task wait output %+v", resp.Jobs[0].ExecutionState.TaskWait.OutputOrdinal)
+			if resp.Jobs[0].ExecutionState.TaskWait != nil {
+				t.Fatal("task coordinates populated in compact list")
 			}
-			if resp.Jobs[0].ExecutionState.TaskWait == nil || resp.Jobs[0].ExecutionState.TaskWait.InputOrdinal != handle.TaskOrdinalToComplete()-1 {
-				t.Fatalf("unexpected task wait input %+v", resp.Jobs[0].ExecutionState.TaskWait.InputOrdinal)
+			info, err := built.Engine.GetJob(ctx, jobKey)
+			if err != nil || info.ExecutionState.TaskWait == nil {
+				t.Fatalf("missing task detail: %+v %v", info.ExecutionState, err)
+			}
+			if info.ExecutionState.TaskWait == nil || info.ExecutionState.TaskWait.OutputOrdinal != handle.TaskOrdinalToComplete() {
+				t.Fatalf("unexpected task wait output %+v", info.ExecutionState.TaskWait.OutputOrdinal)
+			}
+			if info.ExecutionState.TaskWait == nil || info.ExecutionState.TaskWait.InputOrdinal != handle.TaskOrdinalToComplete()-1 {
+				t.Fatalf("unexpected task wait input %+v", info.ExecutionState.TaskWait.InputOrdinal)
 			}
 			if resp.Jobs[0].NextRoute == nil || *resp.Jobs[0].NextRoute != (jobdb.Route{JobType: ws.JobWorker.Name(), TaskType: "pending-task"}) {
 				t.Fatalf("unexpected next need %+v", resp.Jobs[0].NextRoute)
 			}
-			if resp.Jobs[0].ExecutionState.TaskWait == nil || resp.Jobs[0].ExecutionState.TaskWait.ResumeJobType != ws.JobWorker.Name() {
-				t.Fatalf("unexpected task wait resume need %+v", resp.Jobs[0].ExecutionState.TaskWait.ResumeJobType)
+			if info.ExecutionState.TaskWait == nil || info.ExecutionState.TaskWait.ResumeJobType != ws.JobWorker.Name() {
+				t.Fatalf("unexpected task wait resume need %+v", info.ExecutionState.TaskWait.ResumeJobType)
 			}
-			if resp.Jobs[0].ExecutionState.TaskWait == nil || resp.Jobs[0].ExecutionState.TaskWait.InputHash == "" {
+			if info.ExecutionState.TaskWait == nil || info.ExecutionState.TaskWait.InputHash == "" {
 				t.Fatalf("expected task wait input hash")
 			}
 

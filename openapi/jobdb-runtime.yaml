@@ -3152,6 +3152,17 @@ components:
       required: [goalId, otherGoalIds, status, data, executionState, clientPayloadRevision]
       additionalProperties: false
       properties:
+        nextRoute:
+          $ref: '#/components/schemas/Route'
+        completionStatus:
+          type: string
+          description: Persisted terminal outcome; absent or empty when unavailable.
+        completionDetail:
+          type: string
+          description: Persisted completion diagnostic text.
+        waitFor:
+          type: array
+          items: {type: string}
         blockingWait:
           $ref: '#/components/schemas/DependencyWaitInfo'
         goalId:
@@ -3301,29 +3312,44 @@ components:
     JobSummary:
       type: object
       required: [goalId, otherGoalIds, jobKey, status, jobType, waitFor, availableAt, cancelRequested, createdAt, executionState, clientPayloadRevision]
+      description: List responses leave deprecated detail fields empty. Read those fields from GetJob or dependency detail APIs. Full application metadata is always retained.
       additionalProperties: false
       properties:
+        blockingWaitSummary:
+          $ref: '#/components/schemas/DependencyWaitSummary'
         blockingWait:
-          $ref: '#/components/schemas/DependencyWaitInfo'
+          deprecated: true
+          x-deprecated-reason: Not populated by ordinary job lists. Use GetJob for details.
+          allOf:
+            - $ref: '#/components/schemas/DependencyWaitInfo'
         goalId:
           type: string
         otherGoalIds:
+          deprecated: true
+          x-deprecated-reason: Not populated by ordinary job lists. Use GetJob for details.
           type: array
           items: {type: string}
         completionStatus:
           type: string
           description: Persisted terminal outcome, independent of scheduler status. Absent or empty means unavailable. Unfamiliar values are preserved.
         completionDetail:
+          deprecated: true
+          x-deprecated-reason: Not populated by ordinary job lists. Use GetJob for details.
           type: string
           description: Persisted terminal completion detail. Empty is valid, including for success.
         clientPayload:
+          deprecated: true
+          x-deprecated-reason: Not populated by ordinary job lists. Use GetJob for details.
           x-go-type: json.RawMessage
           x-go-type-skip-optional-pointer: true
         clientPayloadRevision:
           type: string
           pattern: '^[0-9]+$'
         executionState:
-          $ref: '#/components/schemas/ExecutionState'
+          deprecated: true
+          x-deprecated-reason: Not populated by ordinary job lists. Use GetJob for details.
+          allOf:
+            - $ref: '#/components/schemas/ExecutionState'
         jobKey:
           $ref: '#/components/schemas/JobKey'
         status:
@@ -3333,6 +3359,8 @@ components:
         nextRoute:
           $ref: '#/components/schemas/Route'
         waitFor:
+          deprecated: true
+          x-deprecated-reason: Not populated by ordinary job lists. Use GetJob for details.
           type: array
           items:
             type: string
@@ -3408,3 +3436,19 @@ components:
           type: string
         payload:
           $ref: '#/components/schemas/ApplicationPayload'
+
+    DependencyWaitSummary:
+      type: object
+      additionalProperties: false
+      required: [waitId]
+      x-go-type: jobdb.DependencyWaitSummary
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
+      description: Persisted pending wait identity and deadline. Does not evaluate dependency targets or candidate jobs. Absent after the wait becomes terminal or its deadline elapses.
+      properties:
+        waitId:
+          type: string
+        deadline:
+          type: string
+          format: date-time

@@ -35,6 +35,10 @@ func TestRuntimeGetJobUsesFinalChapterForArchivedData(t *testing.T) {
 	scheduler := getTestScheduler{job: runtimecore.StoredJob{
 		JobKey: key, Store: jobdb.JobStoreArchived,
 		Status: jobdb.JobStatusCompleted, SchemaHash: "schema-hash",
+		RouteJobType: "collect", WorkKind: runtimecore.WorkKindTask,
+		TaskWork:      &runtimecore.TaskWork{TaskType: "download", InputHash: "hash", InputOrdinal: 1, OutputOrdinal: 2, ResumeJobType: "collect"},
+		WaitForJobIDs: []string{"dependency"},
+		Completion:    &runtimecore.CompletionSnapshot{Status: "success", Detail: "retained detail"},
 	}}
 	runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{},
 		Scheduler: scheduler, Chapters: readTestChapters{encoded: encoded},
@@ -46,6 +50,9 @@ func TestRuntimeGetJobUsesFinalChapterForArchivedData(t *testing.T) {
 	info, err := runtime.GetJob(context.Background(), key)
 	if err != nil || info.Status != jobdb.JobStatusCompleted || info.SchemaHash != "schema-hash" {
 		t.Fatalf("archived job = %+v, %v", info, err)
+	}
+	if info.NextRoute == nil || info.NextRoute.TaskType != "download" || info.ExecutionState.TaskWait == nil || info.ExecutionState.TaskWait.InputHash != "hash" || len(info.WaitFor) != 1 || info.WaitFor[0] != "dependency" || info.CompletionStatus != "success" || info.CompletionDetail != "retained detail" {
+		t.Fatalf("missing detail fields: %+v", info)
 	}
 	data, err := info.Data.GetData()
 	if err != nil || string(data) != `{"ok":true}` {

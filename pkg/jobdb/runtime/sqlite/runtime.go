@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"reflect"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -678,7 +677,11 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 	if err != nil {
 		return jobdb.JobInfo{}, err
 	}
-	job := jobdb.JobInfo{BlockingWait: blocking,
+	waitFor, err := decodeWaitFor(row.waitForRaw)
+	if err != nil {
+		return jobdb.JobInfo{}, err
+	}
+	job := jobdb.JobInfo{NextRoute: jobdb.CloneRoute(&row.nextRoute), WaitFor: waitFor, CompletionStatus: row.completionStatus.String, CompletionDetail: row.completionDetail.String, BlockingWait: blocking,
 		GoalID: row.goalID, OtherGoalIDs: otherGoals,
 		ClientPayload: cloneJSON(row.clientPayload), ClientPayloadRevision: row.clientPayloadRevision, ExecutionState: jobExecutionState(row.payload),
 		Status:     status,
@@ -722,186 +725,7 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 	} else if pageSize > jobdb.MaxListJobsPageSize {
 		pageSize = jobdb.MaxListJobsPageSize
 	}
-	rawPredicates, err := jobdb.MetadataPredicates(req.MetadataFilter)
-	if err != nil {
-		return jobdb.ListJobsResponse{}, err
-	}
-	metadataPredicates, err := normalizeMetadataPredicates(rawPredicates)
-	if err != nil {
-		return jobdb.ListJobsResponse{}, err
-	}
-	var cursorTime time.Time
-	var cursorJob string
-	hasCursor := false
-	if req.PageToken != "" {
-		createdAt, jobKey, err := jobdb.DecodeListJobsPageToken(req.PageToken)
-		if err != nil {
-			return jobdb.ListJobsResponse{}, err
-		}
-		cursorTime = createdAt
-		cursorJob = jobKey.String()
-		hasCursor = true
-	}
-	where, args := goalListPredicate(req)
-	rows, err := r.db.QueryContext(ctx, "SELECT "+jobColumns+" FROM jobdb_jobs WHERE "+where+" ORDER BY created_at_ns DESC, job_id DESC", args...)
-	if err != nil {
-		return jobdb.ListJobsResponse{}, err
-	}
-	all := make([]jobRow, 0)
-	for rows.Next() {
-		row, err := scanJobRow(rows)
-		if err != nil {
-			_ = rows.Close()
-			return jobdb.ListJobsResponse{}, err
-		}
-		all = append(all, row)
-	}
-	if err := rows.Close(); err != nil {
-		return jobdb.ListJobsResponse{}, err
-	}
-	if err := rows.Err(); err != nil {
-		return jobdb.ListJobsResponse{}, err
-	}
-
-	tenantAllowed := stringSet(req.TenantIds)
-	statusAllowed := statusSet(req.Statuses)
-	jobKeyAllowed := jobKeySet(req.JobKeys)
-	jobTypeAllowed := stringSet(req.JobTypes)
-	parentJobIDAllowed := stringSet(req.ParentJobIDs)
-	includeActive, includeArchive, err := listStoreSelection(req)
-	if err != nil {
-		return jobdb.ListJobsResponse{}, err
-	}
-
-	now := time.Now().UTC()
-	out := make([]jobdb.JobSummary, 0)
-	for _, row := range all {
-		key := jobdb.JobKey{TenantId: row.tenantID, JobId: row.jobID}
-		if len(tenantAllowed) > 0 && !tenantAllowed[row.tenantID] {
-			continue
-		}
-		status, err := statusFromRow(ctx, r.db, row, now)
-		if err != nil {
-			return jobdb.ListJobsResponse{}, err
-		}
-		archived := row.archivedAtNS.Valid
-		if archived && !includeArchive {
-			continue
-		}
-		if !archived && !includeActive {
-			continue
-		}
-		if len(statusAllowed) > 0 && !statusAllowed[status] {
-			continue
-		}
-		if len(jobKeyAllowed) > 0 && !jobKeyAllowed[key] {
-			continue
-		}
-		if len(jobTypeAllowed) > 0 && !jobTypeAllowed[row.jobType] {
-			continue
-		}
-		if len(req.JobTasks) > 0 && !jobTaskMatches(row.nextRoute, req.JobTasks) {
-			continue
-		}
-		if len(req.AvailableRoutes) > 0 {
-			route, _ := effectiveNextRoute(row, now)
-			if status != jobdb.JobStatusReady || !slices.Contains(req.AvailableRoutes, route) {
-				continue
-			}
-		}
-		parentJobID := ""
-		if row.parentJobID.Valid {
-			parentJobID = row.parentJobID.String
-		} else if extracted, ok, err := jobdb.ExtractParentJobID(row.metadata); err != nil {
-			return jobdb.ListJobsResponse{}, err
-		} else if ok {
-			parentJobID = extracted
-		}
-		if req.RootOnly && parentJobID != "" {
-			continue
-		}
-		if len(parentJobIDAllowed) > 0 && !parentJobIDAllowed[parentJobID] {
-			continue
-		}
-		createdAt := timeFromNS(row.createdAtNS)
-		if req.CreatedAfter != nil && createdAt.Before(*req.CreatedAfter) {
-			continue
-		}
-		if req.CreatedBefore != nil && createdAt.After(*req.CreatedBefore) {
-			continue
-		}
-		if len(metadataPredicates) > 0 {
-			match, err := metadataMatches(row.metadata, metadataPredicates)
-			if err != nil {
-				return jobdb.ListJobsResponse{}, err
-			}
-			if !match {
-				continue
-			}
-		}
-		if hasCursor {
-			if createdAt.After(cursorTime) {
-				continue
-			}
-			if createdAt.Equal(cursorTime) && key.String() >= cursorJob {
-				continue
-			}
-		}
-		waitFor, err := decodeWaitFor(row.waitForRaw)
-		if err != nil {
-			return jobdb.ListJobsResponse{}, err
-		}
-		nextRoute := row.nextRoute
-		blocking, err := blockingWait(ctx, r.db, row, now)
-		if err != nil {
-			return jobdb.ListJobsResponse{}, err
-		}
-		summary := jobdb.JobSummary{BlockingWait: blocking,
-			GoalID:           row.goalID,
-			JobKey:           key,
-			Status:           status,
-			CompletionStatus: row.completionStatus.String,
-			CompletionDetail: row.completionDetail.String,
-			JobType:          row.jobType,
-			NextRoute:        jobdb.CloneRoute(&nextRoute),
-			WaitFor:          waitFor,
-			AvailableAt:      timeFromNS(row.availableAtNS),
-			LeaseExpiresAt:   nullTimeFromNS(row.leaseExpiresAtNS),
-			CancelRequested:  row.cancelRequested,
-			CreatedAt:        createdAt,
-			ArchivedAt:       nullTimeFromNS(row.archivedAtNS),
-			ClientPayload:    cloneJSON(row.clientPayload), ClientPayloadRevision: row.clientPayloadRevision, ExecutionState: jobExecutionState(row.payload),
-			Metadata:    jobdb.StripRuntimeMetadata(row.metadata),
-			SchemaHash:  jobmetadata.SchemaHashFromStoredMetadata(row.metadata),
-			ParentJobID: parentJobID,
-		}
-		out = append(out, summary)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
-			return out[i].JobKey.String() > out[j].JobKey.String()
-		}
-		return out[i].CreatedAt.After(out[j].CreatedAt)
-	})
-	nextToken := ""
-	if len(out) > pageSize {
-		last := out[pageSize-1]
-		if tok, err := jobdb.EncodeListJobsPageToken(last.CreatedAt, last.JobKey); err == nil {
-			nextToken = tok
-		}
-		out = out[:pageSize]
-	}
-	extraGoals, err := r.batchOtherGoals(ctx, out)
-	if err != nil {
-		return jobdb.ListJobsResponse{}, err
-	}
-	for i := range out {
-		out[i].OtherGoalIDs = extraGoals[out[i].JobKey]
-		if out[i].OtherGoalIDs == nil {
-			out[i].OtherGoalIDs = []string{}
-		}
-	}
-	return jobdb.ListJobsResponse{Jobs: out, NextPageToken: nextToken}, nil
+	return r.listCompactJobs(ctx, req, pageSize)
 }
 
 func (r *Runtime) GetChapter(ctx context.Context, ref jobdb.ChapterRef) (jobdb.Chapter, error) {

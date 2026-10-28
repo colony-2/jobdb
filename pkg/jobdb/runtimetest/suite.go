@@ -1036,17 +1036,21 @@ func runConflictBehavior(t *testing.T, harnesses []Harness) {
 					t.Fatalf("expected 1 waiting job summary, got %d", len(listed.Jobs))
 				}
 				summary := listed.Jobs[0]
-				if summary.NextRoute == nil || summary.ExecutionState.TaskWait == nil {
+				detail, err := built.Runtime.GetJob(ctx, jobKey)
+				if err != nil {
+					t.Fatalf("get waiting task detail: %v", err)
+				}
+				if summary.NextRoute == nil || detail.ExecutionState.TaskWait == nil {
 					t.Fatalf("missing waiting-task metadata in summary %+v", summary)
 				}
 
 				req := jobdb.CompleteTaskIfWaitingRequest{
 					JobKey:        jobKey,
 					Route:         *summary.NextRoute,
-					ResumeJobType: summary.ExecutionState.TaskWait.ResumeJobType,
-					InputOrdinal:  summary.ExecutionState.TaskWait.InputOrdinal,
-					OutputOrdinal: summary.ExecutionState.TaskWait.OutputOrdinal,
-					InputHash:     summary.ExecutionState.TaskWait.InputHash,
+					ResumeJobType: detail.ExecutionState.TaskWait.ResumeJobType,
+					InputOrdinal:  detail.ExecutionState.TaskWait.InputOrdinal,
+					OutputOrdinal: detail.ExecutionState.TaskWait.OutputOrdinal,
+					InputHash:     detail.ExecutionState.TaskWait.InputHash,
 					Data:          NumberTaskData(2),
 				}
 

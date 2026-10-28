@@ -403,6 +403,9 @@ type DependencyWait = jobdb.DependencyWait
 // DependencyWaitInfo defines model for DependencyWaitInfo.
 type DependencyWaitInfo = jobdb.DependencyWaitInfo
 
+// DependencyWaitSummary Persisted pending wait identity and deadline. Does not evaluate dependency targets or candidate jobs. Absent after the wait becomes terminal or its deadline elapses.
+type DependencyWaitSummary = jobdb.DependencyWaitSummary
+
 // ErrorCode defines model for ErrorCode.
 type ErrorCode string
 
@@ -531,15 +534,23 @@ type JobInfo struct {
 	ClientPayload         json.RawMessage     `json:"clientPayload,omitempty"`
 	ClientPayloadRevision string              `json:"clientPayloadRevision"`
 
+	// CompletionDetail Persisted completion diagnostic text.
+	CompletionDetail *string `json:"completionDetail,omitempty"`
+
+	// CompletionStatus Persisted terminal outcome; absent or empty when unavailable.
+	CompletionStatus *string `json:"completionStatus,omitempty"`
+
 	// Data Terminal task data when materialized. A `null` value should be
 	// treated as a lazily unavailable `TaskData`, for example when the job
 	// has not completed yet.
 	Data           *StoredTaskData `json:"data"`
 	ExecutionState ExecutionState  `json:"executionState"`
 	GoalId         string          `json:"goalId"`
+	NextRoute      *Route          `json:"nextRoute,omitempty"`
 	OtherGoalIds   []string        `json:"otherGoalIds"`
 	SchemaHash     *JobSchemaHash  `json:"schemaHash,omitempty"`
 	Status         JobStatus       `json:"status"`
+	WaitFor        *[]string       `json:"waitFor,omitempty"`
 }
 
 // JobKey defines model for JobKey.
@@ -607,34 +618,43 @@ type JobStatus string
 // JobStore defines model for JobStore.
 type JobStore string
 
-// JobSummary defines model for JobSummary.
+// JobSummary List responses leave deprecated detail fields empty. Read those fields from GetJob or dependency detail APIs. Full application metadata is always retained.
 type JobSummary struct {
-	ArchivedAt            *time.Time          `json:"archivedAt,omitempty"`
-	AvailableAt           time.Time           `json:"availableAt"`
-	BlockingWait          *DependencyWaitInfo `json:"blockingWait,omitempty"`
-	CancelRequested       bool                `json:"cancelRequested"`
-	ClientPayload         json.RawMessage     `json:"clientPayload,omitempty"`
-	ClientPayloadRevision string              `json:"clientPayloadRevision"`
+	ArchivedAt  *time.Time `json:"archivedAt,omitempty"`
+	AvailableAt time.Time  `json:"availableAt"`
+	// Deprecated: Not populated by ordinary job lists. Use GetJob for details.
+	BlockingWait *DependencyWaitInfo `json:"blockingWait,omitempty"`
+
+	// BlockingWaitSummary Persisted pending wait identity and deadline. Does not evaluate dependency targets or candidate jobs. Absent after the wait becomes terminal or its deadline elapses.
+	BlockingWaitSummary *DependencyWaitSummary `json:"blockingWaitSummary,omitempty"`
+	CancelRequested     bool                   `json:"cancelRequested"`
+	// Deprecated: Not populated by ordinary job lists. Use GetJob for details.
+	ClientPayload         json.RawMessage `json:"clientPayload,omitempty"`
+	ClientPayloadRevision string          `json:"clientPayloadRevision"`
 
 	// CompletionDetail Persisted terminal completion detail. Empty is valid, including for success.
+	// Deprecated: Not populated by ordinary job lists. Use GetJob for details.
 	CompletionDetail *string `json:"completionDetail,omitempty"`
 
 	// CompletionStatus Persisted terminal outcome, independent of scheduler status. Absent or empty means unavailable. Unfamiliar values are preserved.
-	CompletionStatus *string        `json:"completionStatus,omitempty"`
-	CreatedAt        time.Time      `json:"createdAt"`
-	ExecutionState   ExecutionState `json:"executionState"`
-	ExpiresAt        *time.Time     `json:"expiresAt,omitempty"`
-	GoalId           string         `json:"goalId"`
-	JobKey           JobKey         `json:"jobKey"`
-	JobType          string         `json:"jobType"`
-	LeaseExpiresAt   *time.Time     `json:"leaseExpiresAt,omitempty"`
-	Metadata         *Metadata      `json:"metadata,omitempty"`
-	NextRoute        *Route         `json:"nextRoute,omitempty"`
-	OtherGoalIds     []string       `json:"otherGoalIds"`
-	ParentJobId      *string        `json:"parentJobId,omitempty"`
-	SchemaHash       *JobSchemaHash `json:"schemaHash,omitempty"`
-	Status           JobStatus      `json:"status"`
-	WaitFor          []string       `json:"waitFor"`
+	CompletionStatus *string   `json:"completionStatus,omitempty"`
+	CreatedAt        time.Time `json:"createdAt"`
+	// Deprecated: Not populated by ordinary job lists. Use GetJob for details.
+	ExecutionState ExecutionState `json:"executionState"`
+	ExpiresAt      *time.Time     `json:"expiresAt,omitempty"`
+	GoalId         string         `json:"goalId"`
+	JobKey         JobKey         `json:"jobKey"`
+	JobType        string         `json:"jobType"`
+	LeaseExpiresAt *time.Time     `json:"leaseExpiresAt,omitempty"`
+	Metadata       *Metadata      `json:"metadata,omitempty"`
+	NextRoute      *Route         `json:"nextRoute,omitempty"`
+	// Deprecated: Not populated by ordinary job lists. Use GetJob for details.
+	OtherGoalIds []string       `json:"otherGoalIds"`
+	ParentJobId  *string        `json:"parentJobId,omitempty"`
+	SchemaHash   *JobSchemaHash `json:"schemaHash,omitempty"`
+	Status       JobStatus      `json:"status"`
+	// Deprecated: Not populated by ordinary job lists. Use GetJob for details.
+	WaitFor []string `json:"waitFor"`
 }
 
 // JobTaskFilter defines model for JobTaskFilter.
@@ -958,6 +978,7 @@ type ScheduleOverlapPolicy string
 
 // ScheduleRunSummary defines model for ScheduleRunSummary.
 type ScheduleRunSummary struct {
+	// Job List responses leave deprecated detail fields empty. Read those fields from GetJob or dependency detail APIs. Full application metadata is always retained.
 	Job         JobSummary `json:"job"`
 	ReasonCode  *string    `json:"reasonCode,omitempty"`
 	ScheduleId  string     `json:"scheduleId"`

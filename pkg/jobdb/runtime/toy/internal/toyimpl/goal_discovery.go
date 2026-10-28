@@ -195,3 +195,24 @@ func (e *ToyEngine) blockingWaitLocked(key jobdb.JobKey, rec *jobRecord, now tim
 	}
 	return &w, nil
 }
+
+// The list projection reads only persisted wait state; explanations belong to detail.
+func (e *ToyEngine) blockingWaitSummaryLocked(key jobdb.JobKey, rec *jobRecord, now time.Time) (*jobdb.DependencyWaitSummary, error) {
+	if rec.dependencyWaitID == "" || rec.archived != nil || rec.cancelled {
+		return nil, nil
+	}
+	e.initGoalsLocked()
+	w, err := e.goals.Wait(jobdb.DependencyWaitKey{JobKey: key, WaitID: rec.dependencyWaitID})
+	if err != nil {
+		return nil, err
+	}
+	if w.State != jobdb.DependencyPending || (w.Deadline != nil && !now.Before(*w.Deadline)) {
+		return nil, nil
+	}
+	out := &jobdb.DependencyWaitSummary{WaitID: w.WaitID}
+	if w.Deadline != nil {
+		d := *w.Deadline
+		out.Deadline = &d
+	}
+	return out, nil
+}

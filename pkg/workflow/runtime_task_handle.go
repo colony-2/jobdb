@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/colony-2/jobdb/pkg/jobdb"
 	"time"
+
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type runtimeListedTaskHandle struct {
@@ -58,7 +59,14 @@ func findWaitingTasksFromRuntime(ctx context.Context, runtime WorkflowRuntime, r
 			if currentNeedFromSummary(job) != route {
 				continue
 			}
-			handle, ok := taskHandleFromJobSummary(runtime, job)
+			info, err := runtime.GetJob(ctx, job.JobKey)
+			if err != nil {
+				return nil, err
+			}
+			if info.NextRoute != nil && *info.NextRoute != route {
+				continue // The task changed between listing and inspection.
+			}
+			handle, ok := taskHandleFromJobSummary(runtime, job, info)
 			if !ok {
 				continue
 			}
@@ -96,7 +104,11 @@ func getWaitingTaskFromRuntime(ctx context.Context, runtime WorkflowRuntime, key
 		if job.JobKey != key {
 			continue
 		}
-		handle, ok := taskHandleFromJobSummary(runtime, job)
+		info, err := runtime.GetJob(ctx, job.JobKey)
+		if err != nil {
+			return nil, err
+		}
+		handle, ok := taskHandleFromJobSummary(runtime, job, info)
 		if !ok {
 			break
 		}
@@ -105,12 +117,16 @@ func getWaitingTaskFromRuntime(ctx context.Context, runtime WorkflowRuntime, key
 	return nil, ErrJobNotFound
 }
 
-func taskHandleFromJobSummary(runtime WorkflowRuntime, summary JobSummary) (TaskHandle, bool) {
-	wait := summary.ExecutionState.TaskWait
-	if wait == nil || summary.NextRoute == nil || summary.NextRoute.TaskType == "" {
+func taskHandleFromJobSummary(runtime WorkflowRuntime, summary JobSummary, info jobdb.JobInfo) (TaskHandle, bool) {
+	wait := info.ExecutionState.TaskWait
+	routeSnapshot := info.NextRoute
+	if routeSnapshot == nil {
+		routeSnapshot = summary.NextRoute
+	} // Older servers omit the additive detail field.
+	if wait == nil || routeSnapshot == nil || routeSnapshot.TaskType == "" {
 		return nil, false
 	}
-	route := *summary.NextRoute
+	route := *routeSnapshot
 	resumeJobType := wait.ResumeJobType
 	if resumeJobType == "" {
 		return nil, false

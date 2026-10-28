@@ -254,6 +254,17 @@ func loadJobSummary(ctx context.Context, runtime WorkflowRuntime, jobKey JobKey)
 		}
 		for _, job := range resp.Jobs {
 			if job.JobKey == jobKey {
+				// A run is a detail read. ListJobs deliberately omits these fields.
+				info, err := runtime.GetJob(ctx, jobKey)
+				if err != nil {
+					return JobSummary{}, err
+				}
+				job.BlockingWait = info.BlockingWait
+				job.OtherGoalIDs = info.OtherGoalIDs
+				job.CompletionDetail = info.CompletionDetail
+				job.ClientPayload = info.ClientPayload
+				job.ExecutionState = info.ExecutionState
+				job.WaitFor = info.WaitFor
 				return cloneJobSummary(job), nil
 			}
 		}
@@ -595,6 +606,11 @@ func cloneStoredJobRunChapter(chapter Chapter) Chapter {
 
 func cloneJobSummary(job JobSummary) JobSummary {
 	cloned := job
+	if job.BlockingWaitSummary != nil {
+		wait := *job.BlockingWaitSummary
+		wait.Deadline = cloneTimePtr(wait.Deadline)
+		cloned.BlockingWaitSummary = &wait
+	}
 	cloned.WaitFor = append([]string(nil), job.WaitFor...)
 	cloned.ClientPayload = append(json.RawMessage(nil), job.ClientPayload...)
 	cloned.ExecutionState = CloneExecutionState(job.ExecutionState)

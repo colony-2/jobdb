@@ -35,7 +35,7 @@ func TestCompletionSummaryUsesOnlyScheduler(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, listed.Jobs, 1)
 			require.Equal(t, status, listed.Jobs[0].CompletionStatus)
-			require.Equal(t, detail, listed.Jobs[0].CompletionDetail)
+			require.Empty(t, listed.Jobs[0].CompletionDetail)
 			require.Equal(t, row.Status, listed.Jobs[0].Status)
 		})
 	}
@@ -84,7 +84,7 @@ func TestRuntimeListJobsPassesAvailabilityToScheduler(t *testing.T) {
 	require.Equal(t, 1, calls, "invalid routes must not reach the scheduler")
 }
 
-func TestRuntimeListJobsKeepsArchivedTaskSummary(t *testing.T) {
+func TestRuntimeListJobsKeepsArchivedTaskRouteWithoutDetails(t *testing.T) {
 	created := time.Now().UTC().Truncate(time.Microsecond)
 	archived := created.Add(time.Minute)
 	expiry := archived.Add(time.Hour)
@@ -115,15 +115,35 @@ func TestRuntimeListJobsKeepsArchivedTaskSummary(t *testing.T) {
 	got := result.Jobs[0]
 	if got.Status != jobdb.JobStatusCompleted || got.JobType != "collect" ||
 		got.NextRoute == nil || *got.NextRoute != (jobdb.Route{JobType: "collect", TaskType: "download"}) ||
-		got.ExecutionState.TaskWait == nil || got.ExecutionState.TaskWait.InputOrdinal != 2 ||
-		got.ExecutionState.TaskWait.OutputOrdinal != 3 ||
-		got.ExecutionState.TaskWait.ResumeJobType != "collect" ||
-		got.ExecutionState.TaskWait.InputHash != "sha256:input" ||
-		string(got.ClientPayload) != `{}` || string(got.Metadata) != `{"source":"api"}` ||
+		got.ExecutionState.TaskWait != nil || got.ClientPayload != nil || string(got.Metadata) != `{"source":"api"}` ||
 		got.SchemaHash != "schema-hash" || got.ParentJobID != "parent" ||
 		got.ArchivedAt == nil || !got.ArchivedAt.Equal(archived) ||
 		got.ExpiresAt == nil || !got.ExpiresAt.Equal(expiry) ||
-		len(got.WaitFor) != 1 || got.WaitFor[0] != "prereq" {
+		len(got.WaitFor) != 0 {
 		t.Fatalf("archived task summary = %+v", got)
 	}
+}
+
+func TestRuntimeCompactListProjectsWaitIdentityOnly(t *testing.T) {
+	deadline := time.Now().UTC().Add(time.Hour)
+	row := runtimecore.StoredJob{
+		JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}, JobType: "work", RouteJobType: "work", WorkKind: runtimecore.WorkKindJob,
+		Status: jobdb.JobStatusPendingJobs, GoalID: "primary", OtherGoalIDs: []string{"secondary"},
+		BlockingWaitSummary: &jobdb.DependencyWaitSummary{WaitID: "wait", Deadline: &deadline},
+		BlockingWait:        &jobdb.DependencyWaitInfo{WaitID: "wait"},
+		ClientPayload:       json.RawMessage(`{"large":"payload"}`), RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 3}},
+		WaitForJobIDs: []string{"dependency"},
+	}
+	r, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: listTestScheduler{rows: []runtimecore.StoredJob{row}}, Chapters: noSummaryHistory{}, Schemas: readTestSchemas{}})
+	require.NoError(t, err)
+	page, err := r.ListJobs(context.Background(), jobdb.ListJobsRequest{TenantIds: []string{"tenant"}})
+	require.NoError(t, err)
+	require.Len(t, page.Jobs, 1)
+	got := page.Jobs[0]
+	require.Equal(t, row.BlockingWaitSummary, got.BlockingWaitSummary)
+	require.Nil(t, got.BlockingWait)
+	require.Empty(t, got.OtherGoalIDs)
+	require.Empty(t, got.ClientPayload)
+	require.Empty(t, got.WaitFor)
+	require.Equal(t, jobdb.ExecutionState{}, got.ExecutionState)
 }

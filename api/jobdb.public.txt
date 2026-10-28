@@ -222,6 +222,9 @@ method DependencyWaitInfo.Err func() error
 type DependencyWaitKey struct
   field JobKey JobKey `json:"jobKey"`
   field WaitID string `json:"waitId"`
+type DependencyWaitSummary struct
+  field WaitID string `json:"waitId"`
+  field Deadline *time.Time `json:"deadline,omitempty"`
 func DiscoveryPageScope func(request any) (string, error)
 func DiscoveryPageSize func(n int) int
 type Duration int64
@@ -461,6 +464,10 @@ type JobHandle struct
   field GoalID string
   field JobKey JobKey
 type JobInfo struct
+  field NextRoute *Route
+  field CompletionStatus string
+  field CompletionDetail string
+  field WaitFor []string
   field BlockingWait *DependencyWaitInfo
   field GoalID string
   field OtherGoalIDs []string
@@ -544,6 +551,7 @@ type JobStore string
 const JobStoreActive JobStore = "ACTIVE"
 const JobStoreArchived JobStore = "ARCHIVED"
 type JobSummary struct
+  field BlockingWaitSummary *DependencyWaitSummary
   field BlockingWait *DependencyWaitInfo
   field GoalID string
   field OtherGoalIDs []string
@@ -1107,6 +1115,7 @@ func MustWorkSet func(t testing.TB, job github.com/colony-2/jobdb/pkg/workflow.J
 func NumberTaskData func(n int) github.com/colony-2/jobdb/pkg/jobdb.TaskData
 func RunAvailableRoutesConformance func(t *testing.T, harnesses ...Harness)
 func RunClientPayloadConformance func(t *testing.T, harnesses ...Harness)
+func RunCompactListConformance func(t *testing.T, harnesses ...Harness)
 func RunConfigurationConformance func(t *testing.T, rt github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime)
 func RunRouteConformance func(t *testing.T, harnesses ...Harness)
 func RunWorkflowRuntimeConformance func(t *testing.T, harnesses ...Harness)
@@ -1392,6 +1401,7 @@ type SchemaStore interface
   method ListJobSchemas func(ctx context.Context, req ListJobSchemasRequest) (ListJobSchemasResponse, error)
   method StoreJobSchema func(ctx context.Context, schema StoredJobSchema) (StoredJobSchema, error)
 type StoredJob struct
+  field BlockingWaitSummary *github.com/colony-2/jobdb/pkg/jobdb.DependencyWaitSummary
   field BlockingWait *github.com/colony-2/jobdb/pkg/jobdb.DependencyWaitInfo
   field GoalID string
   field OtherGoalIDs []string

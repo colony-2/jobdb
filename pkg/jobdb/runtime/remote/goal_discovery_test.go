@@ -124,7 +124,8 @@ func TestDependencyDiscovery(t *testing.T) {
 		jobs, err := r.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, JobKeys: []jobdb.JobKey{c.JobKey}})
 		require.NoError(t, err)
 		require.Len(t, jobs.Jobs, 1)
-		require.Equal(t, info.BlockingWait, jobs.Jobs[0].BlockingWait)
+		require.Nil(t, jobs.Jobs[0].BlockingWait)
+		require.Equal(t, &jobdb.DependencyWaitSummary{WaitID: info.BlockingWait.WaitID, Deadline: info.BlockingWait.Deadline}, jobs.Jobs[0].BlockingWaitSummary)
 
 		// Satisfying one dependency removes only that reverse edge; the wait remains.
 		goalComplete(t, r, a, true)

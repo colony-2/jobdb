@@ -882,7 +882,10 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 		}
 
 		metadataCopy := jobdb.StripRuntimeMetadata(rec.metadata)
-		otherGoals := e.otherGoalsLocked(key)
+		var otherGoals []string
+		if len(req.GoalIDs) > 0 {
+			otherGoals = e.otherGoalsLocked(key)
+		}
 		if len(req.GoalIDs) > 0 && !slices.Contains(req.GoalIDs, rec.goalID) {
 			matched := false
 			for _, id := range otherGoals {
@@ -896,30 +899,28 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 				continue
 			}
 		}
-		blocking, err := e.blockingWaitLocked(key, rec, now)
+		blocking, err := e.blockingWaitSummaryLocked(key, rec, now)
 		if err != nil {
 			rec.mu.Unlock()
 			e.mu.Unlock()
 			return jobdb.ListJobsResponse{}, err
 		}
-		summary := jobdb.JobSummary{BlockingWait: blocking, GoalID: rec.goalID, OtherGoalIDs: otherGoals,
-			JobKey:           key,
-			Status:           status,
-			CompletionStatus: rec.completionStatus,
-			CompletionDetail: rec.completionDetail,
-			JobType:          rec.jobType,
-			NextRoute:        jobdb.CloneRoute(&rec.route),
-			WaitFor:          append([]string(nil), rec.waitFor...),
-			AvailableAt:      rec.createdAt,
-			ExpiresAt:        nil,
-			LeaseExpiresAt:   nil,
-			CancelRequested:  rec.cancelled,
-			CreatedAt:        rec.createdAt,
-			ArchivedAt:       rec.archived,
-			ClientPayload:    cloneJSON(rec.clientPayload), ClientPayloadRevision: rec.clientPayloadRevision, ExecutionState: toyExecutionState(rec.payload),
-			Metadata:    metadataCopy,
-			SchemaHash:  jobmetadata.SchemaHashFromStoredMetadata(rec.metadata),
-			ParentJobID: parentJobID,
+		summary := jobdb.JobSummary{BlockingWaitSummary: blocking, GoalID: rec.goalID,
+			JobKey:                key,
+			Status:                status,
+			CompletionStatus:      rec.completionStatus,
+			JobType:               rec.jobType,
+			NextRoute:             jobdb.CloneRoute(&rec.route),
+			AvailableAt:           rec.createdAt,
+			ExpiresAt:             nil,
+			LeaseExpiresAt:        nil,
+			CancelRequested:       rec.cancelled,
+			CreatedAt:             rec.createdAt,
+			ArchivedAt:            rec.archived,
+			ClientPayloadRevision: rec.clientPayloadRevision,
+			Metadata:              metadataCopy,
+			SchemaHash:            jobmetadata.SchemaHashFromStoredMetadata(rec.metadata),
+			ParentJobID:           parentJobID,
 		}
 		rec.mu.Unlock()
 		records = append(records, summary)

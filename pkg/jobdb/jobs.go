@@ -77,6 +77,10 @@ const (
 )
 
 type JobInfo struct {
+	NextRoute             *Route
+	CompletionStatus      string
+	CompletionDetail      string
+	WaitFor               []string
 	BlockingWait          *DependencyWaitInfo
 	GoalID                string
 	OtherGoalIDs          []string

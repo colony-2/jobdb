@@ -477,8 +477,10 @@ func applyJobRunSummary(ctx context.Context, runtime WorkflowRuntime, jobKey Job
 
 	applyJobRunStatus(outcome, summary.Status)
 	outcome.NextRoute = cloneRoute(summary.NextRoute)
-	outcome.WaitForJobIDs = append([]string(nil), summary.WaitFor...)
-	outcome.BlockingWait = summary.BlockingWait
+	if info, err := runtime.GetJob(ctx, jobKey); err == nil {
+		outcome.WaitForJobIDs = append([]string(nil), info.WaitFor...)
+		outcome.BlockingWait = info.BlockingWait
+	}
 	if summary.NextRoute == nil {
 		return
 	}

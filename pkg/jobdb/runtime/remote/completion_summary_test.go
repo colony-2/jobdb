@@ -42,3 +42,28 @@ func TestCompletionSummaryWireCompatibility(t *testing.T) {
 		})
 	}
 }
+
+func TestCompactListWireKeepsRequiredCompatibilityFields(t *testing.T) {
+	wire, err := jobSummaryToAPI(jobdb.JobSummary{GoalID: "goal", JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}, Status: jobdb.JobStatusReady, JobType: "work", BlockingWaitSummary: &jobdb.DependencyWaitSummary{WaitID: "wait"}})
+	require.NoError(t, err)
+	raw, err := json.Marshal(wire)
+	require.NoError(t, err)
+	var properties map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(raw, &properties))
+	require.JSONEq(t, `[]`, string(properties["otherGoalIds"]))
+	require.JSONEq(t, `[]`, string(properties["waitFor"]))
+	require.JSONEq(t, `{}`, string(properties["executionState"]))
+	require.JSONEq(t, `{"waitId":"wait"}`, string(properties["blockingWaitSummary"]))
+	for _, key := range []string{"blockingWait", "completionDetail", "clientPayload"} {
+		require.NotContains(t, properties, key)
+	}
+	// Additive compact-wait fields remain optional when reading older servers.
+	delete(properties, "blockingWaitSummary")
+	raw, err = json.Marshal(properties)
+	require.NoError(t, err)
+	var legacy runtimeapi.JobSummary
+	require.NoError(t, json.Unmarshal(raw, &legacy))
+	decoded, err := jobSummaryFromAPI(legacy)
+	require.NoError(t, err)
+	require.Nil(t, decoded.BlockingWaitSummary)
+}

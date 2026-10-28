@@ -47,6 +47,6 @@ func TestCompletionSummaryExistingRowsWithoutHistory(t *testing.T) {
 		require.Len(t, listed.Jobs, 1)
 		require.Equal(t, jobdb.JobStatusCompleted, listed.Jobs[0].Status)
 		require.Equal(t, tc.status, listed.Jobs[0].CompletionStatus)
-		require.Equal(t, tc.detail, listed.Jobs[0].CompletionDetail)
+		require.Empty(t, listed.Jobs[0].CompletionDetail)
 	}
 }

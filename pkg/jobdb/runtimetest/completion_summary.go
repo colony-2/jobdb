@@ -38,7 +38,11 @@ func runCompletionSummaries(t *testing.T, harnesses []Harness) {
 				require.Len(t, listed.Jobs, 1)
 				got := listed.Jobs[0]
 				require.Equal(t, status, got.CompletionStatus)
-				require.Equal(t, detail, got.CompletionDetail)
+				require.Empty(t, got.CompletionDetail)
+				info, err := r.GetJob(ctx, key)
+				require.NoError(t, err)
+				require.Equal(t, status, info.CompletionStatus)
+				require.Equal(t, detail, info.CompletionDetail)
 				return got
 			}
 			chapter := func(ordinal int64) jobdb.Chapter {

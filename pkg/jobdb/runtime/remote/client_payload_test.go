@@ -11,6 +11,10 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb/runtimetest"
 )
 
+func TestCompactListConformance(t *testing.T) {
+	runPayloadAndRouteConformance(t, runtimetest.RunCompactListConformance)
+}
+
 func TestClientPayloadConformance(t *testing.T) {
 	runPayloadAndRouteConformance(t, runtimetest.RunClientPayloadConformance)
 }
