@@ -30,8 +30,13 @@ func TestGoalDiscoveryMigrationAndReadOnlyProjection(t *testing.T) {
 		_, err = db.ExecContext(ctx, `INSERT INTO jobdb_jobs(tenant_id,job_id,goal_id,job_type,route_job_type,initial_payload_digest,available_at_ns,created_at_ns,updated_at_ns) VALUES('tenant',?,'goal','work','work','',1,1,1)`, id)
 		require.NoError(t, err)
 	}
-	require.NoError(t, migrate(ctx, db))
-	require.NoError(t, migrate(ctx, db))
+	require.ErrorContains(t, migrate(ctx, db), "jobdb-migrate-chapter-artifacts")
+	// Exercise the indexed projection upgrade in isolation; live startup no longer
+	// upgrades pre-cutover databases implicitly.
+	tx, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	require.NoError(t, migrateGoalDiscovery(ctx, tx))
+	require.NoError(t, tx.Commit())
 	rt := &Runtime{db: db}
 	page, err := rt.ListGoals(ctx, jobdb.ListGoalsRequest{TenantId: "tenant", States: []jobdb.GoalState{jobdb.GoalOpen}, CreatedAfter: &at, CreatedBefore: &at})
 	require.NoError(t, err)

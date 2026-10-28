@@ -21,7 +21,7 @@ func TestExecutionPreCompactHistoryRejected(t *testing.T) {
 	var records []jobdb.ExecutionRecord
 	require.NoError(t, json.Unmarshal(raw, &records))
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
-		for _, version := range []uint32{1, 2} {
+		for _, version := range []uint32{1, 2, 3} {
 			t.Run(backend+string(rune('0'+version)), func(t *testing.T) {
 				rt := alternateRuntime(t, backend)
 				var calls atomic.Int32
@@ -41,18 +41,11 @@ func TestExecutionPreCompactHistoryRejected(t *testing.T) {
 				header.Versions = &versions
 				body, err := json.Marshal(header)
 				require.NoError(t, err)
-				require.NoError(t, rt.PutChapter(ctx, jobdb.PutChapterRequest{LeaseID: lease.LeaseID(), LeaseToken: token, Ref: jobdb.ChapterRef{JobKey: key, Ordinal: 1}, Chapter: jobdb.Chapter{Ordinal: 1, TaskType: "__execution__", CreatedAt: header.At, Body: jobdb.ExecutionChapter{Record: body}}}))
-				require.NoError(t, lease.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: w.Name()}}))
-				before, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: key})
-				require.NoError(t, err)
-				_, err = runExecutionTest(t, rt, key, w)
-				require.ErrorContains(t, err, "compact-history cutover")
-				_, err = replayExecutionTest(t, rt, key, w)
-				require.ErrorContains(t, err, "compact-history cutover")
-				require.Zero(t, calls.Load())
+				require.ErrorContains(t, rt.PutChapter(ctx, jobdb.PutChapterRequest{LeaseID: lease.LeaseID(), LeaseToken: token, Ref: jobdb.ChapterRef{JobKey: key, Ordinal: 1}, Chapter: jobdb.Chapter{Ordinal: 1, TaskType: "__execution__", CreatedAt: header.At, Body: jobdb.ExecutionChapter{Record: body}}}), "unsupported execution version")
 				after, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: key})
 				require.NoError(t, err)
-				require.Equal(t, before, after)
+				require.Len(t, after, 1)
+				require.Zero(t, calls.Load())
 			})
 		}
 	}

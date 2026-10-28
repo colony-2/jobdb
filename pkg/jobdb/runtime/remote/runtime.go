@@ -1029,6 +1029,9 @@ func toAPIPrerequisites(prereqs []jobdb.JobPrerequisite) *[]runtimeapi.JobPrereq
 }
 
 func responseError(operation string, status int, body []byte, sentinel error) error {
+	if err := payloadSizeResponseError(body); err != nil {
+		return err
+	}
 	if err := goalResponseError(body); err != nil {
 		return err
 	}
@@ -1079,6 +1082,9 @@ func responseError(operation string, status int, body []byte, sentinel error) er
 }
 
 func responseErrorWithConflict(operation string, status int, body []byte, notFoundSentinel error, conflictSentinel error) error {
+	if err := payloadSizeResponseError(body); err != nil {
+		return err
+	}
 	if err := delegationResponseError(status, body); err != nil {
 		return err
 	}
@@ -1122,6 +1128,9 @@ func responseErrorWithConflict(operation string, status int, body []byte, notFou
 }
 
 func explicitJobCreateError(operation string, status int, body []byte, conflict *runtimeapi.ErrorResponse) error {
+	if err := payloadSizeResponseError(body); err != nil {
+		return err
+	}
 	if err := goalResponseError(body); err != nil {
 		return err
 	}
@@ -1160,6 +1169,9 @@ func explicitJobCreateError(operation string, status int, body []byte, conflict 
 }
 
 func explicitLeaseJobCreateError(operation string, status int, body []byte, conflict *runtimeapi.ErrorResponse) error {
+	if err := payloadSizeResponseError(body); err != nil {
+		return err
+	}
 	if err := delegationResponseError(status, body); err != nil {
 		return err
 	}
@@ -1247,4 +1259,15 @@ func timePtr(value time.Time) *time.Time {
 	}
 	v := value.UTC()
 	return &v
+}
+
+func payloadSizeResponseError(body []byte) error {
+	var v struct {
+		Code    string                                `json:"code"`
+		Details *jobdb.ChapterApplicationPayloadError `json:"details"`
+	}
+	if json.Unmarshal(body, &v) == nil && v.Code == jobdb.ChapterApplicationPayloadTooLargeCode && v.Details != nil {
+		return v.Details
+	}
+	return nil
 }

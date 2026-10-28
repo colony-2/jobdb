@@ -2,7 +2,6 @@ package runtimecodec
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -72,10 +71,6 @@ type TaskWait struct {
 	InputHash  string
 }
 
-type protobufJSONWrapper struct {
-	Protobuf string `json:"protobuf"`
-}
-
 var deterministicMarshal = proto.MarshalOptions{Deterministic: true}
 
 func EncodeChapter(meta ChapterMeta, chapterType string, payloadKind string, payload json.RawMessage) ([]byte, error) {
@@ -88,16 +83,30 @@ func EncodeChapter(meta ChapterMeta, chapterType string, payloadKind string, pay
 	if !json.Valid(payload) {
 		return nil, fmt.Errorf("payload must be valid JSON")
 	}
+	reconstruction, err := extractReconstruction(&meta)
+	if err != nil {
+		return nil, err
+	}
 	builder, err := chapterRecordBuilder(meta)
 	if err != nil {
 		return nil, err
 	}
+	builder.FormatVersion = ptr(uint32(ChapterFormatVersion))
+	builder.Reconstruction = reconstruction
 	switch chapterType {
 	case "Execution":
 		if payloadKind != PayloadKindApp {
 			return nil, fmt.Errorf("invalid execution payload kind")
 		}
-		builder.Execution = storagepb.ExecutionChapter_builder{RecordJson: payload}.Build()
+		r, err := jobdb.DecodeExecutionRecord(payload)
+		if err != nil {
+			return nil, err
+		}
+		p, err := ExecutionToProto(r)
+		if err != nil {
+			return nil, err
+		}
+		builder.Execution = storagepb.ExecutionChapter_builder{Record: p}.Build()
 	case ChapterTypeJobStart:
 		if payloadKind != PayloadKindApp {
 			return nil, fmt.Errorf("%s chapters require %s payloads", chapterType, PayloadKindApp)
@@ -127,25 +136,38 @@ func EncodeChapter(meta ChapterMeta, chapterType string, payloadKind string, pay
 	if err != nil {
 		return nil, err
 	}
-	return encodeProtobufJSONWrapper(raw)
+	return raw, nil
 }
 
 func DecodeChapter(body []byte) (ChapterEnvelope, error) {
-	body, err := decodeProtobufJSONWrapper(body)
-	if err != nil {
-		return ChapterEnvelope{}, err
-	}
 	var record storagepb.ChapterRecord
 	if err := proto.Unmarshal(body, &record); err != nil {
+		return ChapterEnvelope{}, err
+	}
+	if record.GetFormatVersion() != ChapterFormatVersion {
+		return ChapterEnvelope{}, fmt.Errorf("unsupported chapter format; run jobdb-migrate-chapter-artifacts")
+	}
+	if err := rejectUnknown(&record); err != nil {
 		return ChapterEnvelope{}, err
 	}
 	meta, err := chapterMetaFromProto(&record)
 	if err != nil {
 		return ChapterEnvelope{}, err
 	}
+	if err := restoreReconstruction(&meta, record.GetReconstruction()); err != nil {
+		return ChapterEnvelope{}, err
+	}
 	switch record.WhichChapter() {
 	case storagepb.ChapterRecord_Execution_case:
-		return ChapterEnvelope{ChapterType: "Execution", Meta: meta, PayloadKind: PayloadKindApp, Payload: cloneJSON(record.GetExecution().GetRecordJson())}, nil
+		r, err := executionFromProto(record.GetExecution().GetRecord())
+		if err != nil {
+			return ChapterEnvelope{}, err
+		}
+		raw, err := json.Marshal(r)
+		if err != nil {
+			return ChapterEnvelope{}, err
+		}
+		return ChapterEnvelope{ChapterType: "Execution", Meta: meta, PayloadKind: PayloadKindApp, Payload: raw}, nil
 	case storagepb.ChapterRecord_JobStart_case:
 		ch := record.GetJobStart()
 		return ChapterEnvelope{
@@ -207,25 +229,6 @@ func DecodeSchedulerPayload(raw []byte) (SchedulerPayload, error) {
 	return out, nil
 }
 
-func EncodeSchedulerPayloadJSON(payload SchedulerPayload) (json.RawMessage, error) {
-	raw, err := EncodeSchedulerPayload(payload)
-	if err != nil {
-		return nil, err
-	}
-	return encodeProtobufJSONWrapper(raw)
-}
-
-func DecodeSchedulerPayloadJSON(raw json.RawMessage) (SchedulerPayload, error) {
-	if len(raw) == 0 {
-		return SchedulerPayload{}, nil
-	}
-	decoded, err := decodeProtobufJSONWrapper(raw)
-	if err != nil {
-		return SchedulerPayload{}, err
-	}
-	return DecodeSchedulerPayload(decoded)
-}
-
 func EncodeWaitForJobs(jobIDs []string) ([]byte, error) {
 	clean := make([]string, 0, len(jobIDs))
 	for _, id := range jobIDs {
@@ -245,29 +248,6 @@ func DecodeWaitForJobs(raw []byte) ([]string, error) {
 		return nil, err
 	}
 	return append([]string(nil), msg.GetJobIds()...), nil
-}
-
-func encodeProtobufJSONWrapper(raw []byte) (json.RawMessage, error) {
-	wrapped, err := json.Marshal(protobufJSONWrapper{Protobuf: base64.StdEncoding.EncodeToString(raw)})
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(wrapped), nil
-}
-
-func decodeProtobufJSONWrapper(raw []byte) ([]byte, error) {
-	var wrapper protobufJSONWrapper
-	if err := json.Unmarshal(raw, &wrapper); err != nil {
-		return nil, err
-	}
-	if wrapper.Protobuf == "" {
-		return nil, fmt.Errorf("protobuf payload is required")
-	}
-	decoded, err := base64.StdEncoding.DecodeString(wrapper.Protobuf)
-	if err != nil {
-		return nil, err
-	}
-	return decoded, nil
 }
 
 func chapterRecordBuilder(meta ChapterMeta) (storagepb.ChapterRecord_builder, error) {

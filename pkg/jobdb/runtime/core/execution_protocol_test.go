@@ -2,12 +2,11 @@ package runtimecore_test
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
-	"fmt"
 	"testing"
 	"time"
 
+	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
@@ -38,7 +37,8 @@ func TestExecutionCompletionIndependentStores(t *testing.T) {
 			}
 			raw, err := json.Marshal(wait)
 			require.NoError(t, err)
-			hash := fmt.Sprintf("%x", sha256.Sum256(raw))
+			hash, err := runtimecodec.ExecutionIdentity(wait)
+			require.NoError(t, err)
 			scheduler := &taskCompletionScheduler{waiting: runtimecore.WaitingTaskSnapshot{JobType: "task-route", Task: runtimecore.TaskWork{TaskType: "external", ResumeJobType: "job-route", InputOrdinal: 3, OutputOrdinal: 4, InputHash: hash}}}
 			encoded, err := runtimecore.EncodeChapter(runtimecore.EncodeChapterRequest{Chapter: jobdb.Chapter{Ordinal: 3, TaskType: "__execution__", Body: jobdb.ExecutionChapter{Record: raw}}})
 			require.NoError(t, err)

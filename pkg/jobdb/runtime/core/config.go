@@ -10,8 +10,11 @@ import (
 
 // Config wires the durable backend ports used by runtime core.
 type Config struct {
-	Configurations      configuration.Store
-	ConfigurationLimits jobdb.ConfigurationLimits
+	// MaxChapterApplicationPayloadBytes limits summed application bytes per chapter.
+	// Zero uses 256 KiB; negative values are invalid. Metadata and artifacts are excluded.
+	MaxChapterApplicationPayloadBytes int64
+	Configurations                    configuration.Store
+	ConfigurationLimits               jobdb.ConfigurationLimits
 	// SecretProvider is caller-owned and independent of scheduler and chapter storage.
 	SecretProvider jobdb.SecretProvider
 	SecretLimits   jobdb.SecretLimits
@@ -23,6 +26,9 @@ type Config struct {
 
 // ValidateConfig validates the public runtime-core backend wiring.
 func ValidateConfig(cfg Config) error {
+	if cfg.MaxChapterApplicationPayloadBytes < 0 {
+		return fmt.Errorf("chapter application payload limit cannot be negative")
+	}
 	if cfg.Configurations == nil {
 		return fmt.Errorf("runtime core configuration store is required")
 	}

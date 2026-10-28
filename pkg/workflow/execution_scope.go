@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -48,7 +47,7 @@ func earlier(a, b time.Time) time.Time {
 	return a
 }
 func (c *executionContext) match(rec jobdb.ExecutionRecord, descriptor json.RawMessage) error {
-	if !bytes.Equal(rec.Descriptor, descriptor) {
+	if !sameExecutionJSON(rec.Descriptor, descriptor) {
 		return c.run.control(fmt.Errorf("%w: logical descriptor changed for %s", ErrWorkflowNotDeterministic, rec.ID))
 	}
 	return nil
@@ -183,7 +182,7 @@ func (c *executionContext) DoScope(site string, opts ScopeOptions, body func(Exe
 		}
 		if site == "$job" {
 			c.run.observerMu.Lock()
-			c.run.r.emitJobStart(attempt, snapshotData(c.run.jobInput), start.At)
+			c.run.r.emitJobStart(attempt, c.run.snapshotData(c.run.jobInput), start.At)
 			c.run.observerMu.Unlock()
 		}
 		out, bodyErr := child.invoke(func() (TaskData, error) {
@@ -209,7 +208,7 @@ func (c *executionContext) DoScope(site string, opts ScopeOptions, body func(Exe
 			if err != nil {
 				return nil, err
 			}
-			out, bodyErr = resultData(rec)
+			out, bodyErr = c.run.resultData(rec)
 			retryable = rec.Retryable
 		}
 		if site == "$job" {
@@ -277,7 +276,7 @@ func (c *executionContext) handleFailure(id string, total time.Time, p execution
 			return nil, nil, false, err
 		}
 		if selection.ErrorKind != "" {
-			_, bodyErr = resultData(selection)
+			_, bodyErr = c.run.resultData(selection)
 			disposition = CatchPropagate
 		}
 		if selection.Rule != "" {
@@ -330,7 +329,7 @@ func (c *executionContext) handleFailure(id string, total time.Time, p execution
 				}
 				handlerRetryable = record.Retryable
 				decision.Disposition = CatchDisposition(record.Disposition)
-				decision.Output, decision.Err = resultData(record)
+				decision.Output, decision.Err = c.run.resultData(record)
 			}
 			handler.close()
 			if isExecutionControl(handlerErr) && !errors.Is(handlerErr, errRecordedBoundary) {
@@ -360,7 +359,7 @@ func (c *executionContext) handleFailure(id string, total time.Time, p execution
 			if err != nil {
 				return nil, nil, false, err
 			}
-			out, bodyErr = resultData(hrec)
+			out, bodyErr = c.run.resultData(hrec)
 			disposition = CatchDisposition(hrec.Disposition)
 			retryable = hrec.Retryable
 		}

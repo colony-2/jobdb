@@ -15,6 +15,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/core"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
+	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 	"github.com/google/uuid"
 )
 
@@ -65,6 +66,9 @@ func (r *Runtime) UpsertSchedule(ctx context.Context, req jobdb.UpsertScheduleRe
 		return jobdb.ScheduleInfo{}, err
 	}
 	if err := jobdb.ValidateScheduleRequest(req); err != nil {
+		return jobdb.ScheduleInfo{}, err
+	}
+	if err := runtimecore.ValidateSubmissionApplicationPayload(ctx, jobdb.SubmitJob{JobType: req.Target.JobType, Data: req.Target.Data}, r.ChapterApplicationPayloadLimit()); err != nil {
 		return jobdb.ScheduleInfo{}, err
 	}
 	now := req.RequestTime.UTC()
@@ -546,6 +550,14 @@ func (r *Runtime) submitScheduledOccurrenceWithJobID(ctx context.Context, row sc
 	if err != nil {
 		return jobdb.JobKey{}, err
 	}
+	initialStored, err := chapterFromStoryChapter(initialChapter)
+	if err != nil {
+		return jobdb.JobKey{}, err
+	}
+	if err = jobdb.ValidateChapterApplicationPayload(ctx, initialStored, r.ChapterApplicationPayloadLimit()); err != nil {
+		return jobdb.JobKey{}, err
+	}
+
 	if _, err := r.chapterStore.CreateStory(chapterContext(ctx), storyKeyForJob(jobKey), story.CreateOptions{RequestID: uuid.New().String(), InitialChapter: initialChapter}); err != nil {
 		if !errors.Is(err, core.ErrConflict) {
 			return jobdb.JobKey{}, err

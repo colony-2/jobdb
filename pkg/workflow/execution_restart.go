@@ -77,7 +77,7 @@ func (c *executionContext) applyRestart(id string, opts ScopeOptions) error {
 			return record
 		})
 		if err == nil {
-			_, err = resultData(admission)
+			_, err = c.run.resultData(admission)
 		}
 	}
 	if err == nil && len(restart.Dependencies) > 0 {
@@ -89,7 +89,7 @@ func (c *executionContext) applyRestart(id string, opts ScopeOptions) error {
 		if eventErr != nil {
 			return eventErr
 		}
-		_, err = dependencyResult(admission)
+		_, err = c.dependencyResult(admission)
 	}
 	return err
 }

@@ -62,11 +62,11 @@ func (r *Runtime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) e
 		return fmt.Errorf("%w: chapter ordinal %d is not appendable; expected %d",
 			jobdb.ErrConflict, req.Ref.Ordinal, count)
 	}
-	chapter, uploads, err := prepareChapterWrite(req.Chapter, req.ArtifactUploads)
+	chapter, uploads, err := r.prepareChapterWrite(ctx, req.Chapter, req.ArtifactUploads)
 	if err != nil {
 		return err
 	}
-	if err := ValidateOrdinaryChapter(ctx, r.schemas,
+	if err := ValidateOrdinaryChapter(ctx, r.chapterRegistry(),
 		jobdb.JobSchemaKey{TenantId: req.Ref.JobKey.TenantId,
 			SchemaHash: stored.SchemaHash}, chapter); err != nil {
 		return err
@@ -135,4 +135,11 @@ func prepareChapterWrite(chapter jobdb.Chapter, input []jobdb.ArtifactUpload) (j
 	}
 	chapter.Artifacts = descriptors
 	return chapter, uploads, nil
+}
+
+func (r *Runtime) prepareChapterWrite(ctx context.Context, ch jobdb.Chapter, uploads []jobdb.ArtifactUpload) (jobdb.Chapter, []jobdb.ArtifactUpload, error) {
+	if err := jobdb.ValidateChapterApplicationPayload(ctx, ch, r.ChapterApplicationPayloadLimit()); err != nil {
+		return jobdb.Chapter{}, nil, err
+	}
+	return prepareChapterWrite(ch, uploads)
 }

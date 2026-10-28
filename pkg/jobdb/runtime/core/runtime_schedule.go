@@ -21,6 +21,9 @@ func (r *Runtime) UpsertSchedule(ctx context.Context, req jobdb.UpsertScheduleRe
 	if err := jobdb.ValidateScheduleRequest(req); err != nil {
 		return jobdb.ScheduleInfo{}, err
 	}
+	if err := ValidateSubmissionApplicationPayload(ctx, jobdb.SubmitJob{JobType: req.Target.JobType, Data: req.Target.Data}, r.ChapterApplicationPayloadLimit()); err != nil {
+		return jobdb.ScheduleInfo{}, err
+	}
 	target, err := snapshotScheduleTarget(ctx, req.Target)
 	if err != nil {
 		return jobdb.ScheduleInfo{}, err

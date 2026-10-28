@@ -111,7 +111,7 @@ func (c *executionContext) DoTask(call TaskCall, build func(context.Context) (Ta
 				rec, err = c.externalTask(call, aid, input, start.Deadline, total, &dispatch)
 			} else {
 				if taskErr == nil {
-					workerInput := snapshotData(input)
+					workerInput := c.run.snapshotData(input)
 					out, taskErr = child.invokeTask(worker, workerInput)
 				}
 				child.close()
@@ -125,7 +125,7 @@ func (c *executionContext) DoTask(call TaskCall, build func(context.Context) (Ta
 		if rec.Input != nil {
 			input = rec.Input
 		}
-		out, taskErr := resultData(rec)
+		out, taskErr := c.run.resultData(rec)
 		out, taskErr, retry, err := c.handleFailure(aid, total, p, call.Catch, attempt, out, taskErr, rec.Retryable)
 		if err != nil {
 			return nil, err
@@ -247,7 +247,7 @@ func (c *executionContext) AwaitJobs(ids ...string) error {
 		if err != nil {
 			return err
 		}
-		_, err = resultData(result)
+		_, err = c.run.resultData(result)
 		return err
 	}
 	if c.run.r.replay {
@@ -259,7 +259,7 @@ func (c *executionContext) AwaitJobs(ids ...string) error {
 		if err != nil {
 			return err
 		}
-		_, err = resultData(rec)
+		_, err = c.run.resultData(rec)
 		return err
 	}
 	return c.suspendForJobs(ids)

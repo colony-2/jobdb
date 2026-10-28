@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"encoding/json"
 	"time"
 )
 
@@ -34,7 +33,7 @@ type StoryLink struct {
 type ChapterRecord struct {
 	Key       StoryKey
 	Ordinal   int64
-	Body      json.RawMessage
+	Body      []byte
 	Artifacts []ArtifactRecord
 	CreatedAt time.Time
 }

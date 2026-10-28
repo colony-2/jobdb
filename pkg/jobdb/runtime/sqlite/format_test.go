@@ -17,7 +17,7 @@ func TestOldDatabaseFormatIsRejectedWithoutConversion(t *testing.T) {
 	if _, err := db.Exec(`CREATE TABLE old_jobs (value TEXT);INSERT INTO old_jobs VALUES ('untouched')`); err != nil {
 		t.Fatal(err)
 	}
-	if err := migrate(context.Background(), db); err == nil || !strings.Contains(err.Error(), "fresh database") {
+	if err := migrate(context.Background(), db); err == nil || !strings.Contains(err.Error(), "jobdb-migrate-chapter-artifacts") {
 		t.Fatalf("old format accepted: %v", err)
 	}
 	var value string

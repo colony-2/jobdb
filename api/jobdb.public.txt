@@ -74,6 +74,7 @@ type CancelJobRequest struct
   field Reason string
   field WorkerID string
 func CanonicalJobSchema func(schema encoding/json.RawMessage) (encoding/json.RawMessage, error)
+func CaptureExecutionArtifact func(ctx context.Context, a Artifact) (ExecutionArtifact, error)
 type Chapter struct
   field Ordinal int64
   field TaskType string
@@ -82,6 +83,25 @@ type Chapter struct
   field CreatedAt time.Time
   field Metadata ChapterMetadata
   field Artifacts []StoredArtifact
+type ChapterApplicationPayloadError struct
+  field JobKey *JobKey `json:"jobKey,omitempty"`
+  field LogicalID string `json:"logicalId,omitempty"`
+  field RecordKind string `json:"recordKind,omitempty"`
+  field Attempt int `json:"attempt,omitempty"`
+  field DiagnosticsTruncated bool `json:"diagnosticsTruncated,omitempty"`
+  field LimitBytes int64 `json:"limitBytes"`
+  field ActualBytes int64 `json:"actualBytes"`
+  field ExcessBytes int64 `json:"excessBytes"`
+  field Ordinal int64 `json:"ordinal"`
+  field TaskType string `json:"taskType,omitempty"`
+  field Contributors []PayloadContribution `json:"contributors,omitempty"`
+  field OmittedFields int `json:"omittedFields,omitempty"`
+  field OmittedBytes int64 `json:"omittedBytes,omitempty"`
+method ChapterApplicationPayloadError.AppError func() *AppError
+method ChapterApplicationPayloadError.Error func() string
+method ChapterApplicationPayloadError.NonRetryable func() bool
+method ChapterApplicationPayloadError.Unwrap func() error
+const ChapterApplicationPayloadTooLargeCode untyped string = "chapter_application_payload_too_large"
 type ChapterBody interface
 type ChapterMetadata struct
   field Fields map[string]ChapterMetadataValue
@@ -102,6 +122,7 @@ type ChapterMetadataValue struct
   field List []ChapterMetadataValue
   field Map map[string]ChapterMetadataValue
 type ChapterOutcome interface
+func ChapterPayloadFailure func(ch Chapter) bool
 type ChapterRef struct
   field LeaseID string
   field LeaseToken string
@@ -149,6 +170,7 @@ func DecodeDiscoveryPage func(token string, scope string, dimensions int) ([]str
 func DecodeExecutionRecord func(raw []byte) (ExecutionRecord, error)
 func DecodeListJobsPageToken func(tok string) (time.Time, JobKey, error)
 const DefaultListJobsPageSize untyped int = 100
+const DefaultMaxChapterApplicationPayloadBytes int64 = 262144
 func DefaultRunPolicy func() RunPolicy
 type DelegationChapters struct
   field Any bool `json:"any,omitempty"`
@@ -239,6 +261,7 @@ type EnvelopedTaskData struct
   embedded SimpleTaskData SimpleTaskData
   field Kind string
 var ErrArtifactKeyUnavailable error
+var ErrChapterApplicationPayloadTooLarge error
 var ErrChapterNotFound error
 var ErrConfigurationFailed error
 var ErrConfigurationReadTooLarge error
@@ -279,7 +302,8 @@ var ErrWorkflowNotDeterministic error
 type ExecutionArtifact struct
   field Key *ArtifactKey `json:"key,omitempty"`
   field Name string `json:"name"`
-  field Data []byte `json:"data"`
+method ExecutionArtifact.Stage func(key ArtifactKey) (*ArtifactUpload, error)
+method ExecutionArtifact.ToArtifact func(getter ArtifactGetter, tenant string) Artifact
 type ExecutionChapter struct
   field Record encoding/json.RawMessage
 type ExecutionHistoryEntry struct
@@ -300,7 +324,7 @@ type ExecutionLease interface
   method StopKeepAlive func()
   method SubmitJob func(ctx context.Context, req SubmitJobRequest) (JobHandle, error)
   method SubmitRestartJob func(ctx context.Context, req SubmitRestartJobRequest) (JobHandle, error)
-const ExecutionPatternVersion uint32 = 3
+const ExecutionPatternVersion uint32 = 4
 type ExecutionRecord struct
   field Version uint32 `json:"version"`
   field Kind string `json:"kind"`
@@ -434,6 +458,7 @@ type InputReference struct
   field Ordinal int64 `json:"ordinal"`
   field Hash string `json:"hash,omitempty"`
 func IsAppError func(err error) bool
+func IsChapterPayloadFailure func(err error) bool
 func IsConflict func(err error) bool
 func IsExecutionLeaseLost func(err error) bool
 func IsExistingJobMismatch func(err error) bool
@@ -441,6 +466,23 @@ func IsJobSchemaArchived func(err error) bool
 func IsJobSchemaNotFound func(err error) bool
 func IsJobSchemaValidation func(err error) bool
 func IsSystemError func(err error) bool
+type JSONPayloadField struct
+  field Path string `json:"path"`
+  field Kind string `json:"kind"`
+  field Bytes int `json:"bytes"`
+  field Elements int `json:"elements,omitempty"`
+type JSONPayloadStats struct
+  field RootMembers []JSONPayloadField `json:"rootMembers,omitempty"`
+  field RootRemainderBytes *int `json:"rootRemainderBytes,omitempty"`
+  field RootElements int `json:"rootElements,omitempty"`
+  field Status string `json:"status"`
+  field RootKind string `json:"rootKind,omitempty"`
+  field Members int `json:"observedObjectMembers"`
+  field Elements int `json:"observedArrayElements"`
+  field Scalars int `json:"observedScalars"`
+  field MaxDepth int `json:"observedMaxDepth"`
+  field LargestStringBytes int `json:"observedLargestStringBytes"`
+  field Largest []JSONPayloadField `json:"largestInclusiveSubtrees,omitempty"`
 type JobAttempt struct
   field Ordinal int64
   field Attempt int
@@ -693,6 +735,11 @@ type NonRetryableError interface
 func NormalizeJSON func(raw encoding/json.RawMessage) encoding/json.RawMessage
 func NormalizeScheduleOverlapPolicy func(policy ScheduleOverlapPolicy) ScheduleOverlapPolicy
 func ParseJobKey func(s string) (JobKey, error)
+type PayloadContribution struct
+  field Location string `json:"location"`
+  field Bytes int64 `json:"bytes"`
+  field JSON *JSONPayloadStats `json:"json,omitempty"`
+func PayloadFailureChapter func(ch Chapter, failure *ChapterApplicationPayloadError) Chapter
 type PollWorkRequest struct
   field TenantId string
   field WorkerID string
@@ -1041,6 +1088,7 @@ type UpsertScheduleRequest struct
   field WorkerID string
 func ValidateAlternateRoute func(route *Route, after *time.Duration, task *TaskWait) error
 func ValidateApplicationMetadata func(raw encoding/json.RawMessage) error
+func ValidateChapterApplicationPayload func(ctx context.Context, ch Chapter, limit int64) error
 func ValidateDependencies func(deps []Dependency) error
 func ValidateDependencyReschedule func(r RescheduleExecutionRequest) error
 func ValidateDependencyWait func(w *DependencyWait, submission bool) error
@@ -1177,6 +1225,7 @@ type CompletionSnapshot struct
   field ErrorKind string
   field Retryable *bool
 type Config struct
+  field MaxChapterApplicationPayloadBytes int64
   field Configurations github.com/colony-2/jobdb/pkg/jobdb/configuration.Store
   field ConfigurationLimits github.com/colony-2/jobdb/pkg/jobdb.ConfigurationLimits
   field SecretProvider github.com/colony-2/jobdb/pkg/jobdb.SecretProvider
@@ -1325,6 +1374,7 @@ type Runtime struct
 method Runtime.AddGoalCandidate func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.AddGoalCandidateRequest) (github.com/colony-2/jobdb/pkg/jobdb.GoalCandidateInfo, error)
 method Runtime.ArchiveSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ScheduleMutationRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.CancelJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CancelJobRequest) error
+method Runtime.ChapterApplicationPayloadLimit func() int64
 method Runtime.CompleteJobWithLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.CompleteExecutionRequest) error
 method Runtime.CompleteTaskIfWaiting func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CompleteTaskIfWaitingRequest) error
 method Runtime.DeleteJobs func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.DeleteJobsRequest) (github.com/colony-2/jobdb/pkg/jobdb.DeleteJobsResponse, error)
@@ -1477,7 +1527,9 @@ func ValidateConfig func(cfg Config) error
 func ValidateFirstChapter func(ctx context.Context, registry github.com/colony-2/jobdb/pkg/jobdb.JobSchemaRegistry, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey, chapter github.com/colony-2/jobdb/pkg/jobdb.Chapter) error
 func ValidateLastChapter func(ctx context.Context, registry github.com/colony-2/jobdb/pkg/jobdb.JobSchemaRegistry, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey, chapter github.com/colony-2/jobdb/pkg/jobdb.Chapter) error
 func ValidateOrdinaryChapter func(ctx context.Context, registry github.com/colony-2/jobdb/pkg/jobdb.JobSchemaRegistry, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey, chapter github.com/colony-2/jobdb/pkg/jobdb.Chapter) error
+func ValidateRestartApplicationPayload func(ctx context.Context, job github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJob, limit int64) error
 func ValidateSchemaDocument func(schemaHash string, schema encoding/json.RawMessage) error
+func ValidateSubmissionApplicationPayload func(ctx context.Context, job github.com/colony-2/jobdb/pkg/jobdb.SubmitJob, limit int64) error
 type WaitingTaskSnapshot struct
   field JobType string
   field Task TaskWork
@@ -2052,6 +2104,7 @@ func WithConfigurationLimits func(limits github.com/colony-2/jobdb/pkg/jobdb.Con
 
 package github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite
 type Config struct
+  field MaxChapterApplicationPayloadBytes int64
   field ConfigurationLimits github.com/colony-2/jobdb/pkg/jobdb.ConfigurationLimits
   field SecretProvider github.com/colony-2/jobdb/pkg/jobdb.SecretProvider
   field SecretLimits github.com/colony-2/jobdb/pkg/jobdb.SecretLimits
@@ -2074,6 +2127,7 @@ method Runtime.AddGoalCandidate func(ctx context.Context, req github.com/colony-
 method Runtime.ArchiveJobSchema func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey) (github.com/colony-2/jobdb/pkg/jobdb.JobSchemaInfo, error)
 method Runtime.ArchiveSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ScheduleMutationRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.CancelJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CancelJobRequest) error
+method Runtime.ChapterApplicationPayloadLimit func() int64
 method Runtime.Close func(ctx context.Context) error
 method Runtime.CompleteJobWithLeaseByID func(ctx context.Context, jobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.CompleteExecutionRequest) error
 method Runtime.CompleteTaskIfWaiting func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CompleteTaskIfWaitingRequest) error
@@ -2120,6 +2174,7 @@ func StartEmbeddedRuntime func(ctx context.Context) (*EmbeddedRuntime, error)
 func WithBlobStoreURI func(uri string) Option
 func WithConfigurationLimits func(limits github.com/colony-2/jobdb/pkg/jobdb.ConfigurationLimits) Option
 func WithLogger func(logger *log/slog.Logger) Option
+func WithMaxChapterApplicationPayloadBytes func(limit int64) Option
 func WithMaxInlineArtifactBytes func(limit int64) Option
 func WithSecretLimits func(limits github.com/colony-2/jobdb/pkg/jobdb.SecretLimits) Option
 func WithSecretProvider func(provider github.com/colony-2/jobdb/pkg/jobdb.SecretProvider) Option
@@ -2133,6 +2188,7 @@ type Runtime = github.com/colony-2/jobdb/pkg/jobdb/runtime/toy/internal/toyimpl.
 func WithConfigurationLimits func(limits github.com/colony-2/jobdb/pkg/jobdb.ConfigurationLimits) Option
 func WithJobIDGenerator func(gen JobIDGenerator) Option
 func WithLogger func(logger *log/slog.Logger) Option
+func WithMaxChapterApplicationPayloadBytes func(limit int64) Option
 func WithSecretLimits func(limits github.com/colony-2/jobdb/pkg/jobdb.SecretLimits) Option
 func WithSecretProvider func(provider github.com/colony-2/jobdb/pkg/jobdb.SecretProvider) Option
 

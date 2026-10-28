@@ -34,30 +34,11 @@ func TestGoalMigrationV6(t *testing.T) {
 		_, err = db.ExecContext(ctx, `INSERT INTO jobdb_jobs(tenant_id,job_id,job_type,route_job_type,initial_payload_digest,available_at_ns,created_at_ns,updated_at_ns,archived_at_ns,completion_status) VALUES('tenant',?,'work','work','',10,10,20,?,?)`, status, archived, completion)
 		require.NoError(t, err)
 	}
-	require.NoError(t, migrate(ctx, db))
-	store := goalStore{ctx, db}
-	seen := map[string]bool{}
-	for _, id := range []string{"success", "succeeded", "failed_app", "cancelled", "active"} {
-		j, err := store.Job(jobdb.JobKey{TenantId: "tenant", JobId: id})
-		require.NoError(t, err)
-		require.NotEmpty(t, j.GoalID)
-		require.False(t, seen[j.GoalID])
-		seen[j.GoalID] = true
-		g, err := store.Goal(jobdb.GoalKey{TenantId: "tenant", GoalID: j.GoalID})
-		require.NoError(t, err)
-		if id == "success" || id == "succeeded" {
-			require.Equal(t, jobdb.GoalSucceeded, g.State)
-			require.Equal(t, id, g.SuccessfulJobID)
-		} else {
-			require.Equal(t, jobdb.GoalOpen, g.State)
-		}
-	}
-	require.NoError(t, migrate(ctx, db))
-	var count int
-	require.NoError(t, db.QueryRow("SELECT count(*) FROM jobdb_goal_candidates").Scan(&count))
-	require.Zero(t, count)
-	require.NoError(t, db.QueryRow("SELECT count(*) FROM jobdb_goals").Scan(&count))
-	require.Equal(t, 5, count)
+	require.ErrorContains(t, migrate(ctx, db), "jobdb-migrate-chapter-artifacts")
+	var version int
+	require.NoError(t, db.QueryRow("PRAGMA user_version").Scan(&version))
+	require.Equal(t, 6, version)
+
 }
 func TestGoalMigrationRollsBackUnknownOutcome(t *testing.T) {
 	ctx := context.Background()

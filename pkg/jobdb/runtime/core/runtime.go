@@ -12,6 +12,7 @@ import (
 // Runtime owns JobDB workflow semantics and delegates durable state to its
 // backend ports. Its methods are being moved here from concrete runtimes.
 type Runtime struct {
+	maxChapterApplicationPayloadBytes int64
 	*configuration.Service
 	secretProvider jobdb.SecretProvider
 	secretLimits   jobdb.SecretLimits
@@ -33,13 +34,14 @@ func NewRuntime(cfg Config) (*Runtime, error) {
 		return nil, err
 	}
 	return &Runtime{
-		Service:        &configuration.Service{Store: cfg.Configurations, Limits: cfg.ConfigurationLimits},
-		scheduler:      cfg.Scheduler,
-		secretProvider: cfg.SecretProvider,
-		secretLimits:   cfg.SecretLimits,
-		chapters:       cfg.Chapters,
-		schemas:        schemas,
-		now:            nowFunc(cfg.Now),
+		maxChapterApplicationPayloadBytes: cfg.MaxChapterApplicationPayloadBytes,
+		Service:                           &configuration.Service{Store: cfg.Configurations, Limits: cfg.ConfigurationLimits},
+		scheduler:                         cfg.Scheduler,
+		secretProvider:                    cfg.SecretProvider,
+		secretLimits:                      cfg.SecretLimits,
+		chapters:                          cfg.Chapters,
+		schemas:                           schemas,
+		now:                               nowFunc(cfg.Now),
 	}, nil
 }
 
@@ -110,4 +112,16 @@ func (r *Runtime) validate() error {
 		return fmt.Errorf("runtime core is not configured")
 	}
 	return nil
+}
+
+func (r *Runtime) ChapterApplicationPayloadLimit() int64 { return r.maxChapterApplicationPayloadBytes }
+
+type chapterRegistry struct {
+	jobdb.JobSchemaRegistry
+	limit int64
+}
+
+func (s chapterRegistry) ChapterApplicationPayloadLimit() int64 { return s.limit }
+func (r *Runtime) chapterRegistry() chapterRegistry {
+	return chapterRegistry{r.schemas, r.maxChapterApplicationPayloadBytes}
 }

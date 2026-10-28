@@ -43,7 +43,7 @@ func (c *executionContext) AwaitDependencies(deps ...jobdb.Dependency) ([]jobdb.
 		if err != nil {
 			return nil, err
 		}
-		return dependencyResult(result)
+		return c.dependencyResult(result)
 	}
 	if c.run.r.replay {
 		return nil, ReplayCacheMissError{JobKey: c.GetJobKey(), Ordinal: c.run.nextOrdinal(), Reason: ReplayCacheMissAwaitJobsPending}
@@ -55,15 +55,15 @@ func (c *executionContext) AwaitDependencies(deps ...jobdb.Dependency) ([]jobdb.
 		if err != nil {
 			return nil, err
 		}
-		return dependencyResult(result)
+		return c.dependencyResult(result)
 	}
 	if err != nil && !errors.Is(err, jobdb.ErrDependencyWaitNotFound) {
 		return nil, err
 	}
 	return nil, c.suspendForDependencies(jobdb.DependencyWait{WaitID: waitID, Dependencies: deps, Deadline: nonzeroTime(c.deadline)})
 }
-func dependencyResult(rec jobdb.ExecutionRecord) ([]jobdb.DependencyResolution, error) {
-	data, err := resultData(rec)
+func (c *executionContext) dependencyResult(rec jobdb.ExecutionRecord) ([]jobdb.DependencyResolution, error) {
+	data, err := c.run.resultData(rec)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func (c *executionContext) goalAdmission() (error, error) {
 	if err != nil {
 		return nil, err
 	}
-	_, failure := dependencyResult(rec)
+	_, failure := c.dependencyResult(rec)
 	return failure, nil
 }
 

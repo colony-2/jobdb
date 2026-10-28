@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	"github.com/segmentio/ksuid"
-	"time"
 )
 
 const schemaSQL = `
@@ -101,92 +99,34 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	if db == nil {
 		return fmt.Errorf("sqlite runtime: db is required")
 	}
-	var version int
+	var version, tables int
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version == 8 {
+	if version == 9 {
 		return nil
 	}
-	if version != 6 && version != 7 {
-		var tables int
-		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tables); err != nil {
-			return err
-		}
-		if version != 0 || tables != 0 {
-			return fmt.Errorf("sqlite runtime: unsupported database format; create a fresh database")
-		}
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tables); err != nil {
+		return err
+	}
+	if version != 0 || tables != 0 {
+		return fmt.Errorf("sqlite runtime: unsupported database format %d; stop JobDB and run jobdb-migrate-chapter-artifacts check/rewrite/verify (schema 8 required)", version)
 	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if version == 6 {
-		if _, err = tx.ExecContext(ctx, "ALTER TABLE jobdb_jobs ADD COLUMN goal_id TEXT NOT NULL DEFAULT ''; ALTER TABLE jobdb_jobs ADD COLUMN dependency_wait_id TEXT NOT NULL DEFAULT '';"); err != nil {
-			return err
-		}
-	} else if version != 7 {
-		if _, err = tx.ExecContext(ctx, schemaSQL); err != nil {
-			return err
-		}
+	if _, err = tx.ExecContext(ctx, schemaSQL); err != nil {
+		return err
 	}
 	if _, err = tx.ExecContext(ctx, goalSchemaSQL); err != nil {
 		return err
 	}
-	if version == 6 {
-		rows, err := tx.QueryContext(ctx, "SELECT tenant_id,job_id,created_at_ns,archived_at_ns,completion_status FROM jobdb_jobs")
-		if err != nil {
-			return err
-		}
-		type prior struct {
-			tenant, id string
-			created    int64
-			archived   sql.NullInt64
-			status     sql.NullString
-		}
-		var jobs []prior
-		for rows.Next() {
-			var j prior
-			if err = rows.Scan(&j.tenant, &j.id, &j.created, &j.archived, &j.status); err != nil {
-				rows.Close()
-				return err
-			}
-			jobs = append(jobs, j)
-		}
-		err = rows.Err()
-		rows.Close()
-		if err != nil {
-			return err
-		}
-		for _, j := range jobs {
-			if j.archived.Valid && !knownGoalMigrationOutcome(j.status.String) {
-				return fmt.Errorf("job %s has no durable outcome; reconcile before migrating", j.id)
-			}
-			goalID := ksuid.New().String()
-			created := time.Unix(0, j.created).UTC()
-			g := jobdb.GoalInfo{GoalKey: jobdb.GoalKey{TenantId: j.tenant, GoalID: goalID}, State: jobdb.GoalOpen, Revision: 1, CreatedAt: created, UpdatedAt: created}
-			if j.archived.Valid && (j.status.String == "success" || j.status.String == "succeeded") {
-				closed := time.Unix(0, j.archived.Int64).UTC()
-				g.State = jobdb.GoalSucceeded
-				g.Revision = 2
-				g.SuccessfulJobID = j.id
-				g.ClosedAt = &closed
-				g.UpdatedAt = closed
-			}
-			raw, _ := json.Marshal(g)
-			if _, err = tx.ExecContext(ctx, "INSERT INTO jobdb_goals(tenant_id,goal_id,payload) VALUES(?,?,?)", j.tenant, goalID, raw); err != nil {
-				return err
-			}
-			if _, err = tx.ExecContext(ctx, "UPDATE jobdb_jobs SET goal_id=? WHERE tenant_id=? AND job_id=?", goalID, j.tenant, j.id); err != nil {
-				return err
-			}
-		}
-	}
 	if err = migrateGoalDiscovery(ctx, tx); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, "PRAGMA user_version=8"); err != nil {
+	if _, err = tx.ExecContext(ctx, "PRAGMA user_version=9"); err != nil {
 		return err
 	}
 	return tx.Commit()

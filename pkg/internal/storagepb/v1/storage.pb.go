@@ -42,6 +42,8 @@ type ChapterRecord struct {
 	xxx_hidden_RunPolicy            *RunPolicy              `protobuf:"bytes,16,opt,name=run_policy,json=runPolicy"`
 	xxx_hidden_Prerequisites        *[]*JobPrerequisite     `protobuf:"bytes,17,rep,name=prerequisites"`
 	xxx_hidden_InitialPayloadDigest *string                 `protobuf:"bytes,18,opt,name=initial_payload_digest,json=initialPayloadDigest"`
+	xxx_hidden_Reconstruction       *[]*ExecutionRecord     `protobuf:"bytes,19,rep,name=reconstruction"`
+	xxx_hidden_FormatVersion        uint32                  `protobuf:"varint,20,opt,name=format_version,json=formatVersion"`
 	xxx_hidden_Chapter              isChapterRecord_Chapter `protobuf_oneof:"chapter"`
 	XXX_raceDetectHookData          protoimpl.RaceDetectHookData
 	XXX_presence                    [1]uint32
@@ -214,6 +216,22 @@ func (x *ChapterRecord) GetInitialPayloadDigest() string {
 	return ""
 }
 
+func (x *ChapterRecord) GetReconstruction() []*ExecutionRecord {
+	if x != nil {
+		if x.xxx_hidden_Reconstruction != nil {
+			return *x.xxx_hidden_Reconstruction
+		}
+	}
+	return nil
+}
+
+func (x *ChapterRecord) GetFormatVersion() uint32 {
+	if x != nil {
+		return x.xxx_hidden_FormatVersion
+	}
+	return 0
+}
+
 func (x *ChapterRecord) GetJobStart() *JobStartChapter {
 	if x != nil {
 		if x, ok := x.xxx_hidden_Chapter.(*chapterRecord_JobStart); ok {
@@ -261,17 +279,17 @@ func (x *ChapterRecord) GetExecution() *ExecutionChapter {
 
 func (x *ChapterRecord) SetOrdinal(v int64) {
 	x.xxx_hidden_Ordinal = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 19)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 21)
 }
 
 func (x *ChapterRecord) SetTaskType(v string) {
 	x.xxx_hidden_TaskType = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 19)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 21)
 }
 
 func (x *ChapterRecord) SetWorkerId(v string) {
 	x.xxx_hidden_WorkerId = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 19)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 21)
 }
 
 func (x *ChapterRecord) SetCreatedAt(v *timestamppb.Timestamp) {
@@ -288,7 +306,7 @@ func (x *ChapterRecord) SetFinishedAt(v *timestamppb.Timestamp) {
 
 func (x *ChapterRecord) SetInputHash(v string) {
 	x.xxx_hidden_InputHash = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 6, 19)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 6, 21)
 }
 
 func (x *ChapterRecord) SetMetadata(v *Metadata) {
@@ -301,12 +319,12 @@ func (x *ChapterRecord) SetInput(v *ApplicationInputBytes) {
 
 func (x *ChapterRecord) SetAttempt(v int32) {
 	x.xxx_hidden_Attempt = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 9, 19)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 9, 21)
 }
 
 func (x *ChapterRecord) SetMaxAttempts(v int32) {
 	x.xxx_hidden_MaxAttempts = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 10, 19)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 10, 21)
 }
 
 func (x *ChapterRecord) SetNextAttemptAt(v *timestamppb.Timestamp) {
@@ -315,12 +333,12 @@ func (x *ChapterRecord) SetNextAttemptAt(v *timestamppb.Timestamp) {
 
 func (x *ChapterRecord) SetBackoffMillis(v int64) {
 	x.xxx_hidden_BackoffMillis = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 12, 19)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 12, 21)
 }
 
 func (x *ChapterRecord) SetRetryable(v bool) {
 	x.xxx_hidden_Retryable = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 13, 19)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 13, 21)
 }
 
 func (x *ChapterRecord) SetInputRef(v *InputReference) {
@@ -337,7 +355,16 @@ func (x *ChapterRecord) SetPrerequisites(v []*JobPrerequisite) {
 
 func (x *ChapterRecord) SetInitialPayloadDigest(v string) {
 	x.xxx_hidden_InitialPayloadDigest = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 17, 19)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 17, 21)
+}
+
+func (x *ChapterRecord) SetReconstruction(v []*ExecutionRecord) {
+	x.xxx_hidden_Reconstruction = &v
+}
+
+func (x *ChapterRecord) SetFormatVersion(v uint32) {
+	x.xxx_hidden_FormatVersion = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 19, 21)
 }
 
 func (x *ChapterRecord) SetJobStart(v *JobStartChapter) {
@@ -499,6 +526,13 @@ func (x *ChapterRecord) HasInitialPayloadDigest() bool {
 	return protoimpl.X.Present(&(x.XXX_presence[0]), 17)
 }
 
+func (x *ChapterRecord) HasFormatVersion() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 19)
+}
+
 func (x *ChapterRecord) HasChapter() bool {
 	if x == nil {
 		return false
@@ -623,6 +657,11 @@ func (x *ChapterRecord) ClearInitialPayloadDigest() {
 	x.xxx_hidden_InitialPayloadDigest = nil
 }
 
+func (x *ChapterRecord) ClearFormatVersion() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 19)
+	x.xxx_hidden_FormatVersion = 0
+}
+
 func (x *ChapterRecord) ClearChapter() {
 	x.xxx_hidden_Chapter = nil
 }
@@ -705,6 +744,8 @@ type ChapterRecord_builder struct {
 	RunPolicy            *RunPolicy
 	Prerequisites        []*JobPrerequisite
 	InitialPayloadDigest *string
+	Reconstruction       []*ExecutionRecord
+	FormatVersion        *uint32
 	// Fields of oneof xxx_hidden_Chapter:
 	JobStart           *JobStartChapter
 	JobAttemptOutcome  *JobAttemptOutcomeChapter
@@ -719,49 +760,54 @@ func (b0 ChapterRecord_builder) Build() *ChapterRecord {
 	b, x := &b0, m0
 	_, _ = b, x
 	if b.Ordinal != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 19)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 21)
 		x.xxx_hidden_Ordinal = *b.Ordinal
 	}
 	if b.TaskType != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 19)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 21)
 		x.xxx_hidden_TaskType = b.TaskType
 	}
 	if b.WorkerId != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 19)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 21)
 		x.xxx_hidden_WorkerId = b.WorkerId
 	}
 	x.xxx_hidden_CreatedAt = b.CreatedAt
 	x.xxx_hidden_StartedAt = b.StartedAt
 	x.xxx_hidden_FinishedAt = b.FinishedAt
 	if b.InputHash != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 6, 19)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 6, 21)
 		x.xxx_hidden_InputHash = b.InputHash
 	}
 	x.xxx_hidden_Metadata = b.Metadata
 	x.xxx_hidden_Input = b.Input
 	if b.Attempt != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 9, 19)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 9, 21)
 		x.xxx_hidden_Attempt = *b.Attempt
 	}
 	if b.MaxAttempts != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 10, 19)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 10, 21)
 		x.xxx_hidden_MaxAttempts = *b.MaxAttempts
 	}
 	x.xxx_hidden_NextAttemptAt = b.NextAttemptAt
 	if b.BackoffMillis != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 12, 19)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 12, 21)
 		x.xxx_hidden_BackoffMillis = *b.BackoffMillis
 	}
 	if b.Retryable != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 13, 19)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 13, 21)
 		x.xxx_hidden_Retryable = *b.Retryable
 	}
 	x.xxx_hidden_InputRef = b.InputRef
 	x.xxx_hidden_RunPolicy = b.RunPolicy
 	x.xxx_hidden_Prerequisites = &b.Prerequisites
 	if b.InitialPayloadDigest != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 17, 19)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 17, 21)
 		x.xxx_hidden_InitialPayloadDigest = b.InitialPayloadDigest
+	}
+	x.xxx_hidden_Reconstruction = &b.Reconstruction
+	if b.FormatVersion != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 19, 21)
+		x.xxx_hidden_FormatVersion = *b.FormatVersion
 	}
 	if b.JobStart != nil {
 		x.xxx_hidden_Chapter = &chapterRecord_JobStart{b.JobStart}
@@ -3552,12 +3598,10 @@ func (b0 WaitForJobs_builder) Build() *WaitForJobs {
 
 // Versioned execution-pattern record, encoded by the strict execution codec.
 type ExecutionChapter struct {
-	state                  protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_RecordJson  []byte                 `protobuf:"bytes,1,opt,name=record_json,json=recordJson"`
-	XXX_raceDetectHookData protoimpl.RaceDetectHookData
-	XXX_presence           [1]uint32
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Record *ExecutionRecord       `protobuf:"bytes,2,opt,name=record"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ExecutionChapter) Reset() {
@@ -3585,47 +3629,1702 @@ func (x *ExecutionChapter) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *ExecutionChapter) GetRecordJson() []byte {
+func (x *ExecutionChapter) GetRecord() *ExecutionRecord {
 	if x != nil {
-		return x.xxx_hidden_RecordJson
+		return x.xxx_hidden_Record
 	}
 	return nil
 }
 
-func (x *ExecutionChapter) SetRecordJson(v []byte) {
-	if v == nil {
-		v = []byte{}
-	}
-	x.xxx_hidden_RecordJson = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 1)
+func (x *ExecutionChapter) SetRecord(v *ExecutionRecord) {
+	x.xxx_hidden_Record = v
 }
 
-func (x *ExecutionChapter) HasRecordJson() bool {
+func (x *ExecutionChapter) HasRecord() bool {
 	if x == nil {
 		return false
 	}
-	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+	return x.xxx_hidden_Record != nil
 }
 
-func (x *ExecutionChapter) ClearRecordJson() {
-	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
-	x.xxx_hidden_RecordJson = nil
+func (x *ExecutionChapter) ClearRecord() {
+	x.xxx_hidden_Record = nil
 }
 
 type ExecutionChapter_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	RecordJson []byte
+	Record *ExecutionRecord
 }
 
 func (b0 ExecutionChapter_builder) Build() *ExecutionChapter {
 	m0 := &ExecutionChapter{}
 	b, x := &b0, m0
 	_, _ = b, x
-	if b.RecordJson != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 1)
-		x.xxx_hidden_RecordJson = b.RecordJson
+	x.xxx_hidden_Record = b.Record
+	return m0
+}
+
+// Lossless typed values for extensible execution descriptors. Numeric lexemes
+// preserve integer precision; application snapshots remain opaque bytes.
+type ExecutionValue struct {
+	state            protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Value isExecutionValue_Value `protobuf_oneof:"value"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ExecutionValue) Reset() {
+	*x = ExecutionValue{}
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecutionValue) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecutionValue) ProtoMessage() {}
+
+func (x *ExecutionValue) ProtoReflect() protoreflect.Message {
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
 	}
+	return mi.MessageOf(x)
+}
+
+func (x *ExecutionValue) GetNullValue() bool {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Value.(*executionValue_NullValue); ok {
+			return x.NullValue
+		}
+	}
+	return false
+}
+
+func (x *ExecutionValue) GetBoolValue() bool {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Value.(*executionValue_BoolValue); ok {
+			return x.BoolValue
+		}
+	}
+	return false
+}
+
+func (x *ExecutionValue) GetNumberValue() string {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Value.(*executionValue_NumberValue); ok {
+			return x.NumberValue
+		}
+	}
+	return ""
+}
+
+func (x *ExecutionValue) GetStringValue() string {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Value.(*executionValue_StringValue); ok {
+			return x.StringValue
+		}
+	}
+	return ""
+}
+
+func (x *ExecutionValue) GetObjectValue() *ExecutionObject {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Value.(*executionValue_ObjectValue); ok {
+			return x.ObjectValue
+		}
+	}
+	return nil
+}
+
+func (x *ExecutionValue) GetArrayValue() *ExecutionArray {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Value.(*executionValue_ArrayValue); ok {
+			return x.ArrayValue
+		}
+	}
+	return nil
+}
+
+func (x *ExecutionValue) SetNullValue(v bool) {
+	x.xxx_hidden_Value = &executionValue_NullValue{v}
+}
+
+func (x *ExecutionValue) SetBoolValue(v bool) {
+	x.xxx_hidden_Value = &executionValue_BoolValue{v}
+}
+
+func (x *ExecutionValue) SetNumberValue(v string) {
+	x.xxx_hidden_Value = &executionValue_NumberValue{v}
+}
+
+func (x *ExecutionValue) SetStringValue(v string) {
+	x.xxx_hidden_Value = &executionValue_StringValue{v}
+}
+
+func (x *ExecutionValue) SetObjectValue(v *ExecutionObject) {
+	if v == nil {
+		x.xxx_hidden_Value = nil
+		return
+	}
+	x.xxx_hidden_Value = &executionValue_ObjectValue{v}
+}
+
+func (x *ExecutionValue) SetArrayValue(v *ExecutionArray) {
+	if v == nil {
+		x.xxx_hidden_Value = nil
+		return
+	}
+	x.xxx_hidden_Value = &executionValue_ArrayValue{v}
+}
+
+func (x *ExecutionValue) HasValue() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Value != nil
+}
+
+func (x *ExecutionValue) HasNullValue() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Value.(*executionValue_NullValue)
+	return ok
+}
+
+func (x *ExecutionValue) HasBoolValue() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Value.(*executionValue_BoolValue)
+	return ok
+}
+
+func (x *ExecutionValue) HasNumberValue() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Value.(*executionValue_NumberValue)
+	return ok
+}
+
+func (x *ExecutionValue) HasStringValue() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Value.(*executionValue_StringValue)
+	return ok
+}
+
+func (x *ExecutionValue) HasObjectValue() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Value.(*executionValue_ObjectValue)
+	return ok
+}
+
+func (x *ExecutionValue) HasArrayValue() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Value.(*executionValue_ArrayValue)
+	return ok
+}
+
+func (x *ExecutionValue) ClearValue() {
+	x.xxx_hidden_Value = nil
+}
+
+func (x *ExecutionValue) ClearNullValue() {
+	if _, ok := x.xxx_hidden_Value.(*executionValue_NullValue); ok {
+		x.xxx_hidden_Value = nil
+	}
+}
+
+func (x *ExecutionValue) ClearBoolValue() {
+	if _, ok := x.xxx_hidden_Value.(*executionValue_BoolValue); ok {
+		x.xxx_hidden_Value = nil
+	}
+}
+
+func (x *ExecutionValue) ClearNumberValue() {
+	if _, ok := x.xxx_hidden_Value.(*executionValue_NumberValue); ok {
+		x.xxx_hidden_Value = nil
+	}
+}
+
+func (x *ExecutionValue) ClearStringValue() {
+	if _, ok := x.xxx_hidden_Value.(*executionValue_StringValue); ok {
+		x.xxx_hidden_Value = nil
+	}
+}
+
+func (x *ExecutionValue) ClearObjectValue() {
+	if _, ok := x.xxx_hidden_Value.(*executionValue_ObjectValue); ok {
+		x.xxx_hidden_Value = nil
+	}
+}
+
+func (x *ExecutionValue) ClearArrayValue() {
+	if _, ok := x.xxx_hidden_Value.(*executionValue_ArrayValue); ok {
+		x.xxx_hidden_Value = nil
+	}
+}
+
+const ExecutionValue_Value_not_set_case case_ExecutionValue_Value = 0
+const ExecutionValue_NullValue_case case_ExecutionValue_Value = 1
+const ExecutionValue_BoolValue_case case_ExecutionValue_Value = 2
+const ExecutionValue_NumberValue_case case_ExecutionValue_Value = 3
+const ExecutionValue_StringValue_case case_ExecutionValue_Value = 4
+const ExecutionValue_ObjectValue_case case_ExecutionValue_Value = 5
+const ExecutionValue_ArrayValue_case case_ExecutionValue_Value = 6
+
+func (x *ExecutionValue) WhichValue() case_ExecutionValue_Value {
+	if x == nil {
+		return ExecutionValue_Value_not_set_case
+	}
+	switch x.xxx_hidden_Value.(type) {
+	case *executionValue_NullValue:
+		return ExecutionValue_NullValue_case
+	case *executionValue_BoolValue:
+		return ExecutionValue_BoolValue_case
+	case *executionValue_NumberValue:
+		return ExecutionValue_NumberValue_case
+	case *executionValue_StringValue:
+		return ExecutionValue_StringValue_case
+	case *executionValue_ObjectValue:
+		return ExecutionValue_ObjectValue_case
+	case *executionValue_ArrayValue:
+		return ExecutionValue_ArrayValue_case
+	default:
+		return ExecutionValue_Value_not_set_case
+	}
+}
+
+type ExecutionValue_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// Fields of oneof xxx_hidden_Value:
+	NullValue   *bool
+	BoolValue   *bool
+	NumberValue *string
+	StringValue *string
+	ObjectValue *ExecutionObject
+	ArrayValue  *ExecutionArray
+	// -- end of xxx_hidden_Value
+}
+
+func (b0 ExecutionValue_builder) Build() *ExecutionValue {
+	m0 := &ExecutionValue{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.NullValue != nil {
+		x.xxx_hidden_Value = &executionValue_NullValue{*b.NullValue}
+	}
+	if b.BoolValue != nil {
+		x.xxx_hidden_Value = &executionValue_BoolValue{*b.BoolValue}
+	}
+	if b.NumberValue != nil {
+		x.xxx_hidden_Value = &executionValue_NumberValue{*b.NumberValue}
+	}
+	if b.StringValue != nil {
+		x.xxx_hidden_Value = &executionValue_StringValue{*b.StringValue}
+	}
+	if b.ObjectValue != nil {
+		x.xxx_hidden_Value = &executionValue_ObjectValue{b.ObjectValue}
+	}
+	if b.ArrayValue != nil {
+		x.xxx_hidden_Value = &executionValue_ArrayValue{b.ArrayValue}
+	}
+	return m0
+}
+
+type case_ExecutionValue_Value protoreflect.FieldNumber
+
+func (x case_ExecutionValue_Value) String() string {
+	md := file_jobdb_storage_v1_storage_proto_msgTypes[23].Descriptor()
+	if x == 0 {
+		return "not set"
+	}
+	return protoimpl.X.MessageFieldStringOf(md, protoreflect.FieldNumber(x))
+}
+
+type isExecutionValue_Value interface {
+	isExecutionValue_Value()
+}
+
+type executionValue_NullValue struct {
+	NullValue bool `protobuf:"varint,1,opt,name=null_value,json=nullValue,oneof"`
+}
+
+type executionValue_BoolValue struct {
+	BoolValue bool `protobuf:"varint,2,opt,name=bool_value,json=boolValue,oneof"`
+}
+
+type executionValue_NumberValue struct {
+	NumberValue string `protobuf:"bytes,3,opt,name=number_value,json=numberValue,oneof"`
+}
+
+type executionValue_StringValue struct {
+	StringValue string `protobuf:"bytes,4,opt,name=string_value,json=stringValue,oneof"`
+}
+
+type executionValue_ObjectValue struct {
+	ObjectValue *ExecutionObject `protobuf:"bytes,5,opt,name=object_value,json=objectValue,oneof"`
+}
+
+type executionValue_ArrayValue struct {
+	ArrayValue *ExecutionArray `protobuf:"bytes,6,opt,name=array_value,json=arrayValue,oneof"`
+}
+
+func (*executionValue_NullValue) isExecutionValue_Value() {}
+
+func (*executionValue_BoolValue) isExecutionValue_Value() {}
+
+func (*executionValue_NumberValue) isExecutionValue_Value() {}
+
+func (*executionValue_StringValue) isExecutionValue_Value() {}
+
+func (*executionValue_ObjectValue) isExecutionValue_Value() {}
+
+func (*executionValue_ArrayValue) isExecutionValue_Value() {}
+
+type ExecutionObject struct {
+	state             protoimpl.MessageState     `protogen:"opaque.v1"`
+	xxx_hidden_Fields map[string]*ExecutionValue `protobuf:"bytes,1,rep,name=fields" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *ExecutionObject) Reset() {
+	*x = ExecutionObject{}
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecutionObject) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecutionObject) ProtoMessage() {}
+
+func (x *ExecutionObject) ProtoReflect() protoreflect.Message {
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ExecutionObject) GetFields() map[string]*ExecutionValue {
+	if x != nil {
+		return x.xxx_hidden_Fields
+	}
+	return nil
+}
+
+func (x *ExecutionObject) SetFields(v map[string]*ExecutionValue) {
+	x.xxx_hidden_Fields = v
+}
+
+type ExecutionObject_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Fields map[string]*ExecutionValue
+}
+
+func (b0 ExecutionObject_builder) Build() *ExecutionObject {
+	m0 := &ExecutionObject{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Fields = b.Fields
+	return m0
+}
+
+type ExecutionArray struct {
+	state            protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Items *[]*ExecutionValue     `protobuf:"bytes,1,rep,name=items"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ExecutionArray) Reset() {
+	*x = ExecutionArray{}
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecutionArray) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecutionArray) ProtoMessage() {}
+
+func (x *ExecutionArray) ProtoReflect() protoreflect.Message {
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ExecutionArray) GetItems() []*ExecutionValue {
+	if x != nil {
+		if x.xxx_hidden_Items != nil {
+			return *x.xxx_hidden_Items
+		}
+	}
+	return nil
+}
+
+func (x *ExecutionArray) SetItems(v []*ExecutionValue) {
+	x.xxx_hidden_Items = &v
+}
+
+type ExecutionArray_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Items []*ExecutionValue
+}
+
+func (b0 ExecutionArray_builder) Build() *ExecutionArray {
+	m0 := &ExecutionArray{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Items = &b.Items
+	return m0
+}
+
+type ExecutionArtifact struct {
+	state                  protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Name        *string                `protobuf:"bytes,1,opt,name=name"`
+	xxx_hidden_JobId       *string                `protobuf:"bytes,2,opt,name=job_id,json=jobId"`
+	xxx_hidden_Ordinal     int64                  `protobuf:"varint,3,opt,name=ordinal"`
+	xxx_hidden_StoredName  *string                `protobuf:"bytes,4,opt,name=stored_name,json=storedName"`
+	xxx_hidden_SizeBytes   int64                  `protobuf:"varint,5,opt,name=size_bytes,json=sizeBytes"`
+	XXX_raceDetectHookData protoimpl.RaceDetectHookData
+	XXX_presence           [1]uint32
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *ExecutionArtifact) Reset() {
+	*x = ExecutionArtifact{}
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecutionArtifact) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecutionArtifact) ProtoMessage() {}
+
+func (x *ExecutionArtifact) ProtoReflect() protoreflect.Message {
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ExecutionArtifact) GetName() string {
+	if x != nil {
+		if x.xxx_hidden_Name != nil {
+			return *x.xxx_hidden_Name
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *ExecutionArtifact) GetJobId() string {
+	if x != nil {
+		if x.xxx_hidden_JobId != nil {
+			return *x.xxx_hidden_JobId
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *ExecutionArtifact) GetOrdinal() int64 {
+	if x != nil {
+		return x.xxx_hidden_Ordinal
+	}
+	return 0
+}
+
+func (x *ExecutionArtifact) GetStoredName() string {
+	if x != nil {
+		if x.xxx_hidden_StoredName != nil {
+			return *x.xxx_hidden_StoredName
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *ExecutionArtifact) GetSizeBytes() int64 {
+	if x != nil {
+		return x.xxx_hidden_SizeBytes
+	}
+	return 0
+}
+
+func (x *ExecutionArtifact) SetName(v string) {
+	x.xxx_hidden_Name = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 5)
+}
+
+func (x *ExecutionArtifact) SetJobId(v string) {
+	x.xxx_hidden_JobId = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 5)
+}
+
+func (x *ExecutionArtifact) SetOrdinal(v int64) {
+	x.xxx_hidden_Ordinal = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 5)
+}
+
+func (x *ExecutionArtifact) SetStoredName(v string) {
+	x.xxx_hidden_StoredName = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 5)
+}
+
+func (x *ExecutionArtifact) SetSizeBytes(v int64) {
+	x.xxx_hidden_SizeBytes = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 4, 5)
+}
+
+func (x *ExecutionArtifact) HasName() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+}
+
+func (x *ExecutionArtifact) HasJobId() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 1)
+}
+
+func (x *ExecutionArtifact) HasOrdinal() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 2)
+}
+
+func (x *ExecutionArtifact) HasStoredName() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 3)
+}
+
+func (x *ExecutionArtifact) HasSizeBytes() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 4)
+}
+
+func (x *ExecutionArtifact) ClearName() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
+	x.xxx_hidden_Name = nil
+}
+
+func (x *ExecutionArtifact) ClearJobId() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 1)
+	x.xxx_hidden_JobId = nil
+}
+
+func (x *ExecutionArtifact) ClearOrdinal() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 2)
+	x.xxx_hidden_Ordinal = 0
+}
+
+func (x *ExecutionArtifact) ClearStoredName() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 3)
+	x.xxx_hidden_StoredName = nil
+}
+
+func (x *ExecutionArtifact) ClearSizeBytes() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 4)
+	x.xxx_hidden_SizeBytes = 0
+}
+
+type ExecutionArtifact_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Name       *string
+	JobId      *string
+	Ordinal    *int64
+	StoredName *string
+	SizeBytes  *int64
+}
+
+func (b0 ExecutionArtifact_builder) Build() *ExecutionArtifact {
+	m0 := &ExecutionArtifact{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.Name != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 5)
+		x.xxx_hidden_Name = b.Name
+	}
+	if b.JobId != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 5)
+		x.xxx_hidden_JobId = b.JobId
+	}
+	if b.Ordinal != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 5)
+		x.xxx_hidden_Ordinal = *b.Ordinal
+	}
+	if b.StoredName != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 5)
+		x.xxx_hidden_StoredName = b.StoredName
+	}
+	if b.SizeBytes != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 4, 5)
+		x.xxx_hidden_SizeBytes = *b.SizeBytes
+	}
+	return m0
+}
+
+type ExecutionSnapshot struct {
+	state                  protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Data        []byte                 `protobuf:"bytes,1,opt,name=data"`
+	xxx_hidden_Artifacts   *[]*ExecutionArtifact  `protobuf:"bytes,2,rep,name=artifacts"`
+	XXX_raceDetectHookData protoimpl.RaceDetectHookData
+	XXX_presence           [1]uint32
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *ExecutionSnapshot) Reset() {
+	*x = ExecutionSnapshot{}
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecutionSnapshot) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecutionSnapshot) ProtoMessage() {}
+
+func (x *ExecutionSnapshot) ProtoReflect() protoreflect.Message {
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ExecutionSnapshot) GetData() []byte {
+	if x != nil {
+		return x.xxx_hidden_Data
+	}
+	return nil
+}
+
+func (x *ExecutionSnapshot) GetArtifacts() []*ExecutionArtifact {
+	if x != nil {
+		if x.xxx_hidden_Artifacts != nil {
+			return *x.xxx_hidden_Artifacts
+		}
+	}
+	return nil
+}
+
+func (x *ExecutionSnapshot) SetData(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.xxx_hidden_Data = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 2)
+}
+
+func (x *ExecutionSnapshot) SetArtifacts(v []*ExecutionArtifact) {
+	x.xxx_hidden_Artifacts = &v
+}
+
+func (x *ExecutionSnapshot) HasData() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+}
+
+func (x *ExecutionSnapshot) ClearData() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
+	x.xxx_hidden_Data = nil
+}
+
+type ExecutionSnapshot_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Data      []byte
+	Artifacts []*ExecutionArtifact
+}
+
+func (b0 ExecutionSnapshot_builder) Build() *ExecutionSnapshot {
+	m0 := &ExecutionSnapshot{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.Data != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 2)
+		x.xxx_hidden_Data = b.Data
+	}
+	x.xxx_hidden_Artifacts = &b.Artifacts
+	return m0
+}
+
+type ExecutionVersions struct {
+	state                              protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ExecutionPatternVersion uint32                 `protobuf:"varint,1,opt,name=execution_pattern_version,json=executionPatternVersion"`
+	xxx_hidden_JobdbVersion            *string                `protobuf:"bytes,2,opt,name=jobdb_version,json=jobdbVersion"`
+	xxx_hidden_ConsumerVersions        map[string]string      `protobuf:"bytes,3,rep,name=consumer_versions,json=consumerVersions" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	XXX_raceDetectHookData             protoimpl.RaceDetectHookData
+	XXX_presence                       [1]uint32
+	unknownFields                      protoimpl.UnknownFields
+	sizeCache                          protoimpl.SizeCache
+}
+
+func (x *ExecutionVersions) Reset() {
+	*x = ExecutionVersions{}
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecutionVersions) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecutionVersions) ProtoMessage() {}
+
+func (x *ExecutionVersions) ProtoReflect() protoreflect.Message {
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ExecutionVersions) GetExecutionPatternVersion() uint32 {
+	if x != nil {
+		return x.xxx_hidden_ExecutionPatternVersion
+	}
+	return 0
+}
+
+func (x *ExecutionVersions) GetJobdbVersion() string {
+	if x != nil {
+		if x.xxx_hidden_JobdbVersion != nil {
+			return *x.xxx_hidden_JobdbVersion
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *ExecutionVersions) GetConsumerVersions() map[string]string {
+	if x != nil {
+		return x.xxx_hidden_ConsumerVersions
+	}
+	return nil
+}
+
+func (x *ExecutionVersions) SetExecutionPatternVersion(v uint32) {
+	x.xxx_hidden_ExecutionPatternVersion = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 3)
+}
+
+func (x *ExecutionVersions) SetJobdbVersion(v string) {
+	x.xxx_hidden_JobdbVersion = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 3)
+}
+
+func (x *ExecutionVersions) SetConsumerVersions(v map[string]string) {
+	x.xxx_hidden_ConsumerVersions = v
+}
+
+func (x *ExecutionVersions) HasExecutionPatternVersion() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+}
+
+func (x *ExecutionVersions) HasJobdbVersion() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 1)
+}
+
+func (x *ExecutionVersions) ClearExecutionPatternVersion() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
+	x.xxx_hidden_ExecutionPatternVersion = 0
+}
+
+func (x *ExecutionVersions) ClearJobdbVersion() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 1)
+	x.xxx_hidden_JobdbVersion = nil
+}
+
+type ExecutionVersions_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ExecutionPatternVersion *uint32
+	JobdbVersion            *string
+	ConsumerVersions        map[string]string
+}
+
+func (b0 ExecutionVersions_builder) Build() *ExecutionVersions {
+	m0 := &ExecutionVersions{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.ExecutionPatternVersion != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 3)
+		x.xxx_hidden_ExecutionPatternVersion = *b.ExecutionPatternVersion
+	}
+	if b.JobdbVersion != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 3)
+		x.xxx_hidden_JobdbVersion = b.JobdbVersion
+	}
+	x.xxx_hidden_ConsumerVersions = b.ConsumerVersions
+	return m0
+}
+
+type ExecutionRecord struct {
+	state                         protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Version            uint32                 `protobuf:"varint,1,opt,name=version"`
+	xxx_hidden_Kind               *string                `protobuf:"bytes,2,opt,name=kind"`
+	xxx_hidden_Id                 *string                `protobuf:"bytes,3,opt,name=id"`
+	xxx_hidden_Activation         *string                `protobuf:"bytes,4,opt,name=activation"`
+	xxx_hidden_Versions           *ExecutionVersions     `protobuf:"bytes,5,opt,name=versions"`
+	xxx_hidden_At                 *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=at"`
+	xxx_hidden_Descriptor_        *ExecutionValue        `protobuf:"bytes,7,opt,name=descriptor"`
+	xxx_hidden_Attempt            int32                  `protobuf:"varint,8,opt,name=attempt"`
+	xxx_hidden_Deadline           *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=deadline"`
+	xxx_hidden_TotalDeadline      *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=total_deadline,json=totalDeadline"`
+	xxx_hidden_Input              *ExecutionSnapshot     `protobuf:"bytes,11,opt,name=input"`
+	xxx_hidden_Output             *ExecutionSnapshot     `protobuf:"bytes,12,opt,name=output"`
+	xxx_hidden_Error              *TaskOutcome           `protobuf:"bytes,13,opt,name=error"`
+	xxx_hidden_Rule               *string                `protobuf:"bytes,14,opt,name=rule"`
+	xxx_hidden_Disposition        *string                `protobuf:"bytes,15,opt,name=disposition"`
+	xxx_hidden_Retryable          bool                   `protobuf:"varint,16,opt,name=retryable"`
+	xxx_hidden_Retry              bool                   `protobuf:"varint,17,opt,name=retry"`
+	xxx_hidden_WakeAt             *timestamppb.Timestamp `protobuf:"bytes,18,opt,name=wake_at,json=wakeAt"`
+	xxx_hidden_SourceTenant       *string                `protobuf:"bytes,19,opt,name=source_tenant,json=sourceTenant"`
+	xxx_hidden_SourceJob          *string                `protobuf:"bytes,20,opt,name=source_job,json=sourceJob"`
+	xxx_hidden_ApplicationPayload []byte                 `protobuf:"bytes,21,opt,name=application_payload,json=applicationPayload"`
+	xxx_hidden_Dependencies       *ExecutionValue        `protobuf:"bytes,22,opt,name=dependencies"`
+	xxx_hidden_Prerequisites      *[]*JobPrerequisite    `protobuf:"bytes,23,rep,name=prerequisites"`
+	xxx_hidden_AlternateAt        *timestamppb.Timestamp `protobuf:"bytes,24,opt,name=alternate_at,json=alternateAt"`
+	xxx_hidden_ExecutionTaskType  *string                `protobuf:"bytes,25,opt,name=execution_task_type,json=executionTaskType"`
+	xxx_hidden_Retained           *[]*ExecutionRecord    `protobuf:"bytes,26,rep,name=retained"`
+	xxx_hidden_LifecyclePayload   *ExecutionValue        `protobuf:"bytes,27,opt,name=lifecycle_payload,json=lifecyclePayload"`
+	XXX_raceDetectHookData        protoimpl.RaceDetectHookData
+	XXX_presence                  [1]uint32
+	unknownFields                 protoimpl.UnknownFields
+	sizeCache                     protoimpl.SizeCache
+}
+
+func (x *ExecutionRecord) Reset() {
+	*x = ExecutionRecord{}
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecutionRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecutionRecord) ProtoMessage() {}
+
+func (x *ExecutionRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_jobdb_storage_v1_storage_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ExecutionRecord) GetVersion() uint32 {
+	if x != nil {
+		return x.xxx_hidden_Version
+	}
+	return 0
+}
+
+func (x *ExecutionRecord) GetKind() string {
+	if x != nil {
+		if x.xxx_hidden_Kind != nil {
+			return *x.xxx_hidden_Kind
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *ExecutionRecord) GetId() string {
+	if x != nil {
+		if x.xxx_hidden_Id != nil {
+			return *x.xxx_hidden_Id
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *ExecutionRecord) GetActivation() string {
+	if x != nil {
+		if x.xxx_hidden_Activation != nil {
+			return *x.xxx_hidden_Activation
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *ExecutionRecord) GetVersions() *ExecutionVersions {
+	if x != nil {
+		return x.xxx_hidden_Versions
+	}
+	return nil
+}
+
+func (x *ExecutionRecord) GetAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.xxx_hidden_At
+	}
+	return nil
+}
+
+func (x *ExecutionRecord) GetDescriptor() *ExecutionValue {
+	if x != nil {
+		return x.xxx_hidden_Descriptor_
+	}
+	return nil
+}
+
+func (x *ExecutionRecord) GetAttempt() int32 {
+	if x != nil {
+		return x.xxx_hidden_Attempt
+	}
+	return 0
+}
+
+func (x *ExecutionRecord) GetDeadline() *timestamppb.Timestamp {
+	if x != nil {
+		return x.xxx_hidden_Deadline
+	}
+	return nil
+}
+
+func (x *ExecutionRecord) GetTotalDeadline() *timestamppb.Timestamp {
+	if x != nil {
+		return x.xxx_hidden_TotalDeadline
+	}
+	return nil
+}
+
+func (x *ExecutionRecord) GetInput() *ExecutionSnapshot {
+	if x != nil {
+		return x.xxx_hidden_Input
+	}
+	return nil
+}
+
+func (x *ExecutionRecord) GetOutput() *ExecutionSnapshot {
+	if x != nil {
+		return x.xxx_hidden_Output
+	}
+	return nil
+}
+
+func (x *ExecutionRecord) GetError() *TaskOutcome {
+	if x != nil {
+		return x.xxx_hidden_Error
+	}
+	return nil
+}
+
+func (x *ExecutionRecord) GetRule() string {
+	if x != nil {
+		if x.xxx_hidden_Rule != nil {
+			return *x.xxx_hidden_Rule
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *ExecutionRecord) GetDisposition() string {
+	if x != nil {
+		if x.xxx_hidden_Disposition != nil {
+			return *x.xxx_hidden_Disposition
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *ExecutionRecord) GetRetryable() bool {
+	if x != nil {
+		return x.xxx_hidden_Retryable
+	}
+	return false
+}
+
+func (x *ExecutionRecord) GetRetry() bool {
+	if x != nil {
+		return x.xxx_hidden_Retry
+	}
+	return false
+}
+
+func (x *ExecutionRecord) GetWakeAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.xxx_hidden_WakeAt
+	}
+	return nil
+}
+
+func (x *ExecutionRecord) GetSourceTenant() string {
+	if x != nil {
+		if x.xxx_hidden_SourceTenant != nil {
+			return *x.xxx_hidden_SourceTenant
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *ExecutionRecord) GetSourceJob() string {
+	if x != nil {
+		if x.xxx_hidden_SourceJob != nil {
+			return *x.xxx_hidden_SourceJob
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *ExecutionRecord) GetApplicationPayload() []byte {
+	if x != nil {
+		return x.xxx_hidden_ApplicationPayload
+	}
+	return nil
+}
+
+func (x *ExecutionRecord) GetDependencies() *ExecutionValue {
+	if x != nil {
+		return x.xxx_hidden_Dependencies
+	}
+	return nil
+}
+
+func (x *ExecutionRecord) GetPrerequisites() []*JobPrerequisite {
+	if x != nil {
+		if x.xxx_hidden_Prerequisites != nil {
+			return *x.xxx_hidden_Prerequisites
+		}
+	}
+	return nil
+}
+
+func (x *ExecutionRecord) GetAlternateAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.xxx_hidden_AlternateAt
+	}
+	return nil
+}
+
+func (x *ExecutionRecord) GetExecutionTaskType() string {
+	if x != nil {
+		if x.xxx_hidden_ExecutionTaskType != nil {
+			return *x.xxx_hidden_ExecutionTaskType
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *ExecutionRecord) GetRetained() []*ExecutionRecord {
+	if x != nil {
+		if x.xxx_hidden_Retained != nil {
+			return *x.xxx_hidden_Retained
+		}
+	}
+	return nil
+}
+
+func (x *ExecutionRecord) GetLifecyclePayload() *ExecutionValue {
+	if x != nil {
+		return x.xxx_hidden_LifecyclePayload
+	}
+	return nil
+}
+
+func (x *ExecutionRecord) SetVersion(v uint32) {
+	x.xxx_hidden_Version = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 27)
+}
+
+func (x *ExecutionRecord) SetKind(v string) {
+	x.xxx_hidden_Kind = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 27)
+}
+
+func (x *ExecutionRecord) SetId(v string) {
+	x.xxx_hidden_Id = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 27)
+}
+
+func (x *ExecutionRecord) SetActivation(v string) {
+	x.xxx_hidden_Activation = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 27)
+}
+
+func (x *ExecutionRecord) SetVersions(v *ExecutionVersions) {
+	x.xxx_hidden_Versions = v
+}
+
+func (x *ExecutionRecord) SetAt(v *timestamppb.Timestamp) {
+	x.xxx_hidden_At = v
+}
+
+func (x *ExecutionRecord) SetDescriptor(v *ExecutionValue) {
+	x.xxx_hidden_Descriptor_ = v
+}
+
+func (x *ExecutionRecord) SetAttempt(v int32) {
+	x.xxx_hidden_Attempt = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 7, 27)
+}
+
+func (x *ExecutionRecord) SetDeadline(v *timestamppb.Timestamp) {
+	x.xxx_hidden_Deadline = v
+}
+
+func (x *ExecutionRecord) SetTotalDeadline(v *timestamppb.Timestamp) {
+	x.xxx_hidden_TotalDeadline = v
+}
+
+func (x *ExecutionRecord) SetInput(v *ExecutionSnapshot) {
+	x.xxx_hidden_Input = v
+}
+
+func (x *ExecutionRecord) SetOutput(v *ExecutionSnapshot) {
+	x.xxx_hidden_Output = v
+}
+
+func (x *ExecutionRecord) SetError(v *TaskOutcome) {
+	x.xxx_hidden_Error = v
+}
+
+func (x *ExecutionRecord) SetRule(v string) {
+	x.xxx_hidden_Rule = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 13, 27)
+}
+
+func (x *ExecutionRecord) SetDisposition(v string) {
+	x.xxx_hidden_Disposition = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 14, 27)
+}
+
+func (x *ExecutionRecord) SetRetryable(v bool) {
+	x.xxx_hidden_Retryable = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 15, 27)
+}
+
+func (x *ExecutionRecord) SetRetry(v bool) {
+	x.xxx_hidden_Retry = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 16, 27)
+}
+
+func (x *ExecutionRecord) SetWakeAt(v *timestamppb.Timestamp) {
+	x.xxx_hidden_WakeAt = v
+}
+
+func (x *ExecutionRecord) SetSourceTenant(v string) {
+	x.xxx_hidden_SourceTenant = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 18, 27)
+}
+
+func (x *ExecutionRecord) SetSourceJob(v string) {
+	x.xxx_hidden_SourceJob = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 19, 27)
+}
+
+func (x *ExecutionRecord) SetApplicationPayload(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.xxx_hidden_ApplicationPayload = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 20, 27)
+}
+
+func (x *ExecutionRecord) SetDependencies(v *ExecutionValue) {
+	x.xxx_hidden_Dependencies = v
+}
+
+func (x *ExecutionRecord) SetPrerequisites(v []*JobPrerequisite) {
+	x.xxx_hidden_Prerequisites = &v
+}
+
+func (x *ExecutionRecord) SetAlternateAt(v *timestamppb.Timestamp) {
+	x.xxx_hidden_AlternateAt = v
+}
+
+func (x *ExecutionRecord) SetExecutionTaskType(v string) {
+	x.xxx_hidden_ExecutionTaskType = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 24, 27)
+}
+
+func (x *ExecutionRecord) SetRetained(v []*ExecutionRecord) {
+	x.xxx_hidden_Retained = &v
+}
+
+func (x *ExecutionRecord) SetLifecyclePayload(v *ExecutionValue) {
+	x.xxx_hidden_LifecyclePayload = v
+}
+
+func (x *ExecutionRecord) HasVersion() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+}
+
+func (x *ExecutionRecord) HasKind() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 1)
+}
+
+func (x *ExecutionRecord) HasId() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 2)
+}
+
+func (x *ExecutionRecord) HasActivation() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 3)
+}
+
+func (x *ExecutionRecord) HasVersions() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Versions != nil
+}
+
+func (x *ExecutionRecord) HasAt() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_At != nil
+}
+
+func (x *ExecutionRecord) HasDescriptor() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Descriptor_ != nil
+}
+
+func (x *ExecutionRecord) HasAttempt() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 7)
+}
+
+func (x *ExecutionRecord) HasDeadline() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Deadline != nil
+}
+
+func (x *ExecutionRecord) HasTotalDeadline() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_TotalDeadline != nil
+}
+
+func (x *ExecutionRecord) HasInput() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Input != nil
+}
+
+func (x *ExecutionRecord) HasOutput() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Output != nil
+}
+
+func (x *ExecutionRecord) HasError() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Error != nil
+}
+
+func (x *ExecutionRecord) HasRule() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 13)
+}
+
+func (x *ExecutionRecord) HasDisposition() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 14)
+}
+
+func (x *ExecutionRecord) HasRetryable() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 15)
+}
+
+func (x *ExecutionRecord) HasRetry() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 16)
+}
+
+func (x *ExecutionRecord) HasWakeAt() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_WakeAt != nil
+}
+
+func (x *ExecutionRecord) HasSourceTenant() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 18)
+}
+
+func (x *ExecutionRecord) HasSourceJob() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 19)
+}
+
+func (x *ExecutionRecord) HasApplicationPayload() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 20)
+}
+
+func (x *ExecutionRecord) HasDependencies() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Dependencies != nil
+}
+
+func (x *ExecutionRecord) HasAlternateAt() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_AlternateAt != nil
+}
+
+func (x *ExecutionRecord) HasExecutionTaskType() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 24)
+}
+
+func (x *ExecutionRecord) HasLifecyclePayload() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_LifecyclePayload != nil
+}
+
+func (x *ExecutionRecord) ClearVersion() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
+	x.xxx_hidden_Version = 0
+}
+
+func (x *ExecutionRecord) ClearKind() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 1)
+	x.xxx_hidden_Kind = nil
+}
+
+func (x *ExecutionRecord) ClearId() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 2)
+	x.xxx_hidden_Id = nil
+}
+
+func (x *ExecutionRecord) ClearActivation() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 3)
+	x.xxx_hidden_Activation = nil
+}
+
+func (x *ExecutionRecord) ClearVersions() {
+	x.xxx_hidden_Versions = nil
+}
+
+func (x *ExecutionRecord) ClearAt() {
+	x.xxx_hidden_At = nil
+}
+
+func (x *ExecutionRecord) ClearDescriptor() {
+	x.xxx_hidden_Descriptor_ = nil
+}
+
+func (x *ExecutionRecord) ClearAttempt() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 7)
+	x.xxx_hidden_Attempt = 0
+}
+
+func (x *ExecutionRecord) ClearDeadline() {
+	x.xxx_hidden_Deadline = nil
+}
+
+func (x *ExecutionRecord) ClearTotalDeadline() {
+	x.xxx_hidden_TotalDeadline = nil
+}
+
+func (x *ExecutionRecord) ClearInput() {
+	x.xxx_hidden_Input = nil
+}
+
+func (x *ExecutionRecord) ClearOutput() {
+	x.xxx_hidden_Output = nil
+}
+
+func (x *ExecutionRecord) ClearError() {
+	x.xxx_hidden_Error = nil
+}
+
+func (x *ExecutionRecord) ClearRule() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 13)
+	x.xxx_hidden_Rule = nil
+}
+
+func (x *ExecutionRecord) ClearDisposition() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 14)
+	x.xxx_hidden_Disposition = nil
+}
+
+func (x *ExecutionRecord) ClearRetryable() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 15)
+	x.xxx_hidden_Retryable = false
+}
+
+func (x *ExecutionRecord) ClearRetry() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 16)
+	x.xxx_hidden_Retry = false
+}
+
+func (x *ExecutionRecord) ClearWakeAt() {
+	x.xxx_hidden_WakeAt = nil
+}
+
+func (x *ExecutionRecord) ClearSourceTenant() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 18)
+	x.xxx_hidden_SourceTenant = nil
+}
+
+func (x *ExecutionRecord) ClearSourceJob() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 19)
+	x.xxx_hidden_SourceJob = nil
+}
+
+func (x *ExecutionRecord) ClearApplicationPayload() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 20)
+	x.xxx_hidden_ApplicationPayload = nil
+}
+
+func (x *ExecutionRecord) ClearDependencies() {
+	x.xxx_hidden_Dependencies = nil
+}
+
+func (x *ExecutionRecord) ClearAlternateAt() {
+	x.xxx_hidden_AlternateAt = nil
+}
+
+func (x *ExecutionRecord) ClearExecutionTaskType() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 24)
+	x.xxx_hidden_ExecutionTaskType = nil
+}
+
+func (x *ExecutionRecord) ClearLifecyclePayload() {
+	x.xxx_hidden_LifecyclePayload = nil
+}
+
+type ExecutionRecord_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Version            *uint32
+	Kind               *string
+	Id                 *string
+	Activation         *string
+	Versions           *ExecutionVersions
+	At                 *timestamppb.Timestamp
+	Descriptor         *ExecutionValue
+	Attempt            *int32
+	Deadline           *timestamppb.Timestamp
+	TotalDeadline      *timestamppb.Timestamp
+	Input              *ExecutionSnapshot
+	Output             *ExecutionSnapshot
+	Error              *TaskOutcome
+	Rule               *string
+	Disposition        *string
+	Retryable          *bool
+	Retry              *bool
+	WakeAt             *timestamppb.Timestamp
+	SourceTenant       *string
+	SourceJob          *string
+	ApplicationPayload []byte
+	Dependencies       *ExecutionValue
+	Prerequisites      []*JobPrerequisite
+	AlternateAt        *timestamppb.Timestamp
+	ExecutionTaskType  *string
+	Retained           []*ExecutionRecord
+	LifecyclePayload   *ExecutionValue
+}
+
+func (b0 ExecutionRecord_builder) Build() *ExecutionRecord {
+	m0 := &ExecutionRecord{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.Version != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 27)
+		x.xxx_hidden_Version = *b.Version
+	}
+	if b.Kind != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 27)
+		x.xxx_hidden_Kind = b.Kind
+	}
+	if b.Id != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 27)
+		x.xxx_hidden_Id = b.Id
+	}
+	if b.Activation != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 27)
+		x.xxx_hidden_Activation = b.Activation
+	}
+	x.xxx_hidden_Versions = b.Versions
+	x.xxx_hidden_At = b.At
+	x.xxx_hidden_Descriptor_ = b.Descriptor
+	if b.Attempt != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 7, 27)
+		x.xxx_hidden_Attempt = *b.Attempt
+	}
+	x.xxx_hidden_Deadline = b.Deadline
+	x.xxx_hidden_TotalDeadline = b.TotalDeadline
+	x.xxx_hidden_Input = b.Input
+	x.xxx_hidden_Output = b.Output
+	x.xxx_hidden_Error = b.Error
+	if b.Rule != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 13, 27)
+		x.xxx_hidden_Rule = b.Rule
+	}
+	if b.Disposition != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 14, 27)
+		x.xxx_hidden_Disposition = b.Disposition
+	}
+	if b.Retryable != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 15, 27)
+		x.xxx_hidden_Retryable = *b.Retryable
+	}
+	if b.Retry != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 16, 27)
+		x.xxx_hidden_Retry = *b.Retry
+	}
+	x.xxx_hidden_WakeAt = b.WakeAt
+	if b.SourceTenant != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 18, 27)
+		x.xxx_hidden_SourceTenant = b.SourceTenant
+	}
+	if b.SourceJob != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 19, 27)
+		x.xxx_hidden_SourceJob = b.SourceJob
+	}
+	if b.ApplicationPayload != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 20, 27)
+		x.xxx_hidden_ApplicationPayload = b.ApplicationPayload
+	}
+	x.xxx_hidden_Dependencies = b.Dependencies
+	x.xxx_hidden_Prerequisites = &b.Prerequisites
+	x.xxx_hidden_AlternateAt = b.AlternateAt
+	if b.ExecutionTaskType != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 24, 27)
+		x.xxx_hidden_ExecutionTaskType = b.ExecutionTaskType
+	}
+	x.xxx_hidden_Retained = &b.Retained
+	x.xxx_hidden_LifecyclePayload = b.LifecyclePayload
 	return m0
 }
 
@@ -3633,7 +5332,7 @@ var File_jobdb_storage_v1_storage_proto protoreflect.FileDescriptor
 
 const file_jobdb_storage_v1_storage_proto_rawDesc = "" +
 	"\n" +
-	"\x1ejobdb/storage/v1/storage.proto\x12\x10jobdb.storage.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x8a\n" +
+	"\x1ejobdb/storage/v1/storage.proto\x12\x10jobdb.storage.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xfc\n" +
 	"\n" +
 	"\rChapterRecord\x12\x18\n" +
 	"\aordinal\x18\x01 \x01(\x03R\aordinal\x12\x1b\n" +
@@ -3659,7 +5358,9 @@ const file_jobdb_storage_v1_storage_proto_rawDesc = "" +
 	"\n" +
 	"run_policy\x18\x10 \x01(\v2\x1b.jobdb.storage.v1.RunPolicyR\trunPolicy\x12G\n" +
 	"\rprerequisites\x18\x11 \x03(\v2!.jobdb.storage.v1.JobPrerequisiteR\rprerequisites\x124\n" +
-	"\x16initial_payload_digest\x18\x12 \x01(\tR\x14initialPayloadDigest\x12@\n" +
+	"\x16initial_payload_digest\x18\x12 \x01(\tR\x14initialPayloadDigest\x12I\n" +
+	"\x0ereconstruction\x18\x13 \x03(\v2!.jobdb.storage.v1.ExecutionRecordR\x0ereconstruction\x12%\n" +
+	"\x0eformat_version\x18\x14 \x01(\rR\rformatVersion\x12@\n" +
 	"\tjob_start\x18\x1e \x01(\v2!.jobdb.storage.v1.JobStartChapterH\x00R\bjobStart\x12\\\n" +
 	"\x13job_attempt_outcome\x18\x1f \x01(\v2*.jobdb.storage.v1.JobAttemptOutcomeChapterH\x00R\x11jobAttemptOutcome\x12_\n" +
 	"\x14task_attempt_outcome\x18  \x01(\v2+.jobdb.storage.v1.TaskAttemptOutcomeChapterH\x00R\x12taskAttemptOutcome\x12L\n" +
@@ -3768,12 +5469,82 @@ const file_jobdb_storage_v1_storage_proto_rawDesc = "" +
 	"\n" +
 	"input_hash\x18\x04 \x01(\tR\tinputHash\"&\n" +
 	"\vWaitForJobs\x12\x17\n" +
-	"\ajob_ids\x18\x01 \x03(\tR\x06jobIds\"3\n" +
-	"\x10ExecutionChapter\x12\x1f\n" +
-	"\vrecord_json\x18\x01 \x01(\fR\n" +
-	"recordJsonB?Z=github.com/colony-2/jobdb/pkg/internal/storagepb/v1;storagepbb\beditionsp\xe9\a"
+	"\ajob_ids\x18\x01 \x03(\tR\x06jobIds\"`\n" +
+	"\x10ExecutionChapter\x129\n" +
+	"\x06record\x18\x02 \x01(\v2!.jobdb.storage.v1.ExecutionRecordR\x06recordJ\x04\b\x01\x10\x02R\vrecord_json\"\xb2\x02\n" +
+	"\x0eExecutionValue\x12\x1f\n" +
+	"\n" +
+	"null_value\x18\x01 \x01(\bH\x00R\tnullValue\x12\x1f\n" +
+	"\n" +
+	"bool_value\x18\x02 \x01(\bH\x00R\tboolValue\x12#\n" +
+	"\fnumber_value\x18\x03 \x01(\tH\x00R\vnumberValue\x12#\n" +
+	"\fstring_value\x18\x04 \x01(\tH\x00R\vstringValue\x12F\n" +
+	"\fobject_value\x18\x05 \x01(\v2!.jobdb.storage.v1.ExecutionObjectH\x00R\vobjectValue\x12C\n" +
+	"\varray_value\x18\x06 \x01(\v2 .jobdb.storage.v1.ExecutionArrayH\x00R\n" +
+	"arrayValueB\a\n" +
+	"\x05value\"\xb5\x01\n" +
+	"\x0fExecutionObject\x12E\n" +
+	"\x06fields\x18\x01 \x03(\v2-.jobdb.storage.v1.ExecutionObject.FieldsEntryR\x06fields\x1a[\n" +
+	"\vFieldsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x126\n" +
+	"\x05value\x18\x02 \x01(\v2 .jobdb.storage.v1.ExecutionValueR\x05value:\x028\x01\"H\n" +
+	"\x0eExecutionArray\x126\n" +
+	"\x05items\x18\x01 \x03(\v2 .jobdb.storage.v1.ExecutionValueR\x05items\"\x98\x01\n" +
+	"\x11ExecutionArtifact\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x15\n" +
+	"\x06job_id\x18\x02 \x01(\tR\x05jobId\x12\x18\n" +
+	"\aordinal\x18\x03 \x01(\x03R\aordinal\x12\x1f\n" +
+	"\vstored_name\x18\x04 \x01(\tR\n" +
+	"storedName\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\x05 \x01(\x03R\tsizeBytes\"j\n" +
+	"\x11ExecutionSnapshot\x12\x12\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\x12A\n" +
+	"\tartifacts\x18\x02 \x03(\v2#.jobdb.storage.v1.ExecutionArtifactR\tartifacts\"\xa1\x02\n" +
+	"\x11ExecutionVersions\x12:\n" +
+	"\x19execution_pattern_version\x18\x01 \x01(\rR\x17executionPatternVersion\x12#\n" +
+	"\rjobdb_version\x18\x02 \x01(\tR\fjobdbVersion\x12f\n" +
+	"\x11consumer_versions\x18\x03 \x03(\v29.jobdb.storage.v1.ExecutionVersions.ConsumerVersionsEntryR\x10consumerVersions\x1aC\n" +
+	"\x15ConsumerVersionsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x80\n" +
+	"\n" +
+	"\x0fExecutionRecord\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\rR\aversion\x12\x12\n" +
+	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x0e\n" +
+	"\x02id\x18\x03 \x01(\tR\x02id\x12\x1e\n" +
+	"\n" +
+	"activation\x18\x04 \x01(\tR\n" +
+	"activation\x12?\n" +
+	"\bversions\x18\x05 \x01(\v2#.jobdb.storage.v1.ExecutionVersionsR\bversions\x12*\n" +
+	"\x02at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\x02at\x12@\n" +
+	"\n" +
+	"descriptor\x18\a \x01(\v2 .jobdb.storage.v1.ExecutionValueR\n" +
+	"descriptor\x12\x18\n" +
+	"\aattempt\x18\b \x01(\x05R\aattempt\x126\n" +
+	"\bdeadline\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\bdeadline\x12A\n" +
+	"\x0etotal_deadline\x18\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\rtotalDeadline\x129\n" +
+	"\x05input\x18\v \x01(\v2#.jobdb.storage.v1.ExecutionSnapshotR\x05input\x12;\n" +
+	"\x06output\x18\f \x01(\v2#.jobdb.storage.v1.ExecutionSnapshotR\x06output\x123\n" +
+	"\x05error\x18\r \x01(\v2\x1d.jobdb.storage.v1.TaskOutcomeR\x05error\x12\x12\n" +
+	"\x04rule\x18\x0e \x01(\tR\x04rule\x12 \n" +
+	"\vdisposition\x18\x0f \x01(\tR\vdisposition\x12\x1c\n" +
+	"\tretryable\x18\x10 \x01(\bR\tretryable\x12\x14\n" +
+	"\x05retry\x18\x11 \x01(\bR\x05retry\x123\n" +
+	"\awake_at\x18\x12 \x01(\v2\x1a.google.protobuf.TimestampR\x06wakeAt\x12#\n" +
+	"\rsource_tenant\x18\x13 \x01(\tR\fsourceTenant\x12\x1d\n" +
+	"\n" +
+	"source_job\x18\x14 \x01(\tR\tsourceJob\x12/\n" +
+	"\x13application_payload\x18\x15 \x01(\fR\x12applicationPayload\x12D\n" +
+	"\fdependencies\x18\x16 \x01(\v2 .jobdb.storage.v1.ExecutionValueR\fdependencies\x12G\n" +
+	"\rprerequisites\x18\x17 \x03(\v2!.jobdb.storage.v1.JobPrerequisiteR\rprerequisites\x12=\n" +
+	"\falternate_at\x18\x18 \x01(\v2\x1a.google.protobuf.TimestampR\valternateAt\x12.\n" +
+	"\x13execution_task_type\x18\x19 \x01(\tR\x11executionTaskType\x12=\n" +
+	"\bretained\x18\x1a \x03(\v2!.jobdb.storage.v1.ExecutionRecordR\bretained\x12M\n" +
+	"\x11lifecycle_payload\x18\x1b \x01(\v2 .jobdb.storage.v1.ExecutionValueR\x10lifecyclePayloadB?Z=github.com/colony-2/jobdb/pkg/internal/storagepb/v1;storagepbb\beditionsp\xe9\a"
 
-var file_jobdb_storage_v1_storage_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_jobdb_storage_v1_storage_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
 var file_jobdb_storage_v1_storage_proto_goTypes = []any{
 	(*ChapterRecord)(nil),             // 0: jobdb.storage.v1.ChapterRecord
 	(*JobStartChapter)(nil),           // 1: jobdb.storage.v1.JobStartChapter
@@ -3798,60 +5569,92 @@ var file_jobdb_storage_v1_storage_proto_goTypes = []any{
 	(*TaskWait)(nil),                  // 20: jobdb.storage.v1.TaskWait
 	(*WaitForJobs)(nil),               // 21: jobdb.storage.v1.WaitForJobs
 	(*ExecutionChapter)(nil),          // 22: jobdb.storage.v1.ExecutionChapter
-	nil,                               // 23: jobdb.storage.v1.Metadata.FieldsEntry
-	nil,                               // 24: jobdb.storage.v1.MetadataMap.FieldsEntry
-	nil,                               // 25: jobdb.storage.v1.AppErrorPayload.AttrsEntry
-	(*timestamppb.Timestamp)(nil),     // 26: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),       // 27: google.protobuf.Duration
+	(*ExecutionValue)(nil),            // 23: jobdb.storage.v1.ExecutionValue
+	(*ExecutionObject)(nil),           // 24: jobdb.storage.v1.ExecutionObject
+	(*ExecutionArray)(nil),            // 25: jobdb.storage.v1.ExecutionArray
+	(*ExecutionArtifact)(nil),         // 26: jobdb.storage.v1.ExecutionArtifact
+	(*ExecutionSnapshot)(nil),         // 27: jobdb.storage.v1.ExecutionSnapshot
+	(*ExecutionVersions)(nil),         // 28: jobdb.storage.v1.ExecutionVersions
+	(*ExecutionRecord)(nil),           // 29: jobdb.storage.v1.ExecutionRecord
+	nil,                               // 30: jobdb.storage.v1.Metadata.FieldsEntry
+	nil,                               // 31: jobdb.storage.v1.MetadataMap.FieldsEntry
+	nil,                               // 32: jobdb.storage.v1.AppErrorPayload.AttrsEntry
+	nil,                               // 33: jobdb.storage.v1.ExecutionObject.FieldsEntry
+	nil,                               // 34: jobdb.storage.v1.ExecutionVersions.ConsumerVersionsEntry
+	(*timestamppb.Timestamp)(nil),     // 35: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),       // 36: google.protobuf.Duration
 }
 var file_jobdb_storage_v1_storage_proto_depIdxs = []int32{
-	26, // 0: jobdb.storage.v1.ChapterRecord.created_at:type_name -> google.protobuf.Timestamp
-	26, // 1: jobdb.storage.v1.ChapterRecord.started_at:type_name -> google.protobuf.Timestamp
-	26, // 2: jobdb.storage.v1.ChapterRecord.finished_at:type_name -> google.protobuf.Timestamp
+	35, // 0: jobdb.storage.v1.ChapterRecord.created_at:type_name -> google.protobuf.Timestamp
+	35, // 1: jobdb.storage.v1.ChapterRecord.started_at:type_name -> google.protobuf.Timestamp
+	35, // 2: jobdb.storage.v1.ChapterRecord.finished_at:type_name -> google.protobuf.Timestamp
 	8,  // 3: jobdb.storage.v1.ChapterRecord.metadata:type_name -> jobdb.storage.v1.Metadata
 	6,  // 4: jobdb.storage.v1.ChapterRecord.input:type_name -> jobdb.storage.v1.ApplicationInputBytes
-	26, // 5: jobdb.storage.v1.ChapterRecord.next_attempt_at:type_name -> google.protobuf.Timestamp
+	35, // 5: jobdb.storage.v1.ChapterRecord.next_attempt_at:type_name -> google.protobuf.Timestamp
 	15, // 6: jobdb.storage.v1.ChapterRecord.input_ref:type_name -> jobdb.storage.v1.InputReference
 	17, // 7: jobdb.storage.v1.ChapterRecord.run_policy:type_name -> jobdb.storage.v1.RunPolicy
 	18, // 8: jobdb.storage.v1.ChapterRecord.prerequisites:type_name -> jobdb.storage.v1.JobPrerequisite
-	1,  // 9: jobdb.storage.v1.ChapterRecord.job_start:type_name -> jobdb.storage.v1.JobStartChapter
-	2,  // 10: jobdb.storage.v1.ChapterRecord.job_attempt_outcome:type_name -> jobdb.storage.v1.JobAttemptOutcomeChapter
-	3,  // 11: jobdb.storage.v1.ChapterRecord.task_attempt_outcome:type_name -> jobdb.storage.v1.TaskAttemptOutcomeChapter
-	4,  // 12: jobdb.storage.v1.ChapterRecord.restart_extra:type_name -> jobdb.storage.v1.RestartExtraChapter
-	22, // 13: jobdb.storage.v1.ChapterRecord.execution:type_name -> jobdb.storage.v1.ExecutionChapter
-	6,  // 14: jobdb.storage.v1.JobStartChapter.input:type_name -> jobdb.storage.v1.ApplicationInputBytes
-	5,  // 15: jobdb.storage.v1.JobAttemptOutcomeChapter.outcome:type_name -> jobdb.storage.v1.TaskOutcome
-	5,  // 16: jobdb.storage.v1.TaskAttemptOutcomeChapter.outcome:type_name -> jobdb.storage.v1.TaskOutcome
-	7,  // 17: jobdb.storage.v1.RestartExtraChapter.output:type_name -> jobdb.storage.v1.ApplicationOutputBytes
-	7,  // 18: jobdb.storage.v1.TaskOutcome.app_output:type_name -> jobdb.storage.v1.ApplicationOutputBytes
-	12, // 19: jobdb.storage.v1.TaskOutcome.app_error:type_name -> jobdb.storage.v1.AppErrorPayload
-	13, // 20: jobdb.storage.v1.TaskOutcome.system_error:type_name -> jobdb.storage.v1.SystemErrorPayload
-	14, // 21: jobdb.storage.v1.TaskOutcome.timeout:type_name -> jobdb.storage.v1.TimeoutPayload
-	23, // 22: jobdb.storage.v1.Metadata.fields:type_name -> jobdb.storage.v1.Metadata.FieldsEntry
-	10, // 23: jobdb.storage.v1.MetadataValue.list_value:type_name -> jobdb.storage.v1.MetadataList
-	11, // 24: jobdb.storage.v1.MetadataValue.map_value:type_name -> jobdb.storage.v1.MetadataMap
-	9,  // 25: jobdb.storage.v1.MetadataList.values:type_name -> jobdb.storage.v1.MetadataValue
-	24, // 26: jobdb.storage.v1.MetadataMap.fields:type_name -> jobdb.storage.v1.MetadataMap.FieldsEntry
-	25, // 27: jobdb.storage.v1.AppErrorPayload.attrs:type_name -> jobdb.storage.v1.AppErrorPayload.AttrsEntry
-	15, // 28: jobdb.storage.v1.AppErrorPayload.input_ref:type_name -> jobdb.storage.v1.InputReference
-	15, // 29: jobdb.storage.v1.SystemErrorPayload.input_ref:type_name -> jobdb.storage.v1.InputReference
-	27, // 30: jobdb.storage.v1.TimeoutPayload.after:type_name -> google.protobuf.Duration
-	15, // 31: jobdb.storage.v1.TimeoutPayload.input_ref:type_name -> jobdb.storage.v1.InputReference
-	27, // 32: jobdb.storage.v1.RetryPolicy.initial_interval:type_name -> google.protobuf.Duration
-	27, // 33: jobdb.storage.v1.RetryPolicy.maximum_interval:type_name -> google.protobuf.Duration
-	16, // 34: jobdb.storage.v1.RunPolicy.retry:type_name -> jobdb.storage.v1.RetryPolicy
-	27, // 35: jobdb.storage.v1.RunPolicy.invocation_timeout:type_name -> google.protobuf.Duration
-	27, // 36: jobdb.storage.v1.RunPolicy.total_timeout:type_name -> google.protobuf.Duration
-	17, // 37: jobdb.storage.v1.SchedulerPayload.run_policy:type_name -> jobdb.storage.v1.RunPolicy
-	20, // 38: jobdb.storage.v1.SchedulerPayload.task_wait:type_name -> jobdb.storage.v1.TaskWait
-	9,  // 39: jobdb.storage.v1.Metadata.FieldsEntry.value:type_name -> jobdb.storage.v1.MetadataValue
-	9,  // 40: jobdb.storage.v1.MetadataMap.FieldsEntry.value:type_name -> jobdb.storage.v1.MetadataValue
-	9,  // 41: jobdb.storage.v1.AppErrorPayload.AttrsEntry.value:type_name -> jobdb.storage.v1.MetadataValue
-	42, // [42:42] is the sub-list for method output_type
-	42, // [42:42] is the sub-list for method input_type
-	42, // [42:42] is the sub-list for extension type_name
-	42, // [42:42] is the sub-list for extension extendee
-	0,  // [0:42] is the sub-list for field type_name
+	29, // 9: jobdb.storage.v1.ChapterRecord.reconstruction:type_name -> jobdb.storage.v1.ExecutionRecord
+	1,  // 10: jobdb.storage.v1.ChapterRecord.job_start:type_name -> jobdb.storage.v1.JobStartChapter
+	2,  // 11: jobdb.storage.v1.ChapterRecord.job_attempt_outcome:type_name -> jobdb.storage.v1.JobAttemptOutcomeChapter
+	3,  // 12: jobdb.storage.v1.ChapterRecord.task_attempt_outcome:type_name -> jobdb.storage.v1.TaskAttemptOutcomeChapter
+	4,  // 13: jobdb.storage.v1.ChapterRecord.restart_extra:type_name -> jobdb.storage.v1.RestartExtraChapter
+	22, // 14: jobdb.storage.v1.ChapterRecord.execution:type_name -> jobdb.storage.v1.ExecutionChapter
+	6,  // 15: jobdb.storage.v1.JobStartChapter.input:type_name -> jobdb.storage.v1.ApplicationInputBytes
+	5,  // 16: jobdb.storage.v1.JobAttemptOutcomeChapter.outcome:type_name -> jobdb.storage.v1.TaskOutcome
+	5,  // 17: jobdb.storage.v1.TaskAttemptOutcomeChapter.outcome:type_name -> jobdb.storage.v1.TaskOutcome
+	7,  // 18: jobdb.storage.v1.RestartExtraChapter.output:type_name -> jobdb.storage.v1.ApplicationOutputBytes
+	7,  // 19: jobdb.storage.v1.TaskOutcome.app_output:type_name -> jobdb.storage.v1.ApplicationOutputBytes
+	12, // 20: jobdb.storage.v1.TaskOutcome.app_error:type_name -> jobdb.storage.v1.AppErrorPayload
+	13, // 21: jobdb.storage.v1.TaskOutcome.system_error:type_name -> jobdb.storage.v1.SystemErrorPayload
+	14, // 22: jobdb.storage.v1.TaskOutcome.timeout:type_name -> jobdb.storage.v1.TimeoutPayload
+	30, // 23: jobdb.storage.v1.Metadata.fields:type_name -> jobdb.storage.v1.Metadata.FieldsEntry
+	10, // 24: jobdb.storage.v1.MetadataValue.list_value:type_name -> jobdb.storage.v1.MetadataList
+	11, // 25: jobdb.storage.v1.MetadataValue.map_value:type_name -> jobdb.storage.v1.MetadataMap
+	9,  // 26: jobdb.storage.v1.MetadataList.values:type_name -> jobdb.storage.v1.MetadataValue
+	31, // 27: jobdb.storage.v1.MetadataMap.fields:type_name -> jobdb.storage.v1.MetadataMap.FieldsEntry
+	32, // 28: jobdb.storage.v1.AppErrorPayload.attrs:type_name -> jobdb.storage.v1.AppErrorPayload.AttrsEntry
+	15, // 29: jobdb.storage.v1.AppErrorPayload.input_ref:type_name -> jobdb.storage.v1.InputReference
+	15, // 30: jobdb.storage.v1.SystemErrorPayload.input_ref:type_name -> jobdb.storage.v1.InputReference
+	36, // 31: jobdb.storage.v1.TimeoutPayload.after:type_name -> google.protobuf.Duration
+	15, // 32: jobdb.storage.v1.TimeoutPayload.input_ref:type_name -> jobdb.storage.v1.InputReference
+	36, // 33: jobdb.storage.v1.RetryPolicy.initial_interval:type_name -> google.protobuf.Duration
+	36, // 34: jobdb.storage.v1.RetryPolicy.maximum_interval:type_name -> google.protobuf.Duration
+	16, // 35: jobdb.storage.v1.RunPolicy.retry:type_name -> jobdb.storage.v1.RetryPolicy
+	36, // 36: jobdb.storage.v1.RunPolicy.invocation_timeout:type_name -> google.protobuf.Duration
+	36, // 37: jobdb.storage.v1.RunPolicy.total_timeout:type_name -> google.protobuf.Duration
+	17, // 38: jobdb.storage.v1.SchedulerPayload.run_policy:type_name -> jobdb.storage.v1.RunPolicy
+	20, // 39: jobdb.storage.v1.SchedulerPayload.task_wait:type_name -> jobdb.storage.v1.TaskWait
+	29, // 40: jobdb.storage.v1.ExecutionChapter.record:type_name -> jobdb.storage.v1.ExecutionRecord
+	24, // 41: jobdb.storage.v1.ExecutionValue.object_value:type_name -> jobdb.storage.v1.ExecutionObject
+	25, // 42: jobdb.storage.v1.ExecutionValue.array_value:type_name -> jobdb.storage.v1.ExecutionArray
+	33, // 43: jobdb.storage.v1.ExecutionObject.fields:type_name -> jobdb.storage.v1.ExecutionObject.FieldsEntry
+	23, // 44: jobdb.storage.v1.ExecutionArray.items:type_name -> jobdb.storage.v1.ExecutionValue
+	26, // 45: jobdb.storage.v1.ExecutionSnapshot.artifacts:type_name -> jobdb.storage.v1.ExecutionArtifact
+	34, // 46: jobdb.storage.v1.ExecutionVersions.consumer_versions:type_name -> jobdb.storage.v1.ExecutionVersions.ConsumerVersionsEntry
+	28, // 47: jobdb.storage.v1.ExecutionRecord.versions:type_name -> jobdb.storage.v1.ExecutionVersions
+	35, // 48: jobdb.storage.v1.ExecutionRecord.at:type_name -> google.protobuf.Timestamp
+	23, // 49: jobdb.storage.v1.ExecutionRecord.descriptor:type_name -> jobdb.storage.v1.ExecutionValue
+	35, // 50: jobdb.storage.v1.ExecutionRecord.deadline:type_name -> google.protobuf.Timestamp
+	35, // 51: jobdb.storage.v1.ExecutionRecord.total_deadline:type_name -> google.protobuf.Timestamp
+	27, // 52: jobdb.storage.v1.ExecutionRecord.input:type_name -> jobdb.storage.v1.ExecutionSnapshot
+	27, // 53: jobdb.storage.v1.ExecutionRecord.output:type_name -> jobdb.storage.v1.ExecutionSnapshot
+	5,  // 54: jobdb.storage.v1.ExecutionRecord.error:type_name -> jobdb.storage.v1.TaskOutcome
+	35, // 55: jobdb.storage.v1.ExecutionRecord.wake_at:type_name -> google.protobuf.Timestamp
+	23, // 56: jobdb.storage.v1.ExecutionRecord.dependencies:type_name -> jobdb.storage.v1.ExecutionValue
+	18, // 57: jobdb.storage.v1.ExecutionRecord.prerequisites:type_name -> jobdb.storage.v1.JobPrerequisite
+	35, // 58: jobdb.storage.v1.ExecutionRecord.alternate_at:type_name -> google.protobuf.Timestamp
+	29, // 59: jobdb.storage.v1.ExecutionRecord.retained:type_name -> jobdb.storage.v1.ExecutionRecord
+	23, // 60: jobdb.storage.v1.ExecutionRecord.lifecycle_payload:type_name -> jobdb.storage.v1.ExecutionValue
+	9,  // 61: jobdb.storage.v1.Metadata.FieldsEntry.value:type_name -> jobdb.storage.v1.MetadataValue
+	9,  // 62: jobdb.storage.v1.MetadataMap.FieldsEntry.value:type_name -> jobdb.storage.v1.MetadataValue
+	9,  // 63: jobdb.storage.v1.AppErrorPayload.AttrsEntry.value:type_name -> jobdb.storage.v1.MetadataValue
+	23, // 64: jobdb.storage.v1.ExecutionObject.FieldsEntry.value:type_name -> jobdb.storage.v1.ExecutionValue
+	65, // [65:65] is the sub-list for method output_type
+	65, // [65:65] is the sub-list for method input_type
+	65, // [65:65] is the sub-list for extension type_name
+	65, // [65:65] is the sub-list for extension extendee
+	0,  // [0:65] is the sub-list for field type_name
 }
 
 func init() { file_jobdb_storage_v1_storage_proto_init() }
@@ -3881,13 +5684,21 @@ func file_jobdb_storage_v1_storage_proto_init() {
 		(*metadataValue_MapValue)(nil),
 		(*metadataValue_NullValue)(nil),
 	}
+	file_jobdb_storage_v1_storage_proto_msgTypes[23].OneofWrappers = []any{
+		(*executionValue_NullValue)(nil),
+		(*executionValue_BoolValue)(nil),
+		(*executionValue_NumberValue)(nil),
+		(*executionValue_StringValue)(nil),
+		(*executionValue_ObjectValue)(nil),
+		(*executionValue_ArrayValue)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_jobdb_storage_v1_storage_proto_rawDesc), len(file_jobdb_storage_v1_storage_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   26,
+			NumMessages:   35,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -10,7 +10,7 @@ import (
 )
 
 // ExecutionPatternVersion pins the semantics of the client execution protocol.
-const ExecutionPatternVersion uint32 = 3
+const ExecutionPatternVersion uint32 = 4
 
 type ExecutionVersions struct {
 	ExecutionPatternVersion uint32            `json:"execution_pattern_version"`
@@ -25,9 +25,9 @@ type ExecutionSnapshot struct {
 	Artifacts []ExecutionArtifact `json:"artifacts,omitempty"`
 }
 type ExecutionArtifact struct {
-	Key  *ArtifactKey `json:"key,omitempty"`
-	Name string       `json:"name"`
-	Data []byte       `json:"data"`
+	Key    *ArtifactKey `json:"key,omitempty"`
+	Name   string       `json:"name"`
+	source Artifact
 }
 
 // ExecutionRecord is the versioned execution history wire contract. Unknown
@@ -70,7 +70,7 @@ func DecodeExecutionRecord(raw []byte) (ExecutionRecord, error) {
 	if err := d.Decode(new(any)); err != io.EOF {
 		return r, fmt.Errorf("trailing execution data")
 	}
-	if r.Version < 1 || r.Version > ExecutionPatternVersion {
+	if r.Version != ExecutionPatternVersion {
 		return r, fmt.Errorf("unsupported execution version %d (current %d)", r.Version, ExecutionPatternVersion)
 	}
 	if r.Version == 1 && (r.Kind == "dispatch" || r.AlternateAt != nil || r.ExecutionTaskType != "") {
@@ -157,6 +157,9 @@ func DecodeExecutionRecord(raw []byte) (ExecutionRecord, error) {
 					return r, fmt.Errorf("invalid execution artifact names")
 				}
 				names[a.Name] = true
+				if a.Key == nil || a.Key.Validate() != nil || a.Key.SizeBytes < 0 {
+					return r, fmt.Errorf("execution artifact %q requires a durable key and known size", a.Name)
+				}
 			}
 		}
 	}

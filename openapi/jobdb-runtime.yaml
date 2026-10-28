@@ -559,6 +559,12 @@ paths:
             schema:
               $ref: '#/components/schemas/SubmitJobRequest'
       responses:
+        '413':
+          description: Chapter application payload exceeds the configured byte budget
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Job submitted
           content:
@@ -588,6 +594,12 @@ paths:
             schema:
               $ref: '#/components/schemas/SubmitJobRequest'
       responses:
+        '413':
+          description: Chapter application payload exceeds the configured byte budget
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Job submitted or confirmed/recovered
           content:
@@ -637,6 +649,12 @@ paths:
             schema:
               $ref: '#/components/schemas/SubmitRestartJobRequest'
       responses:
+        '413':
+          description: Chapter application payload exceeds the configured byte budget
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Job restart submitted
           content:
@@ -667,6 +685,12 @@ paths:
             schema:
               $ref: '#/components/schemas/SubmitRestartJobRequest'
       responses:
+        '413':
+          description: Chapter application payload exceeds the configured byte budget
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Job restart submitted or confirmed/recovered
           content:
@@ -701,6 +725,12 @@ paths:
             schema:
               $ref: '#/components/schemas/SubmitJobRequest'
       responses:
+        '413':
+          description: Chapter application payload exceeds the configured byte budget
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Child job submitted
           content:
@@ -730,6 +760,12 @@ paths:
             schema:
               $ref: '#/components/schemas/SubmitJobRequest'
       responses:
+        '413':
+          description: Chapter application payload exceeds the configured byte budget
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Child job submitted or confirmed/recovered
           content:
@@ -762,6 +798,12 @@ paths:
             schema:
               $ref: '#/components/schemas/SubmitRestartJobRequest'
       responses:
+        '413':
+          description: Chapter application payload exceeds the configured byte budget
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Child restart job submitted
           content:
@@ -791,6 +833,12 @@ paths:
             schema:
               $ref: '#/components/schemas/SubmitRestartJobRequest'
       responses:
+        '413':
+          description: Chapter application payload exceeds the configured byte budget
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Child restart job submitted or confirmed/recovered
           content:
@@ -874,6 +922,12 @@ paths:
             schema:
               $ref: '#/components/schemas/UpsertScheduleRequest'
       responses:
+        '413':
+          description: Chapter application payload exceeds the configured byte budget
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Schedule created or updated
           content:
@@ -952,6 +1006,12 @@ paths:
             schema:
               $ref: '#/components/schemas/ScheduleMutationRequest'
       responses:
+        '413':
+          description: Chapter application payload exceeds the configured byte budget
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Schedule resumed
           content:
@@ -994,6 +1054,12 @@ paths:
             schema:
               $ref: '#/components/schemas/TriggerScheduleRequest'
       responses:
+        '413':
+          description: Chapter application payload exceeds the configured byte budget
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Manual occurrence submitted
           content:
@@ -1338,6 +1404,12 @@ paths:
             schema:
               $ref: '#/components/schemas/CompleteExecutionRequest'
       responses:
+        '413':
+          description: Chapter application payload exceeds the configured byte budget
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '204':
           description: Job completion applied
   /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/reschedule:
@@ -1385,6 +1457,12 @@ paths:
             schema:
               $ref: '#/components/schemas/AddChapterRequest'
       responses:
+        '413':
+          description: Chapter application payload exceeds the configured byte budget
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '204':
           description: Chapter stored
         '409':
@@ -1469,6 +1547,12 @@ paths:
             schema:
               $ref: '#/components/schemas/CommitChapterIfWaitingRequest'
       responses:
+        '413':
+          description: Chapter application payload exceeds the configured byte budget
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '204':
           description: Chapter commit applied
         '409':
@@ -1975,6 +2059,7 @@ components:
         - invalid_delegation_request
         - delegation_not_supported
         - delegation_unavailable
+        - chapter_application_payload_too_large
         - chapter_not_found
         - job_not_found
         - job_not_complete
@@ -1998,6 +2083,14 @@ components:
           $ref: '#/components/schemas/ErrorCode'
         message:
           type: string
+        details:
+          description: Bounded application-payload size diagnostics for chapter_application_payload_too_large (HTTP 413). Counts application bytes only, excluding metadata, protobuf framing, and artifacts.
+          type: object
+          additionalProperties: true
+          x-go-type: jobdb.ChapterApplicationPayloadError
+          x-go-type-import:
+            name: jobdb
+            path: github.com/colony-2/jobdb/pkg/jobdb
     ApplicationPayload:
       description: |
         Caller-owned application JSON payload embedded directly in REST

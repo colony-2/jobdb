@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -70,6 +71,9 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 		ctx = context.Background()
 	}
 	if err := ctx.Err(); err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	if err := runtimecore.ValidateSubmissionApplicationPayload(ctx, req.Job, r.ChapterApplicationPayloadLimit()); err != nil {
 		return jobdb.JobHandle{}, err
 	}
 	prep, err := goalstate.SubmitPreparation(ctx, req, parentJobID)
@@ -270,6 +274,9 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 }
 
 func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.SubmitRestartJobRequest, parentJobID string) (jobdb.JobHandle, error) {
+	if err := runtimecore.ValidateRestartApplicationPayload(ctx, req.Job, r.ChapterApplicationPayloadLimit()); err != nil {
+		return jobdb.JobHandle{}, err
+	}
 	preparation, err := goalstate.RestartPreparation(ctx, req, parentJobID)
 	if err != nil {
 		return jobdb.JobHandle{}, err
@@ -969,6 +976,9 @@ func (r *Runtime) materializeTaskData(ctx context.Context, jobKey jobdb.JobKey, 
 }
 
 func (r *Runtime) prepareChapterWrite(ctx context.Context, req jobdb.PutChapterRequest) (jobdb.Chapter, error) {
+	if err := jobdb.ValidateChapterApplicationPayload(ctx, req.Chapter, r.ChapterApplicationPayloadLimit()); err != nil {
+		return jobdb.Chapter{}, err
+	}
 	chapter := req.Chapter
 	if len(req.ArtifactUploads) == 0 {
 		if len(chapter.Artifacts) > 0 {
@@ -1163,6 +1173,10 @@ func (e *ToyEngine) availableStatusLocked(tenantId string, now time.Time, record
 }
 
 func (r *Runtime) completeLease(ctx context.Context, jobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.CompleteExecutionRequest) error {
+	if req.Chapter != nil && jobdb.ChapterPayloadFailure(*req.Chapter) {
+		return r.completePayloadFailure(ctx, jobKey, leaseID, workerID, req)
+	}
+
 	if req.Chapter == nil {
 		return fmt.Errorf("complete lease requires final chapter")
 	}
@@ -1586,13 +1600,22 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	record.mu.Lock()
 	schemaHash := jobmetadata.SchemaHashFromStoredMetadata(record.metadata)
 	record.mu.Unlock()
+	var sizeFailure *jobdb.ChapterApplicationPayloadError
 	if err := runtimecore.ValidateOrdinaryChapter(ctx, r, jobdb.JobSchemaKey{TenantId: req.JobKey.TenantId, SchemaHash: schemaHash}, chapter); err != nil {
-		return err
+		if !errors.As(err, &sizeFailure) {
+			return err
+		}
+		chapter = jobdb.PayloadFailureChapter(chapter, sizeFailure)
+		pendingArtifacts = nil
 	}
-	td, err := r.taskDataFromChapter(req.JobKey, chapter)
-	if err != nil {
-		return err
+	var td jobdb.TaskData
+	if sizeFailure == nil {
+		td, err = r.taskDataFromChapter(req.JobKey, chapter)
+		if err != nil {
+			return err
+		}
 	}
+
 	// Publication and the scheduler transition share one critical section. A
 	// losing completion must not leave either a chapter or overwritten artifacts.
 	r.engine.mu.Lock()
@@ -1622,6 +1645,23 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 		r.engine.runtimeArtifacts[runtimeArtifactKey{jobKey: req.JobKey, ordinal: wait.OutputStep, name: name}] = data
 	}
 	record.chapters[wait.OutputStep] = &toyChapter{TaskType: chapter.TaskType, CreatedAt: chapter.CreatedAt, Input: td, Output: td, Attempt: 1}
+	if sizeFailure != nil {
+		now := time.Now().UTC()
+		record.archived = &now
+		record.status = jobdb.JobStatusCompleted
+		record.completionStatus = "failed_app"
+		record.completionDetail = sizeFailure.Error()
+		record.err = sizeFailure.AppError()
+		record.route = jobdb.Route{JobType: wait.Next}
+		record.alternateRoute = nil
+		record.payload = mustMarshalWorkerPayload(workerJobPayload{RunPolicy: payloadInfo.RunPolicy})
+		record.step = wait.OutputStep
+		r.engine.initGoalsLocked()
+		if err := (goalstate.Engine{Store: r.engine.goals, Now: now}).Complete(req.JobKey); err != nil {
+			return err
+		}
+		return sizeFailure
+	}
 	assignToyArtifactKeys(artifacts, req.JobKey.JobId, wait.OutputStep)
 
 	resumeJobType := wait.Next
@@ -1873,4 +1913,53 @@ func effectiveRoute(record *jobRecord, now time.Time) jobdb.Route {
 		return *record.alternateRoute
 	}
 	return record.route
+}
+
+func (r *Runtime) ChapterApplicationPayloadLimit() int64 {
+	return r.engine.maxChapterApplicationPayloadBytes
+}
+
+func (r *Runtime) completePayloadFailure(ctx context.Context, key jobdb.JobKey, leaseID, workerID string, req jobdb.CompleteExecutionRequest) error {
+	if len(req.ArtifactUploads) > 0 || req.ClientPayloadUpdate != nil {
+		return fmt.Errorf("payload failure cannot carry uploads or client updates")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.engine.mu.Lock()
+	defer r.engine.mu.Unlock()
+	record := r.engine.jobRecords[key]
+	if record == nil {
+		return jobdb.ErrJobNotFound
+	}
+	record.mu.Lock()
+	defer record.mu.Unlock()
+	now := time.Now().UTC()
+	if leaseID == "" || record.leaseID != leaseID || record.leaseWorkerID != workerID || !record.leased || !record.leaseExpiresAt.After(now) || record.cancelled || record.archived != nil {
+		return jobdb.ErrExecutionLeaseLost
+	}
+	chapters := r.engine.runtimeChapters[key]
+	ch := *req.Chapter
+	if ch.Ordinal != int64(len(chapters)) {
+		return jobdb.ErrConflict
+	}
+	chapters[ch.Ordinal] = cloneChapter(ch)
+	failure := ch.Body.(jobdb.JobAttemptOutcomeChapter).Outcome.(jobdb.AppErrorOutcome).Error
+	record.err = &jobdb.AppError{Payload: failure}
+	raw, _ := json.Marshal(failure)
+	record.result = &jobdb.EnvelopedTaskData{SimpleTaskData: jobdb.SimpleTaskData{Data: raw}, Kind: "AppError"}
+
+	record.archived = &now
+	record.status = jobdb.JobStatusCompleted
+	record.completionStatus = "failed_app"
+	record.completionDetail = req.Detail
+	record.leased = false
+	record.leaseID = ""
+	record.alternateRoute = nil
+	var payload workerJobPayload
+	_ = json.Unmarshal(record.payload, &payload)
+	payload.TaskWait = nil
+	record.payload = mustMarshalWorkerPayload(payload)
+	r.engine.initGoalsLocked()
+	return (goalstate.Engine{Store: r.engine.goals, Now: now}).Complete(key)
 }

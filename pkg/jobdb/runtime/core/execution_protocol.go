@@ -2,12 +2,12 @@ package runtimecore
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/internal/executionmeta"
+	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
@@ -121,8 +121,10 @@ func ExecutionCompletion(ctx context.Context, r executionHistoryReader, req jobd
 	if err != nil {
 		return nil, err
 	}
-	raw, _ := json.Marshal(wait)
-	digest := fmt.Sprintf("%x", sha256.Sum256(raw))
+	digest, hashErr := runtimecodec.ExecutionIdentity(wait)
+	if hashErr != nil {
+		return nil, hashErr
+	}
 	if wait.Kind != "wait" || wait.Input == nil || req.InputHash != digest || req.InputOrdinal != inputOrdinal {
 		return nil, fmt.Errorf("%w: invalid execution wait generation", jobdb.ErrConflict)
 	}
@@ -140,11 +142,15 @@ func ExecutionCompletion(ctx context.Context, r executionHistoryReader, req jobd
 		return nil, err
 	}
 	for _, art := range arts {
-		data, err := art.Bytes(ctx)
-		if err != nil {
-			return nil, err
+		size := art.Size()
+		if size < 0 {
+			data, err := art.Bytes(ctx)
+			if err != nil {
+				return nil, err
+			}
+			size = int64(len(data))
 		}
-		snapshot.Artifacts = append(snapshot.Artifacts, jobdb.ExecutionArtifact{Name: art.Name(), Data: data, Key: &jobdb.ArtifactKey{JobId: req.JobKey.JobId, TaskOrdinal: req.OutputOrdinal, Name: art.Name(), SizeBytes: int64(len(data))}})
+		snapshot.Artifacts = append(snapshot.Artifacts, jobdb.ExecutionArtifact{Name: art.Name(), Key: &jobdb.ArtifactKey{JobId: req.JobKey.JobId, TaskOrdinal: req.OutputOrdinal, Name: art.Name(), SizeBytes: size}})
 	}
 	return &jobdb.ExecutionRecord{Version: wait.Version, Kind: "result", ID: wait.ID, Activation: wait.Activation, At: time.Now().UTC(), Input: wait.Input, Output: snapshot}, nil
 }

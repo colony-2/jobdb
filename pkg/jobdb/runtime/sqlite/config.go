@@ -31,7 +31,10 @@ const (
 
 // Config describes a local SQLite-backed jobdb runtime.
 type Config struct {
-	ConfigurationLimits jobdb.ConfigurationLimits
+	// MaxChapterApplicationPayloadBytes limits summed application bytes per chapter.
+	// Zero uses 256 KiB; negative values are invalid. Metadata and artifacts are excluded.
+	MaxChapterApplicationPayloadBytes int64
+	ConfigurationLimits               jobdb.ConfigurationLimits
 	// SecretProvider is independent of job storage and remains caller-owned.
 	// If nil, a development store opens at <main database>.secrets.db (or in memory).
 	SecretProvider jobdb.SecretProvider
@@ -56,6 +59,7 @@ type Config struct {
 // Runtime is a SQLite WorkflowRuntime that composes scheduler rows, chapter
 // rows, and Go CDK blob artifact storage.
 type Runtime struct {
+	maxChapterApplicationPayloadBytes int64
 	*configuration.Service
 	secretProvider jobdb.SecretProvider
 	devSecrets     *sqlitesecrets.Store
@@ -84,6 +88,9 @@ func New(db *sql.DB, opts ...Option) (*Runtime, error) {
 	for _, opt := range opts {
 		opt(&cfg)
 	}
+	if cfg.maxChapterApplicationPayloadBytes < 0 {
+		return nil, fmt.Errorf("chapter application payload limit cannot be negative")
+	}
 	if cfg.workerID == "" {
 		cfg.workerID = defaultWorkerID()
 	}
@@ -100,13 +107,14 @@ func New(db *sql.DB, opts ...Option) (*Runtime, error) {
 		return nil, err
 	}
 	rt := &Runtime{
-		Service:        &configuration.Service{Store: storeConfig, Limits: cfg.configurationLimits},
-		db:             db,
-		chapterStore:   chapterStore,
-		logger:         cfg.logger,
-		workerID:       cfg.workerID,
-		secretProvider: cfg.secretProvider,
-		secretLimits:   cfg.secretLimits,
+		maxChapterApplicationPayloadBytes: cfg.maxChapterApplicationPayloadBytes,
+		Service:                           &configuration.Service{Store: storeConfig, Limits: cfg.configurationLimits},
+		db:                                db,
+		chapterStore:                      chapterStore,
+		logger:                            cfg.logger,
+		workerID:                          cfg.workerID,
+		secretProvider:                    cfg.secretProvider,
+		secretLimits:                      cfg.secretLimits,
 	}
 	if rt.secretProvider == nil {
 		rt.devSecrets, err = openDefaultSecrets(context.Background(), db, cfg.secretLimits)
@@ -124,6 +132,9 @@ func New(db *sql.DB, opts ...Option) (*Runtime, error) {
 func NewFromConfig(ctx context.Context, cfg Config) (*Runtime, error) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if cfg.MaxChapterApplicationPayloadBytes < 0 {
+		return nil, fmt.Errorf("chapter application payload limit cannot be negative")
 	}
 	logger := cfg.Logger
 	if logger == nil {
@@ -189,15 +200,16 @@ func NewFromConfig(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	cleanupDB = false
 	rt := &Runtime{
-		Service:        &configuration.Service{Store: storeConfig, Limits: cfg.ConfigurationLimits},
-		db:             db,
-		ownsDB:         true,
-		chapterStore:   chapterStore,
-		logger:         logger,
-		workerID:       workerID,
-		devSecrets:     store,
-		secretProvider: cfg.SecretProvider,
-		secretLimits:   cfg.SecretLimits,
+		maxChapterApplicationPayloadBytes: cfg.MaxChapterApplicationPayloadBytes,
+		Service:                           &configuration.Service{Store: storeConfig, Limits: cfg.ConfigurationLimits},
+		db:                                db,
+		ownsDB:                            true,
+		chapterStore:                      chapterStore,
+		logger:                            logger,
+		workerID:                          workerID,
+		devSecrets:                        store,
+		secretProvider:                    cfg.SecretProvider,
+		secretLimits:                      cfg.SecretLimits,
 	}
 	if store != nil {
 		rt.secretProvider = store
@@ -231,13 +243,14 @@ func (r *Runtime) Close(ctx context.Context) error {
 }
 
 type runtimeOptions struct {
-	configurationLimits    jobdb.ConfigurationLimits
-	secretProvider         jobdb.SecretProvider
-	secretLimits           jobdb.SecretLimits
-	logger                 *slog.Logger
-	workerID               string
-	blobStoreURI           string
-	maxInlineArtifactBytes int64
+	maxChapterApplicationPayloadBytes int64
+	configurationLimits               jobdb.ConfigurationLimits
+	secretProvider                    jobdb.SecretProvider
+	secretLimits                      jobdb.SecretLimits
+	logger                            *slog.Logger
+	workerID                          string
+	blobStoreURI                      string
+	maxInlineArtifactBytes            int64
 }
 
 // Option customizes New.
@@ -401,3 +414,8 @@ func WithSecretLimits(limits jobdb.SecretLimits) Option {
 func WithConfigurationLimits(limits jobdb.ConfigurationLimits) Option {
 	return func(o *runtimeOptions) { o.configurationLimits = limits }
 }
+
+func WithMaxChapterApplicationPayloadBytes(limit int64) Option {
+	return func(o *runtimeOptions) { o.maxChapterApplicationPayloadBytes = limit }
+}
+func (r *Runtime) ChapterApplicationPayloadLimit() int64 { return r.maxChapterApplicationPayloadBytes }

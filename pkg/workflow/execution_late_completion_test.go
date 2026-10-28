@@ -2,7 +2,6 @@ package workflow_test
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"sync/atomic"
@@ -10,6 +9,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -31,7 +31,8 @@ func TestExecutionExpiredWaitCompletionAcrossRuntimes(t *testing.T) {
 				wait := jobdb.ExecutionRecord{Version: jobdb.ExecutionPatternVersion, Kind: "wait", ID: "external/attempt:1", At: time.Now().Add(-2 * time.Minute), Deadline: time.Now().Add(-time.Minute), Descriptor: json.RawMessage(`"external"`), Input: &jobdb.ExecutionSnapshot{Data: json.RawMessage(`"original-input"`)}}
 				raw, err := json.Marshal(wait)
 				require.NoError(t, err)
-				hash := fmt.Sprintf("%x", sha256.Sum256(raw))
+				hash, err := runtimecodec.ExecutionIdentity(wait)
+				require.NoError(t, err)
 				token := ""
 				if transport, ok := lease.(interface{ LeaseToken() string }); ok {
 					token = transport.LeaseToken()

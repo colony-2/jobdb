@@ -171,7 +171,7 @@ func (h *runtimeListedTaskHandle) Data() (TaskData, error) {
 		if record.Kind != "wait" || record.Input == nil {
 			return nil, fmt.Errorf("waiting task has no input snapshot")
 		}
-		return snapshotData(record.Input), nil
+		return snapshotData(record.Input, h.runtime, h.jobKey.TenantId), nil
 	}
 	return chapterToTaskData(h.runtime, h.jobKey, chapter)
 }

@@ -161,6 +161,13 @@ func (r *Runtime) CompleteJobWithLeaseByID(ctx context.Context, jobKey jobdb.Job
 			return err
 		}
 	}
+	if req.Chapter != nil && jobdb.ChapterPayloadFailure(*req.Chapter) {
+		if len(req.ArtifactUploads) > 0 || req.ClientPayloadUpdate != nil {
+			return fmt.Errorf("payload failure cannot carry uploads or client updates")
+		}
+		return r.completePayloadFailure(ctx, jobKey, *req.Chapter, func(_ *sql.Tx, row jobRow) error { return validateLeaseRow(row, leaseID, workerID, time.Now().UTC()) })
+	}
+
 	if err := r.ensureCompletionChapter(ctx, jobKey, leaseID, workerID, req); err != nil {
 		return err
 	}

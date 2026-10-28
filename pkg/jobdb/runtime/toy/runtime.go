@@ -35,3 +35,9 @@ func WithSecretLimits(limits jobdb.SecretLimits) Option { return toyimpl.WithSec
 func WithConfigurationLimits(limits jobdb.ConfigurationLimits) Option {
 	return toyimpl.WithConfigurationLimits(limits)
 }
+
+// WithMaxChapterApplicationPayloadBytes sets the per-chapter application budget.
+// Zero uses 256 KiB. A negative limit panics when constructing the toy runtime.
+func WithMaxChapterApplicationPayloadBytes(limit int64) Option {
+	return toyimpl.WithMaxChapterApplicationPayloadBytes(limit)
+}

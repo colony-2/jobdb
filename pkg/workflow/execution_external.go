@@ -1,11 +1,11 @@
 package workflow
 
 import (
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"time"
 
+	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
@@ -69,8 +69,10 @@ func (c *executionContext) externalTask(call TaskCall, id string, input *jobdb.E
 	if c.run.r.replay {
 		return jobdb.ExecutionRecord{}, ReplayCacheMissError{JobKey: c.GetJobKey(), Ordinal: c.run.nextOrdinal(), Reason: ReplayCacheMissTaskResultMissing}
 	}
-	raw, _ := json.Marshal(rec)
-	hash := fmt.Sprintf("%x", sha256.Sum256(raw))
+	hash, hashErr := runtimecodec.ExecutionIdentity(rec)
+	if hashErr != nil {
+		return jobdb.ExecutionRecord{}, hashErr
+	}
 	lease := c.run.r.lease
 	route := lease.Route()
 	wait := lease.ExecutionState().TaskWait
@@ -113,7 +115,7 @@ func (c *executionContext) externalTask(call TaskCall, id string, input *jobdb.E
 	if execute {
 		child := c.child(id, rec.Deadline, total)
 		worker := c.run.r.worker.TaskWorkers[state.taskType]
-		out, taskErr := child.invokeTask(worker, snapshotData(rec.Input))
+		out, taskErr := child.invokeTask(worker, c.run.snapshotData(rec.Input))
 		child.close()
 		return c.finishBody("result", id, out, taskErr, rec.Input, call.Policy.Retry)
 	}

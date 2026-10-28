@@ -39,6 +39,9 @@ func (r *Runtime) submitJobWithSchedule(ctx context.Context, req jobdb.SubmitJob
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if err := ValidateSubmissionApplicationPayload(ctx, req.Job, r.ChapterApplicationPayloadLimit()); err != nil {
+		return jobdb.JobHandle{}, err
+	}
 	preparation, err := goalstate.SubmitPreparation(ctx, req, parentJobID)
 	if err != nil {
 		return jobdb.JobHandle{}, err
@@ -119,7 +122,7 @@ func (r *Runtime) submitJobWithSchedule(ctx context.Context, req jobdb.SubmitJob
 		InputHash: inputHash, CreatedAt: createdAt.UTC(),
 		Metadata: chapterMetadata, Artifacts: artifacts,
 	}
-	if err := ValidateFirstChapter(ctx, r.schemas,
+	if err := ValidateFirstChapter(ctx, r.chapterRegistry(),
 		jobdb.JobSchemaKey{TenantId: key.TenantId, SchemaHash: schemaHash}, initial); err != nil {
 		return jobdb.JobHandle{}, err
 	}

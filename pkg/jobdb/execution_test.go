@@ -57,12 +57,12 @@ func TestExecutionRecordValidation(t *testing.T) {
 }
 
 func TestExecutionDiagnosticOutcomeVersion(t *testing.T) {
-	for _, version := range []uint32{1, 2} {
+	for _, version := range []uint32{1, 2, 3, ExecutionPatternVersion} {
 		r := ExecutionRecord{Version: version, Kind: "result", ID: "task/attempt:1", ErrorKind: "AppError", Error: json.RawMessage(`{"message":"failed"}`), Output: &ExecutionSnapshot{Data: json.RawMessage(`{"diagnostic":"sanitized"}`)}}
 		raw, err := json.Marshal(r)
 		require.NoError(t, err)
 		_, err = DecodeExecutionRecord(raw)
-		if version < 2 {
+		if version != ExecutionPatternVersion {
 			require.Error(t, err)
 		} else {
 			require.NoError(t, err)
@@ -71,18 +71,22 @@ func TestExecutionDiagnosticOutcomeVersion(t *testing.T) {
 		raw, err = json.Marshal(r)
 		require.NoError(t, err)
 		_, err = DecodeExecutionRecord(raw)
-		require.NoError(t, err)
+		if version == ExecutionPatternVersion {
+			require.NoError(t, err)
+		} else {
+			require.Error(t, err)
+		}
 	}
 }
 
 func TestExecutionDispatchVersion(t *testing.T) {
-	for _, version := range []uint32{1, 2} {
+	for _, version := range []uint32{1, 2, 3, ExecutionPatternVersion} {
 		t.Run(string(rune('0'+version)), func(t *testing.T) {
 			r := ExecutionRecord{Version: version, Kind: "dispatch", ID: "task/attempt:1", ExecutionTaskType: "fallback"}
 			raw, err := json.Marshal(r)
 			require.NoError(t, err)
 			_, err = DecodeExecutionRecord(raw)
-			if version == 1 {
+			if version != ExecutionPatternVersion {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)

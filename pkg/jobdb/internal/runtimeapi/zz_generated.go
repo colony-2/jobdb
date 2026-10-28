@@ -28,37 +28,38 @@ const (
 
 // Defines values for ErrorCode.
 const (
-	ChapterNotFound               ErrorCode = "chapter_not_found"
-	ConfigurationFailed           ErrorCode = "configuration_failed"
-	ConfigurationReadTooLarge     ErrorCode = "configuration_read_too_large"
-	ConfigurationRevisionMismatch ErrorCode = "configuration_revision_mismatch"
-	ConfigurationTooLarge         ErrorCode = "configuration_too_large"
-	ConfigurationUnavailable      ErrorCode = "configuration_unavailable"
-	Conflict                      ErrorCode = "conflict"
-	DelegationDeadlineReached     ErrorCode = "delegation_deadline_reached"
-	DelegationNotSupported        ErrorCode = "delegation_not_supported"
-	DelegationUnavailable         ErrorCode = "delegation_unavailable"
-	DependencyCycle               ErrorCode = "dependency_cycle"
-	DependencyWaitConflict        ErrorCode = "dependency_wait_conflict"
-	DependencyWaitNotFound        ErrorCode = "dependency_wait_not_found"
-	ExecutionLeaseLost            ErrorCode = "execution_lease_lost"
-	ExistingJobMismatch           ErrorCode = "existing_job_mismatch"
-	GoalConflict                  ErrorCode = "goal_conflict"
-	GoalNotFound                  ErrorCode = "goal_not_found"
-	Internal                      ErrorCode = "internal"
-	InvalidConfigurationRequest   ErrorCode = "invalid_configuration_request"
-	InvalidDelegationCredential   ErrorCode = "invalid_delegation_credential"
-	InvalidDelegationRequest      ErrorCode = "invalid_delegation_request"
-	InvalidDependency             ErrorCode = "invalid_dependency"
-	InvalidRequest                ErrorCode = "invalid_request"
-	JobNotComplete                ErrorCode = "job_not_complete"
-	JobNotFound                   ErrorCode = "job_not_found"
-	JobSchemaArchived             ErrorCode = "job_schema_archived"
-	JobSchemaNotFound             ErrorCode = "job_schema_not_found"
-	JobSchemaValidationFailed     ErrorCode = "job_schema_validation_failed"
-	LeasePermissionDenied         ErrorCode = "lease_permission_denied"
-	NotFound                      ErrorCode = "not_found"
-	WorkflowNotDeterministic      ErrorCode = "workflow_not_deterministic"
+	ChapterApplicationPayloadTooLarge ErrorCode = "chapter_application_payload_too_large"
+	ChapterNotFound                   ErrorCode = "chapter_not_found"
+	ConfigurationFailed               ErrorCode = "configuration_failed"
+	ConfigurationReadTooLarge         ErrorCode = "configuration_read_too_large"
+	ConfigurationRevisionMismatch     ErrorCode = "configuration_revision_mismatch"
+	ConfigurationTooLarge             ErrorCode = "configuration_too_large"
+	ConfigurationUnavailable          ErrorCode = "configuration_unavailable"
+	Conflict                          ErrorCode = "conflict"
+	DelegationDeadlineReached         ErrorCode = "delegation_deadline_reached"
+	DelegationNotSupported            ErrorCode = "delegation_not_supported"
+	DelegationUnavailable             ErrorCode = "delegation_unavailable"
+	DependencyCycle                   ErrorCode = "dependency_cycle"
+	DependencyWaitConflict            ErrorCode = "dependency_wait_conflict"
+	DependencyWaitNotFound            ErrorCode = "dependency_wait_not_found"
+	ExecutionLeaseLost                ErrorCode = "execution_lease_lost"
+	ExistingJobMismatch               ErrorCode = "existing_job_mismatch"
+	GoalConflict                      ErrorCode = "goal_conflict"
+	GoalNotFound                      ErrorCode = "goal_not_found"
+	Internal                          ErrorCode = "internal"
+	InvalidConfigurationRequest       ErrorCode = "invalid_configuration_request"
+	InvalidDelegationCredential       ErrorCode = "invalid_delegation_credential"
+	InvalidDelegationRequest          ErrorCode = "invalid_delegation_request"
+	InvalidDependency                 ErrorCode = "invalid_dependency"
+	InvalidRequest                    ErrorCode = "invalid_request"
+	JobNotComplete                    ErrorCode = "job_not_complete"
+	JobNotFound                       ErrorCode = "job_not_found"
+	JobSchemaArchived                 ErrorCode = "job_schema_archived"
+	JobSchemaNotFound                 ErrorCode = "job_schema_not_found"
+	JobSchemaValidationFailed         ErrorCode = "job_schema_validation_failed"
+	LeasePermissionDenied             ErrorCode = "lease_permission_denied"
+	NotFound                          ErrorCode = "not_found"
+	WorkflowNotDeterministic          ErrorCode = "workflow_not_deterministic"
 )
 
 // Defines values for ExecutionChapterKind.
@@ -411,8 +412,11 @@ type ErrorCode string
 
 // ErrorResponse defines model for ErrorResponse.
 type ErrorResponse struct {
-	Code    ErrorCode `json:"code"`
-	Message string    `json:"message"`
+	Code ErrorCode `json:"code"`
+
+	// Details Bounded application-payload size diagnostics for chapter_application_payload_too_large (HTTP 413). Counts application bytes only, excluding metadata, protobuf framing, and artifacts.
+	Details *jobdb.ChapterApplicationPayloadError `json:"details,omitempty"`
+	Message string                                `json:"message"`
 }
 
 // ExecutionChapter defines model for ExecutionChapter.
@@ -6532,6 +6536,7 @@ type SubmitJobHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *JobHandle
+	JSON413      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -6598,6 +6603,7 @@ type SubmitRestartJobHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *JobHandle
+	JSON413      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -6643,6 +6649,7 @@ type PutJobHTTPResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *JobHandle
 	JSON409      *ErrorResponse
+	JSON413      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -6750,6 +6757,7 @@ func (r OpenArtifactHTTPResponse) StatusCode() int {
 type CommitChapterIfWaitingHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
+	JSON413      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -6838,6 +6846,7 @@ func (r InspectLeaseHTTPResponse) StatusCode() int {
 type AddChapterWithLeaseHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
+	JSON413      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -6905,6 +6914,7 @@ func (r GetChapterWithLeaseHTTPResponse) StatusCode() int {
 type CompleteJobWithLeaseHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
+	JSON413      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -7046,6 +7056,7 @@ type PutRestartJobHTTPResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *JobHandle
 	JSON409      *ErrorResponse
+	JSON413      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -7068,6 +7079,7 @@ type SubmitJobWithLeaseHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *JobHandle
+	JSON413      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -7090,6 +7102,7 @@ type SubmitRestartJobWithLeaseHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *JobHandle
+	JSON413      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -7113,6 +7126,7 @@ type PutJobWithLeaseHTTPResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *JobHandle
 	JSON409      *ErrorResponse
+	JSON413      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -7136,6 +7150,7 @@ type PutRestartJobWithLeaseHTTPResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *JobHandle
 	JSON409      *ErrorResponse
+	JSON413      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -7202,6 +7217,7 @@ type UpsertScheduleHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *ScheduleInfo
+	JSON413      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -7268,6 +7284,7 @@ type ResumeScheduleHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *ScheduleInfo
+	JSON413      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -7312,6 +7329,7 @@ type TriggerScheduleHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *JobHandle
+	JSON413      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -8499,6 +8517,13 @@ func ParseSubmitJobHTTPResponse(rsp *http.Response) (*SubmitJobHTTPResponse, err
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
 	}
 
 	return response, nil
@@ -8577,6 +8602,13 @@ func ParseSubmitRestartJobHTTPResponse(rsp *http.Response) (*SubmitRestartJobHTT
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
 	}
 
 	return response, nil
@@ -8635,6 +8667,13 @@ func ParsePutJobHTTPResponse(rsp *http.Response) (*PutJobHTTPResponse, error) {
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
 
 	}
 
@@ -8738,6 +8777,16 @@ func ParseCommitChapterIfWaitingHTTPResponse(rsp *http.Response) (*CommitChapter
 		HTTPResponse: rsp,
 	}
 
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	}
+
 	return response, nil
 }
 
@@ -8839,6 +8888,16 @@ func ParseAddChapterWithLeaseHTTPResponse(rsp *http.Response) (*AddChapterWithLe
 		HTTPResponse: rsp,
 	}
 
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	}
+
 	return response, nil
 }
 
@@ -8919,6 +8978,16 @@ func ParseCompleteJobWithLeaseHTTPResponse(rsp *http.Response) (*CompleteJobWith
 	response := &CompleteJobWithLeaseHTTPResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
 	}
 
 	return response, nil
@@ -9135,6 +9204,13 @@ func ParsePutRestartJobHTTPResponse(rsp *http.Response) (*PutRestartJobHTTPRespo
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
 	}
 
 	return response, nil
@@ -9161,6 +9237,13 @@ func ParseSubmitJobWithLeaseHTTPResponse(rsp *http.Response) (*SubmitJobWithLeas
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
 	}
 
 	return response, nil
@@ -9186,6 +9269,13 @@ func ParseSubmitRestartJobWithLeaseHTTPResponse(rsp *http.Response) (*SubmitRest
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
 
 	}
 
@@ -9220,6 +9310,13 @@ func ParsePutJobWithLeaseHTTPResponse(rsp *http.Response) (*PutJobWithLeaseHTTPR
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
 	}
 
 	return response, nil
@@ -9252,6 +9349,13 @@ func ParsePutRestartJobWithLeaseHTTPResponse(rsp *http.Response) (*PutRestartJob
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
 
 	}
 
@@ -9331,6 +9435,13 @@ func ParseUpsertScheduleHTTPResponse(rsp *http.Response) (*UpsertScheduleHTTPRes
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
 	}
 
 	return response, nil
@@ -9409,6 +9520,13 @@ func ParseResumeScheduleHTTPResponse(rsp *http.Response) (*ResumeScheduleHTTPRes
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
 	}
 
 	return response, nil
@@ -9460,6 +9578,13 @@ func ParseTriggerScheduleHTTPResponse(rsp *http.Response) (*TriggerScheduleHTTPR
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
 
 	}
 
@@ -13380,6 +13505,15 @@ func (response SubmitJob200JSONResponse) VisitSubmitJobResponse(w http.ResponseW
 	return json.NewEncoder(w).Encode(response)
 }
 
+type SubmitJob413JSONResponse ErrorResponse
+
+func (response SubmitJob413JSONResponse) VisitSubmitJobResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type DeleteJobsRequestObject struct {
 	TenantId TenantId `json:"tenantId"`
 	Body     *DeleteJobsJSONRequestBody
@@ -13450,6 +13584,15 @@ func (response SubmitRestartJob200JSONResponse) VisitSubmitRestartJobResponse(w 
 	return json.NewEncoder(w).Encode(response)
 }
 
+type SubmitRestartJob413JSONResponse ErrorResponse
+
+func (response SubmitRestartJob413JSONResponse) VisitSubmitRestartJobResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type GetJobRequestObject struct {
 	TenantId TenantId `json:"tenantId"`
 	JobId    JobId    `json:"jobId"`
@@ -13492,6 +13635,15 @@ type PutJob409JSONResponse ErrorResponse
 func (response PutJob409JSONResponse) VisitPutJobResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PutJob413JSONResponse ErrorResponse
+
+func (response PutJob413JSONResponse) VisitPutJobResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -13609,6 +13761,15 @@ func (response CommitChapterIfWaiting409Response) VisitCommitChapterIfWaitingRes
 	return nil
 }
 
+type CommitChapterIfWaiting413JSONResponse ErrorResponse
+
+func (response CommitChapterIfWaiting413JSONResponse) VisitCommitChapterIfWaitingResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type GetDependencyWaitRequestObject struct {
 	TenantId string `json:"tenantId"`
 	JobId    string `json:"jobId"`
@@ -13707,6 +13868,15 @@ func (response AddChapterWithLease409Response) VisitAddChapterWithLeaseResponse(
 	return nil
 }
 
+type AddChapterWithLease413JSONResponse ErrorResponse
+
+func (response AddChapterWithLease413JSONResponse) VisitAddChapterWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ListChaptersWithLeaseRequestObject struct {
 	TenantId TenantId `json:"tenantId"`
 	JobId    JobId    `json:"jobId"`
@@ -13790,6 +13960,15 @@ type CompleteJobWithLease204Response struct {
 func (response CompleteJobWithLease204Response) VisitCompleteJobWithLeaseResponse(w http.ResponseWriter) error {
 	w.WriteHeader(204)
 	return nil
+}
+
+type CompleteJobWithLease413JSONResponse ErrorResponse
+
+func (response CompleteJobWithLease413JSONResponse) VisitCompleteJobWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type GetConfigurationWithLeaseRequestObject struct {
@@ -14089,6 +14268,15 @@ func (response PutRestartJob409JSONResponse) VisitPutRestartJobResponse(w http.R
 	return json.NewEncoder(w).Encode(response)
 }
 
+type PutRestartJob413JSONResponse ErrorResponse
+
+func (response PutRestartJob413JSONResponse) VisitPutRestartJobResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type SubmitJobWithLeaseRequestObject struct {
 	TenantId    TenantId    `json:"tenantId"`
 	ParentJobId ParentJobId `json:"parentJobId"`
@@ -14110,6 +14298,15 @@ func (response SubmitJobWithLease200JSONResponse) VisitSubmitJobWithLeaseRespons
 	return json.NewEncoder(w).Encode(response)
 }
 
+type SubmitJobWithLease413JSONResponse ErrorResponse
+
+func (response SubmitJobWithLease413JSONResponse) VisitSubmitJobWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type SubmitRestartJobWithLeaseRequestObject struct {
 	TenantId    TenantId    `json:"tenantId"`
 	ParentJobId ParentJobId `json:"parentJobId"`
@@ -14127,6 +14324,15 @@ type SubmitRestartJobWithLease200JSONResponse JobHandle
 func (response SubmitRestartJobWithLease200JSONResponse) VisitSubmitRestartJobWithLeaseResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type SubmitRestartJobWithLease413JSONResponse ErrorResponse
+
+func (response SubmitRestartJobWithLease413JSONResponse) VisitSubmitRestartJobWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -14162,6 +14368,15 @@ func (response PutJobWithLease409JSONResponse) VisitPutJobWithLeaseResponse(w ht
 	return json.NewEncoder(w).Encode(response)
 }
 
+type PutJobWithLease413JSONResponse ErrorResponse
+
+func (response PutJobWithLease413JSONResponse) VisitPutJobWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type PutRestartJobWithLeaseRequestObject struct {
 	TenantId    TenantId    `json:"tenantId"`
 	ParentJobId ParentJobId `json:"parentJobId"`
@@ -14189,6 +14404,15 @@ type PutRestartJobWithLease409JSONResponse ErrorResponse
 func (response PutRestartJobWithLease409JSONResponse) VisitPutRestartJobWithLeaseResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PutRestartJobWithLease413JSONResponse ErrorResponse
+
+func (response PutRestartJobWithLease413JSONResponse) VisitPutRestartJobWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -14256,6 +14480,15 @@ func (response UpsertSchedule409Response) VisitUpsertScheduleResponse(w http.Res
 	return nil
 }
 
+type UpsertSchedule413JSONResponse ErrorResponse
+
+func (response UpsertSchedule413JSONResponse) VisitUpsertScheduleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ArchiveScheduleRequestObject struct {
 	TenantId   TenantId   `json:"tenantId"`
 	ScheduleId ScheduleId `json:"scheduleId"`
@@ -14313,6 +14546,15 @@ func (response ResumeSchedule200JSONResponse) VisitResumeScheduleResponse(w http
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ResumeSchedule413JSONResponse ErrorResponse
+
+func (response ResumeSchedule413JSONResponse) VisitResumeScheduleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ListScheduleRunsRequestObject struct {
 	TenantId   TenantId   `json:"tenantId"`
 	ScheduleId ScheduleId `json:"scheduleId"`
@@ -14347,6 +14589,15 @@ type TriggerSchedule200JSONResponse JobHandle
 func (response TriggerSchedule200JSONResponse) VisitTriggerScheduleResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type TriggerSchedule413JSONResponse ErrorResponse
+
+func (response TriggerSchedule413JSONResponse) VisitTriggerScheduleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
 
 	return json.NewEncoder(w).Encode(response)
 }

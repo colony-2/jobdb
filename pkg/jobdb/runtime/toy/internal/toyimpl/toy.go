@@ -45,20 +45,21 @@ func WithJobIDGenerator(gen JobIDGenerator) Option {
 
 // ToyEngine holds the in-memory state backing the toy WorkflowRuntime.
 type ToyEngine struct {
-	goals               *goalstate.Memory
-	preparedGoals       map[jobdb.JobKey]preparedGoalJob
-	goalRequests        map[jobdb.GoalKey]jobdb.JobKey
-	configurationLimits jobdb.ConfigurationLimits
-	secretProvider      jobdb.SecretProvider
-	secretLimits        jobdb.SecretLimits
-	mu                  sync.Mutex
-	jobRecords          map[jobdb.JobKey]*jobRecord
-	schemas             map[jobdb.JobSchemaKey]*toySchemaRecord
-	schedules           map[jobdb.ScheduleKey]*toyScheduleRecord
-	runtimeChapters     map[jobdb.JobKey]map[int64]jobdb.Chapter
-	runtimeArtifacts    map[runtimeArtifactKey][]byte
-	idGenerator         JobIDGenerator
-	logger              *slog.Logger
+	maxChapterApplicationPayloadBytes int64
+	goals                             *goalstate.Memory
+	preparedGoals                     map[jobdb.JobKey]preparedGoalJob
+	goalRequests                      map[jobdb.GoalKey]jobdb.JobKey
+	configurationLimits               jobdb.ConfigurationLimits
+	secretProvider                    jobdb.SecretProvider
+	secretLimits                      jobdb.SecretLimits
+	mu                                sync.Mutex
+	jobRecords                        map[jobdb.JobKey]*jobRecord
+	schemas                           map[jobdb.JobSchemaKey]*toySchemaRecord
+	schedules                         map[jobdb.ScheduleKey]*toyScheduleRecord
+	runtimeChapters                   map[jobdb.JobKey]map[int64]jobdb.Chapter
+	runtimeArtifacts                  map[runtimeArtifactKey][]byte
+	idGenerator                       JobIDGenerator
+	logger                            *slog.Logger
 }
 
 type runtimeArtifactKey struct {
@@ -1081,4 +1082,11 @@ func WithSecretLimits(limits jobdb.SecretLimits) Option {
 
 func WithConfigurationLimits(limits jobdb.ConfigurationLimits) Option {
 	return func(e *ToyEngine) { e.configurationLimits = limits }
+}
+
+func WithMaxChapterApplicationPayloadBytes(limit int64) Option {
+	if limit < 0 {
+		panic("chapter application payload limit cannot be negative")
+	}
+	return func(e *ToyEngine) { e.maxChapterApplicationPayloadBytes = limit }
 }

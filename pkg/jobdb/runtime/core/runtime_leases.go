@@ -354,6 +354,10 @@ func completionDetails(chapter *jobdb.Chapter) (string, *bool) {
 	}
 	switch outcome := final.Outcome.(type) {
 	case jobdb.AppErrorOutcome:
+		if jobdb.ChapterPayloadFailure(*chapter) {
+			retryable := false
+			return "AppError", &retryable
+		}
 		return "AppError", nil
 	case jobdb.SystemErrorOutcome:
 		retryable := outcome.Error.Retryable
@@ -381,7 +385,7 @@ func (r *Runtime) ensureCompletionChapter(ctx context.Context, key jobdb.JobKey,
 	if err != nil {
 		return err
 	}
-	chapter, uploads, err := prepareChapterWrite(*req.Chapter, req.ArtifactUploads)
+	chapter, uploads, err := r.prepareChapterWrite(ctx, *req.Chapter, req.ArtifactUploads)
 	if err != nil {
 		return err
 	}
@@ -411,7 +415,7 @@ func (r *Runtime) ensureCompletionChapter(ctx context.Context, key jobdb.JobKey,
 	if chapter.Ordinal != count {
 		return fmt.Errorf("%w: completion chapter ordinal %d is not appendable", jobdb.ErrConflict, chapter.Ordinal)
 	}
-	if err := ValidateLastChapter(ctx, r.schemas,
+	if err := ValidateLastChapter(ctx, r.chapterRegistry(),
 		jobdb.JobSchemaKey{TenantId: key.TenantId, SchemaHash: stored.SchemaHash}, chapter); err != nil {
 		return err
 	}

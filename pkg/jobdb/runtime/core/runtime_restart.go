@@ -31,6 +31,9 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if err := ValidateRestartApplicationPayload(ctx, req.Job, r.ChapterApplicationPayloadLimit()); err != nil {
+		return jobdb.JobHandle{}, err
+	}
 	preparation, err := goalstate.RestartPreparation(ctx, req, parentJobID)
 	if err != nil {
 		return jobdb.JobHandle{}, err
@@ -137,7 +140,11 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		if err != nil {
 			return jobdb.JobHandle{}, err
 		}
-		encoded, err := EncodeChapter(EncodeChapterRequest{Chapter: jobdb.Chapter{Ordinal: nextOrdinal, TaskType: "__execution__", CreatedAt: createdAt.UTC(), Body: jobdb.ExecutionChapter{Record: raw}}})
+		chapter := jobdb.Chapter{Ordinal: nextOrdinal, TaskType: "__execution__", CreatedAt: createdAt.UTC(), Body: jobdb.ExecutionChapter{Record: raw}}
+		if err := jobdb.ValidateChapterApplicationPayload(ctx, chapter, r.ChapterApplicationPayloadLimit()); err != nil {
+			return jobdb.JobHandle{}, err
+		}
+		encoded, err := EncodeChapter(EncodeChapterRequest{Chapter: chapter})
 		if err != nil {
 			return jobdb.JobHandle{}, err
 		}
@@ -179,7 +186,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 			InputHash: inputHash, CreatedAt: createdAt.UTC(),
 			Metadata: metadata, Artifacts: artifacts,
 		}
-		if err := ValidateOrdinaryChapter(ctx, r.schemas,
+		if err := ValidateOrdinaryChapter(ctx, r.chapterRegistry(),
 			jobdb.JobSchemaKey{TenantId: key.TenantId, SchemaHash: schemaHash}, chapter); err != nil {
 			return jobdb.JobHandle{}, err
 		}
@@ -203,7 +210,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 			if ordinal == 0 {
 				validate = ValidateFirstChapter
 			}
-			if err := validate(ctx, r.schemas,
+			if err := validate(ctx, r.chapterRegistry(),
 				jobdb.JobSchemaKey{TenantId: key.TenantId, SchemaHash: schemaHash}, chapter); err != nil {
 				return jobdb.JobHandle{}, err
 			}

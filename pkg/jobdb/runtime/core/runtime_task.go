@@ -2,8 +2,8 @@ package runtimecore
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"time"
@@ -75,8 +75,10 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 			if record.Kind != "wait" || record.Input == nil {
 				return fmt.Errorf("invalid execution wait")
 			}
-			raw, _ := json.Marshal(record)
-			digest := fmt.Sprintf("%x", sha256.Sum256(raw))
+			digest, hashErr := runtimecodec.ExecutionIdentity(record)
+			if hashErr != nil {
+				return hashErr
+			}
 			if req.InputHash != digest || req.InputOrdinal != task.InputOrdinal {
 				return fmt.Errorf("%w: execution wait generation differs", jobdb.ErrConflict)
 			}
@@ -131,10 +133,23 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 		}
 		chapter.Body = jobdb.ExecutionChapter{Record: raw}
 	}
-	if err := ValidateOrdinaryChapter(ctx, r.schemas,
+	if err := ValidateOrdinaryChapter(ctx, r.chapterRegistry(),
 		jobdb.JobSchemaKey{TenantId: req.JobKey.TenantId,
 			SchemaHash: stored.SchemaHash}, chapter); err != nil {
-		return err
+		var size *jobdb.ChapterApplicationPayloadError
+		if !errors.As(err, &size) {
+			return err
+		}
+		identity, claimErr := r.scheduler.ClaimTask(ctx, ClaimTaskRequest{JobKey: req.JobKey, WorkerID: workerID, Task: waiting, LeaseDuration: 30 * time.Second, Now: r.now()})
+		if claimErr != nil {
+			return claimErr
+		}
+		terminal := jobdb.PayloadFailureChapter(chapter, size)
+		lease := &executionLease{runtime: r, snapshot: LeaseSnapshot{Identity: identity}, expiresAt: identity.ExpiresAt}
+		if completeErr := lease.Complete(ctx, jobdb.CompleteExecutionRequest{Status: "failed_app", Detail: size.Error(), Chapter: &terminal}); completeErr != nil {
+			return completeErr
+		}
+		return size
 	}
 	encoded, err := EncodeChapter(EncodeChapterRequest{Chapter: chapter, ArtifactUploads: uploads})
 	if err != nil {

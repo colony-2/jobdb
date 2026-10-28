@@ -52,8 +52,8 @@ func TestChapterRoundTripPreservesEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode chapter: %v", err)
 	}
-	if !json.Valid(raw) {
-		t.Fatalf("encoded chapter body must be valid JSON for Strata: %q", raw)
+	if json.Valid(raw) {
+		t.Fatal("stored chapter must be binary protobuf, not a JSON wrapper")
 	}
 	env, err := DecodeChapter(raw)
 	if err != nil {

@@ -120,6 +120,9 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 				})
 				return
 			}
+			if writePayloadSizeError(w, err) {
+				return
+			}
 			if writeGoalError(w, err) {
 				return
 			}
@@ -1305,4 +1308,19 @@ func cloneStringSlice(values *[]string) []string {
 		return nil
 	}
 	return append([]string(nil), (*values)...)
+}
+
+func writePayloadSizeError(w http.ResponseWriter, err error) bool {
+	var size *jobdb.ChapterApplicationPayloadError
+	if !errors.As(err, &size) {
+		return false
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusRequestEntityTooLarge)
+	_ = json.NewEncoder(w).Encode(struct {
+		Code    string                                `json:"code"`
+		Message string                                `json:"message"`
+		Details *jobdb.ChapterApplicationPayloadError `json:"details"`
+	}{jobdb.ChapterApplicationPayloadTooLargeCode, size.Error(), size})
+	return true
 }

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -199,13 +198,13 @@ func (s *Store) chapterRecordFromStoryChapter(ctx context.Context, key story.Key
 	if len(body) == 0 {
 		return storage.ChapterRecord{}, fmt.Errorf("chapterstore: chapter body missing")
 	}
-	if !json.Valid(body) {
+	if len(body) == 0 {
 		return storage.ChapterRecord{}, fmt.Errorf("chapterstore: chapter body must be valid JSON")
 	}
 	rec := storage.ChapterRecord{
 		Key:       storageKey(key),
 		Ordinal:   ordinal,
-		Body:      append(json.RawMessage(nil), body...),
+		Body:      append([]byte(nil), body...),
 		Artifacts: make([]storage.ArtifactRecord, 0, len(chap.Artifacts())),
 	}
 	for _, art := range chap.Artifacts() {

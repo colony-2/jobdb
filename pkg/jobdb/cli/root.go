@@ -44,6 +44,7 @@ func newRootCmd() *cobra.Command {
 		Args:         cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg := sqliteConfigFromFlags(dbPath, sqliteDSN, blobDir, blobStoreURI)
+			cfg.MaxChapterApplicationPayloadBytes, _ = cmd.Flags().GetInt64("max-chapter-application-payload-bytes")
 			return runSQLite(cmd.Context(), listenAddr, cfg, secretProvidersFile)
 		},
 	}
@@ -57,6 +58,7 @@ func newRootCmd() *cobra.Command {
 		newToyCmd(&listenAddr, &secretProvidersFile),
 		newHealthcheckCmd(),
 	)
+	cmd.PersistentFlags().Int64("max-chapter-application-payload-bytes", 262144, "maximum application payload bytes per chapter (excludes metadata and artifacts)")
 	cmd.PersistentFlags().StringVar(&listenAddr, "listen", defaultListenAddr, "listen address for the HTTP API")
 	cmd.PersistentFlags().StringVar(&dbPath, "db", "jobdb.db", "SQLite database path for the default embedded runtime")
 	cmd.PersistentFlags().StringVar(&sqliteDSN, "sqlite-dsn", "", "SQLite DSN for the default embedded runtime (overrides --db and "+sqliteDSNEnvVar+")")
@@ -74,6 +76,7 @@ func newSQLiteCmd(listenAddr *string, dbPath *string, sqliteDSN *string, blobDir
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg := sqliteConfigFromFlags(*dbPath, *sqliteDSN, *blobDir, *blobStoreURI)
+			cfg.MaxChapterApplicationPayloadBytes, _ = cmd.Flags().GetInt64("max-chapter-application-payload-bytes")
 			return runSQLite(cmd.Context(), *listenAddr, cfg, *secretProvidersFile)
 		},
 	}
@@ -86,20 +89,28 @@ func newToyCmd(listenAddr *string, secretProvidersFile *string) *cobra.Command {
 		Short: "Run a toy workflow runtime over HTTP",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runToy(cmd.Context(), *listenAddr, *secretProvidersFile)
+			limit, _ := cmd.Flags().GetInt64("max-chapter-application-payload-bytes")
+			return runToy(cmd.Context(), *listenAddr, *secretProvidersFile, limit)
 		},
 	}
 
 	return cmd
 }
 
-func runToy(ctx context.Context, listenAddr string, providersFile string) error {
+func runToy(ctx context.Context, listenAddr string, providersFile string, limits ...int64) error {
+	var limit int64
+	if len(limits) > 0 {
+		limit = limits[0]
+	}
+	if limit < 0 {
+		return fmt.Errorf("chapter application payload limit cannot be negative")
+	}
 	providers, err := openSecretProviders(ctx, providersFile)
 	if err != nil {
 		return err
 	}
 	defer providers.close()
-	runtime := toyruntime.New(toyruntime.WithSecretProvider(providers.provider))
+	runtime := toyruntime.New(toyruntime.WithSecretProvider(providers.provider), toyruntime.WithMaxChapterApplicationPayloadBytes(limit))
 	if providers.provider == nil {
 		slog.Info("no secret providers configured", "development_admin_provider", "none")
 	}

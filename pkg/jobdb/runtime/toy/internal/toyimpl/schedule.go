@@ -9,10 +9,14 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
+	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 )
 
 func (r *Runtime) UpsertSchedule(ctx context.Context, req jobdb.UpsertScheduleRequest) (jobdb.ScheduleInfo, error) {
 	if err := jobdb.ValidateScheduleRequest(req); err != nil {
+		return jobdb.ScheduleInfo{}, err
+	}
+	if err := runtimecore.ValidateSubmissionApplicationPayload(ctx, jobdb.SubmitJob{JobType: req.Target.JobType, Data: req.Target.Data}, r.ChapterApplicationPayloadLimit()); err != nil {
 		return jobdb.ScheduleInfo{}, err
 	}
 	now := req.RequestTime.UTC()
@@ -411,6 +415,10 @@ func (r *Runtime) submitScheduledOccurrenceWithJobID(ctx context.Context, info j
 		Body:      jobdb.JobStartChapter{Input: jobdb.ApplicationInputBytes{Data: append([]byte(nil), payload...)}},
 		Artifacts: storedArtifacts,
 	}
+	if err := jobdb.ValidateChapterApplicationPayload(ctx, start, r.ChapterApplicationPayloadLimit()); err != nil {
+		return jobdb.JobKey{}, err
+	}
+
 	r.engine.mu.Lock()
 	if existing := r.engine.jobRecords[jobKey]; existing != nil {
 		r.engine.mu.Unlock()

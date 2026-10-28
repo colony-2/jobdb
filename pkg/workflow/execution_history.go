@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"runtime/debug"
 	"strings"
@@ -350,9 +349,13 @@ func (e *executionRun) appendLocked(rec *jobdb.ExecutionRecord) error {
 				}
 				usedNames[name] = true
 			}
-			art.Key = &ArtifactKey{JobId: e.r.jobKey.JobId, TaskOrdinal: e.ordinal, Name: name, SizeBytes: int64(len(art.Data))}
-			data := append([]byte(nil), art.Data...)
-			uploads = append(uploads, ArtifactUpload{Name: name, Size: int64(len(data)), Open: func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(data)), nil }})
+			upload, err := art.Stage(ArtifactKey{JobId: e.r.jobKey.JobId, TaskOrdinal: e.ordinal, Name: name})
+			if err != nil {
+				return err
+			}
+			if upload != nil {
+				uploads = append(uploads, *upload)
+			}
 		}
 	}
 	raw, err := json.Marshal(rec)
@@ -383,7 +386,7 @@ func (e *executionRun) appendLocked(rec *jobdb.ExecutionRecord) error {
 		winner, decodeErr := jobdb.DecodeExecutionRecord(body.Record)
 		expectedPrefix := ch.Metadata.Fields["metadata"].Map[executionmeta.Key].String
 		winnerPrefix := got.Metadata.Fields["metadata"].Map[executionmeta.Key].String
-		if decodeErr != nil || (rec.Kind != "result" && !bytes.Equal(body.Record, raw)) || winner.Kind != rec.Kind || winner.ID != rec.ID || winner.Version != rec.Version || !bytes.Equal(winner.Descriptor, rec.Descriptor) || !sameExecutionPrefix(expectedPrefix, winnerPrefix) {
+		if decodeErr != nil || (rec.Kind != "result" && !sameExecutionJSON(body.Record, raw)) || winner.Kind != rec.Kind || winner.ID != rec.ID || winner.Version != rec.Version || !sameExecutionJSON(winner.Descriptor, rec.Descriptor) || !sameExecutionPrefix(expectedPrefix, winnerPrefix) {
 			return e.controlLocked(fmt.Errorf("execution append at %d conflicts with committed history: %w", e.ordinal, err))
 		}
 		*rec = winner
@@ -443,29 +446,21 @@ func executionSnapshot(ctx context.Context, data TaskData) (*jobdb.ExecutionSnap
 			return nil, fmt.Errorf("duplicate artifact %q", a.Name())
 		}
 		names[a.Name()] = true
-		b, err := a.Bytes(ctx)
+		artifact, err := jobdb.CaptureExecutionArtifact(ctx, a)
 		if err != nil {
 			return nil, err
-		}
-		artifact := jobdb.ExecutionArtifact{Name: a.Name(), Data: append([]byte(nil), b...)}
-		if key, err := a.ArtifactKey(); err == nil {
-			artifact.Key = &key
 		}
 		out.Artifacts = append(out.Artifacts, artifact)
 	}
 	return out, nil
 }
-func snapshotData(s *jobdb.ExecutionSnapshot) TaskData {
+func snapshotData(s *jobdb.ExecutionSnapshot, runtime WorkflowRuntime, tenant string) TaskData {
 	if s == nil {
 		return nil
 	}
 	d := &SimpleTaskData{Data: append(Data(nil), s.Data...)}
 	for _, a := range s.Artifacts {
-		artifact := jobdb.NewArtifactFromBytes(a.Name, append([]byte(nil), a.Data...))
-		if a.Key != nil {
-			jobdb.AssignArtifactKey(artifact, *a.Key)
-		}
-		d.Artifacts = append(d.Artifacts, artifact)
+		d.Artifacts = append(d.Artifacts, a.ToArtifact(executionArtifactGetter{runtime}, tenant))
 	}
 	return d
 }
@@ -486,24 +481,31 @@ func recordResult(ctx context.Context, out TaskData, err error) (*jobdb.Executio
 	rec.Output = s
 	return rec, e
 }
-func resultData(rec jobdb.ExecutionRecord) (TaskData, error) {
+func (e *executionRun) resultData(rec jobdb.ExecutionRecord) (TaskData, error) {
 	if rec.ErrorKind != "" {
 		_, err := envelopeToTaskData(chapterEnvelope{PayloadKind: rec.ErrorKind, Payload: rec.Error}, nil)
-		return snapshotData(rec.Output), err
+		return e.snapshotData(rec.Output), err
 	}
-	return snapshotData(rec.Output), nil
+	return e.snapshotData(rec.Output), nil
 }
 func (c *executionContext) ExecutionVersions() jobdb.ExecutionVersions {
 	v := c.run.initialVersions
 	v.ConsumerVersions = maps.Clone(v.ConsumerVersions)
 	return v
 }
-func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobData, meta chapterMeta) (JobData, error) {
+func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobData, meta chapterMeta) (result JobData, runErr error) {
 	chapters, err := r.runtime.ListChapters(ctx, ListChaptersRequest{JobKey: r.jobKey})
 	if err != nil {
 		return nil, err
 	}
 	e := &executionRun{dependencyBindings: map[string]jobdb.DependencyWaitInfo{}, restarts: map[string]*jobdb.ExecutionRecord{}, r: r, ordinal: int64(len(chapters)), activation: ksuid.New().String(), active: map[*executionContext]bool{}, versions: jobdb.ExecutionVersions{ExecutionPatternVersion: jobdb.ExecutionPatternVersion, JobDBVersion: jobdbBuildVersion(), ConsumerVersions: maps.Clone(r.worker.Options.ConsumerVersions)}}
+	defer func() {
+		var sizeErr *jobdb.ChapterApplicationPayloadError
+		if !r.replay && errors.As(runErr, &sizeErr) {
+			result, runErr = r.completeExecutionFailure(ctx, e.ordinal, w.Name(), sizeErr.AppError())
+		}
+	}()
+
 	for i, ch := range chapters {
 		if i == 0 {
 			continue
@@ -569,6 +571,18 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 			return nil, fmt.Errorf("%w: expected execution history at %d, got %T", ErrWorkflowNotDeterministic, ch.Ordinal, ch.Body)
 		}
 	}
+	if e.final != nil {
+		recorded, failure := chapterToTaskData(r.runtime, r.jobKey, *e.final)
+		if jobdb.IsChapterPayloadFailure(failure) {
+			if !r.replay {
+				if err := r.completeLeaseWithChapter(ctx, *e.final, failure); err != nil {
+					return nil, err
+				}
+			}
+			return recorded, failure
+		}
+	}
+
 	rootCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(context.Canceled)
 	root := &executionContext{run: e, ctx: rootCtx, cancel: cancel, id: "", counts: map[string]int{}}
@@ -629,7 +643,7 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 		if err != nil {
 			return nil, err
 		}
-		if _, failure := resultData(admission); failure != nil {
+		if _, failure := e.resultData(admission); failure != nil {
 			if e.final != nil {
 				recorded, recordErr := chapterToTaskData(r.runtime, r.jobKey, *e.final)
 				if !r.replay {
@@ -648,7 +662,7 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 	policy := r.jobPolicy
 	out, err := root.DoScope("$job", ScopeOptions{TotalTimeout: durationPtrToDuration(policy.TotalTimeout), AttemptTimeout: durationPtrToDuration(policy.InvocationTimeout), Retry: policy.Retry}, func(c ExecutionContext) (JobData, error) {
 		r.bindExecutionSecrets(c.(*executionContext).cacheOwner())
-		return w.Run(c, snapshotData(e.jobInput))
+		return w.Run(c, e.snapshotData(e.jobInput))
 	})
 	if errors.Is(err, errExecutionSuspended) {
 		return nil, nil
@@ -753,11 +767,11 @@ func (e *executionRun) resultOrdinal(id string) int64 {
 }
 func (e *executionRun) emitTask(call TaskCall, id string, attempt int, start time.Time, rec jobdb.ExecutionRecord) {
 	ordinal := e.resultOrdinal(id)
-	out, err := resultData(rec)
+	out, err := e.resultData(rec)
 	e.observerMu.Lock()
 	defer e.observerMu.Unlock()
 	observer := e.r.observerOrNoop()
-	observer.OnTaskStart(TaskStartEvent{InvocationID: id, JobKey: e.r.jobKey, TaskType: call.TaskType, Ordinal: ordinal, AttemptNumber: attempt, Input: snapshotData(rec.Input), At: start})
+	observer.OnTaskStart(TaskStartEvent{InvocationID: id, JobKey: e.r.jobKey, TaskType: call.TaskType, Ordinal: ordinal, AttemptNumber: attempt, Input: e.snapshotData(rec.Input), At: start})
 	observer.OnTaskEnd(TaskEndEvent{InvocationID: id, JobKey: e.r.jobKey, TaskType: call.TaskType, Ordinal: ordinal, AttemptNumber: attempt, Output: out, Err: err, At: rec.At})
 }
 
@@ -776,9 +790,9 @@ func (e *executionRun) unfinishedTask(call TaskCall, id string, attempt int, at 
 	}
 	ordinal := e.nextOrdinal()
 	e.observerMu.Lock()
-	e.r.observerOrNoop().OnTaskStart(TaskStartEvent{Unfinished: true, State: state, InvocationID: id, JobKey: e.r.jobKey, TaskType: call.TaskType, Ordinal: ordinal, AttemptNumber: attempt, Input: snapshotData(input), At: at})
+	e.r.observerOrNoop().OnTaskStart(TaskStartEvent{Unfinished: true, State: state, InvocationID: id, JobKey: e.r.jobKey, TaskType: call.TaskType, Ordinal: ordinal, AttemptNumber: attempt, Input: e.snapshotData(input), At: at})
 	e.observerMu.Unlock()
-	return ReplayCacheMissError{InvocationID: id, Input: snapshotData(input), State: state, JobKey: e.r.jobKey, TaskType: call.TaskType, Ordinal: ordinal, Attempt: attempt, Reason: ReplayCacheMissTaskResultMissing}
+	return ReplayCacheMissError{InvocationID: id, Input: e.snapshotData(input), State: state, JobKey: e.r.jobKey, TaskType: call.TaskType, Ordinal: ordinal, Attempt: attempt, Reason: ReplayCacheMissTaskResultMissing}
 }
 
 func (e *executionRun) controlLocked(err error) error {
@@ -821,7 +835,7 @@ func sameExecutionPrefix(a, b string) bool {
 		raw, _ := json.Marshal(records)
 		return raw
 	}
-	return bytes.Equal(normalize(left), normalize(right))
+	return sameExecutionJSON(normalize(left), normalize(right))
 }
 
 // attachPrefix commits deferred reconstruction state atomically with its event,
@@ -855,9 +869,13 @@ func (e *executionRun) attachPrefix(ch *Chapter, uploads *[]ArtifactUpload) erro
 					name = fmt.Sprintf("%s-%d", base, suffix)
 				}
 				used[name] = true
-				art.Key = &ArtifactKey{JobId: e.r.jobKey.JobId, TaskOrdinal: ch.Ordinal, Name: name, SizeBytes: int64(len(art.Data))}
-				data := append([]byte(nil), art.Data...)
-				*uploads = append(*uploads, ArtifactUpload{Name: name, Size: int64(len(data)), Open: func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(data)), nil }})
+				upload, err := art.Stage(ArtifactKey{JobId: e.r.jobKey.JobId, TaskOrdinal: ch.Ordinal, Name: name})
+				if err != nil {
+					return err
+				}
+				if upload != nil {
+					*uploads = append(*uploads, *upload)
+				}
 			}
 		}
 	}
@@ -888,4 +906,23 @@ func (c *executionContext) checkpointPath() error {
 	}
 	_, err := c.event("checkpoint", c.id, func() *jobdb.ExecutionRecord { return &jobdb.ExecutionRecord{} })
 	return err
+}
+
+func (e *executionRun) snapshotData(s *jobdb.ExecutionSnapshot) TaskData {
+	return snapshotData(s, e.r.runtime, e.r.jobKey.TenantId)
+}
+
+type executionArtifactGetter struct{ runtime WorkflowRuntime }
+
+func (g executionArtifactGetter) GetArtifact(tenant string, key ArtifactKey) (Artifact, error) {
+	return newRuntimeBackedArtifact(g.runtime, ArtifactRef{JobKey: JobKey{TenantId: tenant, JobId: key.JobId}, Ordinal: key.TaskOrdinal, Name: key.Name}, key.SizeBytes), nil
+}
+
+func sameExecutionJSON(a, b []byte) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return len(a) == len(b)
+	}
+	x, ex := canonicalJSON(a)
+	y, ey := canonicalJSON(b)
+	return ex == nil && ey == nil && bytes.Equal(x, y)
 }

@@ -185,16 +185,25 @@ func PrimeSchema(ctx context.Context, registry jobdb.JobSchemaRegistry, key jobd
 
 // ValidateFirstChapter validates a first chapter against a job schema.
 func ValidateFirstChapter(ctx context.Context, registry jobdb.JobSchemaRegistry, key jobdb.JobSchemaKey, chapter jobdb.Chapter) error {
+	if err := validatePayload(ctx, registry, chapter); err != nil {
+		return err
+	}
 	return jobschema.ValidateFirstChapter(ctx, registry, key, chapter)
 }
 
 // ValidateOrdinaryChapter validates a non-final ordinary chapter against a job schema.
 func ValidateOrdinaryChapter(ctx context.Context, registry jobdb.JobSchemaRegistry, key jobdb.JobSchemaKey, chapter jobdb.Chapter) error {
+	if err := validatePayload(ctx, registry, chapter); err != nil {
+		return err
+	}
 	return jobschema.ValidateOrdinaryChapter(ctx, registry, key, chapter)
 }
 
 // ValidateLastChapter validates a final chapter against a job schema.
 func ValidateLastChapter(ctx context.Context, registry jobdb.JobSchemaRegistry, key jobdb.JobSchemaKey, chapter jobdb.Chapter) error {
+	if err := validatePayload(ctx, registry, chapter); err != nil {
+		return err
+	}
 	return jobschema.ValidateLastChapter(ctx, registry, key, chapter)
 }
 
@@ -232,4 +241,12 @@ func cloneTime(t *time.Time) *time.Time {
 	}
 	out := t.UTC()
 	return &out
+}
+
+func validatePayload(ctx context.Context, registry jobdb.JobSchemaRegistry, chapter jobdb.Chapter) error {
+	var limit int64
+	if p, ok := registry.(interface{ ChapterApplicationPayloadLimit() int64 }); ok {
+		limit = p.ChapterApplicationPayloadLimit()
+	}
+	return jobdb.ValidateChapterApplicationPayload(ctx, chapter, limit)
 }

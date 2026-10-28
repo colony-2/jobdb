@@ -1,0 +1,66 @@
+diff --git a/pkg/swfutil/execution_tasks.go b/pkg/swfutil/execution_tasks.go
+index 64ae21a..0292a5a 100644
+--- a/pkg/swfutil/execution_tasks.go
++++ b/pkg/swfutil/execution_tasks.go
+@@ -51,8 +51,14 @@ func ExecutionTasks(run jobdb.GetJobRunResponse) ([]ExecutionTask, error) {
+ 			return nil, fmt.Errorf("task attempt %s: %w", r.ID, err)
+ 		}
+ 		a := jobdb.TaskAttempt{Ordinal: entry.Ordinal, Attempt: attempt, CreatedAt: r.At, State: jobdb.TaskAttemptStateSucceeded}
+-		a.Input = executionTaskIO(r.Input)
+-		a.Output = executionTaskIO(r.Output)
++		a.Input, err = executionTaskIO(r.Input)
++		if err != nil {
++			return nil, err
++		}
++		a.Output, err = executionTaskIO(r.Output)
++		if err != nil {
++			return nil, err
++		}
+ 		if r.ErrorKind != "" {
+ 			a.State = jobdb.TaskAttemptStateFailed
+ 		}
+@@ -60,17 +66,17 @@ func ExecutionTasks(run jobdb.GetJobRunResponse) ([]ExecutionTask, error) {
+ 	}
+ 	return tasks, nil
+ }
+-func executionTaskIO(s *jobdb.ExecutionSnapshot) *jobdb.TaskIO {
++func executionTaskIO(s *jobdb.ExecutionSnapshot) (*jobdb.TaskIO, error) {
+ 	if s == nil {
+-		return nil
++		return nil, nil
+ 	}
+ 	out := &jobdb.TaskIO{Data: s.Data}
+ 	for _, a := range s.Artifacts {
+-		size := int64(len(a.Data))
+-		if a.Key != nil {
+-			size = a.Key.SizeBytes
++		if a.Key == nil || a.Key.Validate() != nil || a.Key.SizeBytes < 0 {
++			return nil, fmt.Errorf("invalid stored artifact key for %q", a.Name)
+ 		}
++		size := a.Key.SizeBytes
+ 		out.Artifacts = append(out.Artifacts, jobdb.ArtifactInfo{Name: a.Name, SizeBytes: size, Key: a.Key})
+ 	}
+-	return out
++	return out, nil
+ }
+diff --git a/pkg/swfutil/execution_tasks_test.go b/pkg/swfutil/execution_tasks_test.go
+index f1da626..1b87d79 100644
+--- a/pkg/swfutil/execution_tasks_test.go
++++ b/pkg/swfutil/execution_tasks_test.go
+@@ -37,3 +37,16 @@ func TestExecutionTasksKeepsBlockInvocationsAndTaskAttemptsDistinct(t *testing.T
+ 	require.Equal(t, key, tasks[0].Attempts[0].Output.Artifacts[0].Key)
+ 	require.Equal(t, int64(4), tasks[0].Attempts[0].Output.Artifacts[0].SizeBytes)
+ }
++
++func TestReferenceOnlyExecutionTaskArtifacts(t *testing.T) {
++	for _, key := range []*jobdb.ArtifactKey{nil, {JobId: "job", Name: "stored", TaskOrdinal: 1, SizeBytes: -1}, {Name: "stored", SizeBytes: 0}} {
++		_, err := executionTaskIO(&jobdb.ExecutionSnapshot{Data: json.RawMessage(`null`), Artifacts: []jobdb.ExecutionArtifact{{Name: "logical", Key: key}}})
++		require.Error(t, err)
++	}
++	key := &jobdb.ArtifactKey{JobId: "job", TaskOrdinal: 1, Name: "stored", SizeBytes: 0}
++	out, err := executionTaskIO(&jobdb.ExecutionSnapshot{Data: json.RawMessage(`null`), Artifacts: []jobdb.ExecutionArtifact{{Name: "logical", Key: key}}})
++	require.NoError(t, err)
++	require.EqualValues(t, 0, out.Artifacts[0].SizeBytes)
++	require.Equal(t, "logical", out.Artifacts[0].Name)
++	require.Equal(t, key, out.Artifacts[0].Key)
++}

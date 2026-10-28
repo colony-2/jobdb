@@ -42,6 +42,9 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	if err := r.validate(); err != nil {
 		return jobdb.JobHandle{}, err
 	}
+	if err := runtimecore.ValidateSubmissionApplicationPayload(ctx, req.Job, r.ChapterApplicationPayloadLimit()); err != nil {
+		return jobdb.JobHandle{}, err
+	}
 	prep, err := goalstate.SubmitPreparation(ctx, req, parentJobID)
 	if err != nil {
 		return jobdb.JobHandle{}, err
@@ -139,6 +142,9 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		return jobdb.JobHandle{}, err
 	}
 	if err := clientpayload.ValidateUpdate(req.Job.ClientPayloadUpdate, true); err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	if err := runtimecore.ValidateRestartApplicationPayload(ctx, req.Job, r.ChapterApplicationPayloadLimit()); err != nil {
 		return jobdb.JobHandle{}, err
 	}
 	prep, err := goalstate.RestartPreparation(ctx, req, parentJobID)
@@ -277,6 +283,17 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 			if err := runtimecore.ValidateOrdinaryChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, storedChapter); err != nil {
 				return jobdb.JobHandle{}, err
 			}
+		}
+	}
+
+	// New restart chapters are subject to the size limit even without a schema.
+	if createOptions.InitialChapter != nil {
+		chapter, err := chapterFromStoryChapter(createOptions.InitialChapter)
+		if err != nil {
+			return jobdb.JobHandle{}, err
+		}
+		if err = jobdb.ValidateChapterApplicationPayload(ctx, chapter, r.ChapterApplicationPayloadLimit()); err != nil {
+			return jobdb.JobHandle{}, err
 		}
 	}
 
@@ -1090,6 +1107,10 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 		return err
 	}
 	if err := runtimecore.ValidateOrdinaryChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: jobmetadata.SchemaHashFromStoredMetadata(row.metadata)}, storedChapter); err != nil {
+		var size *jobdb.ChapterApplicationPayloadError
+		if errors.As(err, &size) {
+			return r.failWaitingPayload(ctx, row, storedChapter, size)
+		}
 		return err
 	}
 	if err := r.ensureNextVisibleChapterOrdinal(ctx, jobKey, tw.OutputStep); err != nil {
@@ -1137,6 +1158,9 @@ func (r *Runtime) ensureNextVisibleChapterOrdinal(ctx context.Context, jobKey jo
 }
 
 func (r *Runtime) prepareChapterWrite(ctx context.Context, req jobdb.PutChapterRequest) (jobdb.Chapter, []chapterartifact.Artifact, error) {
+	if err := jobdb.ValidateChapterApplicationPayload(ctx, req.Chapter, r.ChapterApplicationPayloadLimit()); err != nil {
+		return jobdb.Chapter{}, nil, err
+	}
 	chapter := req.Chapter
 	if len(req.ArtifactUploads) == 0 {
 		if len(chapter.Artifacts) > 0 {

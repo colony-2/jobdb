@@ -116,3 +116,50 @@ func TestTaskCompletionUsesIndependentSchedulerAndChapterOperations(t *testing.T
 		})
 	}
 }
+
+func (b *taskCompletionScheduler) CompleteLease(_ context.Context, req runtimecore.CompletionMutation) (runtimecore.StoredJob, error) {
+	b.events = append(b.events, "complete")
+	if req.Identity != b.identity || req.Status != "failed_app" || req.Retryable == nil || *req.Retryable {
+		return runtimecore.StoredJob{}, errors.New("payload failure must be fenced and nonretryable")
+	}
+	if b.failAt == "complete" {
+		return runtimecore.StoredJob{}, b.failure
+	}
+	return runtimecore.StoredJob{}, nil
+}
+func TestOversizedExternalCompletionUsesFencedPermanentFailure(t *testing.T) {
+	for _, failAt := range []string{"", "claim", "validate", "append", "complete"} {
+		t.Run(failAt, func(t *testing.T) {
+			scheduler := &taskCompletionScheduler{failAt: failAt, failure: errors.New("injected failure"), waiting: runtimecore.WaitingTaskSnapshot{JobType: "task-route", Task: runtimecore.TaskWork{TaskType: "external", ResumeJobType: "job-route", OutputOrdinal: 1, InputHash: "input"}}}
+			chapters := &taskCompletionChapters{scheduler: scheduler}
+			r, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: scheduler, Chapters: chapters, Schemas: newMemorySchemaStore(), MaxChapterApplicationPayloadBytes: 4})
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = r.CompleteTaskIfWaiting(context.Background(), jobdb.CompleteTaskIfWaitingRequest{JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}, Route: jobdb.Route{JobType: "task-route", TaskType: "external"}, OutputOrdinal: 1, InputHash: "input", Data: jobdb.NewTaskDataOrPanic("large payload")})
+			if failAt == "" {
+				if !errors.Is(err, jobdb.ErrChapterApplicationPayloadTooLarge) {
+					t.Fatalf("want size failure, got %v", err)
+				}
+			} else if !errors.Is(err, scheduler.failure) {
+				t.Fatalf("want injected failure, got %v", err)
+			}
+			want := []string{"claim", "validate", "append", "complete"}
+			for i, event := range want {
+				if event == failAt {
+					want = want[:i+1]
+					break
+				}
+			}
+			if !reflect.DeepEqual(want, scheduler.events) {
+				t.Fatalf("events: %v", scheduler.events)
+			}
+			if chapters.output != nil {
+				chapter, err := runtimecore.DecodeChapter(*chapters.output)
+				if err != nil || !jobdb.ChapterPayloadFailure(chapter) || len(chapters.output.ArtifactUploads) > 0 {
+					t.Fatalf("unexpected durable output: %+v %v", chapter, err)
+				}
+			}
+		})
+	}
+}

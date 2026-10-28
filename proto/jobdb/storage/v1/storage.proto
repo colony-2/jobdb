@@ -26,6 +26,8 @@ message ChapterRecord {
   RunPolicy run_policy = 16;
   repeated JobPrerequisite prerequisites = 17;
   string initial_payload_digest = 18;
+  repeated ExecutionRecord reconstruction = 19;
+  uint32 format_version = 20;
 
   oneof chapter {
     JobStartChapter job_start = 30;
@@ -162,4 +164,68 @@ message WaitForJobs {
 }
 
 // Versioned execution-pattern record, encoded by the strict execution codec.
-message ExecutionChapter { bytes record_json = 1; }
+message ExecutionChapter {
+  reserved 1;
+  reserved record_json;
+  ExecutionRecord record = 2;
+}
+
+// Lossless typed values for extensible execution descriptors. Numeric lexemes
+// preserve integer precision; application snapshots remain opaque bytes.
+message ExecutionValue {
+  oneof value {
+    bool null_value = 1;
+    bool bool_value = 2;
+    string number_value = 3;
+    string string_value = 4;
+    ExecutionObject object_value = 5;
+    ExecutionArray array_value = 6;
+  }
+}
+message ExecutionObject { map<string, ExecutionValue> fields = 1; }
+message ExecutionArray { repeated ExecutionValue items = 1; }
+message ExecutionArtifact {
+  string name = 1;
+  string job_id = 2;
+  int64 ordinal = 3;
+  string stored_name = 4;
+  int64 size_bytes = 5;
+}
+message ExecutionSnapshot {
+  bytes data = 1;
+  repeated ExecutionArtifact artifacts = 2;
+}
+message ExecutionVersions {
+  uint32 execution_pattern_version = 1;
+  string jobdb_version = 2;
+  map<string,string> consumer_versions = 3;
+}
+message ExecutionRecord {
+  uint32 version = 1;
+  string kind = 2;
+  string id = 3;
+  string activation = 4;
+  ExecutionVersions versions = 5;
+  google.protobuf.Timestamp at = 6;
+  ExecutionValue descriptor = 7;
+  int32 attempt = 8;
+  google.protobuf.Timestamp deadline = 9;
+  google.protobuf.Timestamp total_deadline = 10;
+  ExecutionSnapshot input = 11;
+  ExecutionSnapshot output = 12;
+  TaskOutcome error = 13;
+  string rule = 14;
+  string disposition = 15;
+  bool retryable = 16;
+  bool retry = 17;
+  google.protobuf.Timestamp wake_at = 18;
+  string source_tenant = 19;
+  string source_job = 20;
+  bytes application_payload = 21;
+  ExecutionValue dependencies = 22;
+  repeated JobPrerequisite prerequisites = 23;
+  google.protobuf.Timestamp alternate_at = 24;
+  string execution_task_type = 25;
+  repeated ExecutionRecord retained = 26;
+  ExecutionValue lifecycle_payload = 27;
+}
