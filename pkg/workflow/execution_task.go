@@ -12,6 +12,11 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
+type executionTaskDescriptor struct {
+	Call   TaskCall        `json:"call"`
+	Policy executionPolicy `json:"policy"`
+}
+
 func (c *executionContext) DoTask(call TaskCall, build func(context.Context) (TaskData, error)) (TaskData, error) {
 	id, err := c.occurrence("task", call.Site)
 	if err != nil {
@@ -39,10 +44,7 @@ func (c *executionContext) DoTask(call TaskCall, build func(context.Context) (Ta
 	if err != nil {
 		return nil, err
 	}
-	descriptor, _ := json.Marshal(struct {
-		Call   TaskCall        `json:"call"`
-		Policy executionPolicy `json:"policy"`
-	}{call, p})
+	descriptor, _ := json.Marshal(executionTaskDescriptor{call, p})
 	if err := c.applyRestart(id, ScopeOptions{}); err != nil {
 		return nil, err
 	}
@@ -52,6 +54,13 @@ func (c *executionContext) DoTask(call TaskCall, build func(context.Context) (Ta
 	if err != nil {
 		return nil, err
 	}
+	var recorded executionTaskDescriptor
+	if err := json.Unmarshal(entry.Descriptor, &recorded); err != nil {
+		return nil, c.run.control(fmt.Errorf("%w: invalid task policy for %s: %v", ErrWorkflowNotDeterministic, id, err))
+	}
+	call.Policy = recorded.Call.Policy
+	p = p.withRecordedLifecycle(recorded.Policy)
+	descriptor, _ = json.Marshal(executionTaskDescriptor{call, p})
 	if err = c.match(entry, descriptor); err != nil {
 		return nil, err
 	}

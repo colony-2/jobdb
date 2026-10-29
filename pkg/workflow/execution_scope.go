@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -34,6 +35,17 @@ func makeExecutionPolicy(opts ScopeOptions) (executionPolicy, error) {
 	}
 	return p, nil
 }
+
+// withRecordedLifecycle binds engine-owned settings to the declaration that
+// opened this occurrence. Consumer callbacks and their identities still have
+// to match; timeout and retry defaults do not redefine existing work.
+func (p executionPolicy) withRecordedLifecycle(recorded executionPolicy) executionPolicy {
+	p.TotalTimeout = recorded.TotalTimeout
+	p.AttemptTimeout = recorded.AttemptTimeout
+	p.Retry = recorded.Retry
+	return p
+}
+
 func deadlineFrom(at time.Time, limit time.Duration) time.Time {
 	if limit <= 0 {
 		return time.Time{}
@@ -48,11 +60,47 @@ func earlier(a, b time.Time) time.Time {
 }
 func (c *executionContext) match(rec jobdb.ExecutionRecord, descriptor json.RawMessage) error {
 	if !sameExecutionJSON(rec.Descriptor, descriptor) {
-		return c.run.control(fmt.Errorf("%w: logical descriptor changed for %s", ErrWorkflowNotDeterministic, rec.ID))
+		return c.run.control(fmt.Errorf("%w: logical descriptor changed for %s%s", ErrWorkflowNotDeterministic, rec.ID, descriptorMismatchDetails(rec.Kind, rec.Descriptor, descriptor)))
 	}
 	return nil
 }
 
+// Describe engine-owned fields without printing commands, inputs, or other
+// consumer data that may contain credentials. Keep matching strict: diagnostics
+// must not silently change the policy of an existing execution.
+func descriptorMismatchDetails(kind string, recorded, current json.RawMessage) string {
+	var fields []string
+	switch kind {
+	case "scope":
+		fields = []string{"total_timeout", "attempt_timeout", "retry", "rules", "restart"}
+	case "task":
+		fields = []string{"call", "policy"}
+	default:
+		return ""
+	}
+	var before, after map[string]json.RawMessage
+	if json.Unmarshal(recorded, &before) != nil || json.Unmarshal(current, &after) != nil {
+		return ""
+	}
+	var changes []string
+	for _, field := range fields {
+		if sameExecutionJSON(before[field], after[field]) {
+			continue
+		}
+		change := field
+		if kind == "scope" && (field == "total_timeout" || field == "attempt_timeout") {
+			var oldLimit, newLimit time.Duration
+			if json.Unmarshal(before[field], &oldLimit) == nil && json.Unmarshal(after[field], &newLimit) == nil {
+				change += fmt.Sprintf(" (recorded=%s, current=%s)", oldLimit, newLimit)
+			}
+		}
+		changes = append(changes, change)
+	}
+	if len(changes) == 0 {
+		return ""
+	}
+	return "; changed fields: " + strings.Join(changes, ", ")
+}
 func (c *executionContext) invoke(fn func() (TaskData, error)) (TaskData, error) {
 	// Timers start only at the live edge, never while consuming completed history.
 	e := c.run
@@ -143,13 +191,26 @@ func (c *executionContext) DoScope(site string, opts ScopeOptions, body func(Exe
 	if err != nil {
 		return nil, err
 	}
-	descriptor, _ := json.Marshal(policy)
 	if err := c.applyRestart(id, opts); err != nil {
 		return nil, err
 	}
 	// Pure organizational scopes have no declaration to persist. Identity still
 	// includes their deterministic occurrence path.
 	significant := site == "$job" || policy.TotalTimeout > 0 || policy.AttemptTimeout > 0 || policy.Retry.MaximumAttempts > 1 || len(policy.Rules) > 0 || policy.Restart
+	if next := c.run.peek(); next != nil {
+		if next.record.Kind == "scope" && next.record.ID == id {
+			// A formerly timed scope remains significant even if today's
+			// declaration would otherwise omit it from compact history.
+			significant = true
+		} else if site != "$job" && len(policy.Rules) == 0 && !policy.Restart {
+			// Compact history omitted this organizational scope. While replay
+			// is consuming its history, it has the original unlimited/no-retry
+			// policy, including when its body later reaches unfinished work.
+			policy = executionPolicy{Retry: normalizeRetryPolicy(RetryPolicy{})}
+			significant = false
+		}
+	}
+	descriptor, _ := json.Marshal(policy)
 	anchor := c.run.progressTime()
 	entry := jobdb.ExecutionRecord{At: anchor, Descriptor: descriptor, TotalDeadline: deadlineFrom(anchor, policy.TotalTimeout)}
 	if significant {
@@ -157,6 +218,12 @@ func (c *executionContext) DoScope(site string, opts ScopeOptions, body func(Exe
 		if err != nil {
 			return nil, err
 		}
+		var recorded executionPolicy
+		if err := json.Unmarshal(entry.Descriptor, &recorded); err != nil {
+			return nil, c.run.control(fmt.Errorf("%w: invalid scope policy for %s: %v", ErrWorkflowNotDeterministic, id, err))
+		}
+		policy = policy.withRecordedLifecycle(recorded)
+		descriptor, _ = json.Marshal(policy)
 		if err = c.match(entry, descriptor); err != nil {
 			return nil, err
 		}

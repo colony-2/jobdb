@@ -63,6 +63,9 @@ type ExecutionContext interface {
 	Yield(context.Context, YieldRequest) error
 }
 
+// TaskCall identifies durable work. Once recorded, its timeout and retry
+// policy is authoritative for replay and recovery. Site, task type, contract
+// version, command, catch rule IDs, and alternate declaration must still match.
 type TaskCall struct {
 	Site            string              `json:"site"`
 	TaskType        string              `json:"task_type"`
@@ -83,6 +86,11 @@ type TaskAlternateAfter struct {
 	After    time.Duration `json:"after"`
 }
 
+// ScopeOptions supplies policy for a new scope occurrence. Existing occurrences
+// retain their recorded timeout and retry settings during replay and recovery;
+// callbacks must retain the recorded catch rule IDs and restart-hook presence.
+// An organizational scope omitted from compact history remains unlimited and
+// non-retrying when reconstructed. Newly entered scopes use current options.
 type ScopeOptions struct {
 	TotalTimeout   time.Duration
 	AttemptTimeout time.Duration
