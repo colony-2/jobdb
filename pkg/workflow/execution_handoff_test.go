@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -25,18 +26,19 @@ func (r handoffUnreadableRuntime) ListJobs(context.Context, jobdb.ListJobsReques
 	return jobdb.ListJobsResponse{}, errors.New("scheduler unavailable after handoff")
 }
 
-func TestExecutionHandoffOutcomePrecedesCallerReturn(t *testing.T) {
+func TestExecutionHandoffWaitsForOrchestrationButNotTask(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		for _, taskLevel := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/task=%t", backend, taskLevel), func(t *testing.T) {
 				base := alternateRuntime(t, backend)
 				rt := handoffUnreadableRuntime{base}
 				release := make(chan struct{})
+				unblock := sync.OnceFunc(func() { close(release) })
 				exited := make(chan struct{})
 				returned := make(chan error, 1)
 				// Always release abandoned user code, including if an assertion fails.
 				defer func() {
-					close(release)
+					unblock()
 					select {
 					case <-exited:
 					case <-time.After(5 * time.Second):
@@ -49,7 +51,7 @@ func TestExecutionHandoffOutcomePrecedesCallerReturn(t *testing.T) {
 					defer close(exited)
 					err := yield(ctx, wf.YieldRequest{Reschedule: jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "receiver"}}, Metadata: metadata})
 					returned <- err
-					<-release // Nothing after Yield is needed for the Run outcome.
+					<-release // Only a task worker may outlive Run after Yield.
 					return err
 				}
 				task := executionTestTask{"echo", func(c wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
@@ -72,6 +74,20 @@ func TestExecutionHandoffOutcomePrecedesCallerReturn(t *testing.T) {
 				}
 				done := make(chan result, 1)
 				go func() { out, err := runnable.Run(nil); done <- result{out, err} }()
+				select {
+				case err := <-returned:
+					require.True(t, wf.IsExecutionSuspended(err))
+				case <-time.After(5 * time.Second):
+					t.Fatal("Yield did not return control error")
+				}
+				if !taskLevel {
+					select {
+					case <-done:
+						t.Fatal("Run returned before orchestration exited")
+					default:
+					}
+					unblock()
+				}
 				var out wf.JobRunOutcome
 				select {
 				case res := <-done:
@@ -84,16 +100,18 @@ func TestExecutionHandoffOutcomePrecedesCallerReturn(t *testing.T) {
 				require.NotNil(t, out.Handoff)
 				require.Equal(t, jobdb.Route{JobType: "receiver"}, out.Handoff.NextRoute)
 				require.JSONEq(t, string(original), string(out.Handoff.Metadata))
-				select {
-				case <-exited:
-					t.Fatal("caller bypassed gate")
-				default:
-				}
-				select {
-				case err := <-returned:
-					require.True(t, wf.IsExecutionSuspended(err))
-				case <-time.After(5 * time.Second):
-					t.Fatal("Yield did not return control error")
+				if taskLevel {
+					select {
+					case <-exited:
+						t.Fatal("task caller bypassed gate")
+					default:
+					}
+				} else {
+					select {
+					case <-exited:
+					default:
+						t.Fatal("Run returned before orchestration cleanup")
+					}
 				}
 				// Request, returned outcome, cached Outcome(), and repeat Run() own copies.
 				metadata[0] = '!'
@@ -289,6 +307,11 @@ func TestExecutionHandoffLateAcknowledgementCannotChangeOutcome(t *testing.T) {
 					t.Fatal("reschedule did not commit")
 				}
 				cancel()
+				if !taskLevel {
+					// A synchronous scope waits for the transport to return. Its
+					// cancelled response must still never confirm a handoff.
+					unblock()
+				}
 				select {
 				case res := <-done:
 					require.ErrorIs(t, res.err, context.Canceled)

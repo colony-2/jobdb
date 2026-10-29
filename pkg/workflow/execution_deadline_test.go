@@ -55,14 +55,16 @@ func TestExecutionStartedWorkerAndHandlerCancellation(t *testing.T) {
 
 	start := func(c *executionContext) <-chan error {
 		callbackContext := c.Context()
+		invoke := c.invoke
 		if c == nested {
 			callbackContext = c.taskContext().Context()
+			invoke = c.invokeAsync
 		}
 		started := make(chan struct{})
 		stopped := make(chan struct{})
 		done := make(chan error, 1)
 		go func() {
-			_, err := c.invoke(func() (TaskData, error) {
+			_, err := invoke(func() (TaskData, error) {
 				defer close(stopped)
 				close(started)
 				<-callbackContext.Done()

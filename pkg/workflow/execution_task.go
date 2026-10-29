@@ -159,7 +159,7 @@ func (c *executionContext) invokeTask(worker TaskWorker, input TaskData) (TaskDa
 		return nil, err
 	}
 	tc := c.taskContext()
-	return c.invoke(func() (TaskData, error) { return worker.Run(tc, input) })
+	return c.invokeAsync(func() (TaskData, error) { return worker.Run(tc, input) })
 }
 
 func (c *executionContext) taskContext() TaskContext {
@@ -334,6 +334,14 @@ func (c *executionContext) Yield(ctx context.Context, req YieldRequest) error {
 		return err
 	}
 	if err := c.run.r.lease.Reschedule(callCtx, req.Reschedule); err != nil {
+		return c.run.control(err)
+	}
+	// An uncooperative transport may acknowledge after cancellation. Synchronous
+	// orchestration now waits for that response, but it still cannot confirm it.
+	if err := context.Cause(c.ctx); err != nil {
+		return err
+	}
+	if err := callCtx.Err(); err != nil {
 		return c.run.control(err)
 	}
 	if !c.run.r.handoff.confirm(handoff) {

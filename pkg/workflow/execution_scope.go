@@ -101,17 +101,46 @@ func descriptorMismatchDetails(kind string, recorded, current json.RawMessage) s
 	}
 	return "; changed fields: " + strings.Join(changes, ", ")
 }
-func (c *executionContext) invoke(fn func() (TaskData, error)) (TaskData, error) {
+func (c *executionContext) checkInvocation() error {
 	// Timers start only at the live edge, never while consuming completed history.
 	e := c.run
 	e.mu.Lock()
+	defer e.mu.Unlock()
 	if !e.r.replay && e.peekLocked() == nil {
 		if err := c.liveLocked(); err != nil {
-			e.mu.Unlock()
-			return nil, err
+			return err
 		}
 	}
-	e.mu.Unlock()
+	return context.Cause(c.ctx)
+}
+
+// invoke runs orchestration on the caller's goroutine. Cancellation signals the
+// callback, but its body and deferred cleanup must finish before we proceed to
+// a handler, retry, or parent continuation. Input builders are orchestration too.
+func (c *executionContext) invoke(fn func() (TaskData, error)) (TaskData, error) {
+	if err := c.checkInvocation(); err != nil {
+		return nil, err
+	}
+	out, err := func() (out TaskData, err error) {
+		defer func() {
+			if p := recover(); p != nil {
+				err = panicToAppError(p)
+			}
+		}()
+		return fn()
+	}()
+	if err := c.checkInvocation(); err != nil {
+		return nil, err
+	}
+	return out, err
+}
+
+// invokeAsync isolates task workers, which may ignore cancellation. Only task
+// execution may outlive its caller; orchestration callbacks use invoke instead.
+func (c *executionContext) invokeAsync(fn func() (TaskData, error)) (TaskData, error) {
+	if err := c.checkInvocation(); err != nil {
+		return nil, err
+	}
 	result := make(chan taskResult, 1)
 	go func() {
 		var out TaskData
@@ -133,16 +162,7 @@ func (c *executionContext) invoke(fn func() (TaskData, error)) (TaskData, error)
 	case <-c.ctx.Done():
 		return nil, context.Cause(c.ctx)
 	case r := <-result:
-		e.mu.Lock()
-		var liveErr error
-		if !e.r.replay && e.peekLocked() == nil {
-			liveErr = c.liveLocked()
-		}
-		e.mu.Unlock()
-		if liveErr != nil {
-			return nil, liveErr
-		}
-		if err := context.Cause(c.ctx); err != nil {
+		if err := c.checkInvocation(); err != nil {
 			return nil, err
 		}
 		return r.output, r.err

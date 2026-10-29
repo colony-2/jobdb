@@ -44,22 +44,10 @@ func testScopeTimeoutAdmission(t *testing.T, base jobdb.WorkflowRuntime, admitte
 		rt = expiredScopeAdmissionRuntime{base}
 		timeout = 20 * time.Millisecond // Exhausted by the wrapper, never a race to start.
 	}
-	release := make(chan struct{})
 	exited := make(chan struct{})
 	late := make(chan error, 1)
 	var starts, handlers, matches, builds atomic.Int32
 	var replaying atomic.Bool
-	unblock := sync.OnceFunc(func() { close(release) })
-	defer func() {
-		unblock()
-		if starts.Load() > 0 {
-			select {
-			case <-exited:
-			case <-time.After(5 * time.Second):
-				t.Error("scope callback did not exit after release")
-			}
-		}
-	}()
 	worker := wf.ExecutionWorker{JobType: "scope-timeout", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
 		return c.DoScope("timed", wf.ScopeOptions{AttemptTimeout: timeout, Catch: []wf.CatchRule{{ID: "timeout", Match: func(err error) bool {
 			matches.Add(1)
@@ -67,6 +55,13 @@ func testScopeTimeoutAdmission(t *testing.T, base jobdb.WorkflowRuntime, admitte
 			return errors.As(err, &timeout)
 		}, Handle: func(h wf.ExecutionContext, err error) (wf.CatchResult, error) {
 			handlers.Add(1)
+			if admitted && !replaying.Load() {
+				select {
+				case <-exited:
+				default:
+					return wf.CatchResult{}, errors.New("handler started before scope cleanup")
+				}
+			}
 			if err := h.Context().Err(); err != nil {
 				return wf.CatchResult{}, err
 			}
@@ -83,7 +78,6 @@ func testScopeTimeoutAdmission(t *testing.T, base jobdb.WorkflowRuntime, admitte
 			starts.Add(1)
 			defer close(exited)
 			wf.ExpireExecutionAttemptForTest(s)
-			<-release
 			_, err := lateTask()
 			late <- err
 			return in, nil
@@ -103,7 +97,6 @@ func testScopeTimeoutAdmission(t *testing.T, base jobdb.WorkflowRuntime, admitte
 		wantStarts = 1
 	}
 	require.Equal(t, wantStarts, starts.Load())
-	unblock()
 	if admitted {
 		select {
 		case err := <-late:

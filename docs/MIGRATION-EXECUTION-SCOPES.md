@@ -198,10 +198,20 @@ include attempts, backoff, handlers, and suspension. Nested scopes cannot extend
 parent deadlines. Timeout handlers get a fresh context bounded by remaining total
 and enclosing budgets.
 
-Calls on a scope are sequential. Use nested scopes for structured orchestration;
-concurrent calls on one execution context are rejected. Keep mutable state local
-to each callback invocation and return results to the caller. An abandoned callback
-must not retain shared mutable state used by another attempt.
+Scope bodies, restart hooks, catch predicates and handlers, and task input builders
+run synchronously on the orchestration goroutine, including during replay. A scope
+waits for its callback and deferred cleanup before returning or starting a catch or
+retry. Deadlines cancel contexts and reject late results, but orchestration must
+cooperate with cancellation; a stuck callback can block the run. Concurrent calls
+on one execution context are rejected.
+
+Only `TaskWorker.Run` executes in a separate goroutine, after input construction
+and snapshotting finish. JobDB can stop waiting for a task on cancellation or
+timeout without waiting for that worker to exit. Task workers must not share
+mutable state with orchestration or another attempt. Scope orchestration can
+share state sequentially within a run; retries still do not roll back mutations.
+After an orchestration-level `Yield`, propagate its error so the scope can unwind
+and `Run` can return. A task worker may still be running after `Run` returns.
 
 Use `ExecutionContext.AwaitDuration` and `AwaitJobs` for orchestration waits.
 Child outcomes and retry wake times are recorded. A child wait becomes eligible

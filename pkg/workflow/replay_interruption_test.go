@@ -27,11 +27,10 @@ func (w interruptionTaskWorker) Run(ctx TaskContext, in TaskData) (TaskData, err
 func TestTimedOutAttemptCannotWriteIntoRetry(t *testing.T) {
 	rt := newRunnerTestRuntime()
 	key := JobKey{TenantId: "tenant", JobId: "late-attempt"}
-	releaseTask, releaseJob := make(chan struct{}), make(chan struct{})
-	var releaseTaskOnce, releaseJobOnce sync.Once
+	releaseTask := make(chan struct{})
+	var releaseTaskOnce sync.Once
 	release := func() {
 		releaseTaskOnce.Do(func() { close(releaseTask) })
-		releaseJobOnce.Do(func() { close(releaseJob) })
 	}
 	t.Cleanup(release)
 	taskExited, jobExited := make(chan struct{}), make(chan []error, 1)
@@ -46,7 +45,8 @@ func TestTimedOutAttemptCannotWriteIntoRetry(t *testing.T) {
 	job := replayHistoryJobOverride{JobWorker: countingJobWorker{name: "job"}, run: func(ctx ExecutionContext, in JobData) (JobData, error) {
 		out, err := ctx.DoTask(TaskCall{Site: "task", Command: []byte("{}"), TaskType: task.Name(), ContractVersion: 1, Policy: RunPolicy{InvocationTimeout: AsDuration(time.Hour)}}, func(context.Context) (TaskData, error) { return in, nil })
 		if context.Cause(ctx.Context()) != nil {
-			<-releaseJob // delayed cleanup tries to use the expired attempt
+			// Orchestration unwinds before retry; expired calls still fail even
+			// though the task worker remains blocked through the next attempt.
 			_, taskErr := ctx.DoTask(TaskCall{Site: "task", Command: []byte("{}"), TaskType: task.Name(), ContractVersion: 1, Policy: RunPolicy{}}, func(context.Context) (TaskData, error) { return in, nil })
 			_, submitErr := ctx.SubmitJob(context.Background(), SubmitJob{})
 			_, restartErr := ctx.SubmitRestartJob(context.Background(), SubmitRestartJobRequest{Job: SubmitRestartJob{}})
@@ -93,18 +93,18 @@ func TestTimedOutAttemptCannotWriteIntoRetry(t *testing.T) {
 	require.EqualValues(t, 2, taskRuns.Load())
 }
 
-func TestReplayAfterActualJobTimerInterruptsOrchestration(t *testing.T) {
+func TestReplayAfterActualJobTimerCancelsOrchestration(t *testing.T) {
 	rt := newRunnerTestRuntime()
 	key := JobKey{TenantId: "tenant", JobId: "timer-interrupted"}
 	var taskRuns atomic.Int32
 	task := countingTaskWorker{name: "task", counter: &taskRuns}
-	release, exited := make(chan struct{}), make(chan struct{})
+	exited := make(chan struct{})
 	job := replayHistoryJobOverride{JobWorker: countingJobWorker{name: "job"}, run: func(ctx ExecutionContext, in JobData) (JobData, error) {
 		defer close(exited)
 		if _, err := ctx.DoTask(TaskCall{Site: "task", Command: []byte("{}"), TaskType: task.Name(), ContractVersion: 1, Policy: RunPolicy{}}, func(context.Context) (TaskData, error) { return in, nil }); err != nil {
 			return nil, err
 		}
-		<-release // timeout interrupts orchestration without a task outcome
+		<-ctx.Context().Done() // Orchestration cooperates with the job deadline.
 		return in, nil
 	}}
 	ws := mustWorkSetForRunnerTest(t, job, task)
@@ -112,7 +112,6 @@ func TestReplayAfterActualJobTimerInterruptsOrchestration(t *testing.T) {
 	seedJobStartForTest(t, rt, key, job.Name(), NewTaskDataOrPanic(42), policy)
 	lease := &fakeExecutionLease{runtime: rt, job: JobHandle{JobKey: key}, route: Route{JobType: job.Name()}}
 	_, original := newWorkerRunner(rt, ws, lease, workerRunnerOptions{}).DoJob(context.Background())
-	close(release)
 	<-exited
 	var timeout TimeoutError
 	require.ErrorAs(t, original, &timeout)

@@ -37,8 +37,13 @@ type ExecutionContext interface {
 	// DoTask invokes durable work. Its input builder must be deterministic and
 	// side-effect-free: inspection may reconstruct unfinished input by calling
 	// it. Recorded results and external waits reuse their stored input instead.
-	// Put execution, preparation, and external effects in the TaskWorker.
+	// The builder runs synchronously on the orchestration goroutine. TaskWorker.Run
+	// runs in a separate goroutine and may outlive cancellation; it must not share
+	// mutable state with orchestration or another attempt. Put execution,
+	// preparation, and external effects in the TaskWorker.
 	DoTask(TaskCall, func(context.Context) (TaskData, error)) (TaskData, error)
+	// DoScope runs its body, restart hook, and catch callbacks synchronously.
+	// Cancellation does not return control until the callback and its defers finish.
 	DoScope(string, ScopeOptions, func(ExecutionContext) (JobData, error)) (JobData, error)
 	AwaitDuration(Duration) error
 	AwaitJobs(...string) error
@@ -59,7 +64,8 @@ type ExecutionContext interface {
 	SubmitJob(context.Context, SubmitJob) (JobHandle, error)
 	SubmitRestartJob(context.Context, SubmitRestartJobRequest) (JobHandle, error)
 	// Yield reschedules and stops execution. Read JobRunOutcome.Handoff after
-	// Run returns for confirmation; post-Yield user code may still be running.
+	// Run returns for confirmation. Orchestration must propagate the returned
+	// error to unwind; post-Yield task worker code may still be running.
 	Yield(context.Context, YieldRequest) error
 }
 
@@ -129,8 +135,8 @@ func copyConsumerVersions(in map[string]string) (map[string]string, error) {
 }
 
 // IsExecutionSuspended recognizes the suspension control error through wrappers.
-// Propagate it to stop task execution. It does not order post-Yield code before
-// Run returns; use JobRunOutcome.Handoff to publish handoff notifications.
+// Propagate it to stop execution. Post-Yield task worker code may outlive Run;
+// use JobRunOutcome.Handoff to publish handoff notifications.
 func IsExecutionSuspended(err error) bool {
 	return errors.Is(err, errExecutionSuspended)
 }

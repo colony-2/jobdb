@@ -38,7 +38,7 @@ func cloneHandoff(h *Handoff) *Handoff {
 	return &copy
 }
 
-// A run can finish while abandoned user code is still executing. Closing this
+// A run can finish while abandoned task worker code is still executing. Closing this
 // state freezes the outcome and prevents a late response from changing it.
 type handoffState struct {
 	mu        sync.Mutex
