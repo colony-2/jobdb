@@ -21,7 +21,7 @@ func TestCompletionSummaryExistingRowsWithoutHistory(t *testing.T) {
 		id, status, detail string
 	}{
 		{"success", "success", ""},
-		{"failure", "failed_system", "original error\n"},
+		{"failure", "failed_system", " \toriginal error 雪\n "},
 		{"unknown", "future_category", "future detail"},
 		{"missing", "", ""},
 	}
@@ -47,6 +47,6 @@ func TestCompletionSummaryExistingRowsWithoutHistory(t *testing.T) {
 		require.Len(t, listed.Jobs, 1)
 		require.Equal(t, jobdb.JobStatusCompleted, listed.Jobs[0].Status)
 		require.Equal(t, tc.status, listed.Jobs[0].CompletionStatus)
-		require.Empty(t, listed.Jobs[0].CompletionDetail)
+		require.Equal(t, tc.detail, listed.Jobs[0].CompletionDetail)
 	}
 }

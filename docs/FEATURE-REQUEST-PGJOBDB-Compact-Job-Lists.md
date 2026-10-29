@@ -3,31 +3,32 @@
 ## Requested behavior and upstream contract
 
 JobDB's ordinary `ListJobs` / `POST /jobs/query` now defaults to compact summaries.
-The public structs and deprecated JSON fields remain, but list responses no
-longer populate `BlockingWait`, `OtherGoalIDs`, `WaitFor`, `CompletionDetail`,
-`ClientPayload`, or `ExecutionState`. No opt-in flag is needed. This deliberately
-changes field values while preserving source/wire shapes. See the companion
+Only `BlockingWait` and `OtherGoalIDs` remain deprecated and unloaded. Restore
+stored `CompletionDetail`, full opaque `ClientPayload`, `ExecutionState`, and
+`WaitFor` on ordinary lists without flags or detail reads. This supersedes the
+initial compact migration's removal of those four fields. See the companion
 [migration guide](MIGRATION-Compact-Job-Lists.md) and
 [removal plan](REMOVAL-Deprecated-Job-List-Details.md).
 
 Keep full application metadata, identity/type/parent/schema/primary goal,
-status/completion status, stored route, timestamps, cancellation flag, and client
-payload revision. Populate the new `BlockingWaitSummary` with only `WaitID` and
+status/completion status and detail, stored route and task coordinates, run policy,
+stored prerequisites, timestamps, cancellation flag, and full client payload with
+its revision. Populate the new `BlockingWaitSummary` with only `WaitID` and
 optional `Deadline`, from the current persisted pending dependency wait. An
 elapsed deadline is no longer blocking. Do not evaluate the dependency graph.
 
 The upstream scheduler port now has
 `runtimecore.StoredJob.BlockingWaitSummary *jobdb.DependencyWaitSummary`.
 It has no new interface method or request flag. Populate this field for lists;
-keep full `BlockingWait` and all other details in `GetJob`. JobDB's `JobInfo` now
+keep full `BlockingWait` and additional memberships in `GetJob`. JobDB's `JobInfo` now
 also exposes `CompletionStatus`, `CompletionDetail`, `WaitFor`, and `NextRoute`.
 The core maps them from the existing scheduler detail row. Upgrade the JobDB
 dependency to a release containing these additions; no unreleased version is
 prescribed here.
 
-## Current expensive path
+## Original expensive path
 
-The inspected local pgjobdb checkout uses:
+The original pre-compact pgjobdb implementation used:
 
 - `pkg/pgjobdb/runtime/internal/runtimeadapter/jobs.go`: `Scheduler.ListJobs`
   calls `BlockingDependencyWait` once per result, including archived jobs and
@@ -48,14 +49,15 @@ lightweight dependency-state/prerequisite-completion checks.
 
 ## Implementation request
 
-1. Add a compact list SQL projection over `jobs` / `jobs_archive` with indexed
-   joins to `job_facts` and only the needed `job_client_state` columns (revision).
-   Do not fetch or serialize client payload, run policy, task coordinates/hashes,
-   full prerequisite arrays, completion text, or schedule diagnostic histories
-   for output. Internal columns may still be inspected for filtering/readiness.
-   The current core mapper still represents task routes through `WorkKindTask`
-   and `TaskWork.TaskType`: provide that minimal `TaskWork` value for list rows,
-   even though input/output ordinals, hashes, and resume data are not needed.
+1. Keep the compact list SQL projection and page selection over `jobs` /
+   `jobs_archive` with existing joins to `job_facts` and `job_client_state`.
+   Carry completion detail, task input/output ordinals/hash/resume job type, run
+   policy, and stored prerequisite IDs through both branches. Archived task state
+   must use stored `final_*` snapshots. Return full `client_payload` alongside
+   revision from the existing join as raw JSON, without converting it to JSONB.
+   Preserve arbitrary application keys, arrays, JSON null, and large integers;
+   do not prune or truncate. Extend `JobListSummary` and the adapter's `StoredJob`
+   mapping. No new columns, joins, queries, or task/history reads are required.
 2. Join the current `dependency_waits` row to obtain wait ID, stored state, and
    deadline. Emit `BlockingWaitSummary` only for a live pending wait whose
    deadline has not elapsed; omit it for cancelled/archived jobs. Use the same
@@ -85,8 +87,13 @@ still cost more than the page size alone suggests.
 - Add `runtimetest.RunCompactListConformance` to the adapter's conformance suites.
   Run existing completion, available-route, task-discovery/completion, and
   job-run inspection tests against the updated JobDB.
-- Verify empty deprecated fields and complete metadata over direct and HTTP
-  listing, including archived outcomes, pending waits, and secondary goal filters.
+- Verify the two empty enriched fields and all restored stored fields over direct
+  and HTTP listing, including active/archived/child/keyed rows, exact failure text,
+  Unicode/whitespace, unknown status, empty detail, and retries without completion.
+- Cover arbitrary payload namespaces, arrays, JSON null, large integers, and the
+  maximum payload size; payload and revision must come from the same query.
+- Cover complete task coordinates, run policy, archived final state, and stored
+  prerequisites without resolving targets.
 - Verify detail reads still return payload, policy/task coordinates, memberships,
   prerequisites, completion text, and evaluated blocking explanations.
 - Test page sizes 1/100/200 and selective filters with pending goal waits; assert
@@ -99,6 +106,6 @@ still cost more than the page size alone suggests.
 - Capture representative `EXPLAIN (ANALYZE, BUFFERS)` output to check filter and
   limit placement. Update indexes only where the measured plans justify them.
 
-This document is an implementation request, not a patch applied to pgjobdb.
-Updating JobDB alone preserves the compact public shape but does not eliminate
-an older pgjobdb scheduler's enrichment overhead.
+Coordinate the JobDB dependency release, pgjobdb server deployment, and downstream
+c2j dependency upgrade. Older servers may still omit the restored fields; do not
+add per-row detail loops in c2j, Cortex, or Pulse to compensate.

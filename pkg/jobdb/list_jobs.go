@@ -17,7 +17,9 @@ type DependencyWaitSummary struct {
 	Deadline *time.Time `json:"deadline,omitempty"`
 }
 
-// JobSummary is a lightweight view of a job from the selected runtime.
+// JobSummary projects stored job fields without loading additional memberships
+// or evaluated dependency explanations. Client payloads and execution state are
+// returned in full from the same listing snapshot.
 type JobSummary struct {
 	BlockingWaitSummary *DependencyWaitSummary
 	// Deprecated: use GetJob or GetDependencyWait. Not populated by compact lists.
@@ -31,12 +33,10 @@ type JobSummary struct {
 	// Empty means unavailable; unfamiliar values must be preserved.
 	CompletionStatus string
 	// CompletionDetail is the persisted completion detail; empty is valid.
-	//
-	// Deprecated: use GetJob. Not populated by compact lists.
 	CompletionDetail string
 	JobType          string
 	NextRoute        *Route
-	// Deprecated: use GetJob. Not populated by compact lists.
+	// WaitFor contains stored prerequisite IDs without resolving their targets.
 	WaitFor         []string // JobIds only - all WaitFor jobs must be in same tenant
 	AvailableAt     time.Time
 	ExpiresAt       *time.Time
@@ -44,10 +44,10 @@ type JobSummary struct {
 	CancelRequested bool
 	CreatedAt       time.Time
 	ArchivedAt      *time.Time
-	// Deprecated: use GetJob. Not populated by compact lists.
+	// ClientPayload is the full opaque payload, paired with its stored revision.
 	ClientPayload         json.RawMessage
 	ClientPayloadRevision int64
-	// Deprecated: use GetJob. Not populated by compact lists.
+	// ExecutionState includes run policy and stored task-wait coordinates.
 	ExecutionState ExecutionState
 	Metadata       json.RawMessage
 	SchemaHash     string

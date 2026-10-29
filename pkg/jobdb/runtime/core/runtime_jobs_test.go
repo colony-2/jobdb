@@ -22,7 +22,7 @@ func TestCompletionSummaryUsesOnlyScheduler(t *testing.T) {
 			detail := ""
 			if status != "" {
 				if status != "success" {
-					detail = "exact persisted detail\n"
+					detail = " \texact persisted detail 雪\n "
 				}
 				row.Completion = &runtimecore.CompletionSnapshot{Status: status, Detail: detail}
 			} else {
@@ -35,7 +35,7 @@ func TestCompletionSummaryUsesOnlyScheduler(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, listed.Jobs, 1)
 			require.Equal(t, status, listed.Jobs[0].CompletionStatus)
-			require.Empty(t, listed.Jobs[0].CompletionDetail)
+			require.Equal(t, detail, listed.Jobs[0].CompletionDetail)
 			require.Equal(t, row.Status, listed.Jobs[0].Status)
 		})
 	}
@@ -84,7 +84,7 @@ func TestRuntimeListJobsPassesAvailabilityToScheduler(t *testing.T) {
 	require.Equal(t, 1, calls, "invalid routes must not reach the scheduler")
 }
 
-func TestRuntimeListJobsKeepsArchivedTaskRouteWithoutDetails(t *testing.T) {
+func TestRuntimeListJobsKeepsArchivedStoredState(t *testing.T) {
 	created := time.Now().UTC().Truncate(time.Microsecond)
 	archived := created.Add(time.Minute)
 	expiry := archived.Add(time.Hour)
@@ -115,13 +115,16 @@ func TestRuntimeListJobsKeepsArchivedTaskRouteWithoutDetails(t *testing.T) {
 	got := result.Jobs[0]
 	if got.Status != jobdb.JobStatusCompleted || got.JobType != "collect" ||
 		got.NextRoute == nil || *got.NextRoute != (jobdb.Route{JobType: "collect", TaskType: "download"}) ||
-		got.ExecutionState.TaskWait != nil || got.ClientPayload != nil || string(got.Metadata) != `{"source":"api"}` ||
+		got.ExecutionState.TaskWait == nil || string(got.ClientPayload) != string(row.ClientPayload) || string(got.Metadata) != `{"source":"api"}` ||
 		got.SchemaHash != "schema-hash" || got.ParentJobID != "parent" ||
 		got.ArchivedAt == nil || !got.ArchivedAt.Equal(archived) ||
 		got.ExpiresAt == nil || !got.ExpiresAt.Equal(expiry) ||
-		len(got.WaitFor) != 0 {
+		len(got.WaitFor) != 1 {
 		t.Fatalf("archived task summary = %+v", got)
 	}
+	require.Equal(t, &jobdb.TaskWait{InputOrdinal: 2, OutputOrdinal: 3, InputHash: "sha256:input", ResumeJobType: "collect"}, got.ExecutionState.TaskWait)
+	require.Equal(t, row.RunPolicy, got.ExecutionState.RunPolicy)
+	require.Equal(t, row.WaitForJobIDs, got.WaitFor)
 }
 
 func TestRuntimeCompactListProjectsWaitIdentityOnly(t *testing.T) {
@@ -143,7 +146,7 @@ func TestRuntimeCompactListProjectsWaitIdentityOnly(t *testing.T) {
 	require.Equal(t, row.BlockingWaitSummary, got.BlockingWaitSummary)
 	require.Nil(t, got.BlockingWait)
 	require.Empty(t, got.OtherGoalIDs)
-	require.Empty(t, got.ClientPayload)
-	require.Empty(t, got.WaitFor)
-	require.Equal(t, jobdb.ExecutionState{}, got.ExecutionState)
+	require.Equal(t, row.ClientPayload, got.ClientPayload)
+	require.Equal(t, row.WaitForJobIDs, got.WaitFor)
+	require.Equal(t, jobdb.ExecutionState{RunPolicy: row.RunPolicy}, got.ExecutionState)
 }

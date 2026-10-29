@@ -207,8 +207,8 @@ func (r *Runtime) listCompactJobs(ctx context.Context, req jobdb.ListJobsRequest
  ON w.tenant_id=j.tenant_id AND w.job_id=j.job_id AND w.wait_id=j.dependency_wait_id
 )
 SELECT tenant_id,job_id,goal_id,job_type,route_job_type,route_task_type,
- client_payload_revision,metadata,list_parent,available_at_ns,created_at_ns,archived_at_ns,
- cancel_requested,completion_status,lease_expires_at_ns,list_status,
+ client_payload_revision,client_payload,payload,wait_for,metadata,list_parent,available_at_ns,created_at_ns,archived_at_ns,
+ cancel_requested,completion_status,completion_detail,lease_expires_at_ns,list_status,
  CASE WHEN pending_wait THEN dependency_wait_id ELSE '' END,
  CASE WHEN pending_wait THEN json_extract(CAST(wait_payload AS TEXT),'$.deadline') ELSE NULL END
 FROM projected p WHERE ` + strings.Join(where, " AND ") + ` ORDER BY created_at_ns DESC,list_key DESC LIMIT ?`
@@ -221,13 +221,13 @@ FROM projected p WHERE ` + strings.Join(where, " AND ") + ` ORDER BY created_at_
 	for rows.Next() {
 		var s jobdb.JobSummary
 		var route jobdb.Route
-		var metadata []byte
+		var metadata, clientPayload, payload, waitFor []byte
 		var available, created int64
 		var archivedAt, leaseExpires sql.NullInt64
-		var completion, deadline sql.NullString
+		var completion, completionDetail, deadline sql.NullString
 		var waitID string
 		if err = rows.Scan(&s.JobKey.TenantId, &s.JobKey.JobId, &s.GoalID, &s.JobType, &route.JobType, &route.TaskType,
-			&s.ClientPayloadRevision, &metadata, &s.ParentJobID, &available, &created, &archivedAt, &s.CancelRequested, &completion, &leaseExpires, &s.Status, &waitID, &deadline); err != nil {
+			&s.ClientPayloadRevision, &clientPayload, &payload, &waitFor, &metadata, &s.ParentJobID, &available, &created, &archivedAt, &s.CancelRequested, &completion, &completionDetail, &leaseExpires, &s.Status, &waitID, &deadline); err != nil {
 			return jobdb.ListJobsResponse{}, err
 		}
 		s.NextRoute = &route
@@ -236,6 +236,13 @@ FROM projected p WHERE ` + strings.Join(where, " AND ") + ` ORDER BY created_at_
 		s.ArchivedAt = nullTimeFromNS(archivedAt)
 		s.LeaseExpiresAt = nullTimeFromNS(leaseExpires)
 		s.CompletionStatus = completion.String
+		s.CompletionDetail = completionDetail.String
+		s.ClientPayload = clientPayload
+		s.ExecutionState = jobExecutionState(payload)
+		s.WaitFor, err = decodeWaitFor(waitFor)
+		if err != nil {
+			return jobdb.ListJobsResponse{}, err
+		}
 		s.Metadata = jobdb.StripRuntimeMetadata(metadata)
 		s.SchemaHash = jobmetadata.SchemaHashFromStoredMetadata(metadata)
 		if waitID != "" {

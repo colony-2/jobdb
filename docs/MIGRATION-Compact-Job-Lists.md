@@ -1,24 +1,28 @@
 # Migrate to compact job lists
 
-`ListJobs` and `POST /v1/tenants/{tenantId}/jobs/query` now return compact
-summaries by default. There is no request flag and no legacy-detail mode.
+`ListJobs` and `POST /v1/tenants/{tenantId}/jobs/query` return stored job summaries
+without per-row enrichment. There is no request flag or legacy-detail mode.
 
-Go fields and HTTP property types remain available for source/wire compatibility,
-and the removed projections are marked deprecated. **Field values change:**
-existing consumers must stop relying on details in list responses. Empty values
-mean “not loaded,” not “this job has no dependencies, memberships, or payload.”
-Older servers can still populate these deprecated fields; migrated clients must
-not depend on their presence. Coordinate rollout with consumers requiring those
-values. This is not behaviorally transparent compatibility.
+The initial compact migration overpruned stored columns. Ordinary lists now
+restore `CompletionDetail`, full `ClientPayload`, `ExecutionState`, and `WaitFor`.
+Their existing meanings, types, and wire names are unchanged. Only additional
+goal memberships and evaluated dependency explanations remain detail-only.
 
 ## What lists retain
 
 - Job key/type, primary goal ID, parent ID, schema hash.
-- Status and persisted completion status, including unfamiliar completion values.
+- Status, persisted completion status (including unfamiliar values), and exact
+  completion detail. Empty detail is valid; retrying jobs need not have a
+  terminal completion.
 - Stored next route, cancellation flag, creation/archive/availability/expiry/lease
   expiry timestamps where supported by the backend.
-- Client payload revision, allowing consumers to detect changes without loading
-  the payload on every refresh.
+- Full opaque client payload and its revision from the same list query. All
+  application namespaces, JSON null, arrays, and numeric precision are retained;
+  payloads are not truncated or restricted to c2j fields.
+- Execution state, including run policy and stored task-wait input/output
+  ordinals, input hash, and resume job type. Archived jobs use stored final state.
+  These coordinates are not task data and require no task or artifact read.
+- Stored `WaitFor` prerequisite IDs, without resolving their targets.
 - **All application metadata**, preserving existing metadata filtering and UI
   labels. Runtime-private metadata remains excluded as before.
 - `BlockingWaitSummary` / `blockingWaitSummary`, containing `waitId` and an
@@ -31,64 +35,54 @@ routes, additional goal membership, metadata, tenant, job key, parent, creation
 time, store, and visibility still happens before selecting the returned page.
 The returned `nextRoute` remains the stored route even when an alternate is due.
 
-## Move detail reads to selection/inspection
+## Move enriched reads to selection/inspection
 
 | Deprecated list field | Replacement |
 | --- | --- |
 | `BlockingWait` / `blockingWait` | `GetJob.BlockingWait`, or `GetDependencyWait` using the job key and `BlockingWaitSummary.WaitID` |
 | `OtherGoalIDs` / `otherGoalIds` | `GetJob.OtherGoalIDs` |
-| `WaitFor` / `waitFor` | `GetJob.WaitFor` |
-| `CompletionDetail` / `completionDetail` | `GetJob.CompletionDetail` |
-| `ClientPayload` / `clientPayload` | `GetJob.ClientPayload` |
-| `ExecutionState` / `executionState` | `GetJob.ExecutionState` |
 
-`GetJob` now also exposes `CompletionStatus`, `CompletionDetail`, `WaitFor`, and
-`NextRoute`. HTTP names are `completionStatus`, `completionDetail`, `waitFor`,
-and `nextRoute`. The task route and task coordinates can therefore be read from
-one detail response. Completed-job detail reads can also load stored results;
-use the dependency-wait endpoint when only wait details are needed.
+These two fields retain their source/wire shapes for compatibility. Their empty
+list values mean “not loaded,” not “no dependencies or memberships.” On HTTP,
+`otherGoalIds` is an empty array and `blockingWait` is omitted when unloaded.
 
-```go
-page, err := runtime.ListJobs(ctx, jobdb.ListJobsRequest{
-    TenantIds: []string{tenant}, PageSize: 100,
-})
-// Render page.Jobs using status, route, timestamps, and Metadata.
-// On selection, fetch the details for that job:
-info, err := runtime.GetJob(ctx, selectedJobKey)
-// Use info.ClientPayload, info.ExecutionState, info.OtherGoalIDs, etc.
-```
-
-Do not automatically call `GetJob` for every row on every list refresh. Fetch
-only selected/expanded jobs, or for an explicit operation needing their details.
-Task discovery is such an operation: JobDB's workflow SDK now fetches detail
-coordinates for the tasks it returns. Task completion remains guarded by the
-recorded input hash/ordinals and route, so a stale handle cannot complete newer
-work. Job-run inspection and worker run outcomes likewise obtain their required
-details explicitly.
-
-For the retained HTTP shape, `otherGoalIds` and `waitFor` are empty arrays,
-`executionState` contains an empty compatibility object, and optional detail
-properties are omitted/null/empty according to their existing encodings. In Go,
-those fields have zero values. Do not interpret them as authoritative detail.
+Do not call `GetJob` for every row to recover completion messages, payloads,
+prerequisites, or task coordinates. Use explicit inspection for selected jobs
+needing additional memberships, evaluated waits, task data, or results.
+Task completion remains guarded by recorded input hash/ordinals and route.
+Workers must use their lease's current state as authoritative before execution.
 
 This change is scoped to ordinary job listing. `GetJob`, `GetJobRun`, dependency
-inspection, and schedule-run inspection continue exposing their existing
-inspection details. `JobSummary` is also embedded in schedule responses, so its
-Go deprecation annotations must not be mistaken for removal from those APIs.
+inspection, and schedule-run inspection keep their existing inspection details.
+`JobSummary` is also embedded in schedule responses, so its remaining Go
+annotations must not be mistaken for removal from those APIs.
 
 ## Backend rollout
 
-SQLite filters, sorts, and paginates in SQL with one query per page. Pure SQL
-callbacks preserve the existing metadata equality, encoded prerequisite IDs,
-and nanosecond deadline semantics. There are no per-result enrichment queries.
-Selective metadata/status filters can still require examining many candidates;
-this is not a promise of constant total query work. Large application metadata
-also remains a response-size cost by request.
+For c2j dependency updates, mixed-version handling, and downstream validation,
+follow the [c2j migration guide](MIGRATION-C2J-Restored-Job-List-Fields.md).
 
-The core runtime exposes the compact projection, but an external scheduler can
-still do unnecessary work before returning it. Update pgjobdb using the
-[backend request](FEATURE-REQUEST-PGJOBDB-Compact-Job-Lists.md). Merely updating
-JobDB does not remove pgjobdb's per-job blocking-wait queries.
+SQLite filters, sorts, and paginates in SQL with one query per page. Scheduler
+state and prerequisite IDs are decoded locally with the existing codecs. Core
+maps stored fields without calling detail getters, and toy and HTTP runtimes
+preserve the same projection.
 
-See the [removal plan](REMOVAL-Deprecated-Job-List-Details.md) for eventual schema
-cleanup; this release retains the deprecated properties and struct fields.
+pgjobdb must return stored completion/task/prerequisite fields from active and
+archive rows, run policy from the existing facts join, and full raw JSON payload
+from the existing client-state join. Keep page selection and existing joins;
+no enriched detail query or new storage columns are needed. See the
+[backend request](FEATURE-REQUEST-PGJOBDB-Compact-Job-Lists.md).
+
+Selective filters can still examine many candidates, and full metadata/payloads
+add read and serialization bytes. Neither cost justifies discarding stored
+fields or adding client hydration loops.
+
+Coordinate the JobDB dependency release, deployed pgjobdb upgrade, and downstream
+c2j pin. An older compact server still omits the restored fields, so missing
+payloads cannot yet be treated as authoritative absence by mixed-version
+clients. A c2j-only release cannot restore server-omitted values. Payload-based
+client filters need a separate pagination decision; scanning extra backend
+pages to fill a filtered page would break the one-page contract.
+
+See the [removal plan](REMOVAL-Deprecated-Job-List-Details.md) for eventual cleanup
+of only the two enriched projections.

@@ -90,12 +90,6 @@ func jobSummaryFromStored(row StoredJob) (jobdb.JobSummary, error) {
 	}
 	s.BlockingWait = row.BlockingWait
 	s.OtherGoalIDs = row.OtherGoalIDs
-	s.ClientPayload = append([]byte(nil), row.ClientPayload...)
-	s.ExecutionState = executionState(row.RunPolicy, row.TaskWork)
-	s.WaitFor = append([]string(nil), row.WaitForJobIDs...)
-	if row.Completion != nil {
-		s.CompletionDetail = row.Completion.Detail
-	}
 	return s, nil
 }
 
@@ -107,6 +101,9 @@ func jobListSummaryFromStored(row StoredJob) (jobdb.JobSummary, error) {
 	summary := jobdb.JobSummary{BlockingWaitSummary: row.BlockingWaitSummary, GoalID: row.GoalID,
 		JobKey: row.JobKey, Status: row.Status, JobType: row.JobType,
 		ClientPayloadRevision: row.ClientPayloadRevision,
+		ClientPayload:         append([]byte(nil), row.ClientPayload...),
+		ExecutionState:        executionState(row.RunPolicy, row.TaskWork),
+		WaitFor:               append([]string(nil), row.WaitForJobIDs...),
 		NextRoute:             &nextRoute,
 		AvailableAt:           row.AvailableAt, ExpiresAt: row.ExpiresAt,
 		LeaseExpiresAt: row.LeaseExpiresAt, CancelRequested: row.CancelRequested,
@@ -116,6 +113,7 @@ func jobListSummaryFromStored(row StoredJob) (jobdb.JobSummary, error) {
 	}
 	if row.Completion != nil {
 		summary.CompletionStatus = row.Completion.Status
+		summary.CompletionDetail = row.Completion.Detail
 	}
 	if row.WorkKind == WorkKindTask {
 		if row.TaskWork == nil {

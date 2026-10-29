@@ -38,7 +38,7 @@ func runCompletionSummaries(t *testing.T, harnesses []Harness) {
 				require.Len(t, listed.Jobs, 1)
 				got := listed.Jobs[0]
 				require.Equal(t, status, got.CompletionStatus)
-				require.Empty(t, got.CompletionDetail)
+				require.Equal(t, detail, got.CompletionDetail)
 				info, err := r.GetJob(ctx, key)
 				require.NoError(t, err)
 				require.Equal(t, status, info.CompletionStatus)
@@ -59,7 +59,7 @@ func runCompletionSummaries(t *testing.T, harnesses []Harness) {
 					// of chapter content. A committed chapter alone is insufficient.
 					require.NoError(t, r.PutChapter(ctx, jobdb.PutChapterRequest{Ref: jobdb.ChapterRef{JobKey: key, Ordinal: 1}, LeaseID: lease.LeaseID(), LeaseToken: leaseTokenForTest(lease), Chapter: final}))
 					check(key, "", "")
-					detail := "stored detail: " + status + "\nexact text"
+					detail := " \tstored detail: " + status + "\nexact text 雪\n "
 					if status == "success" {
 						detail = ""
 					}

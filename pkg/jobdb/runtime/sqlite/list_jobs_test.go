@@ -43,9 +43,6 @@ func TestCompactListDoesNotReadDetailsOrGoalDiagnostics(t *testing.T) {
 	_, err = r.db.ExecContext(ctx, `DROP TABLE jobdb_goal_candidates`)
 	require.NoError(t, err)
 	check()
-	// A list must not decode run policy/task coordinates or client payload.
-	_, err = r.db.ExecContext(ctx, `UPDATE jobdb_jobs SET payload=x'ff', client_payload=x'ff'`)
-	require.NoError(t, err)
 	// Nor may it read chapters or artifacts.
 	original := r.chapterStore
 	r.chapterStore = &chapterstore.Store{}

@@ -3405,7 +3405,7 @@ components:
     JobSummary:
       type: object
       required: [goalId, otherGoalIds, jobKey, status, jobType, waitFor, availableAt, cancelRequested, createdAt, executionState, clientPayloadRevision]
-      description: List responses leave deprecated detail fields empty. Read those fields from GetJob or dependency detail APIs. Full application metadata is always retained.
+      description: List responses include stored completion detail, full opaque client payload and revision, execution state, prerequisites, and application metadata. Only additional memberships and evaluated dependency explanations require detail APIs.
       additionalProperties: false
       properties:
         blockingWaitSummary:
@@ -3426,21 +3426,15 @@ components:
           type: string
           description: Persisted terminal outcome, independent of scheduler status. Absent or empty means unavailable. Unfamiliar values are preserved.
         completionDetail:
-          deprecated: true
-          x-deprecated-reason: Not populated by ordinary job lists. Use GetJob for details.
           type: string
           description: Persisted terminal completion detail. Empty is valid, including for success.
         clientPayload:
-          deprecated: true
-          x-deprecated-reason: Not populated by ordinary job lists. Use GetJob for details.
           x-go-type: json.RawMessage
           x-go-type-skip-optional-pointer: true
         clientPayloadRevision:
           type: string
           pattern: '^[0-9]+$'
         executionState:
-          deprecated: true
-          x-deprecated-reason: Not populated by ordinary job lists. Use GetJob for details.
           allOf:
             - $ref: '#/components/schemas/ExecutionState'
         jobKey:
@@ -3452,8 +3446,6 @@ components:
         nextRoute:
           $ref: '#/components/schemas/Route'
         waitFor:
-          deprecated: true
-          x-deprecated-reason: Not populated by ordinary job lists. Use GetJob for details.
           type: array
           items:
             type: string
