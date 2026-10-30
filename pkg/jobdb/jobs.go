@@ -40,7 +40,7 @@ type SubmitRestartJob struct {
 	JobID               string             // optional override for new job id
 	ExtraTaskInput      TaskData           // optional input used to compute hash for ExtraTaskOutput
 	ExtraTaskOutput     TaskData           // optional cached task/job output to append at LastStepToKeep+1
-	Schema              *JobSchemaSelector // Optional schema used to validate visible chapters
+	Schema              *JobSchemaSelector // Optional schema used to validate newly written chapters; retained history is unchanged
 	Prerequisites       []JobPrerequisite  // Optional prerequisites that must complete before this job starts
 }
 

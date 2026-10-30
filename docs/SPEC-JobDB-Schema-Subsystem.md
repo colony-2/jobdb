@@ -148,9 +148,11 @@ references, stores the resolved hash, and validates chapter `0` with the first
 shape before committing the job.
 
 On `SubmitRestartJob`, the new job uses only the provided schema selector. If no
-selector is supplied, the restarted job has no schema. Retained chapter `0`
-validates as first, retained non-zero chapters validate as ordinary, and any
-new restart extra chapter validates as ordinary.
+selector is supplied, the restarted job has no schema. Retained chapters are
+linked unchanged and are not scanned for validation against the new schema or
+current application payload limit. Newly appended restart chapters validate as
+ordinary, and subsequent writes use the restarted job's schema. Resolving a
+logical scope restart boundary can still require reading execution history.
 
 On `PutChapter`, remote append paths use the trusted schema hash carried in the
 signed lease token when available. This avoids a job-row read solely to discover

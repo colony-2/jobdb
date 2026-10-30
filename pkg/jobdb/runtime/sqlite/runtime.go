@@ -255,44 +255,14 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 			return jobdb.JobHandle{}, err
 		}
 	}
-	if schemaHash != "" {
-		for ordinal := int64(0); ordinal <= job.LastStepToKeep; ordinal++ {
-			sourceChapter, err := r.chapterStore.Chapter(sctx, sourceJob, ordinal)
-			if err != nil {
-				return jobdb.JobHandle{}, err
-			}
-			storedChapter, err := chapterFromStoryChapter(sourceChapter)
-			if err != nil {
-				return jobdb.JobHandle{}, err
-			}
-			var validationErr error
-			if ordinal == 0 {
-				validationErr = runtimecore.ValidateFirstChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, storedChapter)
-			} else {
-				validationErr = runtimecore.ValidateOrdinaryChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, storedChapter)
-			}
-			if validationErr != nil {
-				return jobdb.JobHandle{}, validationErr
-			}
-		}
-		if createOptions.InitialChapter != nil {
-			storedChapter, err := chapterFromStoryChapter(createOptions.InitialChapter)
-			if err != nil {
-				return jobdb.JobHandle{}, err
-			}
-			if err := runtimecore.ValidateOrdinaryChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, storedChapter); err != nil {
-				return jobdb.JobHandle{}, err
-			}
-		}
-	}
-
-	// New restart chapters are subject to the size limit even without a schema.
+	// Retained history is linked unchanged, not written under the new schema or
+	// payload limit. Validate only the chapter appended by this restart.
 	if createOptions.InitialChapter != nil {
-		chapter, err := chapterFromStoryChapter(createOptions.InitialChapter)
+		storedChapter, err := chapterFromStoryChapter(createOptions.InitialChapter)
 		if err != nil {
 			return jobdb.JobHandle{}, err
 		}
-		if err = jobdb.ValidateChapterApplicationPayload(ctx, chapter, r.ChapterApplicationPayloadLimit()); err != nil {
+		if err := runtimecore.ValidateOrdinaryChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, storedChapter); err != nil {
 			return jobdb.JobHandle{}, err
 		}
 	}

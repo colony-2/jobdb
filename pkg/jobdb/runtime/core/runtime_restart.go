@@ -141,7 +141,8 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 			return jobdb.JobHandle{}, err
 		}
 		chapter := jobdb.Chapter{Ordinal: nextOrdinal, TaskType: "__execution__", CreatedAt: createdAt.UTC(), Body: jobdb.ExecutionChapter{Record: raw}}
-		if err := jobdb.ValidateChapterApplicationPayload(ctx, chapter, r.ChapterApplicationPayloadLimit()); err != nil {
+		if err := ValidateOrdinaryChapter(ctx, r.chapterRegistry(),
+			jobdb.JobSchemaKey{TenantId: key.TenantId, SchemaHash: schemaHash}, chapter); err != nil {
 			return jobdb.JobHandle{}, err
 		}
 		encoded, err := EncodeChapter(EncodeChapterRequest{Chapter: chapter})
@@ -196,26 +197,8 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		}
 		extra = &encoded
 	}
-	if schemaHash != "" {
-		for ordinal := int64(0); ordinal <= job.LastStepToKeep; ordinal++ {
-			encoded, err := r.chapters.Get(ctx, source, ordinal)
-			if err != nil {
-				return jobdb.JobHandle{}, err
-			}
-			chapter, err := DecodeChapter(encoded)
-			if err != nil {
-				return jobdb.JobHandle{}, err
-			}
-			validate := ValidateOrdinaryChapter
-			if ordinal == 0 {
-				validate = ValidateFirstChapter
-			}
-			if err := validate(ctx, r.chapterRegistry(),
-				jobdb.JobSchemaKey{TenantId: key.TenantId, SchemaHash: schemaHash}, chapter); err != nil {
-				return jobdb.JobHandle{}, err
-			}
-		}
-	}
+	// Retained history is linked unchanged. The new schema and payload limit
+	// apply only to newly appended chapters, not the source prefix.
 	destination := ChapterLogKey{JobKey: key}
 	existing := false
 	if err := r.chapters.ClonePrefix(ctx, ClonePrefixRequest{

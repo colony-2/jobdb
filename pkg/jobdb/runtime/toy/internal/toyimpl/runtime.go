@@ -377,17 +377,13 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if _, ok := targetChapters[0]; !ok {
 		return jobdb.JobHandle{}, jobdb.ErrJobNotFound
 	}
-	for _, chapter := range targetChapters {
-		var err error
-		if chapter.Ordinal == 0 {
-			err = runtimecore.ValidateFirstChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, chapter)
-		} else {
-			err = runtimecore.ValidateOrdinaryChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, chapter)
-		}
-		if err != nil {
+	// As with durable thin clones, inherited chapters are not new writes.
+	if executionRestart != nil {
+		if err := runtimecore.ValidateOrdinaryChapter(ctx, r, jobdb.JobSchemaKey{TenantId: jobKey.TenantId, SchemaHash: schemaHash}, targetChapters[nextOrdinal]); err != nil {
 			return jobdb.JobHandle{}, err
 		}
 	}
+
 	if req.Job.JobID != "" {
 		if handle, ok, err := r.existingEquivalentRestartJob(jobKey, req.Job, targetChapters, storedMetadata); ok || err != nil {
 			return handle, err
