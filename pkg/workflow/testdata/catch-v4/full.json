@@ -1,0 +1,152 @@
+[
+  {
+    "version": 4,
+    "kind": "header",
+    "activation": "3LRbPheRfeNTuDxCyX8bviHAiVv",
+    "versions": {
+      "execution_pattern_version": 4,
+      "jobdb_version": "(devel)"
+    },
+    "at": "2026-10-31T04:10:04.1815458Z",
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 4,
+    "kind": "activation",
+    "activation": "3LRbPheRfeNTuDxCyX8bviHAiVv",
+    "versions": {
+      "execution_pattern_version": 4,
+      "jobdb_version": "(devel)"
+    },
+    "at": "2026-10-31T04:10:04.181659675Z",
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 4,
+    "kind": "scope",
+    "id": "/scope:\"$job\"#1",
+    "at": "2026-10-31T04:10:04.1815458Z",
+    "descriptor": {
+      "total_timeout": 0,
+      "attempt_timeout": 0,
+      "retry": {
+        "InitialInterval": 0,
+        "BackoffCoefficient": 1,
+        "MaximumInterval": 0,
+        "MaximumAttempts": 1,
+        "NonRetryableErrorTypes": null
+      }
+    },
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 4,
+    "kind": "attempt",
+    "id": "/scope:\"$job\"#1/attempt:1",
+    "at": "2026-10-31T04:10:04.1815458Z",
+    "attempt": 1,
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 4,
+    "kind": "scope",
+    "id": "/scope:\"$job\"#1/attempt:1/scope:\"caught\"#1",
+    "at": "2026-10-31T04:10:04.1815458Z",
+    "descriptor": {
+      "total_timeout": 0,
+      "attempt_timeout": 0,
+      "retry": {
+        "InitialInterval": 0,
+        "BackoffCoefficient": 1,
+        "MaximumInterval": 0,
+        "MaximumAttempts": 1,
+        "NonRetryableErrorTypes": null
+      },
+      "rules": [
+        "recover"
+      ]
+    },
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 4,
+    "kind": "attempt",
+    "id": "/scope:\"$job\"#1/attempt:1/scope:\"caught\"#1/attempt:1",
+    "at": "2026-10-31T04:10:04.1815458Z",
+    "attempt": 1,
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 4,
+    "kind": "result",
+    "id": "/scope:\"$job\"#1/attempt:1/scope:\"caught\"#1/attempt:1",
+    "at": "2026-10-31T04:10:04.181635634Z",
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "error_kind": "AppError",
+    "error": {
+      "message": "original",
+      "level": "error"
+    },
+    "retryable": true,
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 4,
+    "kind": "catch",
+    "id": "/scope:\"$job\"#1/attempt:1/scope:\"caught\"#1/attempt:1",
+    "at": "2026-10-31T04:10:04.181639467Z",
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "rule": "recover",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 4,
+    "kind": "handled",
+    "id": "/scope:\"$job\"#1/attempt:1/scope:\"caught\"#1/attempt:1",
+    "at": "2026-10-31T04:10:04.181648634Z",
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "output": {
+      "data": "recovered"
+    },
+    "disposition": "handled",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 4,
+    "kind": "decision",
+    "id": "/scope:\"$job\"#1/attempt:1/scope:\"caught\"#1/attempt:1",
+    "at": "2026-10-31T04:10:04.181658384Z",
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "disposition": "handled",
+    "wake_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "version": 4,
+    "kind": "result",
+    "id": "/scope:\"$job\"#1/attempt:1",
+    "activation": "3LRbPheRfeNTuDxCyX8bviHAiVv",
+    "at": "2026-10-31T04:10:04.181659509Z",
+    "deadline": "0001-01-01T00:00:00Z",
+    "total_deadline": "0001-01-01T00:00:00Z",
+    "output": {
+      "data": "recovered"
+    },
+    "wake_at": "0001-01-01T00:00:00Z"
+  }
+]

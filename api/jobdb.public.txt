@@ -1575,18 +1575,79 @@ func AsWorkSetWithOptions func(jobWorker JobWorker, opts WorkRegistrationOptions
 func AssignArtifactKey func(art Artifact, key ArtifactKey)
 type CancelJob = github.com/colony-2/jobdb/pkg/jobdb.CancelJob
 type CancelJobRequest = github.com/colony-2/jobdb/pkg/jobdb.CancelJobRequest
+type CatchAcceptedResult struct
+  field Disposition CatchDisposition
+  field Output *github.com/colony-2/jobdb/pkg/jobdb.ExecutionSnapshot
+  field Failure *CatchFailure
+  field Provenance string
+type CatchAttempt struct
+  field Boundary CatchBoundaryRef
+  field BoundaryKind string
+  field ParentID string
+  field Site string
+  field Original *CatchFailure
+  field Selection string
+  field RuleID string
+  field PredicateError *CatchFailure
+  field Handling string
+  field Accepted *CatchAcceptedResult
+  field Retry *CatchRetryDecision
+  field Gaps []CatchEvidenceGap
+type CatchBoundaryRef struct
+  field JobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey
+  field JobAttemptID string
+  field BoundaryID string
+  field AttemptID string
+  field AttemptNumber int
+const CatchBoundaryScope untyped string = "scope"
+const CatchBoundaryTask untyped string = "task"
 const CatchContinue CatchDisposition = "continue"
 type CatchDisposition string
+type CatchEvidenceGap struct
+  field Field string
+  field Reason string
+type CatchFailure struct
+  field Kind string
+  field Data encoding/json.RawMessage
+const CatchGapAcceptedProvenance untyped string = "accepted.provenance"
+const CatchGapAmbiguous untyped string = "ambiguous"
+const CatchGapFrontier untyped string = "frontier"
+const CatchGapHandling untyped string = "handling"
+const CatchGapNotRecorded untyped string = "not_recorded"
+const CatchGapOmitted untyped string = "omitted"
+const CatchGapOriginal untyped string = "original"
+const CatchGapOriginalOrigin untyped string = "original.origin"
+const CatchGapParent untyped string = "parent"
+const CatchGapRetry untyped string = "retry"
+const CatchGapSelection untyped string = "selection"
 const CatchHandled CatchDisposition = "handled"
+const CatchHandlingAccepted untyped string = "accepted"
+const CatchHandlingNotApplicable untyped string = "not_applicable"
+const CatchHandlingPending untyped string = "pending"
+const CatchHandlingUnknown untyped string = "unknown"
+type CatchHistory struct
+  field Attempts []CatchAttempt
+  field Gaps []CatchEvidenceGap
 const CatchPropagate CatchDisposition = "propagate"
+const CatchProvenanceHandlerError untyped string = "handler_error"
+const CatchProvenancePreserved untyped string = "preserved"
+const CatchProvenanceReplacement untyped string = "replacement"
+const CatchProvenanceUnknown untyped string = "unknown"
 type CatchResult struct
   field Disposition CatchDisposition
   field Output TaskData
   field Err error
+type CatchRetryDecision struct
+  field Retry bool
+  field WakeAt *time.Time
 type CatchRule struct
   field ID string
   field Match func(error) bool
   field Handle func(ExecutionContext, error) (CatchResult, error)
+const CatchSelectionPredicateError untyped string = "predicate_error"
+const CatchSelectionSelected untyped string = "selected"
+const CatchSelectionUnknown untyped string = "unknown"
+const CatchSelectionUnmatched untyped string = "unmatched"
 type Chapter = github.com/colony-2/jobdb/pkg/jobdb.Chapter
 type ChapterBody = github.com/colony-2/jobdb/pkg/jobdb.ChapterBody
 type ChapterMetadata = github.com/colony-2/jobdb/pkg/jobdb.ChapterMetadata
@@ -1803,6 +1864,7 @@ func NewTimeoutError func(kind string, after time.Duration, scope string, inputR
 type NonRetryableError = github.com/colony-2/jobdb/pkg/jobdb.NonRetryableError
 type PollWorkRequest = github.com/colony-2/jobdb/pkg/jobdb.PollWorkRequest
 type PutChapterRequest = github.com/colony-2/jobdb/pkg/jobdb.PutChapterRequest
+func ReadCatchHistory func(ctx context.Context, runtime github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime, req github.com/colony-2/jobdb/pkg/jobdb.GetJobRunRequest) (CatchHistory, error)
 const ReplayCacheMissAwaitJobsPending ReplayCacheMissReason = "await_jobs_pending"
 const ReplayCacheMissAwaitNotReady ReplayCacheMissReason = "await_not_ready"
 type ReplayCacheMissError struct

@@ -104,6 +104,12 @@ This includes `Engine`, `EngineBuilder`, `JobWorker`, `TaskWorker`,
 `ExecutionContext`, `TaskContext`, worker loops, replay execution, task discovery,
 run-if-leaseable helpers, and worker-level determinism errors.
 
+`ReadCatchHistory` and its catch history types/constants are supported read-only
+inspection APIs for committed v4 full/compact execution history. They expose
+opaque boundary/attempt identities, selection, accepted handling and retry
+without running application callbacks. See [catch history](CATCH-HISTORY.md)
+for states, evidence gaps and compatibility limits.
+
 This package may alias stable lower-level `jobdb` data types for ergonomics,
 but moved worker symbols are not re-exported from `pkg/jobdb`.
 

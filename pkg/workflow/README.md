@@ -337,3 +337,13 @@ Runtime implementers must add `GetConfiguration` to `WorkflowRuntime` and
 `ExecutionLease`, and custom job contexts must implement the matching method.
 Core runtimes must supply `Config.Configurations`; missing storage fails
 construction. HTTP servers require `jobdb.ConfigurationAdmin` as well.
+
+## Read-only catch inspection
+
+`ReadCatchHistory(ctx, runtime, jobdb.GetJobRunRequest{JobKey: key})` exposes
+committed selection, engine-accepted handling and recorded retry decisions for
+failed scope/task attempts. It works for active and completed runs without an
+engine or registered callbacks. Selection alone is not successful handling;
+check accepted disposition and resulting failure. See the
+[catch history guide](../../docs/CATCH-HISTORY.md) for opaque identities,
+compact-history frontiers, evidence gaps and a minimal consumer example.

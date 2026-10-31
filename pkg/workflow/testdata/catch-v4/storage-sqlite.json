@@ -1,0 +1,240 @@
+[
+  {
+    "Record": {
+      "version": 4,
+      "kind": "header",
+      "activation": "3LRg1vMam4SzORYi0Hdsv7NWSDL",
+      "versions": {
+        "execution_pattern_version": 4,
+        "jobdb_version": "(devel)"
+      },
+      "at": "2026-10-31T04:48:02.180409883Z",
+      "deadline": "0001-01-01T00:00:00Z",
+      "total_deadline": "0001-01-01T00:00:00Z",
+      "wake_at": "0001-01-01T00:00:00Z"
+    },
+    "Metadata": {
+      "Fields": {
+        "created_at": {
+          "Kind": "string",
+          "Bool": false,
+          "Int": 0,
+          "Double": 0,
+          "String": "2026-10-31T04:48:02.180409883Z",
+          "List": null,
+          "Map": null
+        },
+        "input_hash": {
+          "Kind": "string",
+          "Bool": false,
+          "Int": 0,
+          "Double": 0,
+          "String": "",
+          "List": null,
+          "Map": null
+        },
+        "ordinal": {
+          "Kind": "int",
+          "Bool": false,
+          "Int": 1,
+          "Double": 0,
+          "String": "",
+          "List": null,
+          "Map": null
+        },
+        "task_type": {
+          "Kind": "string",
+          "Bool": false,
+          "Int": 0,
+          "Double": 0,
+          "String": "__execution__",
+          "List": null,
+          "Map": null
+        },
+        "version": {
+          "Kind": "int",
+          "Bool": false,
+          "Int": 1,
+          "Double": 0,
+          "String": "",
+          "List": null,
+          "Map": null
+        },
+        "worker_id": {
+          "Kind": "string",
+          "Bool": false,
+          "Int": 0,
+          "Double": 0,
+          "String": "",
+          "List": null,
+          "Map": null
+        }
+      }
+    }
+  },
+  {
+    "Record": {
+      "version": 4,
+      "kind": "activation",
+      "activation": "3LRg1vMam4SzORYi0Hdsv7NWSDL",
+      "versions": {
+        "execution_pattern_version": 4,
+        "jobdb_version": "(devel)"
+      },
+      "at": "2026-10-31T04:48:02.180755716Z",
+      "deadline": "0001-01-01T00:00:00Z",
+      "total_deadline": "0001-01-01T00:00:00Z",
+      "wake_at": "0001-01-01T00:00:00Z"
+    },
+    "Metadata": {
+      "Fields": {
+        "created_at": {
+          "Kind": "string",
+          "Bool": false,
+          "Int": 0,
+          "Double": 0,
+          "String": "2026-10-31T04:48:02.180755716Z",
+          "List": null,
+          "Map": null
+        },
+        "input_hash": {
+          "Kind": "string",
+          "Bool": false,
+          "Int": 0,
+          "Double": 0,
+          "String": "",
+          "List": null,
+          "Map": null
+        },
+        "ordinal": {
+          "Kind": "int",
+          "Bool": false,
+          "Int": 2,
+          "Double": 0,
+          "String": "",
+          "List": null,
+          "Map": null
+        },
+        "task_type": {
+          "Kind": "string",
+          "Bool": false,
+          "Int": 0,
+          "Double": 0,
+          "String": "__execution__",
+          "List": null,
+          "Map": null
+        },
+        "version": {
+          "Kind": "int",
+          "Bool": false,
+          "Int": 1,
+          "Double": 0,
+          "String": "",
+          "List": null,
+          "Map": null
+        },
+        "worker_id": {
+          "Kind": "string",
+          "Bool": false,
+          "Int": 0,
+          "Double": 0,
+          "String": "",
+          "List": null,
+          "Map": null
+        }
+      }
+    }
+  },
+  {
+    "Record": {
+      "version": 4,
+      "kind": "result",
+      "id": "/scope:\"$job\"#1/attempt:1",
+      "activation": "3LRg1vMam4SzORYi0Hdsv7NWSDL",
+      "at": "2026-10-31T04:48:02.180755549Z",
+      "deadline": "0001-01-01T00:00:00Z",
+      "total_deadline": "0001-01-01T00:00:00Z",
+      "output": {
+        "data": "recovered"
+      },
+      "wake_at": "0001-01-01T00:00:00Z"
+    },
+    "Metadata": {
+      "Fields": {
+        "created_at": {
+          "Kind": "string",
+          "Bool": false,
+          "Int": 0,
+          "Double": 0,
+          "String": "2026-10-31T04:48:02.180755549Z",
+          "List": null,
+          "Map": null
+        },
+        "input_hash": {
+          "Kind": "string",
+          "Bool": false,
+          "Int": 0,
+          "Double": 0,
+          "String": "",
+          "List": null,
+          "Map": null
+        },
+        "metadata": {
+          "Kind": "map",
+          "Bool": false,
+          "Int": 0,
+          "Double": 0,
+          "String": "",
+          "List": null,
+          "Map": {
+            "__execution_prefix_v3": {
+              "Kind": "string",
+              "Bool": false,
+              "Int": 0,
+              "Double": 0,
+              "String": "[{\"version\":4,\"kind\":\"scope\",\"id\":\"/scope:\\\"$job\\\"#1\",\"at\":\"2026-10-31T04:48:02.180409883Z\",\"descriptor\":{\"attempt_timeout\":0,\"retry\":{\"BackoffCoefficient\":1,\"InitialInterval\":0,\"MaximumAttempts\":1,\"MaximumInterval\":0,\"NonRetryableErrorTypes\":null},\"total_timeout\":0},\"deadline\":\"0001-01-01T00:00:00Z\",\"total_deadline\":\"0001-01-01T00:00:00Z\",\"wake_at\":\"0001-01-01T00:00:00Z\"},{\"version\":4,\"kind\":\"attempt\",\"id\":\"/scope:\\\"$job\\\"#1/attempt:1\",\"at\":\"2026-10-31T04:48:02.180409883Z\",\"attempt\":1,\"deadline\":\"0001-01-01T00:00:00Z\",\"total_deadline\":\"0001-01-01T00:00:00Z\",\"wake_at\":\"0001-01-01T00:00:00Z\"},{\"version\":4,\"kind\":\"scope\",\"id\":\"/scope:\\\"$job\\\"#1/attempt:1/scope:\\\"caught\\\"#1\",\"at\":\"2026-10-31T04:48:02.180409883Z\",\"descriptor\":{\"attempt_timeout\":0,\"retry\":{\"BackoffCoefficient\":1,\"InitialInterval\":0,\"MaximumAttempts\":1,\"MaximumInterval\":0,\"NonRetryableErrorTypes\":null},\"rules\":[\"recover\"],\"total_timeout\":0},\"deadline\":\"0001-01-01T00:00:00Z\",\"total_deadline\":\"0001-01-01T00:00:00Z\",\"wake_at\":\"0001-01-01T00:00:00Z\"},{\"version\":4,\"kind\":\"attempt\",\"id\":\"/scope:\\\"$job\\\"#1/attempt:1/scope:\\\"caught\\\"#1/attempt:1\",\"at\":\"2026-10-31T04:48:02.180409883Z\",\"attempt\":1,\"deadline\":\"0001-01-01T00:00:00Z\",\"total_deadline\":\"0001-01-01T00:00:00Z\",\"wake_at\":\"0001-01-01T00:00:00Z\"},{\"version\":4,\"kind\":\"result\",\"id\":\"/scope:\\\"$job\\\"#1/attempt:1/scope:\\\"caught\\\"#1/attempt:1\",\"at\":\"2026-10-31T04:48:02.180740258Z\",\"deadline\":\"0001-01-01T00:00:00Z\",\"total_deadline\":\"0001-01-01T00:00:00Z\",\"error_kind\":\"AppError\",\"error\":{\"message\":\"original\",\"level\":\"error\"},\"retryable\":true,\"wake_at\":\"0001-01-01T00:00:00Z\"},{\"version\":4,\"kind\":\"catch\",\"id\":\"/scope:\\\"$job\\\"#1/attempt:1/scope:\\\"caught\\\"#1/attempt:1\",\"at\":\"2026-10-31T04:48:02.180743716Z\",\"deadline\":\"0001-01-01T00:00:00Z\",\"total_deadline\":\"0001-01-01T00:00:00Z\",\"rule\":\"recover\",\"wake_at\":\"0001-01-01T00:00:00Z\"},{\"version\":4,\"kind\":\"handled\",\"id\":\"/scope:\\\"$job\\\"#1/attempt:1/scope:\\\"caught\\\"#1/attempt:1\",\"at\":\"2026-10-31T04:48:02.180754383Z\",\"deadline\":\"0001-01-01T00:00:00Z\",\"total_deadline\":\"0001-01-01T00:00:00Z\",\"output\":{\"data\":\"recovered\"},\"disposition\":\"handled\",\"wake_at\":\"0001-01-01T00:00:00Z\"},{\"version\":4,\"kind\":\"decision\",\"id\":\"/scope:\\\"$job\\\"#1/attempt:1/scope:\\\"caught\\\"#1/attempt:1\",\"at\":\"2026-10-31T04:48:02.180754758Z\",\"deadline\":\"0001-01-01T00:00:00Z\",\"total_deadline\":\"0001-01-01T00:00:00Z\",\"disposition\":\"handled\",\"wake_at\":\"0001-01-01T00:00:00Z\"}]",
+              "List": null,
+              "Map": null
+            }
+          }
+        },
+        "ordinal": {
+          "Kind": "int",
+          "Bool": false,
+          "Int": 3,
+          "Double": 0,
+          "String": "",
+          "List": null,
+          "Map": null
+        },
+        "task_type": {
+          "Kind": "string",
+          "Bool": false,
+          "Int": 0,
+          "Double": 0,
+          "String": "__execution__",
+          "List": null,
+          "Map": null
+        },
+        "version": {
+          "Kind": "int",
+          "Bool": false,
+          "Int": 1,
+          "Double": 0,
+          "String": "",
+          "List": null,
+          "Map": null
+        },
+        "worker_id": {
+          "Kind": "string",
+          "Bool": false,
+          "Int": 0,
+          "Double": 0,
+          "String": "",
+          "List": null,
+          "Map": null
+        }
+      }
+    }
+  }
+]
