@@ -18,7 +18,8 @@ This release requires fresh execution storage and coordinated client upgrades.
 Bootstrap the special, permanently named root cell against the **JobDB API URL**:
 
 ```bash
-jobdb cell create-root --tenant acme --repo github.com/acme/root --url http://localhost:9047
+jobdb cell create --name root --tenant acme --repo github.com/acme/root --url http://localhost:9047
+jobdb cell create --name payments --tenant acme --repo github.com/acme/payments --url http://localhost:9047
 ```
 
 A live root job lease can submit to any cell in its tenant. The first submission

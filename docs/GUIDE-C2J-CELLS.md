@@ -46,7 +46,7 @@ root:
 
 `root` is always the reserved JobDB cell name. `root.repo` supplies bootstrap
 configuration, not authority. Administrators bootstrap it using
-`jobdb cell create-root --tenant TENANT --repo REPO --url URL`; submitting into
+`jobdb cell create --name root --tenant TENANT --repo REPO --url URL`; submitting into
 root cannot create it. Configured naming patterns may produce a repo
 assertion for a specified new name; they cannot overwrite a registered mapping.
 Update source configurations to this schema directly and delete the reader

@@ -25,7 +25,7 @@ Use the same public name/repository normalizer and typed errors. Postgres must
 not normalize differently, defer ownership to JSON metadata, or make network
 calls to verify Git identities. Administrative root bootstrap is explicit; root
 job submission alone cannot create the reserved root cell. Support the shared
-`jobdb cell create-root` CLI through the standard administrative HTTP API; no
+`jobdb cell create --name root` CLI through the standard administrative HTTP API; no
 separate Postgres-specific bootstrap command is needed. Preserve the root name
 and designation permanently, including during multi-property PATCH.
 

@@ -240,20 +240,21 @@ Restrict who can submit executable jobs into root, acquire their leases, and
 select the code those workers run: a root owner lease is a tenant-wide job
 submission capability by design.
 
-### Explicit root bootstrap command
+### Explicit cell creation command
 
-Add `jobdb cell create-root --tenant TENANT --repo REPO --url URL` to
-`pkg/jobdb/cli`, using the CLI's administrative authentication configuration.
-It calls the normal cell-create API with the fixed name `root`; callers cannot
-choose a name, ID, or root designation. Require `cells.create` and
-`cells.bootstrapRoot`. This command works against any conforming backend,
-including pgjobdb, and is the documented fresh-tenant bootstrap entrypoint.
+`jobdb cell create --name NAME --tenant TENANT --repo REPO --url URL` creates
+any named cell through the standard administrative API. Callers choose the name
+and repository; the server generates the ID and derives the root designation.
+All creation requires `cells.create`; `--name root` additionally requires
+`cells.bootstrapRoot` and is the fresh-tenant bootstrap entrypoint. This command
+works against any conforming backend, including pgjobdb. The root-only
+`create-root` command is removed.
 
 On successful creation, print the generated cell ID, name, and canonical repo.
-For an already-created root, an authorized lookup may confirm and report the
-existing record when its repo matches after normalization. That lookup requires
+For an existing active cell, an authorized lookup may confirm and report the
+record when its current name and normalized repo match. That lookup requires
 `cells.list` and `cells.get`; denial is an error. A different repo is an explicit conflict; use
-PATCH to change it. The command never changes an existing root's properties.
+PATCH to change it. The command never changes an existing cell's properties.
 Concurrent bootstrap calls must converge on the one root binding or return the
 specific conflict; a repo owned by another cell is not adopted as root.
 
@@ -466,7 +467,7 @@ embedded-runtime setup to initialize the fresh format and required cells.
 2. Implement core semantics and fresh Toy/SQLite storage/publication. Remove
    replaced pre-cell paths as each surface is converted.
 3. Implement remote transport, lease profiles, delegation attenuation, public
-   runtime/SDK mappings, and `jobdb cell create-root` in `pkg/jobdb/cli`.
+   runtime/SDK mappings, and `jobdb cell create --name root` in `pkg/jobdb/cli`.
 4. Add shared conformance cases in `pkg/jobdb/runtimetest`; run against Toy,
    SQLite, remote, and pgjobdb before release.
 5. Regenerate clients/types, update fixtures/examples, and verify every required
@@ -497,7 +498,7 @@ prove compatibility; retain only rejection fixtures where needed.
    The reset includes archived/hidden jobs and scheduled work, not just queues.
 4. Reapply tenant settings, source-trust policy, and credential-provider setup
    from their administrative source of truth. Bootstrap each tenant's root cell
-   with `jobdb cell create-root --tenant TENANT --repo REPO --url URL`.
+   with `jobdb cell create --name root --tenant TENANT --repo REPO --url URL`.
    Explicitly create any ordinary cells needed before
    their first root-submitted job. No old-job scan or identity mapping is run.
 5. Start only the new servers/clients/workers. Recreate desired schedules and

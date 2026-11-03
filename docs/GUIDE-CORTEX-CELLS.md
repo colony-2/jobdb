@@ -74,7 +74,7 @@ paused schedules requiring an explicit target update after a repo change.
 Retire only when authorized and idle; show
 cell_busy without implying cancellation/draining. Root cannot be renamed or
 retired; disable its name editor but allow authorized repo/description/metadata
-edits. Root bootstrap uses the administrative `jobdb cell create-root` command.
+edits. Root bootstrap uses the administrative `jobdb cell create --name root` command.
 Git cloning/publication remains a separate concern; cell registration
 success is not evidence that a repository has been published.
 

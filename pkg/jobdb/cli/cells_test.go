@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCreateRootCellCommand(t *testing.T) {
+func TestCreateCellCommand(t *testing.T) {
 	backend := toy.New()
 	server := httptest.NewServer(localCellAdministration(remote.NewServer(backend)))
 	defer server.Close()
@@ -21,7 +21,7 @@ func TestCreateRootCellCommand(t *testing.T) {
 		cmd := newCellCmd()
 		var output bytes.Buffer
 		cmd.SetOut(&output)
-		cmd.SetArgs([]string{"create-root", "--tenant", "tenant", "--repo", repo, "--url", server.URL})
+		cmd.SetArgs([]string{"create", "--name", "root", "--tenant", "tenant", "--repo", repo, "--url", server.URL})
 		err := cmd.Execute()
 		var c jobdb.Cell
 		if err == nil {
@@ -39,7 +39,7 @@ func TestCreateRootCellCommand(t *testing.T) {
 	require.ErrorContains(t, err, "update it explicitly with PATCH")
 }
 
-func TestCreateRootCellCommandAuthentication(t *testing.T) {
+func TestCreateCellCommandAuthentication(t *testing.T) {
 	t.Setenv("JOBDB_BEARER_TOKEN", "test-token")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
@@ -49,6 +49,29 @@ func TestCreateRootCellCommandAuthentication(t *testing.T) {
 	}))
 	defer server.Close()
 	cmd := newCellCmd()
-	cmd.SetArgs([]string{"create-root", "--tenant", "tenant", "--repo", "github.com/org/root", "--url", server.URL})
+	cmd.SetArgs([]string{"create", "--name", "root", "--tenant", "tenant", "--repo", "github.com/org/root", "--url", server.URL})
 	require.ErrorIs(t, cmd.Execute(), jobdb.ErrCellForbidden)
+}
+
+func TestCreateOrdinaryCellCommand(t *testing.T) {
+	backend := toy.New()
+	server := httptest.NewServer(localCellAdministration(remote.NewServer(backend)))
+	defer server.Close()
+	cmd := newCellCmd()
+	var output bytes.Buffer
+	cmd.SetOut(&output)
+	cmd.SetArgs([]string{"create", "--name", "project", "--tenant", "tenant", "--repo", "github.com/org/project", "--url", server.URL})
+	require.NoError(t, cmd.Execute())
+	var cell jobdb.Cell
+	require.NoError(t, json.Unmarshal(output.Bytes(), &cell))
+	require.Equal(t, "project", cell.Name)
+	require.False(t, cell.IsRoot)
+}
+
+func TestCellCreateRequiresNameAndRemovesRootOnlyCommand(t *testing.T) {
+	for _, args := range [][]string{{"create", "--tenant", "tenant", "--repo", "example.test/repo"}, {"create-root"}} {
+		cmd := newCellCmd()
+		cmd.SetArgs(args)
+		require.Error(t, cmd.Execute())
+	}
 }

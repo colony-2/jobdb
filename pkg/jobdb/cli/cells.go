@@ -15,13 +15,16 @@ import (
 )
 
 func newCellCmd() *cobra.Command {
-	var tenant, baseURL, repo string
-	root := &cobra.Command{Use: "cell", Short: "Manage tenant cells", Args: cobra.NoArgs}
+	var tenant, baseURL, repo, name string
+	root := &cobra.Command{Use: "cell", Short: "Manage tenant cells", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
 	root.PersistentFlags().StringVarP(&tenant, "tenant", "t", "", "tenant ID (required)")
 	root.PersistentFlags().StringVarP(&baseURL, "url", "u", "http://127.0.0.1:9047", "JobDB API server base URL")
-	create := &cobra.Command{Use: "create-root", Short: "Bootstrap the tenant's permanent root cell", Args: cobra.NoArgs, Long: "Create the special root cell using administrative cells.create and cells.bootstrapRoot authority. Set JOBDB_BEARER_TOKEN for deployment authentication. Repeating with the same repository reports the existing root; this command never changes its properties.", RunE: func(cmd *cobra.Command, _ []string) error {
+	create := &cobra.Command{Use: "create", Short: "Create a tenant cell", Args: cobra.NoArgs, Long: "Create a named cell using cells.create authority. Creating root also requires cells.bootstrapRoot authority. Set JOBDB_BEARER_TOKEN for deployment authentication. Repeating with the same repository reports the existing cell; this command never changes its properties.", RunE: func(cmd *cobra.Command, _ []string) error {
 		if tenant == "" {
 			return fmt.Errorf("--tenant is required")
+		}
+		if e := jobdb.ValidateCellName(name); e != nil {
+			return fmt.Errorf("--name is required and must be a valid cell name: %w", e)
 		}
 		canonical, e := jobdb.NormalizeCellRepo(repo)
 		if e != nil {
@@ -35,10 +38,10 @@ func newCellCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		c, e := rt.CreateCell(cmd.Context(), jobdb.CreateCellRequest{TenantID: tenant, Name: "root", Repo: canonical})
+		c, e := rt.CreateCell(cmd.Context(), jobdb.CreateCellRequest{TenantID: tenant, Name: name, Repo: canonical})
 		var ce *jobdb.CellError
 		if errors.As(e, &ce) && ce.Code == "cell_conflict" {
-			list, lookupErr := rt.ListCells(cmd.Context(), jobdb.ListCellsRequest{TenantID: tenant, Name: "root", State: "ALL"})
+			list, lookupErr := rt.ListCells(cmd.Context(), jobdb.ListCellsRequest{TenantID: tenant, Name: name, State: "ALL"})
 			if lookupErr != nil {
 				return lookupErr
 			}
@@ -49,8 +52,8 @@ func newCellCmd() *cobra.Command {
 			if lookupErr != nil {
 				return lookupErr
 			}
-			if !c.IsRoot || c.Name != "root" || c.Repo != canonical {
-				return fmt.Errorf("root already uses a different repository; update it explicitly with PATCH: %w", jobdb.ErrCellConflict)
+			if c.Name != name || c.Repo != canonical || c.State != jobdb.CellActive {
+				return fmt.Errorf("cell already exists with different properties; update it explicitly with PATCH: %w", jobdb.ErrCellConflict)
 			}
 			e = nil
 		}
@@ -59,7 +62,8 @@ func newCellCmd() *cobra.Command {
 		}
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(c)
 	}}
-	create.Flags().StringVar(&repo, "repo", "", "root cell Git repository (required)")
+	create.Flags().StringVar(&repo, "repo", "", "cell Git repository (required)")
+	create.Flags().StringVar(&name, "name", "", "cell name (required; use root to bootstrap root)")
 	root.AddCommand(create)
 	return root
 }

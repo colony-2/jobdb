@@ -38,7 +38,7 @@ special `root` cell. Changing a node's workspace to root does not grant a root
 lease. Likewise, switching a root job's workspace to a target repository does
 not change the owning root job's lease authority.
 
-Administrators first bootstrap root with `jobdb cell create-root`; workflows
+Administrators first bootstrap root with `jobdb cell create --name root`; workflows
 cannot implicitly create or rename this reserved cell.
 
 A non-root workflow requests provisioning through an approved root-workflow
