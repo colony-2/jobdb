@@ -15,15 +15,17 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/internal/executionmeta"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
 
 func executionRecords(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey) []jobdb.ExecutionRecord {
 	t.Helper()
-	chapters, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+	chapters, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 	require.NoError(t, err)
 	var records []jobdb.ExecutionRecord
 	for _, chapter := range chapters {
@@ -76,7 +78,7 @@ func TestExecutionAlternateLifecycle(t *testing.T) {
 		for _, mode := range modes {
 			controlledExpiry := mode == "primary-lease-expired" || mode == "claimed-crash" || mode == "retry"
 			scenario := func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				var rt jobdb.WorkflowRuntime
 				var setSchedulerTimes func(jobdb.JobKey, bool)
 				if controlledExpiry && backend != "toy" {
@@ -256,7 +258,7 @@ func TestExecutionAlternateLifecycle(t *testing.T) {
 func TestExecutionAlternatePendingRecovery(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			rt := alternateRuntime(t, backend)
 			var builds atomic.Int32
 			call := invocation("answer")
@@ -324,7 +326,7 @@ func TestExecutionAlternateBackoffRecovery(t *testing.T) {
 			out, err := runExecutionTest(t, rt, key, w, fallback)
 			require.NoError(t, err)
 			require.Equal(t, wf.JobRunSuspended, out.Status)
-			run, err := wf.GetJobForRun(context.Background(), rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{fallback}, WorkerID: "backoff", LeaseDuration: time.Second, AwaitThreshold: time.Millisecond})
+			run, err := wf.GetJobForRun(celltest.Context(context.Background()), rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{fallback}, WorkerID: "backoff", LeaseDuration: time.Second, AwaitThreshold: time.Millisecond})
 			require.NoError(t, err)
 			out, err = run.Run(nil)
 			require.NoError(t, err)
@@ -377,10 +379,10 @@ func TestExecutionAlternateDeadlines(t *testing.T) {
 					wait := executionWait(t, rt, key)
 					engine, err := wf.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 					require.NoError(t, err)
-					pending, err := engine.GetWaitingTask(context.Background(), key)
+					pending, err := engine.GetWaitingTask(celltest.Context(context.Background()), key)
 					require.NoError(t, err)
 					if mode == "completed" {
-						require.NoError(t, pending.Finish(context.Background(), jobdb.NewTaskDataOrPanic("answered")))
+						require.NoError(t, pending.Finish(celltest.Context(context.Background()), jobdb.NewTaskDataOrPanic("answered")))
 					}
 					waitAlternate(wait.Deadline.Add(time.Millisecond))
 					tasks := []wf.TaskWorker{}
@@ -392,7 +394,7 @@ func TestExecutionAlternateDeadlines(t *testing.T) {
 					if mode != "completed" {
 						// The timeout has now won the waiting slot and recorded an
 						// outcome. Wall-clock expiry alone does not reject answers.
-						require.Error(t, pending.Finish(context.Background(), jobdb.NewTaskDataOrPanic("too late")))
+						require.Error(t, pending.Finish(celltest.Context(context.Background()), jobdb.NewTaskDataOrPanic("too late")))
 					}
 				}
 				if mode == "completed" {
@@ -452,10 +454,12 @@ func TestExecutionAlternateCompletionRace(t *testing.T) {
 			require.Equal(t, wf.JobRunSuspended, out.Status)
 			engine, err := wf.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 			require.NoError(t, err)
-			pending, err := engine.GetWaitingTask(context.Background(), key)
+			pending, err := engine.GetWaitingTask(celltest.Context(context.Background()), key)
 			require.NoError(t, err)
 			answered := make(chan error, 1)
-			go func() { answered <- pending.Finish(context.Background(), jobdb.NewTaskDataOrPanic("human")) }()
+			go func() {
+				answered <- pending.Finish(celltest.Context(context.Background()), jobdb.NewTaskDataOrPanic("human"))
+			}()
 			_, err = runExecutionTest(t, rt, key, w, fallback)
 			require.NoError(t, err)
 			humanErr := <-answered
@@ -513,7 +517,7 @@ func TestExecutionAlternateCancellation(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		for _, claimed := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/claimed=%v", backend, claimed), func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				rt := alternateRuntime(t, backend)
 				call := invocation("answer")
 				call.Alternate = &wf.TaskAlternateAfter{TaskType: "fallback"}
@@ -574,7 +578,7 @@ func TestExecutionAlternateDispatchRecovery(t *testing.T) {
 				out, err := runExecutionTest(t, base, key, w, fallback)
 				require.NoError(t, err)
 				require.Equal(t, wf.JobRunSuspended, out.Status)
-				ctx, cancel := context.WithCancel(context.Background())
+				ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 				defer cancel()
 				kind := strings.Split(mode, "-")[0]
 				fault := &executionFaultRuntime{WorkflowRuntime: base, after: strings.HasSuffix(mode, "-committed") || mode == "dispatch-ack-lost", fail: func(r jobdb.ExecutionRecord) bool { return r.Kind == kind && strings.Contains(r.ID, "task:") }}
@@ -636,7 +640,7 @@ func TestExecutionAlternateDispatchRecovery(t *testing.T) {
 // Only scheduler timestamps change; the durable wait, input and hashes do not.
 func alternateExpiryRuntime(t *testing.T, backend string) (jobdb.WorkflowRuntime, func(jobdb.JobKey, bool)) {
 	t.Helper()
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	path := filepath.Join(t.TempDir(), "expiry.db")
 	base, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path})
 	require.NoError(t, err)
@@ -646,7 +650,7 @@ func alternateExpiryRuntime(t *testing.T, backend string) (jobdb.WorkflowRuntime
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	var runtime jobdb.WorkflowRuntime = base
 	if backend == "remote" {
-		server := httptest.NewServer(remote.NewServer(base))
+		server := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
 		t.Cleanup(server.Close)
 		runtime, err = remote.New(server.URL, server.Client())
 		require.NoError(t, err)

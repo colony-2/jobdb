@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -64,11 +66,11 @@ func TestExecutionCompactStoryVolume(t *testing.T) {
 					require.Equal(t, wf.JobRunSuspended, out.Status)
 					engine, err := wf.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 					require.NoError(t, err)
-					wait, err := engine.GetWaitingTask(context.Background(), key)
+					wait, err := engine.GetWaitingTask(celltest.Context(context.Background()), key)
 					require.NoError(t, err)
-					require.NoError(t, wait.Finish(context.Background(), jobdb.NewTaskDataOrPanic("answer")))
+					require.NoError(t, wait.Finish(celltest.Context(context.Background()), jobdb.NewTaskDataOrPanic("answer")))
 				}
-				chapters, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+				chapters, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 				require.NoError(t, err)
 				require.Len(t, chapters, 38, "29 results, two waits, three activations, header, job result/outcome and submission")
 				taskResults := 0
@@ -96,7 +98,7 @@ func TestExecutionCompactStoryVolume(t *testing.T) {
 				require.NoError(t, err)
 				require.EqualValues(t, 29, builds.Load())
 				require.EqualValues(t, 27, runs.Load())
-				after, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+				after, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 				require.NoError(t, err)
 				require.Equal(t, chapters, after)
 				t.Logf("235 scopes / 29 task results / two input waits: %d chapters", len(chapters))
@@ -159,7 +161,7 @@ func TestExecutionCompactCommitWinner(t *testing.T) {
 			require.EqualValues(t, 1, calls.Load())
 			if wrong {
 				require.ErrorContains(t, err, "conflicts with committed history")
-				chapters, e := base.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+				chapters, e := base.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 				require.NoError(t, e)
 				require.Len(t, chapters, 4, "stale writer must not append elsewhere")
 			} else {
@@ -180,7 +182,7 @@ func TestExecutionCompactCommitWinner(t *testing.T) {
 
 func TestExecutionCompactUncommittedLocalTimeoutRestarts(t *testing.T) {
 	rt := alternateRuntime(t, "sqlite")
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	defer cancel()
 	fault := &executionFaultRuntime{WorkflowRuntime: rt, cancel: cancel, fail: func(r jobdb.ExecutionRecord) bool { return r.Kind == "result" && strings.Contains(r.ID, "/task:") }}
 	var calls atomic.Int32
@@ -233,7 +235,7 @@ func TestExecutionCompactCatchChoiceCommittedWithHandlerTask(t *testing.T) {
 	out, err := runExecutionTest(t, rt, key, w, worker)
 	require.NoError(t, err)
 	require.Equal(t, wf.JobRunCompleted, out.Status)
-	chapters, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+	chapters, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 	require.NoError(t, err)
 	for _, ch := range chapters {
 		if b, ok := ch.Body.(jobdb.ExecutionChapter); ok {
@@ -270,7 +272,7 @@ func TestExecutionCompactTimeoutPropagation(t *testing.T) {
 			out, err := runExecutionTest(t, rt, key, w)
 			require.NoError(t, err)
 			require.Equal(t, wf.JobRunFailed, out.Status)
-			chapters, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+			chapters, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 			require.NoError(t, err)
 			require.Len(t, chapters, 6)
 			_, err = replayExecutionTest(t, rt, key, w)
@@ -313,7 +315,7 @@ func TestExecutionCompactTaskBoundaryRestart(t *testing.T) {
 			out, err := runExecutionTest(t, rt, key, w, worker)
 			require.NoError(t, err)
 			require.Equal(t, wf.JobRunCompleted, out.Status)
-			info, err := jobdb.GetJobRun(context.Background(), rt, jobdb.GetJobRunRequest{JobKey: key})
+			info, err := jobdb.GetJobRun(celltest.Context(context.Background()), rt, jobdb.GetJobRunRequest{JobKey: key})
 			require.NoError(t, err)
 			var target string
 			var ordinal int64
@@ -327,7 +329,7 @@ func TestExecutionCompactTaskBoundaryRestart(t *testing.T) {
 			}
 			require.NotEmpty(t, target)
 			require.Positive(t, ordinal)
-			before, err := rt.SubmitRestartJob(context.Background(), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: key, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target}}})
+			before, err := rt.SubmitRestartJob(celltest.Context(context.Background()), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: key, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target}}})
 			require.NoError(t, err)
 			out, err = runExecutionTest(t, rt, before.JobKey, w, worker)
 			require.NoError(t, err)
@@ -335,7 +337,7 @@ func TestExecutionCompactTaskBoundaryRestart(t *testing.T) {
 			require.EqualValues(t, 1, first.Load())
 			require.EqualValues(t, 2, second.Load())
 			require.EqualValues(t, 2, third.Load())
-			after, err := rt.SubmitRestartJob(context.Background(), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: key, LastStepToKeep: ordinal}})
+			after, err := rt.SubmitRestartJob(celltest.Context(context.Background()), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: key, LastStepToKeep: ordinal}})
 			require.NoError(t, err)
 			out, err = runExecutionTest(t, rt, after.JobKey, w, worker)
 			require.NoError(t, err)

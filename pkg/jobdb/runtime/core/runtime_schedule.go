@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/cellstate"
 )
 
 // UpsertSchedule snapshots target input and persists the schedule generation.
@@ -24,6 +25,11 @@ func (r *Runtime) UpsertSchedule(ctx context.Context, req jobdb.UpsertScheduleRe
 	if err := ValidateSubmissionApplicationPayload(ctx, jobdb.SubmitJob{JobType: req.Target.JobType, Data: req.Target.Data}, r.ChapterApplicationPayloadLimit()); err != nil {
 		return jobdb.ScheduleInfo{}, err
 	}
+	binding, err := r.scheduler.ResolveScheduleCell(ctx, req.TenantId, req.Target.Cell, req.Target.CellRepo)
+	if err != nil {
+		return jobdb.ScheduleInfo{}, err
+	}
+	req.Target.Cell, req.Target.CellID, req.Target.CellRepo = binding.Cell, binding.CellID, binding.CellRepo
 	target, err := snapshotScheduleTarget(ctx, req.Target)
 	if err != nil {
 		return jobdb.ScheduleInfo{}, err
@@ -173,6 +179,13 @@ func (r *Runtime) mutateSchedule(ctx context.Context, req jobdb.ScheduleMutation
 	var next *time.Time
 	var nextKey *jobdb.JobKey
 	if state == jobdb.ScheduleStateActive {
+		binding, e := r.scheduler.ResolveScheduleCell(ctx, req.ScheduleKey.TenantId, current.Target.Cell, current.Target.CellRepo)
+		if e != nil {
+			return jobdb.ScheduleInfo{}, e
+		}
+		if binding.CellID != current.Target.CellID {
+			return jobdb.ScheduleInfo{}, jobdb.ErrCellRepoMismatch
+		}
 		next, err = jobdb.InitialScheduleFire(current.Trigger, now)
 		if err != nil {
 			return jobdb.ScheduleInfo{}, err
@@ -217,7 +230,7 @@ func (r *Runtime) TriggerSchedule(ctx context.Context, req jobdb.TriggerSchedule
 		return jobdb.JobHandle{}, err
 	}
 	jobInfo, err := r.GetJob(ctx, key)
-	return jobdb.JobHandle{JobKey: key, GoalID: jobInfo.GoalID}, err
+	return jobdb.JobHandle{JobKey: key, GoalID: jobInfo.GoalID, Cell: jobInfo.Cell, CellID: jobInfo.CellID, CellRepo: jobInfo.CellRepo}, err
 }
 
 func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRunsRequest) (jobdb.ListScheduleRunsResponse, error) {
@@ -262,6 +275,7 @@ func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRu
 }
 
 func (r *Runtime) submitScheduledOccurrence(ctx context.Context, info jobdb.ScheduleInfo, at time.Time, previousID, bits string, manual bool, workerID string) (jobdb.JobKey, error) {
+	ctx = cellstate.WithSchedule(ctx, info.ScheduleKey)
 	at = at.UTC().Truncate(time.Microsecond)
 	return r.submitScheduledOccurrenceWithID(ctx, info,
 		jobdb.ScheduleRunJobID(info.ScheduleId, info.Generation, at), at,
@@ -269,6 +283,7 @@ func (r *Runtime) submitScheduledOccurrence(ctx context.Context, info jobdb.Sche
 }
 
 func (r *Runtime) submitScheduledOccurrenceWithID(ctx context.Context, info jobdb.ScheduleInfo, jobID string, at time.Time, previousID, bits string, manual bool, workerID string) (jobdb.JobKey, error) {
+	ctx = cellstate.WithSchedule(ctx, info.ScheduleKey)
 	at = at.UTC().Truncate(time.Microsecond)
 	runID := jobdb.ScheduleRunID(at)
 	if manual {
@@ -288,7 +303,7 @@ func (r *Runtime) submitScheduledOccurrenceWithID(ctx context.Context, info jobd
 			Condition: jobdb.JobPrereqComplete})
 	}
 	handle, err := r.submitJobWithSchedule(ctx, jobdb.SubmitJobRequest{
-		Job: jobdb.SubmitJob{
+		Job: jobdb.SubmitJob{Cell: info.Target.Cell, CellRepo: info.Target.CellRepo,
 			ClientPayloadUpdate: info.Target.ClientPayloadUpdate,
 			TenantId:            info.TenantId, JobID: jobID, JobType: info.Target.JobType,
 			Data: info.Target.Data, RunPolicy: info.Target.RunPolicy,

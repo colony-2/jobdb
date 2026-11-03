@@ -7,12 +7,13 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore"
 	"github.com/stretchr/testify/require"
 )
 
 func TestCompletionSummaryExistingRowsWithoutHistory(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	cfg := Config{DBPath: filepath.Join(t.TempDir(), "existing.db")}
 	r, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
@@ -26,7 +27,7 @@ func TestCompletionSummaryExistingRowsWithoutHistory(t *testing.T) {
 		{"missing", "", ""},
 	}
 	for _, tc := range cases {
-		h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: tc.id, JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
+		h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: tc.id, JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
 		require.NoError(t, err)
 		// Populate only pre-existing scheduler columns. No final chapter is
 		// needed to expose a stored outcome, including one from an older writer.

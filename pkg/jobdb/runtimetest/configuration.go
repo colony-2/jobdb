@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,7 +15,7 @@ import (
 // on an isolated runtime. Backend adapters can also call it through remote.New.
 func RunConfigurationConformance(t *testing.T, rt jobdb.WorkflowRuntime) {
 	t.Helper()
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	admin, ok := rt.(jobdb.ConfigurationAdmin)
 	require.True(t, ok)
 	empty, err := admin.GetTenantConfiguration(ctx, "configuration-tenant")
@@ -23,7 +24,7 @@ func RunConfigurationConformance(t *testing.T, rt jobdb.WorkflowRuntime) {
 	require.NotNil(t, empty.Values)
 	revision, err := admin.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "configuration-tenant", Name: "a/b.c", Value: json.RawMessage(`{"large":9007199254740993123456789,"nested":[null,false,0,""]}`)})
 	require.NoError(t, err)
-	job, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "configuration-tenant", JobType: "config-job", Data: jobdb.NewTaskDataOrPanic("input")}})
+	job, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "configuration-tenant", JobType: "config-job", Data: jobdb.NewTaskDataOrPanic("input")}})
 	require.NoError(t, err)
 	lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: job.JobKey, WorkerID: "config-worker", Routes: []jobdb.Route{{JobType: "config-job"}}, LeaseDuration: time.Minute})
 	require.NoError(t, err)

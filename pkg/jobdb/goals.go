@@ -51,6 +51,9 @@ type GoalFailure struct {
 }
 
 type GoalInfo struct {
+	Cell            string       `json:"cell"`
+	CellID          string       `json:"cellId"`
+	CellRepo        string       `json:"cellRepo"`
 	GoalKey         GoalKey      `json:"goalKey"`
 	State           GoalState    `json:"state"`
 	Revision        int64        `json:"revision,string"`

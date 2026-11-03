@@ -166,6 +166,7 @@ func (c *executionContext) taskContext() TaskContext {
 	tc := newTaskContextWithLeaseActions(c.GetJobKey(), c.run.nextOrdinal(), c.Logger(), func(at time.Time) error { return c.waitUntil(at, c.deadline) }, c.awaitTaskJobs, c.SubmitJob, c.SubmitRestartJob, c.ClientPayload, c.ClientPayloadRevision, c.Yield, c.ResolveSecrets, c.ResolveSecretsFresh, c.GetConfiguration)
 	tc.executionContext = c.ctx
 	tc.goalID = c.run.r.goalID
+	tc.cell = c.run.r.cell
 	tc.createDelegation = c.createTaskDelegation
 	// c.id ends with the engine-owned task attempt suffix. Consumer call sites
 	// are JSON-quoted earlier in the identity and cannot replace this suffix.
@@ -351,5 +352,5 @@ func (c *executionContext) Yield(ctx context.Context, req YieldRequest) error {
 }
 
 func (c *executionContext) Job() JobHandle {
-	return JobHandle{JobKey: c.GetJobKey(), GoalID: c.run.r.goalID}
+	return JobHandle{JobKey: c.GetJobKey(), GoalID: c.run.r.goalID, Cell: c.run.r.cell.Cell, CellID: c.run.r.cell.CellID, CellRepo: c.run.r.cell.CellRepo}
 }

@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
+
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 	"github.com/stretchr/testify/require"
 )
@@ -51,7 +53,7 @@ func TestRestartValidatesOnlyNewChapters(t *testing.T) {
 			history := &restartBoundaryHistory{}
 			rt, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: restartTestScheduler{}, Chapters: history, Schemas: newMemorySchemaStore()})
 			require.NoError(t, err)
-			req := jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: jobdb.JobKey{TenantId: "tenant", JobId: "source"}, JobID: "restart", LastStepToKeep: 42, Schema: &jobdb.JobSchemaSelector{Schema: json.RawMessage(`{"chapterShape":false}`)}}}
+			req := jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: jobdb.JobKey{TenantId: "tenant", JobId: "source"}, JobID: "restart", LastStepToKeep: 42, Schema: &jobdb.JobSchemaSelector{Schema: json.RawMessage(`{"chapterShape":false}`)}}}
 			switch mode {
 			case "valid-extra":
 				req.Job.Schema.Schema = json.RawMessage(`{"chapterShape":{"properties":{"ordinal":{"minimum":43}}}}`)
@@ -61,7 +63,7 @@ func TestRestartValidatesOnlyNewChapters(t *testing.T) {
 			case "oversized-extra":
 				req.Job.ExtraTaskOutput = jobdb.NewTaskDataOrPanic(strings.Repeat("x", 300000))
 			}
-			_, err = rt.SubmitRestartJob(context.Background(), req)
+			_, err = rt.SubmitRestartJob(celltest.Context(context.Background()), req)
 			switch mode {
 			case "invalid-extra-schema":
 				require.ErrorIs(t, err, jobdb.ErrJobSchemaValidation)
@@ -85,3 +87,5 @@ func TestRestartValidatesOnlyNewChapters(t *testing.T) {
 		})
 	}
 }
+
+func (restartTestScheduler) DiscardJobPreparation(context.Context, jobdb.JobKey) error { return nil }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/workflow"
 )
 
@@ -63,7 +64,7 @@ func (f *builtFixture) Shutdown(t testing.TB) {
 		}
 	}
 	if f.cleanup != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 10*time.Second)
 		defer cancel()
 		if err := f.cleanup(ctx); err != nil {
 			t.Fatalf("cleanup %s runtime fixture: %v", f.Name, err)
@@ -114,7 +115,7 @@ func buildFixture(t testing.TB, harness Harness, workers ...workflow.WorkSet) *b
 		runDone <-chan struct{}
 	)
 	if len(workers) > 0 {
-		runCtx, runCancel := context.WithCancel(context.Background())
+		runCtx, runCancel := context.WithCancel(celltest.Context(context.Background()))
 		cancel = runCancel
 		done := make(chan struct{})
 		runDone = done
@@ -141,7 +142,7 @@ func cleanupFixture(t testing.TB, name string, cleanup func(context.Context) err
 	if cleanup == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 10*time.Second)
 	defer cancel()
 	if err := cleanup(ctx); err != nil {
 		t.Fatalf("cleanup %s runtime fixture: %v", name, err)

@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
@@ -26,19 +27,19 @@ func TestConfigurationCLI(t *testing.T) {
 		t.Run(backend, func(t *testing.T) {
 			var rt jobdb.WorkflowRuntime = toy.New()
 			if backend == "sqlite" {
-				r, e := sqlite.NewFromConfig(context.Background(), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+				r, e := sqlite.NewFromConfig(celltest.Context(context.Background()), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 				require.NoError(t, e)
-				defer r.Close(context.Background())
+				defer r.Close(celltest.Context(context.Background()))
 				rt = r
 			}
 			var requests atomic.Int32
 			handler := remote.NewServer(rt)
 			t.Setenv("JOBDB_BEARER_TOKEN", "test-admin-token")
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				requests.Add(1)
 				require.Equal(t, "Bearer test-admin-token", r.Header.Get("Authorization"))
 				handler.ServeHTTP(w, r)
-			}))
+			})))
 			defer server.Close()
 			run := func(input string, args ...string) (string, error) {
 				cmd := NewRootCmd()
@@ -47,14 +48,14 @@ func TestConfigurationCLI(t *testing.T) {
 				cmd.SetErr(&out)
 				cmd.SetIn(strings.NewReader(input))
 				cmd.SetArgs(append([]string{"config"}, args...))
-				err := cmd.ExecuteContext(context.Background())
+				err := cmd.ExecuteContext(celltest.Context(context.Background()))
 				return out.String(), err
 			}
 			out, err := run(`{"n":9007199254740993123456789}`, "add", "name", "-j", "-t", "a", "-u", server.URL, "-f", "-")
 			require.NoError(t, err)
 			require.NotContains(t, out, "9007199254740993123456789")
 			admin := rt.(jobdb.ConfigurationAdmin)
-			got, err := admin.GetTenantConfiguration(context.Background(), "a")
+			got, err := admin.GetTenantConfiguration(celltest.Context(context.Background()), "a")
 			require.NoError(t, err)
 			require.Equal(t, `{"n":9007199254740993123456789}`, string(got.Values["name"]))
 			file := filepath.Join(t.TempDir(), "value.json")
@@ -67,7 +68,7 @@ func TestConfigurationCLI(t *testing.T) {
 			for _, raw := range []string{`null`, `0`, `""`} {
 				_, err = run(raw, "set", "name", "--json", "-t", "a", "-u", server.URL, "-f", "-")
 				require.NoError(t, err)
-				got, err = admin.GetTenantConfiguration(context.Background(), "a")
+				got, err = admin.GetTenantConfiguration(celltest.Context(context.Background()), "a")
 				require.NoError(t, err)
 				require.Equal(t, raw, string(got.Values["name"]))
 			}
@@ -106,7 +107,7 @@ func TestConfigurationCLI(t *testing.T) {
 						}
 						_, err := run(tc.input, args...)
 						require.NoError(t, err)
-						snapshot, err := admin.GetTenantConfiguration(context.Background(), "a")
+						snapshot, err := admin.GetTenantConfiguration(celltest.Context(context.Background()), "a")
 						require.NoError(t, err)
 						var compact bytes.Buffer
 						require.NoError(t, json.Compact(&compact, snapshot.Values["typed-value"]))
@@ -116,7 +117,7 @@ func TestConfigurationCLI(t *testing.T) {
 			}
 			_, err = run("literal string", "add", "name", "-t", "a", "-u", server.URL, "-f", "-")
 			require.NoError(t, err)
-			got, err = admin.GetTenantConfiguration(context.Background(), "a")
+			got, err = admin.GetTenantConfiguration(celltest.Context(context.Background()), "a")
 			require.NoError(t, err)
 			require.Equal(t, `"literal string"`, string(got.Values["name"]))
 			for i := 0; i < 2; i++ {
@@ -137,27 +138,27 @@ func TestConfigurationCLI(t *testing.T) {
 	}
 }
 func TestConfigurationCLISanitizesFailures(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		_, _ = io.WriteString(w, "private-value-and-token")
-	}))
+	})))
 	defer server.Close()
 	cmd := NewRootCmd()
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
 	cmd.SetArgs([]string{"config", "remove", "x", "-t", "a", "-u", server.URL})
-	err := cmd.ExecuteContext(context.Background())
+	err := cmd.ExecuteContext(celltest.Context(context.Background()))
 	require.ErrorIs(t, err, jobdb.ErrConfigurationFailed)
 	require.NotContains(t, out.String(), "private-value-and-token")
 }
 
 func TestConfigurationCLILocalValidationDiagnostics(t *testing.T) {
 	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		w.WriteHeader(http.StatusInternalServerError)
-	}))
+	})))
 	defer server.Close()
 	limits := (jobdb.ConfigurationLimits{}).WithDefaults()
 	private := "private-value-and-token"

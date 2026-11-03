@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/workflow"
+
 	jobdbtest "github.com/colony-2/jobdb/pkg/workflow/internal/jobdbtest"
 )
 
@@ -60,7 +62,7 @@ type jobFailedChainParentJob struct {
 func (jobFailedChainParentJob) Name() string { return "job-failed-chain-parent" }
 
 func (j *jobFailedChainParentJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (_ jobdb.JobData, runErr error) {
-	childKeyHandle, err := j.engine.SubmitJob(context.Background(), jobdb.SubmitJob{
+	childKeyHandle, err := j.engine.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 		TenantId: ctx.GetJobKey().TenantId,
 		JobType:  j.child,
 		JobID:    ctx.GetJobKey().JobId + "-child",
@@ -73,7 +75,7 @@ func (j *jobFailedChainParentJob) Run(ctx workflow.ExecutionContext, data jobdb.
 	if err := ctx.AwaitJobs(childKey.JobId); err != nil {
 		return nil, err
 	}
-	run, err := j.engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
+	run, err := j.engine.GetJobRun(celltest.Context(context.Background()), jobdb.GetJobRunRequest{
 		JobKey:           childKey,
 		IncludeOutputs:   true,
 		IncludeArtifacts: true,
@@ -148,10 +150,10 @@ func TestGetJobRunOutputErrorChainComparableAcrossBuiltInRuntimes(t *testing.T) 
 				defer built.Shutdown(t)
 				parent.engine = built.Engine
 
-				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 				defer cancel()
 
-				jobKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
+				jobKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: built.WorkerTenantID,
 					JobType:  parent.Name(),
 					JobID:    "parent",

@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -55,7 +57,7 @@ func TestExecutionRecordedPolicyReplay(t *testing.T) {
 				out, err := runExecutionTest(t, rt, key, worker, task)
 				require.NoError(t, err)
 				require.Equal(t, wf.JobRunCompleted, out.Status, "%v", out.JobError)
-				before, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+				before, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 				require.NoError(t, err)
 				wantBuilds, wantRuns := builds.Load(), runs.Load()
 				opts.TotalTimeout, opts.AttemptTimeout, opts.Retry = 0, 0, jobdb.RetryPolicy{}
@@ -72,7 +74,7 @@ func TestExecutionRecordedPolicyReplay(t *testing.T) {
 				require.JSONEq(t, `"job"`, string(raw))
 				require.Equal(t, wantBuilds, builds.Load())
 				require.Equal(t, wantRuns, runs.Load())
-				after, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+				after, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 				require.NoError(t, err)
 				require.Equal(t, before, after, "inspection cannot rewrite policy or history")
 			})
@@ -178,9 +180,9 @@ func TestExecutionRecordedPolicyRecovery(t *testing.T) {
 				engine, err := wf.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 				require.NoError(t, err)
 				finish := func() {
-					h, err := engine.GetWaitingTask(context.Background(), key)
+					h, err := engine.GetWaitingTask(celltest.Context(context.Background()), key)
 					require.NoError(t, err)
-					require.NoError(t, h.Finish(context.Background(), jobdb.NewTaskDataOrPanic("answer")))
+					require.NoError(t, h.Finish(celltest.Context(context.Background()), jobdb.NewTaskDataOrPanic("answer")))
 				}
 				finish()
 				out, err = runExecutionTest(t, rt, key, worker)
@@ -228,7 +230,7 @@ func TestExecutionRecordedPolicyHistoricalFixture(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &records))
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			rt := alternateRuntime(t, backend)
 			worker := wf.ExecutionWorker{JobType: "policy-fixture", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
 				return c.DoScope("operation", wf.ScopeOptions{}, func(s wf.ExecutionContext) (jobdb.JobData, error) {
@@ -387,7 +389,7 @@ func TestExecutionRecordedPolicyRestartAncestor(t *testing.T) {
 			}
 			require.NotEmpty(t, target)
 			opts = wf.ScopeOptions{}
-			restarted, err := rt.SubmitRestartJob(context.Background(), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: key, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target}}})
+			restarted, err := rt.SubmitRestartJob(celltest.Context(context.Background()), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: key, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target}}})
 			require.NoError(t, err)
 			started := time.Now()
 			out, err = runExecutionTest(t, rt, restarted.JobKey, worker)

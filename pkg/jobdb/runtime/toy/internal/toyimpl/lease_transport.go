@@ -7,6 +7,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/cellstate"
 )
 
 func (r *Runtime) KeepAliveLeaseByID(ctx context.Context, jobKey jobdb.JobKey, leaseID string, workerID string, leaseDuration time.Duration) error {
@@ -50,7 +51,7 @@ func (r *Runtime) ValidateExecutionLeaseByID(ctx context.Context, key jobdb.JobK
 	if leaseID == "" || workerID == "" || record.leaseID != leaseID || record.leaseWorkerID != workerID || !record.leased || !record.leaseExpiresAt.After(time.Now().UTC()) || record.cancelled || record.archived != nil {
 		return jobdb.LeaseValidity{}, jobdb.ErrExecutionLeaseLost
 	}
-	return jobdb.LeaseValidity{GoalID: record.goalID, ExpiresAt: record.leaseExpiresAt, Route: record.route}, nil
+	return jobdb.LeaseValidity{Cell: record.cell, GoalID: record.goalID, ExpiresAt: record.leaseExpiresAt, Route: record.route}, nil
 }
 
 func (r *Runtime) SubmitJobWithLeaseByID(ctx context.Context, parentJobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {
@@ -58,7 +59,7 @@ func (r *Runtime) SubmitJobWithLeaseByID(ctx context.Context, parentJobKey jobdb
 		return jobdb.JobHandle{}, err
 	}
 	req.Job.TenantId = parentJobKey.TenantId
-	return r.submitJobWithParent(ctx, req, parentJobKey.JobId)
+	return r.submitJobWithParent(cellstate.WithLease(ctx, cellstate.LeaseProof{JobKey: parentJobKey, LeaseID: leaseID, WorkerID: workerID}), req, parentJobKey.JobId)
 }
 
 func (r *Runtime) SubmitRestartJobWithLeaseByID(ctx context.Context, parentJobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
@@ -69,7 +70,7 @@ func (r *Runtime) SubmitRestartJobWithLeaseByID(ctx context.Context, parentJobKe
 		return jobdb.JobHandle{}, fmt.Errorf("prior job tenantId must match parent tenantId")
 	}
 	req.Job.PriorJobKey.TenantId = parentJobKey.TenantId
-	return r.submitRestartJobWithParent(ctx, req, parentJobKey.JobId)
+	return r.submitRestartJobWithParent(cellstate.WithLease(ctx, cellstate.LeaseProof{JobKey: parentJobKey, LeaseID: leaseID, WorkerID: workerID}), req, parentJobKey.JobId)
 }
 
 func (l *runtimeLease) Renew(ctx context.Context) (jobdb.RenewableExecutionLease, error) {

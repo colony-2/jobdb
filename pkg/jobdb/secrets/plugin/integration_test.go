@@ -9,10 +9,14 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
+
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
+
 	secretproviders "github.com/colony-2/jobdb/pkg/jobdb/secrets/providers"
+
 	sqlitesecrets "github.com/colony-2/jobdb/pkg/jobdb/secrets/sqlite"
 	"github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -22,7 +26,7 @@ func TestPluginCollectionThroughRuntimeAndWorkflow(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite"} {
 		for _, transport := range []string{"embedded", "http"} {
 			t.Run(backend+"/"+transport, func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				external := fixture(t)
 				local, err := sqlitesecrets.Open(ctx, filepath.Join(t.TempDir(), "secrets.db"), jobdb.SecretLimits{})
 				require.NoError(t, err)
@@ -41,12 +45,12 @@ func TestPluginCollectionThroughRuntimeAndWorkflow(t *testing.T) {
 					runtime = r
 				}
 				if transport == "http" {
-					s := httptest.NewServer(remote.NewServer(runtime))
+					s := httptest.NewServer(celltest.Handler(remote.NewServer(runtime)))
 					t.Cleanup(s.Close)
 					runtime, err = remote.New(s.URL, s.Client())
 					require.NoError(t, err)
 				}
-				job, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: "test", Metadata: json.RawMessage(`{"lease":{"AuthorizedNotAfter":"2099-01-01T00:00:00Z"}}`), Data: jobdb.NewTaskDataOrPanic(1)}})
+				job, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "test", Metadata: json.RawMessage(`{"lease":{"AuthorizedNotAfter":"2099-01-01T00:00:00Z"}}`), Data: jobdb.NewTaskDataOrPanic(1)}})
 				require.NoError(t, err)
 				lease, err := runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: job.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "test"}}, LeaseDuration: time.Minute})
 				require.NoError(t, err)
@@ -115,7 +119,7 @@ func TestPluginCollectionThroughRuntimeAndWorkflow(t *testing.T) {
 					require.True(t, fresh.Secrets["token"].LeaseBound)
 					return jobdb.NewTaskDataOrPanic("done"), nil
 				}}
-				job, err = runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic(1)}})
+				job, err = runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic(1)}})
 				require.NoError(t, err)
 				runnable, err := workflow.GetJobForRun(ctx, runtime, workflow.GetJobForRunRequest{JobKey: job.JobKey, JobWorker: worker, LeaseDuration: time.Minute})
 				require.NoError(t, err)
@@ -149,8 +153,8 @@ func TestPluginResultRejectedAfterLeaseRevocation(t *testing.T) {
 	p := fixture(t)
 	gate := gatedProvider{p, make(chan struct{}), make(chan struct{})}
 	runtime := toy.New(toy.WithSecretProvider(gate))
-	ctx := context.Background()
-	job, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: "test", Data: jobdb.NewTaskDataOrPanic(1)}})
+	ctx := celltest.Context(context.Background())
+	job, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "test", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, err)
 	lease, err := runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: job.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "test"}}, LeaseDuration: time.Minute})
 	require.NoError(t, err)

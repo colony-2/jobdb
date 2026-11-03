@@ -18,29 +18,30 @@ import (
 )
 
 const (
-	ownerTokenPrefix        = "jdb-o1."
-	delegationTokenPrefix   = "jdb-m1."
+	ownerTokenPrefix        = "jdb-o2."
+	delegationTokenPrefix   = "jdb-m2."
 	maxDelegationTokenBytes = 16 << 10
 	maxOwnerTokenBytes      = 32 << 10
 	maxDelegationDepth      = 8
-	grantPurpose            = "jobdb.delegation.grant.v1"
-	grantCeiling            = "jobdb.resource-actions.v1"
+	grantPurpose            = "jobdb.delegation.grant.v2"
+	grantCeiling            = "jobdb.resource-actions.v2"
 )
 
 type grantParent struct {
-	Principal  *string `json:"principal,omitempty"`
-	TenantID   string  `json:"tenantId"`
-	JobID      string  `json:"jobId"`
-	LeaseID    string  `json:"leaseId"`
-	WorkerID   string  `json:"workerId"`
-	SchemaHash string  `json:"schemaHash,omitempty"`
+	Cell       jobdb.ResolvedCell `json:"cell"`
+	Principal  *string            `json:"principal,omitempty"`
+	TenantID   string             `json:"tenantId"`
+	JobID      string             `json:"jobId"`
+	LeaseID    string             `json:"leaseId"`
+	WorkerID   string             `json:"workerId"`
+	SchemaHash string             `json:"schemaHash,omitempty"`
 }
 
 func parentOf(p leaseTokenClaims) grantParent {
-	return grantParent{p.Principal, p.TenantID, p.JobID, p.LeaseID, p.WorkerID, p.SchemaHash}
+	return grantParent{Cell: p.Cell, Principal: p.Principal, TenantID: p.TenantID, JobID: p.JobID, LeaseID: p.LeaseID, WorkerID: p.WorkerID, SchemaHash: p.SchemaHash}
 }
 func (p grantParent) claims() leaseTokenClaims {
-	return leaseTokenClaims{Principal: p.Principal, TenantID: p.TenantID, JobID: p.JobID, LeaseID: p.LeaseID, WorkerID: p.WorkerID, SchemaHash: p.SchemaHash}
+	return leaseTokenClaims{Cell: p.Cell, Principal: p.Principal, TenantID: p.TenantID, JobID: p.JobID, LeaseID: p.LeaseID, WorkerID: p.WorkerID, SchemaHash: p.SchemaHash}
 }
 
 type grantRoot struct {
@@ -173,7 +174,7 @@ func decodeGrant(token string, allowRoot bool) (*macaroon.Macaroon, grantRoot, d
 		return invalid()
 	}
 	var root grantRoot
-	if decodeCanonical(m.Id(), &root) != nil || root.Version != 1 || root.Purpose != grantPurpose || root.Ceiling != grantCeiling || root.ID == "" || root.Audience == "" || root.KeyID == "" || root.Parent.TenantID == "" || root.Parent.JobID == "" || root.Parent.LeaseID == "" {
+	if decodeCanonical(m.Id(), &root) != nil || root.Version != 1 || root.Purpose != grantPurpose || root.Ceiling != grantCeiling || root.ID == "" || root.Audience == "" || root.KeyID == "" || root.Parent.TenantID == "" || root.Parent.JobID == "" || root.Parent.LeaseID == "" || root.Parent.Cell.CellID == "" || root.Parent.Cell.CellRepo == "" || jobdb.ValidateCellName(root.Parent.Cell.Cell) != nil {
 		return invalid()
 	}
 	caveats := m.Caveats()
@@ -233,6 +234,14 @@ func attenuateGrant(token string, req jobdb.CreateDelegationRequest) (string, de
 	}
 	if root.Parent.WorkerID == "" {
 		return "", c, jobdb.ErrExecutionLeaseLost
+	}
+	if len(m.Caveats()) > 0 && req.Permissions.Submit != nil && c.Grant.Permissions.Submit != nil && req.Permissions.Submit.CellNames == nil {
+		inherited := c.Grant.Permissions.Submit.CellNames
+		if inherited != nil {
+			copy := *inherited
+			copy.Names = append([]string(nil), inherited.Names...)
+			req.Permissions.Submit.CellNames = &copy
+		}
 	}
 	if err = validateDelegationRequest(&req); err != nil {
 		return "", c, err
@@ -352,7 +361,7 @@ func chaptersSubset(c, p *jobdb.DelegationChapters) bool {
 	return true
 }
 func permissionsSubset(c, p jobdb.DelegationPermissions) bool {
-	if c.Submit != nil && (p.Submit == nil || !namesSubset(c.Submit.JobTypes, p.Submit.JobTypes) || !namesSubset(c.Submit.JobIDs, p.Submit.JobIDs)) {
+	if c.Submit != nil && (p.Submit == nil || !namesSubset(c.Submit.JobTypes, p.Submit.JobTypes) || !namesSubset(c.Submit.JobIDs, p.Submit.JobIDs) || !cellNamesSubset(c.Submit.CellNames, p.Submit.CellNames)) {
 		return false
 	}
 	if !namesSubset(jobdb.DelegationNames{Names: c.Secrets}, jobdb.DelegationNames{Names: p.Secrets}) || !chaptersSubset(c.Read, p.Read) {
@@ -362,4 +371,14 @@ func permissionsSubset(c, p jobdb.DelegationPermissions) bool {
 		return false
 	}
 	return true
+}
+
+func cellNamesSubset(c, p *jobdb.DelegationNames) bool {
+	if p == nil {
+		return true
+	}
+	if c == nil {
+		return false
+	}
+	return namesSubset(*c, *p)
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -43,7 +44,7 @@ func TestTaskDelegationBounds(t *testing.T) {
 		{name: "parent-inherited", parent: base, want: base},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			execution := context.Background()
+			execution := celltest.Context(context.Background())
 			if !test.execution.IsZero() {
 				var cancel context.CancelFunc
 				execution, cancel = context.WithDeadline(execution, test.execution)
@@ -71,7 +72,7 @@ func TestTaskDelegationBounds(t *testing.T) {
 				req.NotAfter = &test.requested
 			}
 			// This call timeout is deliberately earlier than every authority deadline.
-			callCtx, stop := context.WithTimeout(context.Background(), time.Minute)
+			callCtx, stop := context.WithTimeout(celltest.Context(context.Background()), time.Minute)
 			defer stop()
 			for range 2 {
 				child, err := tc.CreateDelegation(callCtx, req)
@@ -96,12 +97,12 @@ func TestTaskDelegationBounds(t *testing.T) {
 }
 
 func TestTaskDelegationRejectsUnavailableExecution(t *testing.T) {
-	_, err := (TaskContext{}).CreateDelegation(context.Background(), jobdb.CreateDelegationRequest{})
+	_, err := (TaskContext{}).CreateDelegation(celltest.Context(context.Background()), jobdb.CreateDelegationRequest{})
 	require.ErrorIs(t, err, jobdb.ErrLeaseDelegationUnsupported)
 	for _, kind := range []string{"unsupported", "missing-lease", "replay", "canceled-task", "canceled-call", "expired-engine", "expired-request", "zero-request", "expired-parent", "issuer-error", "canceled-during-issue", "expired-during-issue"} {
 		t.Run(kind, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				execution, cancel := context.WithCancelCause(context.Background())
+				execution, cancel := context.WithCancelCause(celltest.Context(context.Background()))
 				defer cancel(context.Canceled)
 				parent := &taskDelegationParent{sessionTestLease: newSessionTestLease()}
 				requested := time.Now().Add(time.Hour)
@@ -118,7 +119,7 @@ func TestTaskDelegationRejectsUnavailableExecution(t *testing.T) {
 					return parent, nil
 				}}
 				c := &executionContext{ctx: execution, run: &executionRun{r: &workerRunner{lease: parent, runtime: rt}}}
-				callCtx := context.Background()
+				callCtx := celltest.Context(context.Background())
 				want := jobdb.ErrLeasePermissionDenied
 				switch kind {
 				case "unsupported":
@@ -174,10 +175,10 @@ func TestTaskDelegationRejectsUnavailableExecution(t *testing.T) {
 
 func TestTaskDelegationDoesNotChangeTimeoutCause(t *testing.T) {
 	cause := NewTimeoutError("scope", time.Minute, TimeoutScopeTotal, nil, false)
-	ctx, cancel := context.WithCancelCause(context.Background())
+	ctx, cancel := context.WithCancelCause(celltest.Context(context.Background()))
 	cancel(cause)
 	c := &executionContext{ctx: ctx, run: &executionRun{r: &workerRunner{}}}
-	_, err := c.taskContext().CreateDelegation(context.Background(), jobdb.CreateDelegationRequest{})
+	_, err := c.taskContext().CreateDelegation(celltest.Context(context.Background()), jobdb.CreateDelegationRequest{})
 	require.True(t, errors.Is(err, cause))
 	require.Same(t, cause, context.Cause(ctx))
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/workflow"
 )
 
@@ -47,9 +48,9 @@ func RunRouteConformance(t *testing.T, harnesses ...Harness) {
 				job := routeJob{name: "recipe:食谱", tasks: []string{"local:echo", "two-step-op:second", "input:collect_user_input"}}
 				built := buildFixture(t, harness, MustWorkSet(t, job, routeTask{calls: calls}))
 				defer built.Shutdown(t)
-				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 				defer cancel()
-				keyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: built.WorkerTenantID, JobType: job.Name(), Data: NumberTaskData(1)})
+				keyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: built.WorkerTenantID, JobType: job.Name(), Data: NumberTaskData(1)})
 				key := keyHandle.JobKey
 				if err != nil {
 					t.Fatal(err)
@@ -109,14 +110,14 @@ func RunRouteConformance(t *testing.T, harnesses ...Harness) {
 			t.Run("distinct_routes", func(t *testing.T) {
 				built := buildFixture(t, harness)
 				defer built.Shutdown(t)
-				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 				defer cancel()
 				for _, invalid := range []jobdb.Route{{}, {JobType: "bad\x00name"}, {JobType: "bad\xffname"}, {JobType: "job", TaskType: "bad\xfftask"}} {
 					if _, err := built.Runtime.PollWork(ctx, jobdb.PollWorkRequest{TenantId: built.WorkerTenantID, WorkerID: "invalid-route", Routes: []jobdb.Route{invalid}}); err == nil {
 						t.Fatalf("polled invalid route %+v", invalid)
 					}
 					if invalid.JobType != "job" {
-						if _, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: built.WorkerTenantID, JobType: invalid.JobType, Data: NumberTaskData(1)}}); err == nil {
+						if _, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: built.WorkerTenantID, JobType: invalid.JobType, Data: NumberTaskData(1)}}); err == nil {
 							t.Fatalf("submitted invalid job type %q", invalid.JobType)
 						}
 					}
@@ -125,7 +126,7 @@ func RunRouteConformance(t *testing.T, harnesses ...Harness) {
 				keys := make([]jobdb.JobKey, len(routes))
 				wait := &jobdb.TaskWait{InputOrdinal: 0, OutputOrdinal: 1, InputHash: "route-input", ResumeJobType: "resume:job"}
 				for i, route := range routes {
-					h, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: built.WorkerTenantID, JobType: route.JobType, Data: NumberTaskData(i)}})
+					h, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: built.WorkerTenantID, JobType: route.JobType, Data: NumberTaskData(i)}})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -179,7 +180,7 @@ func RunRouteConformance(t *testing.T, harnesses ...Harness) {
 					completeLeaseForTest(t, ctx, lease, 2)
 				}
 				for _, taskType := range []string{"", "fallback:task"} {
-					h, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: built.WorkerTenantID, JobType: "alternate:job", Data: NumberTaskData(1)}})
+					h, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: built.WorkerTenantID, JobType: "alternate:job", Data: NumberTaskData(1)}})
 					if err != nil {
 						t.Fatal(err)
 					}

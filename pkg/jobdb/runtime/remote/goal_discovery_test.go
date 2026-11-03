@@ -8,14 +8,15 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/stretchr/testify/require"
 )
 
 func TestGoalDiscovery(t *testing.T) {
 	goalRuntimes(t, func(t *testing.T, r jobdb.WorkflowRuntime) {
-		ctx := context.Background()
+		ctx := celltest.Context(context.Background())
 		a := goalSubmit(t, r, "a")
-		b, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "b", JobType: "special", Data: jobdb.NewTaskDataOrPanic(nil), Metadata: json.RawMessage(`{"repo":"repo-b"}`)}})
+		b, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "b", JobType: "special", Data: jobdb.NewTaskDataOrPanic(nil), Metadata: json.RawMessage(`{"repo":"repo-b"}`)}})
 		require.NoError(t, err)
 		c := goalSubmit(t, r, "c")
 		_, err = r.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: goalKey(a), JobID: b.JobKey.JobId})
@@ -94,7 +95,7 @@ func TestGoalDiscovery(t *testing.T) {
 
 func TestDependencyDiscovery(t *testing.T) {
 	goalRuntimes(t, func(t *testing.T, r jobdb.WorkflowRuntime) {
-		ctx := context.Background()
+		ctx := celltest.Context(context.Background())
 		a := goalSubmit(t, r, "a")
 		b := goalSubmit(t, r, "b")
 		da := jobdb.Dependency{Target: jobdb.DependencyTarget{GoalID: a.GoalID}, Condition: jobdb.JobPrereqSuccess}
@@ -156,7 +157,7 @@ func TestDependencyDiscovery(t *testing.T) {
 
 func TestDependencyDiscoverySkipsExpiredPages(t *testing.T) {
 	goalRuntimes(t, func(t *testing.T, r jobdb.WorkflowRuntime) {
-		ctx := context.Background()
+		ctx := celltest.Context(context.Background())
 		a := goalSubmit(t, r, "a")
 		d := jobdb.Dependency{Target: jobdb.DependencyTarget{GoalID: a.GoalID}, Condition: jobdb.JobPrereqSuccess}
 		// Prefix becomes expired without a scheduler mutation; a later consumer stays blocked.

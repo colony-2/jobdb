@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -32,7 +34,7 @@ func TestExecutionUnfinishedInspection(t *testing.T) {
 		for _, mode := range []string{"first", "later", "retry", "external", "external-retry"} {
 			t.Run(backend+"/"+mode, func(t *testing.T) {
 				rt := alternateRuntime(t, backend)
-				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 15*time.Second)
 				defer cancel()
 				entered, release := make(chan wf.TaskContext, 1), make(chan struct{})
 				var once sync.Once
@@ -197,7 +199,7 @@ func TestExecutionUnfinishedInspection(t *testing.T) {
 
 func TestExecutionUnfinishedBuilderErrorsAreReadOnly(t *testing.T) {
 	rt := alternateRuntime(t, "sqlite")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 10*time.Second)
 	defer cancel()
 	entered, release := make(chan struct{}), make(chan struct{})
 	var once sync.Once
@@ -243,7 +245,7 @@ func TestExecutionUnfinishedBuilderErrorsAreReadOnly(t *testing.T) {
 	}{
 		{"failure", func(wf.ExecutionContext, context.Context) (jobdb.TaskData, error) { return nil, sentinel }, sentinel},
 		{"submit", func(c wf.ExecutionContext, ctx context.Context) (jobdb.TaskData, error) {
-			_, err := c.SubmitJob(ctx, jobdb.SubmitJob{})
+			_, err := c.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test"})
 			return nil, err
 		}, wf.ErrReplayShouldNeverMutate},
 		{"configuration", func(c wf.ExecutionContext, ctx context.Context) (jobdb.TaskData, error) {
@@ -307,7 +309,7 @@ func TestExecutionUnfinishedWaitingAndCancellation(t *testing.T) {
 					return nil, c.AwaitDuration(jobdb.Duration(time.Hour))
 				}}
 				key := submitExecutionTest(t, rt, w)
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "waiting", LeaseDuration: time.Minute, AwaitThreshold: time.Millisecond})
 				require.NoError(t, err)
 				out, err := run.Run(nil)

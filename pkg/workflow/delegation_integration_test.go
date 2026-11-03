@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +36,7 @@ func TestTaskDelegationExecutionBudgets(t *testing.T) {
 	for _, kind := range []string{"unbounded", "task-attempt", "task-total", "scope-attempt", "scope-total", "job-attempt", "job-total", "caller", "retry", "external-recovery"} {
 		t.Run(kind, func(t *testing.T) {
 			rt := alternateRuntime(t, "remote")
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 			defer cancel()
 			short, long := jobdb.Duration(time.Minute), jobdb.Duration(time.Hour)
 			call := invocation("delegate")
@@ -97,7 +99,7 @@ func TestTaskDelegationExecutionBudgets(t *testing.T) {
 					})
 				})
 			}}
-			h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: w.Name(), RunPolicy: jobPolicy, Data: jobdb.NewTaskDataOrPanic("input")}})
+			h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: w.Name(), RunPolicy: jobPolicy, Data: jobdb.NewTaskDataOrPanic("input")}})
 			require.NoError(t, err)
 			run := func(tasks []wf.TaskWorker, observer wf.ReplayObserver) wf.JobRunOutcome {
 				r, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: w, TaskWorkers: tasks, WorkerID: "delegate", LeaseDuration: time.Hour})
@@ -151,7 +153,7 @@ func TestTaskDelegationExecutionBudgets(t *testing.T) {
 			if kind == "retry" {
 				require.Len(t, deadlines, 2)
 			}
-			_, err = saved.CreateDelegation(context.Background(), jobdb.CreateDelegationRequest{})
+			_, err = saved.CreateDelegation(celltest.Context(context.Background()), jobdb.CreateDelegationRequest{})
 			require.Error(t, err, "completed task must not issue credentials")
 			count := len(deadlines)
 			before, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: h.JobKey})
@@ -170,16 +172,16 @@ func TestTaskDelegationRemoteHandoff(t *testing.T) {
 	backend := alternateRuntime(t, "sqlite")
 	handler := remote.NewServer(backend)
 	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		handler.ServeHTTP(w, r)
-	}))
+	})))
 	defer server.Close()
 	ownerRuntime, err := remote.New(server.URL, server.Client())
 	require.NoError(t, err)
 	childRuntime, err := remote.New(server.URL, server.Client())
 	require.NoError(t, err)
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	var imported jobdb.RenewableExecutionLease
 	var owner jobdb.ExecutionLease
 	var saved wf.TaskContext

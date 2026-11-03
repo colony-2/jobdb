@@ -6,14 +6,15 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/crashconcern"
 	"github.com/stretchr/testify/require"
 )
 
 func TestCrashConcernBlocksTaskAndAlternateClaims(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	r := New()
-	h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "job", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
+	h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "job", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, err)
 	lease, err := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "job"}}})
 	require.NoError(t, err)
@@ -51,9 +52,9 @@ func TestCrashConcernBlocksTaskAndAlternateClaims(t *testing.T) {
 }
 
 func TestCrashConcernRenewalAndReschedule(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	r := New()
-	h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "job", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
+	h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "job", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, err)
 	get := func() jobdb.ExecutionLease {
 		lease, err := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "job"}}})

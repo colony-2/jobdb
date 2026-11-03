@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
@@ -38,15 +39,15 @@ func (w *configurationReadingTask) Run(ctx TaskContext, input TaskData) (TaskDat
 	w.captured = ctx
 	// Public fields cannot override the tenant used by the injected capability.
 	ctx.JobKey.TenantId = "another-tenant"
-	first, err := ctx.GetConfiguration(context.Background())
+	first, err := ctx.GetConfiguration(celltest.Context(context.Background()))
 	if err != nil {
 		return nil, err
 	}
-	_, err = w.admin.SetTenantConfigurationValue(context.Background(), jobdb.SetTenantConfigurationValueRequest{TenantID: "tenant", Name: "setting", Value: json.RawMessage(`"new-task-value"`)})
+	_, err = w.admin.SetTenantConfigurationValue(celltest.Context(context.Background()), jobdb.SetTenantConfigurationValueRequest{TenantID: "tenant", Name: "setting", Value: json.RawMessage(`"new-task-value"`)})
 	if err != nil {
 		return nil, err
 	}
-	second, err := ctx.GetConfiguration(context.Background())
+	second, err := ctx.GetConfiguration(celltest.Context(context.Background()))
 	if err != nil {
 		return nil, err
 	}
@@ -66,15 +67,15 @@ func (*configurationReadingJob) Name() string { return "configuration-job" }
 func (w *configurationReadingJob) Run(ctx ExecutionContext, input JobData) (JobData, error) {
 	w.captured = ctx
 	if w.read {
-		first, err := ctx.GetConfiguration(context.Background())
+		first, err := ctx.GetConfiguration(celltest.Context(context.Background()))
 		if err != nil {
 			return nil, err
 		}
-		_, err = w.admin.SetTenantConfigurationValue(context.Background(), jobdb.SetTenantConfigurationValueRequest{TenantID: "tenant", Name: "setting", Value: json.RawMessage(`"new-job-value"`)})
+		_, err = w.admin.SetTenantConfigurationValue(celltest.Context(context.Background()), jobdb.SetTenantConfigurationValueRequest{TenantID: "tenant", Name: "setting", Value: json.RawMessage(`"new-job-value"`)})
 		if err != nil {
 			return nil, err
 		}
-		second, err := ctx.GetConfiguration(context.Background())
+		second, err := ctx.GetConfiguration(celltest.Context(context.Background()))
 		if err != nil {
 			return nil, err
 		}
@@ -89,7 +90,7 @@ func TestConfigurationContextsAreCachedAndInvocationBound(t *testing.T) {
 		for _, transport := range []string{"embedded", "http"} {
 			for _, readJob := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s/%s/job=%v", backend, transport, readJob), func(t *testing.T) {
-					ctx := context.Background()
+					ctx := celltest.Context(context.Background())
 					var rt jobdb.WorkflowRuntime
 					var service *configuration.Service
 					if backend == "toy" {
@@ -106,7 +107,7 @@ func TestConfigurationContextsAreCachedAndInvocationBound(t *testing.T) {
 					counter := &configurationCountingStore{Store: service.Store}
 					service.Store = counter
 					if transport == "http" {
-						server := httptest.NewServer(remote.NewServer(rt))
+						server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
 						defer server.Close()
 						r, err := remote.New(server.URL, nil)
 						require.NoError(t, err)
@@ -118,7 +119,7 @@ func TestConfigurationContextsAreCachedAndInvocationBound(t *testing.T) {
 					task := &configurationReadingTask{admin: admin}
 					job := &configurationReadingJob{admin: admin, read: readJob}
 					ws := mustWorkSetForRunnerTest(t, job, task)
-					handle, err := rt.SubmitJob(ctx, SubmitJobRequest{Job: SubmitJob{TenantId: "tenant", JobType: job.Name(), Data: NewTaskDataOrPanic("input")}})
+					handle, err := rt.SubmitJob(ctx, SubmitJobRequest{Job: SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: job.Name(), Data: NewTaskDataOrPanic("input")}})
 					require.NoError(t, err)
 					lease, err := rt.GetJobLease(ctx, GetJobLeaseRequest{JobKey: handle.JobKey, WorkerID: "worker", Routes: []Route{{JobType: job.Name()}}, LeaseDuration: time.Minute})
 					require.NoError(t, err)
@@ -165,15 +166,15 @@ func (l *configurationSessionLease) GetConfiguration(ctx context.Context) (jobdb
 	return l.read(ctx)
 }
 func TestConfigurationContextErrorsAndLateResults(t *testing.T) {
-	_, err := (TaskContext{}).GetConfiguration(context.Background())
+	_, err := (TaskContext{}).GetConfiguration(celltest.Context(context.Background()))
 	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
 	runner := &workerRunner{replay: true}
-	_, err = runner.GetConfiguration(context.Background())
+	_, err = runner.GetConfiguration(celltest.Context(context.Background()))
 	require.ErrorIs(t, err, ErrReplayShouldNeverMutate)
 	runner.replay = false
-	_, err = runner.GetConfiguration(context.Background())
+	_, err = runner.GetConfiguration(celltest.Context(context.Background()))
 	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	lease := &configurationSessionLease{sessionTestLease: newSessionTestLease()}
 	lease.read = func(callCtx context.Context) (jobdb.ConfigurationSnapshot, error) {
 		cancel()
@@ -181,7 +182,7 @@ func TestConfigurationContextErrorsAndLateResults(t *testing.T) {
 		return configuration.Empty(), nil
 	}
 	runner = &workerRunner{ctx: ctx, lease: lease}
-	result, err := runner.GetConfiguration(context.Background())
+	result, err := runner.GetConfiguration(celltest.Context(context.Background()))
 	require.ErrorIs(t, err, jobdb.ErrConfigurationUnavailable)
 	require.Empty(t, result.Revision)
 }
@@ -210,12 +211,12 @@ func TestConfigurationLookupAllowsRenewalAndDoesNotCoalesce(t *testing.T) {
 		}
 		return &configurationSessionLease{sessionTestLease: &next, read: lease.read}, nil
 	}
-	session, err := startLeaseSession(context.Background(), lease)
+	session, err := startLeaseSession(celltest.Context(context.Background()), lease)
 	require.NoError(t, err)
 	defer session.close()
 	done := make(chan error, 2)
 	for i := 0; i < 2; i++ {
-		go func() { _, e := session.GetConfiguration(context.Background()); done <- e }()
+		go func() { _, e := session.GetConfiguration(celltest.Context(context.Background())); done <- e }()
 	}
 	for i := 0; i < 2; i++ {
 		select {
@@ -241,7 +242,7 @@ type expiredConfigurationTask struct {
 
 func (*expiredConfigurationTask) Name() string { return "expired-task" }
 func (w *expiredConfigurationTask) Run(ctx TaskContext, input TaskData) (TaskData, error) {
-	if _, err := ctx.GetConfiguration(context.Background()); err != nil {
+	if _, err := ctx.GetConfiguration(celltest.Context(context.Background())); err != nil {
 		return nil, err
 	}
 	w.captured <- ctx
@@ -258,25 +259,25 @@ func (w *catchesConfigurationTaskTimeout) Run(ctx ExecutionContext, input JobDat
 		return nil, fmt.Errorf("task did not time out")
 	}
 	taskCtx := <-w.task.captured
-	_, secretErr := taskCtx.GetConfiguration(context.Background())
+	_, secretErr := taskCtx.GetConfiguration(celltest.Context(context.Background()))
 	close(w.task.release)
 	if secretErr == nil {
 		return nil, fmt.Errorf("expired task context still resolved secrets")
 	}
 	// The job still has a live lease; its own context remains usable.
-	_, err = ctx.GetConfiguration(context.Background())
+	_, err = ctx.GetConfiguration(celltest.Context(context.Background()))
 	return input, err
 }
 
 func TestTaskConfigurationContextExpiresWhileJobLeaseRemainsLive(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	provider := &configurationCountingStore{Store: &configuration.MemoryStore{}}
 	runtime := toy.New()
 	runtime.Service.Store = provider
 	task := &expiredConfigurationTask{captured: make(chan TaskContext, 1), release: make(chan struct{})}
 	job := &catchesConfigurationTaskTimeout{task: task}
 	ws := mustWorkSetForRunnerTest(t, job, task)
-	handle, err := runtime.SubmitJob(ctx, SubmitJobRequest{Job: SubmitJob{TenantId: "tenant", JobType: job.Name(), Data: NewTaskDataOrPanic("input")}})
+	handle, err := runtime.SubmitJob(ctx, SubmitJobRequest{Job: SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: job.Name(), Data: NewTaskDataOrPanic("input")}})
 	require.NoError(t, err)
 	lease, err := runtime.GetJobLease(ctx, GetJobLeaseRequest{JobKey: handle.JobKey, WorkerID: "worker", Routes: []Route{{JobType: job.Name()}}, LeaseDuration: time.Minute})
 	require.NoError(t, err)

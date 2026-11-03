@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
@@ -192,7 +194,7 @@ func MustStartJobAsync(t *testing.T, engine workflow.Engine, start jobdb.SubmitJ
 	t.Helper()
 	done := make(chan error, 1)
 	go func() {
-		_, err := engine.SubmitJob(context.Background(), start)
+		_, err := engine.SubmitJob(celltest.Context(context.Background()), start)
 		done <- err
 	}()
 	return done
@@ -319,7 +321,7 @@ func newToyHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRuntimeHarne
 
 func newSQLiteHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRuntimeHarness {
 	t.Helper()
-	embedded, err := sqliteruntime.StartEmbeddedRuntime(context.Background())
+	embedded, err := sqliteruntime.StartEmbeddedRuntime(celltest.Context(context.Background()))
 	if err != nil {
 		t.Fatalf("start embedded sqlite runtime: %v", err)
 	}
@@ -329,7 +331,7 @@ func newSQLiteHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRuntimeHa
 func newRemoteToyHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRuntimeHarness {
 	t.Helper()
 	underlying := toyruntime.New()
-	server := httptest.NewServer(remoteruntime.NewServer(underlying))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
 	runtime, err := remoteruntime.New(server.URL, server.Client())
 	if err != nil {
 		server.Close()
@@ -340,11 +342,11 @@ func newRemoteToyHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRuntim
 
 func newRemoteSQLiteHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRuntimeHarness {
 	t.Helper()
-	embedded, err := sqliteruntime.StartEmbeddedRuntime(context.Background())
+	embedded, err := sqliteruntime.StartEmbeddedRuntime(celltest.Context(context.Background()))
 	if err != nil {
 		t.Fatalf("start embedded sqlite runtime: %v", err)
 	}
-	server := httptest.NewServer(remoteruntime.NewServer(embedded.Runtime))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(embedded.Runtime)))
 	runtime, err := remoteruntime.New(server.URL, server.Client())
 	if err != nil {
 		server.Close()
@@ -394,7 +396,7 @@ func buildHarness(t *testing.T, name string, runtime jobdb.WorkflowRuntime, star
 		runDone <-chan struct{}
 	)
 	if startLoop && len(workers) > 0 {
-		runCtx, runCancel := context.WithCancel(context.Background())
+		runCtx, runCancel := context.WithCancel(celltest.Context(context.Background()))
 		cancel = runCancel
 		done := make(chan struct{})
 		runDone = done
@@ -819,4 +821,40 @@ func (r *tenantNamespacedRuntime) ListDependencyWaits(ctx context.Context, req j
 		out.Waits[i].JobKey.TenantId = tenant
 	}
 	return out, err
+}
+
+func (r *tenantNamespacedRuntime) CreateCell(ctx context.Context, q jobdb.CreateCellRequest) (jobdb.Cell, error) {
+	q.TenantID = r.prefixTenant(q.TenantID)
+	c, e := r.runtime.CreateCell(ctx, q)
+	c.TenantID = r.stripTenant(c.TenantID)
+	return c, e
+}
+func (r *tenantNamespacedRuntime) GetCell(ctx context.Context, q jobdb.CellKey) (jobdb.Cell, error) {
+	q.TenantID = r.prefixTenant(q.TenantID)
+	c, e := r.runtime.GetCell(ctx, q)
+	c.TenantID = r.stripTenant(c.TenantID)
+	return c, e
+}
+func (r *tenantNamespacedRuntime) UpdateCell(ctx context.Context, q jobdb.UpdateCellRequest) (jobdb.Cell, error) {
+	q.TenantID = r.prefixTenant(q.TenantID)
+	c, e := r.runtime.UpdateCell(ctx, q)
+	c.TenantID = r.stripTenant(c.TenantID)
+	return c, e
+}
+func (r *tenantNamespacedRuntime) RetireCell(ctx context.Context, q jobdb.RetireCellRequest) (jobdb.Cell, error) {
+	q.TenantID = r.prefixTenant(q.TenantID)
+	c, e := r.runtime.RetireCell(ctx, q)
+	c.TenantID = r.stripTenant(c.TenantID)
+	return c, e
+}
+func (r *tenantNamespacedRuntime) ListCells(ctx context.Context, q jobdb.ListCellsRequest) (jobdb.ListCellsResponse, error) {
+	q.TenantID = r.prefixTenant(q.TenantID)
+	c, e := r.runtime.ListCells(ctx, q)
+	for i := range c.Cells {
+		c.Cells[i].TenantID = r.stripTenant(c.Cells[i].TenantID)
+	}
+	return c, e
+}
+func (l *tenantNamespacedLease) ResolveCell(ctx context.Context, name string) (jobdb.ResolvedCell, error) {
+	return l.lease.ResolveCell(ctx, name)
 }

@@ -32,7 +32,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 	return r.submitJobWithParent(ctx, req, "")
 }
 
-func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRequest, parentJobID string) (jobdb.JobHandle, error) {
+func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRequest, parentJobID string) (handle jobdb.JobHandle, retErr error) {
 	if err := jobdb.ValidateIdentifier(req.Job.JobType); err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -53,9 +53,14 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
+	defer func() {
+		if retErr != nil {
+			_ = r.DiscardJobPreparation(context.WithoutCancel(ctx), reserved.Key)
+		}
+	}()
 	req.Job.JobID = reserved.Key.JobId
 	if reserved.Published {
-		return jobdb.JobHandle{JobKey: reserved.Key, GoalID: reserved.GoalID}, nil
+		return reserved.Target.Handle(reserved.Key, reserved.GoalID), nil
 	}
 	jobID := req.Job.JobID
 	if jobID == "" {
@@ -134,7 +139,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 	return r.submitRestartJobWithParent(ctx, req, "")
 }
 
-func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.SubmitRestartJobRequest, parentJobID string) (jobdb.JobHandle, error) {
+func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.SubmitRestartJobRequest, parentJobID string) (handle jobdb.JobHandle, retErr error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -155,9 +160,14 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
+	defer func() {
+		if retErr != nil {
+			_ = r.DiscardJobPreparation(context.WithoutCancel(ctx), reserved.Key)
+		}
+	}()
 	req.Job.JobID = reserved.Key.JobId
 	if reserved.Published {
-		return jobdb.JobHandle{JobKey: reserved.Key, GoalID: reserved.GoalID}, nil
+		return reserved.Target.Handle(reserved.Key, reserved.GoalID), nil
 	}
 	job, executionRestart, err := runtimecore.ResolveExecutionRestart(ctx, r, req.Job)
 	if err != nil {
@@ -408,6 +418,14 @@ func (r *Runtime) acquireOneLease(ctx context.Context, req jobdb.PollWorkRequest
 	var lease *executionLease
 	var leaseMetadata json.RawMessage
 	err := r.withTx(ctx, func(tx *sql.Tx) error {
+		state, err := loadCells(ctx, tx, req.TenantId)
+		if err != nil {
+			return err
+		}
+		allowed, err := state.Select(ctx, req.TenantId, req.CellNames, "jobs.acquire")
+		if err != nil {
+			return err
+		}
 		rows, err := tx.QueryContext(ctx, `SELECT `+jobColumns+` FROM jobdb_jobs WHERE archived_at_ns IS NULL ORDER BY created_at_ns ASC, job_id ASC`)
 		if err != nil {
 			return err
@@ -431,7 +449,7 @@ func (r *Runtime) acquireOneLease(ctx context.Context, req jobdb.PollWorkRequest
 		now := time.Now().UTC()
 		workerID := r.requestWorkerID(req.WorkerID)
 		for _, row := range candidates {
-			if row.tenantID != req.TenantId {
+			if row.tenantID != req.TenantId || !allowed[row.cell.CellID] || state.Cells[row.cell.CellID].State != jobdb.CellActive {
 				continue
 			}
 			if row.cancelRequested {
@@ -486,7 +504,7 @@ WHERE tenant_id = ? AND job_id = ?`,
 			if n == 0 {
 				continue
 			}
-			lease = &executionLease{
+			lease = &executionLease{cell: row.cell,
 				goalID:   row.goalID,
 				runtime:  r,
 				jobKey:   jobdb.JobKey{TenantId: row.tenantID, JobId: row.jobID},
@@ -540,6 +558,9 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 		if err != nil {
 			return err
 		}
+		if e := jobdb.AuthorizeCell(ctx, req.JobKey.TenantId, row.cell.CellID, "jobs.acquire"); e != nil {
+			return e
+		}
 		now := time.Now().UTC()
 		status, err := statusFromRow(ctx, tx, row, now)
 		if err != nil {
@@ -578,7 +599,7 @@ WHERE tenant_id = ? AND job_id = ?`,
 		if err != nil {
 			return err
 		}
-		lease = &executionLease{
+		lease = &executionLease{cell: row.cell,
 			goalID:   row.goalID,
 			runtime:  r,
 			jobKey:   req.JobKey,
@@ -652,6 +673,7 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 	if err != nil {
 		return jobdb.JobInfo{}, err
 	}
+
 	status, err := statusFromRow(ctx, r.db, row, time.Now().UTC())
 	if err != nil {
 		return jobdb.JobInfo{}, err
@@ -668,7 +690,11 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 	if err != nil {
 		return jobdb.JobInfo{}, err
 	}
-	job := jobdb.JobInfo{NextRoute: jobdb.CloneRoute(&row.nextRoute), WaitFor: waitFor, CompletionStatus: row.completionStatus.String, CompletionDetail: row.completionDetail.String, BlockingWait: blocking,
+	var currentCellName string
+	if err = r.db.QueryRowContext(ctx, "SELECT name FROM jobdb_cells WHERE tenant_id=? AND cell_id=?", jobKey.TenantId, row.cell.CellID).Scan(&currentCellName); err != nil {
+		return jobdb.JobInfo{}, err
+	}
+	job := jobdb.JobInfo{Cell: currentCellName, CellID: row.cell.CellID, CellRepo: row.cell.CellRepo, NextRoute: jobdb.CloneRoute(&row.nextRoute), WaitFor: waitFor, CompletionStatus: row.completionStatus.String, CompletionDetail: row.completionDetail.String, BlockingWait: blocking,
 		GoalID: row.goalID, OtherGoalIDs: otherGoals,
 		ClientPayload: cloneJSON(row.clientPayload), ClientPayloadRevision: row.clientPayloadRevision, ExecutionState: jobExecutionState(row.payload),
 		Status:     status,
@@ -716,6 +742,10 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 }
 
 func (r *Runtime) GetChapter(ctx context.Context, ref jobdb.ChapterRef) (jobdb.Chapter, error) {
+	if err := r.requirePublishedJob(ctx, ref.JobKey); err != nil {
+		return jobdb.Chapter{}, err
+	}
+
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -733,6 +763,10 @@ func (r *Runtime) GetChapter(ctx context.Context, ref jobdb.ChapterRef) (jobdb.C
 }
 
 func (r *Runtime) ListChapters(ctx context.Context, req jobdb.ListChaptersRequest) ([]jobdb.Chapter, error) {
+	if err := r.requirePublishedJob(ctx, req.JobKey); err != nil {
+		return nil, err
+	}
+
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -945,6 +979,10 @@ func normalizeStoredArtifacts(in []jobdb.StoredArtifact) []jobdb.StoredArtifact 
 }
 
 func (r *Runtime) OpenArtifact(ctx context.Context, ref jobdb.ArtifactRef) (jobdb.ArtifactReader, error) {
+	if err := r.requirePublishedJob(ctx, ref.JobKey); err != nil {
+		return nil, err
+	}
+
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -1321,4 +1359,12 @@ func taskDataArtifacts(ctx context.Context, data jobdb.TaskData) ([]artifactFing
 
 func containsNotFound(err error) bool {
 	return errors.Is(err, core.ErrNotFound) || strings.Contains(strings.ToLower(err.Error()), "not found")
+}
+
+func (r *Runtime) requirePublishedJob(ctx context.Context, key jobdb.JobKey) error {
+	if err := r.validate(); err != nil {
+		return err
+	}
+	_, err := r.loadJobRow(ctxOrBackground(ctx), key)
+	return err
 }

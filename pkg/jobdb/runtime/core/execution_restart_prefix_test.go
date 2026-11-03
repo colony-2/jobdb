@@ -7,6 +7,8 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/internal/executionmeta"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 	"github.com/stretchr/testify/require"
 )
@@ -87,8 +89,8 @@ func TestExecutionRestartCutsBeforeSupersededContinuation(t *testing.T) {
 					history = append(history, chapter(11, record("result", target+"/attempt:1"), declaration))
 				}
 				original := marshal(history)
-				request := jobdb.SubmitRestartJob{PriorJobKey: jobdb.JobKey{TenantId: "tenant", JobId: "old-chain"}, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target, Payload: json.RawMessage(`"new-payload"`)}}
-				resolved, restart, err := runtimecore.ResolveExecutionRestart(context.Background(), history, request)
+				request := jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: jobdb.JobKey{TenantId: "tenant", JobId: "old-chain"}, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target, Payload: json.RawMessage(`"new-payload"`)}}
+				resolved, restart, err := runtimecore.ResolveExecutionRestart(celltest.Context(context.Background()), history, request)
 				require.Equal(t, original, marshal(history), "source history is immutable")
 				if validation != "valid" {
 					require.Error(t, err)

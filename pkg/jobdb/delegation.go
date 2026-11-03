@@ -40,8 +40,9 @@ type DelegationChapters struct {
 }
 
 type DelegationSubmitPermission struct {
-	JobTypes DelegationNames `json:"jobTypes"`
-	JobIDs   DelegationNames `json:"jobIds"`
+	CellNames *DelegationNames `json:"cellNames,omitempty"`
+	JobTypes  DelegationNames  `json:"jobTypes"`
+	JobIDs    DelegationNames  `json:"jobIds"`
 }
 
 // DelegationWritePermission permits task outcome chapters only. ArtifactNames
@@ -80,6 +81,7 @@ type DelegationInfo struct {
 // LeaseValidity is a read-only transport check of the current execution lease.
 // It deliberately excludes job payloads, configuration and chapter contents.
 type LeaseValidity struct {
+	Cell      ResolvedCell
 	GoalID    string
 	ExpiresAt time.Time
 	Route     Route

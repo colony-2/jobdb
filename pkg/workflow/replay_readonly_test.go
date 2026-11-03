@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 )
 
 func TestReplayJobRun_LocalTaskCacheMissDoesNotExecuteWorker(t *testing.T) {
@@ -31,7 +32,7 @@ func TestReplayJobRun_LocalTaskCacheMissDoesNotExecuteWorker(t *testing.T) {
 		t.Fatalf("new worker engine: %v", err)
 	}
 
-	_, err = engine.ReplayJobRun(context.Background(), ReplayRunRequest{JobKey: jobKey})
+	_, err = engine.ReplayJobRun(celltest.Context(context.Background()), ReplayRunRequest{JobKey: jobKey})
 
 	var miss ReplayCacheMissError
 	if !errors.As(err, &miss) {
@@ -72,7 +73,7 @@ func TestReplayJobRun_MissingJobOutcomeReturnsCacheMissWithoutWriting(t *testing
 		t.Fatalf("new worker engine: %v", err)
 	}
 
-	_, err = engine.ReplayJobRun(context.Background(), ReplayRunRequest{JobKey: jobKey})
+	_, err = engine.ReplayJobRun(celltest.Context(context.Background()), ReplayRunRequest{JobKey: jobKey})
 
 	var miss ReplayCacheMissError
 	if !errors.As(err, &miss) {
@@ -95,7 +96,7 @@ func TestReplayJobRun_MissingJobOutcomeReturnsCacheMissWithoutWriting(t *testing
 func TestReplayReadOnlyRuntimeRejectsMutations(t *testing.T) {
 	runtime := newRunnerTestRuntime()
 	replayRuntime := newReplayReadOnlyRuntime(runtime)
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	_, secretErr := replayRuntime.ResolveSecrets(ctx, jobdb.ResolveSecretsRequest{})
 	if !errors.Is(secretErr, ErrReplayShouldNeverMutate) {
 		t.Fatalf("replay secret resolution: %v", secretErr)
@@ -169,7 +170,7 @@ func TestReplayReadOnlyRuntimeAllowsReads(t *testing.T) {
 	seedJobStartForTest(t, runtime, jobKey, job.Name(), NewTaskDataOrPanic(map[string]int{"n": 1}), RunPolicy{})
 
 	replayRuntime := newReplayReadOnlyRuntime(runtime)
-	chapter, err := replayRuntime.GetChapter(context.Background(), ChapterRef{JobKey: jobKey, Ordinal: 0})
+	chapter, err := replayRuntime.GetChapter(celltest.Context(context.Background()), ChapterRef{JobKey: jobKey, Ordinal: 0})
 	if err != nil {
 		t.Fatalf("GetChapter through replay runtime: %v", err)
 	}

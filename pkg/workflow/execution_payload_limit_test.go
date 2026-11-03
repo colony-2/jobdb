@@ -4,9 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
-	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
-	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"io"
 	"net/http/httptest"
 	"path/filepath"
@@ -16,6 +13,11 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -51,11 +53,11 @@ func TestExecutionOversizedPayloadTerminatesJob(t *testing.T) {
 					require.Equal(t, wf.JobRunSuspended, out.Status)
 					engine, err := wf.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("tenant").PlusWorkers(w).BuildEngine()
 					require.NoError(t, err)
-					handle, err := engine.GetWaitingTask(context.Background(), key)
+					handle, err := engine.GetWaitingTask(celltest.Context(context.Background()), key)
 					require.NoError(t, err)
-					err = handle.Finish(context.Background(), big)
+					err = handle.Finish(celltest.Context(context.Background()), big)
 					require.ErrorIs(t, err, jobdb.ErrChapterApplicationPayloadTooLarge)
-					info, err := rt.GetJob(context.Background(), key)
+					info, err := rt.GetJob(celltest.Context(context.Background()), key)
 					require.NoError(t, err)
 					require.Equal(t, jobdb.JobStatusCompleted, info.Status)
 					_, err = replayExecutionTest(t, rt, key, w)
@@ -71,7 +73,7 @@ func TestExecutionOversizedPayloadTerminatesJob(t *testing.T) {
 					require.True(t, jobdb.IsChapterPayloadFailure(err))
 					require.EqualValues(t, 1, runs.Load())
 				}
-				chapters, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+				chapters, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 				require.NoError(t, err)
 				last := chapters[len(chapters)-1]
 				require.True(t, jobdb.ChapterPayloadFailure(last))
@@ -88,7 +90,7 @@ func TestExecutionOversizedPayloadTerminatesJob(t *testing.T) {
 func TestConfiguredApplicationLimitRejectsWithoutPublishing(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			var rt jobdb.WorkflowRuntime = toy.New(toy.WithMaxChapterApplicationPayloadBytes(64))
 			if backend != "toy" {
 				local, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "job.db"), MaxChapterApplicationPayloadBytes: 64})
@@ -97,14 +99,14 @@ func TestConfiguredApplicationLimitRejectsWithoutPublishing(t *testing.T) {
 				rt = local
 			}
 			if backend == "remote" {
-				server := httptest.NewServer(remote.NewServer(rt))
+				server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
 				t.Cleanup(server.Close)
 				client, err := remote.New(server.URL, server.Client())
 				require.NoError(t, err)
 				rt = client
 			}
 			key := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
-			req := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: key.TenantId, JobID: key.JobId, JobType: "test", Data: jobdb.NewTaskDataOrPanic(strings.Repeat("x", 63))}}
+			req := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: key.TenantId, JobID: key.JobId, JobType: "test", Data: jobdb.NewTaskDataOrPanic(strings.Repeat("x", 63))}}
 			_, err := rt.SubmitJob(ctx, req)
 			require.ErrorIs(t, err, jobdb.ErrChapterApplicationPayloadTooLarge)
 			_, err = rt.GetJob(ctx, key)
@@ -135,14 +137,14 @@ func TestConfiguredApplicationLimitRejectsWithoutPublishing(t *testing.T) {
 			put.ArtifactUploads = nil
 			put.Chapter.Body = jobdb.TaskAttemptOutcomeChapter{Outcome: jobdb.ApplicationOutputOutcome{Output: jobdb.ApplicationOutputBytes{Data: []byte(`null`)}}}
 			require.NoError(t, rt.PutChapter(ctx, put))
-			restart := jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: key, JobID: "restart", LastStepToKeep: 0, ExtraTaskOutput: jobdb.NewTaskDataOrPanic(strings.Repeat("x", 63))}}
+			restart := jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: key, JobID: "restart", LastStepToKeep: 0, ExtraTaskOutput: jobdb.NewTaskDataOrPanic(strings.Repeat("x", 63))}}
 			_, err = rt.SubmitRestartJob(ctx, restart)
 			require.ErrorIs(t, err, jobdb.ErrChapterApplicationPayloadTooLarge)
 			restart.Job.ExtraTaskOutput = jobdb.NewTaskDataOrPanic("small")
 			_, err = rt.SubmitRestartJob(ctx, restart)
 			require.NoError(t, err)
-			schedule := jobdb.UpsertScheduleRequest{TenantId: "tenant", ScheduleId: "schedule", Trigger: jobdb.ScheduleTrigger{Kind: jobdb.ScheduleTriggerInterval, Interval: time.Hour}, Target: jobdb.ScheduleTarget{JobType: "test", Data: jobdb.NewTaskDataOrPanic(strings.Repeat("x", 63))}}
-			_, err = rt.UpsertSchedule(ctx, schedule)
+			schedule := jobdb.UpsertScheduleRequest{TenantId: "tenant", ScheduleId: "schedule", Trigger: jobdb.ScheduleTrigger{Kind: jobdb.ScheduleTriggerInterval, Interval: time.Hour}, Target: jobdb.ScheduleTarget{Cell: "test", CellRepo: "example.test/test", JobType: "test", Data: jobdb.NewTaskDataOrPanic(strings.Repeat("x", 63))}}
+			_, err = celltest.Schedule(ctx, rt, schedule)
 			require.ErrorIs(t, err, jobdb.ErrChapterApplicationPayloadTooLarge)
 			_, err = rt.GetSchedule(ctx, jobdb.ScheduleKey{TenantId: "tenant", ScheduleId: "schedule"})
 			require.ErrorIs(t, err, jobdb.ErrJobNotFound)

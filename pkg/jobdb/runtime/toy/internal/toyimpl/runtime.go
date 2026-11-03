@@ -55,7 +55,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 	return r.submitJobWithParent(ctx, req, "")
 }
 
-func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRequest, parentJobID string) (jobdb.JobHandle, error) {
+func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRequest, parentJobID string) (handle jobdb.JobHandle, retErr error) {
 	if err := jobdb.ValidateIdentifier(req.Job.JobType); err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -84,9 +84,14 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
+	defer func() {
+		if retErr != nil {
+			_ = r.DiscardJobPreparation(context.WithoutCancel(ctx), reserved.Key)
+		}
+	}()
 	req.Job.JobID = reserved.Key.JobId
 	if reserved.Published {
-		return jobdb.JobHandle{JobKey: reserved.Key, GoalID: reserved.GoalID}, nil
+		return reserved.Target.Handle(reserved.Key, reserved.GoalID), nil
 	}
 	var jobKey jobdb.JobKey
 	if req.Job.JobID != "" {
@@ -199,10 +204,10 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	r.engine.mu.Lock()
 	if existing := r.engine.jobRecords[jobKey]; existing != nil {
 		r.engine.mu.Unlock()
-		return jobdb.JobHandle{JobKey: jobKey, GoalID: existing.goalID}, nil
+		return r.engine.cellHandleLocked(jobKey, existing), nil
 	}
 	r.engine.jobRecords[jobKey] = record
-	if err := r.engine.publishGoalLocked(jobKey, record); err != nil {
+	if err := r.engine.publishGoalLocked(ctx, jobKey, record); err != nil {
 		delete(r.engine.jobRecords, jobKey)
 		r.engine.mu.Unlock()
 		return jobdb.JobHandle{}, err
@@ -213,7 +218,7 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	r.engine.runtimeChapters[jobKey][0] = stored
 	r.engine.mu.Unlock()
 
-	return jobdb.JobHandle{JobKey: jobKey, GoalID: record.goalID}, nil
+	return record.cell.Handle(jobKey, record.goalID), nil
 }
 
 func (r *Runtime) existingEquivalentJob(jobKey jobdb.JobKey, job jobdb.SubmitJob, inputHash string, schemaHash string, parentJobID string) (jobdb.JobHandle, bool, error) {
@@ -266,14 +271,14 @@ func (r *Runtime) existingEquivalentJob(jobKey jobdb.JobKey, job jobdb.SubmitJob
 	if !reflect.DeepEqual(prereqs, job.Prerequisites) {
 		return jobdb.JobHandle{}, false, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different prerequisites", jobKey))
 	}
-	return jobdb.JobHandle{JobKey: jobKey, GoalID: record.goalID}, true, nil
+	return record.cell.Handle(jobKey, record.goalID), true, nil
 }
 
 func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
 	return r.submitRestartJobWithParent(ctx, req, "")
 }
 
-func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.SubmitRestartJobRequest, parentJobID string) (jobdb.JobHandle, error) {
+func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.SubmitRestartJobRequest, parentJobID string) (handle jobdb.JobHandle, retErr error) {
 	if err := runtimecore.ValidateRestartApplicationPayload(ctx, req.Job, r.ChapterApplicationPayloadLimit()); err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -285,9 +290,14 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
+	defer func() {
+		if retErr != nil {
+			_ = r.DiscardJobPreparation(context.WithoutCancel(ctx), reserved.Key)
+		}
+	}()
 	req.Job.JobID = reserved.Key.JobId
 	if reserved.Published {
-		return jobdb.JobHandle{JobKey: reserved.Key, GoalID: reserved.GoalID}, nil
+		return reserved.Target.Handle(reserved.Key, reserved.GoalID), nil
 	}
 
 	job, executionRestart, resolveErr := runtimecore.ResolveExecutionRestart(ctx, r, req.Job)
@@ -426,12 +436,12 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		}
 	}
 	r.engine.jobRecords[jobKey] = record
-	if err := r.engine.publishGoalLocked(jobKey, record); err != nil {
+	if err := r.engine.publishGoalLocked(ctx, jobKey, record); err != nil {
 		delete(r.engine.jobRecords, jobKey)
 		return jobdb.JobHandle{}, err
 	}
 	r.engine.runtimeChapters[jobKey] = targetChapters
-	return jobdb.JobHandle{JobKey: jobKey, GoalID: record.goalID}, nil
+	return record.cell.Handle(jobKey, record.goalID), nil
 }
 
 func (r *Runtime) existingEquivalentRestartJob(jobKey jobdb.JobKey, job jobdb.SubmitRestartJob, expected map[int64]jobdb.Chapter, expectedMetadata json.RawMessage) (jobdb.JobHandle, bool, error) {
@@ -484,7 +494,7 @@ func (r *Runtime) existingEquivalentRestartJob(jobKey jobdb.JobKey, job jobdb.Su
 	if next, ok := existing[job.LastStepToKeep+1]; ok && runtimecodec.ChapterIs(next, runtimecodec.ChapterTypeRestartExtra) && job.ExtraTaskOutput == nil {
 		return jobdb.JobHandle{}, false, jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with restart extra output that was not requested", jobKey))
 	}
-	return jobdb.JobHandle{JobKey: jobKey, GoalID: record.goalID}, true, nil
+	return record.cell.Handle(jobKey, record.goalID), true, nil
 }
 
 func (r *Runtime) CancelJob(ctx context.Context, req jobdb.CancelJobRequest) error {
@@ -530,6 +540,11 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 	}
 
 	r.engine.mu.Lock()
+	allowed, e := r.engine.cellsLocked(req.TenantId).Select(ctx, req.TenantId, req.CellNames, "jobs.acquire")
+	if e != nil {
+		r.engine.mu.Unlock()
+		return nil, e
+	}
 
 	limit := req.Limit
 	if limit <= 0 {
@@ -544,7 +559,7 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 	now := time.Now().UTC()
 	out := make([]jobdb.ExecutionLease, 0, limit)
 	for key, record := range r.engine.jobRecords {
-		if key.TenantId != req.TenantId {
+		if key.TenantId != req.TenantId || !allowed[record.cell.CellID] {
 			continue
 		}
 		record.mu.Lock()
@@ -646,6 +661,15 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 		return nil, nil
 	}
 
+	if err := jobdb.AuthorizeCell(ctx, req.JobKey.TenantId, record.cell.CellID, "jobs.acquire"); err != nil {
+		r.engine.mu.Unlock()
+		return nil, err
+	}
+	if r.engine.cellsLocked(req.JobKey.TenantId).Cells[record.cell.CellID].State != jobdb.CellActive {
+		r.engine.mu.Unlock()
+		return nil, jobdb.ErrCellRetired
+	}
+
 	now := time.Now().UTC()
 	record.mu.Lock()
 	r.advanceRecordStateLocked(req.JobKey.TenantId, now, record)
@@ -736,6 +760,7 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 	if record == nil {
 		return jobdb.JobInfo{}, jobdb.ErrJobNotFound
 	}
+
 	r.engine.mu.Lock()
 	defer r.engine.mu.Unlock()
 	record.mu.Lock()
@@ -744,7 +769,7 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 	if err != nil {
 		return jobdb.JobInfo{}, err
 	}
-	job := jobdb.JobInfo{NextRoute: jobdb.CloneRoute(&record.route), WaitFor: append([]string(nil), record.waitFor...), CompletionStatus: record.completionStatus, CompletionDetail: record.completionDetail, BlockingWait: blocking, GoalID: record.goalID, OtherGoalIDs: r.engine.otherGoalsLocked(jobKey),
+	job := jobdb.JobInfo{Cell: r.engine.cellsLocked(jobKey.TenantId).Cells[record.cell.CellID].Name, CellID: record.cell.CellID, CellRepo: record.cell.CellRepo, NextRoute: jobdb.CloneRoute(&record.route), WaitFor: append([]string(nil), record.waitFor...), CompletionStatus: record.completionStatus, CompletionDetail: record.completionDetail, BlockingWait: blocking, GoalID: record.goalID, OtherGoalIDs: r.engine.otherGoalsLocked(jobKey),
 		ClientPayload: cloneJSON(record.clientPayload), ClientPayloadRevision: record.clientPayloadRevision, ExecutionState: toyExecutionState(record.payload),
 		Status:     r.engine.availableStatusLocked(jobKey.TenantId, time.Now(), record),
 		Data:       &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
@@ -765,6 +790,10 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 }
 
 func (r *Runtime) GetChapter(ctx context.Context, ref jobdb.ChapterRef) (jobdb.Chapter, error) {
+	if err := r.requirePublishedJob(ctx, ref.JobKey); err != nil {
+		return jobdb.Chapter{}, err
+	}
+
 	r.engine.mu.Lock()
 	defer r.engine.mu.Unlock()
 	chapters := r.engine.runtimeChapters[ref.JobKey]
@@ -779,6 +808,10 @@ func (r *Runtime) GetChapter(ctx context.Context, ref jobdb.ChapterRef) (jobdb.C
 }
 
 func (r *Runtime) ListChapters(ctx context.Context, req jobdb.ListChaptersRequest) ([]jobdb.Chapter, error) {
+	if err := r.requirePublishedJob(ctx, req.JobKey); err != nil {
+		return nil, err
+	}
+
 	if req.StartOrdinal < 0 {
 		return nil, fmt.Errorf("start ordinal must be >= 0")
 	}
@@ -930,6 +963,10 @@ func (r *Runtime) storeRuntimeChapter(jobKey jobdb.JobKey, ordinal int64, chapte
 }
 
 func (r *Runtime) OpenArtifact(ctx context.Context, ref jobdb.ArtifactRef) (jobdb.ArtifactReader, error) {
+	if err := r.requirePublishedJob(ctx, ref.JobKey); err != nil {
+		return nil, err
+	}
+
 	return r.engine.OpenStoredArtifact(ctx, ref)
 }
 
@@ -1410,7 +1447,7 @@ func (l *runtimeLease) Job() jobdb.JobHandle {
 	if record == nil {
 		return jobdb.JobHandle{JobKey: l.jobKey}
 	}
-	return jobdb.JobHandle{JobKey: l.jobKey, GoalID: record.goalID}
+	return l.runtime.engine.cellHandleLocked(l.jobKey, record)
 }
 func (l *runtimeLease) Route() jobdb.Route                   { return l.route }
 func (l *runtimeLease) ClientPayload() json.RawMessage       { return cloneJSON(l.clientPayload) }
@@ -1958,4 +1995,12 @@ func (r *Runtime) completePayloadFailure(ctx context.Context, key jobdb.JobKey, 
 	record.payload = mustMarshalWorkerPayload(payload)
 	r.engine.initGoalsLocked()
 	return (goalstate.Engine{Store: r.engine.goals, Now: now}).Complete(key)
+}
+
+func (r *Runtime) requirePublishedJob(ctx context.Context, key jobdb.JobKey) error {
+	rec := r.engine.getJobRecord(key)
+	if rec == nil {
+		return jobdb.ErrJobNotFound
+	}
+	return nil
 }

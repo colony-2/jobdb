@@ -11,25 +11,26 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/stretchr/testify/require"
 )
 
 func TestJobsDeleteCLI(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	rt := toy.New()
-	h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "c2", JobID: "selected", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(nil), Metadata: json.RawMessage(`{"recipe":"build","env":"dev"}`)}})
+	h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "c2", JobID: "selected", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(nil), Metadata: json.RawMessage(`{"recipe":"build","env":"dev"}`)}})
 	require.NoError(t, err)
 	t.Setenv("JOBDB_BEARER_TOKEN", "admin-token")
 	handler := remote.NewServer(rt)
 	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		require.Equal(t, "Bearer admin-token", r.Header.Get("Authorization"))
 		require.Equal(t, "/v1/tenants/c2/jobs/delete", r.URL.Path)
 		handler.ServeHTTP(w, r)
-	}))
+	})))
 	defer server.Close()
 	run := func(args ...string) (string, error) {
 		cmd := NewRootCmd()

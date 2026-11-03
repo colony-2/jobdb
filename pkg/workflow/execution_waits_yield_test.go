@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +21,7 @@ func TestExecutionChildWaitDeadlineAndRecovery(t *testing.T) {
 		for _, taskWait := range []bool{false, true} {
 			for _, terminal := range []string{"success", "failure", "cancel"} {
 				t.Run(fmt.Sprintf("%s/task=%t/%s", backend, taskWait, terminal), func(t *testing.T) {
-					ctx := context.Background()
+					ctx := celltest.Context(context.Background())
 					rt := alternateRuntime(t, backend)
 					child := wf.ExecutionWorker{JobType: "child", Execute: func(wf.ExecutionContext, jobdb.JobData) (jobdb.JobData, error) {
 						if terminal == "failure" {
@@ -50,7 +52,7 @@ func TestExecutionChildWaitDeadlineAndRecovery(t *testing.T) {
 					policy.InvocationTimeout = jobdb.AsDuration(10 * time.Minute)
 					policy.TotalTimeout = jobdb.AsDuration(30 * time.Minute)
 					policy.Retry.MaximumAttempts = 1
-					h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: parent.Name(), Data: jobdb.NewTaskDataOrPanic("parent input"), RunPolicy: policy}})
+					h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: parent.Name(), Data: jobdb.NewTaskDataOrPanic("parent input"), RunPolicy: policy}})
 					require.NoError(t, err)
 					run := func(worker string) wf.JobRunOutcome {
 						r, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: parent, TaskWorkers: []wf.TaskWorker{task}, WorkerID: worker, LeaseDuration: time.Minute})
@@ -221,7 +223,7 @@ func TestExecutionYieldConfirmation(t *testing.T) {
 					for _, record := range executionRecords(t, base, key) {
 						require.NotEqual(t, "result", record.Kind, "Yield must not complete a task or job")
 					}
-					lease, err := base.GetJobLease(context.Background(), jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "receiver", Routes: []jobdb.Route{{JobType: "receiver"}}, LeaseDuration: time.Minute})
+					lease, err := base.GetJobLease(celltest.Context(context.Background()), jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "receiver", Routes: []jobdb.Route{{JobType: "receiver"}}, LeaseDuration: time.Minute})
 					require.NoError(t, err)
 					if mode == "accepted" || mode == "committed-response-lost" {
 						require.NotNil(t, lease)
@@ -241,7 +243,7 @@ func TestJoinRescheduleDeadlineAndReset(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		for _, poll := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/poll=%t", backend, poll), func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				rt := alternateRuntime(t, backend)
 				key := submitExecutionTest(t, rt, wf.ExecutionWorker{JobType: "parent"})
 				child := submitExecutionTest(t, rt, wf.ExecutionWorker{JobType: "child"})

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -107,7 +109,7 @@ func testScopeTimeoutAdmission(t *testing.T, base jobdb.WorkflowRuntime, admitte
 		}
 	}
 	require.Zero(t, builds.Load(), "expired scope must not construct late input")
-	before, err := base.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+	before, err := base.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 	require.NoError(t, err)
 	replaying.Store(true)
 	value, err := replayExecutionTest(t, rt, key, worker)
@@ -115,7 +117,7 @@ func testScopeTimeoutAdmission(t *testing.T, base jobdb.WorkflowRuntime, admitte
 	raw, err = value.GetData()
 	require.NoError(t, err)
 	require.JSONEq(t, `"caught"`, string(raw))
-	after, err := base.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+	after, err := base.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 	require.NoError(t, err)
 	require.Equal(t, before, after)
 	require.Equal(t, wantStarts, starts.Load(), "replay must not execute live callback effects")
@@ -126,7 +128,7 @@ func testScopeTimeoutAdmission(t *testing.T, base jobdb.WorkflowRuntime, admitte
 
 func runBoundedTimeoutTest(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, worker wf.ExecutionWorker, tasks ...wf.TaskWorker) (wf.JobRunOutcome, error) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 10*time.Second)
 	defer cancel()
 	run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: worker, TaskWorkers: tasks, WorkerID: "timeout-test", LeaseDuration: time.Minute})
 	require.NoError(t, err)

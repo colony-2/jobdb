@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 )
 
@@ -18,9 +19,9 @@ func RunClientPayloadConformance(t *testing.T, harnesses ...Harness) {
 			f := buildFixture(t, h)
 			defer f.Shutdown(t)
 			r := f.Runtime
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			initial := json.RawMessage(`{"n":9007199254740993,"nested":{"keep":1,"remove":2},"run_policy":"client-owned"}`)
-			request := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: f.WorkerTenantID, JobID: "payload-job", JobType: "payloadjob", Data: NumberTaskData(1), RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 3}}, ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: initial}}}
+			request := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: f.WorkerTenantID, JobID: "payload-job", JobType: "payloadjob", Data: NumberTaskData(1), RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 3}}, ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: initial}}}
 			handle, err := r.SubmitJob(ctx, request)
 			if err != nil {
 				t.Fatal(err)
@@ -120,7 +121,7 @@ func RunClientPayloadConformance(t *testing.T, harnesses ...Harness) {
 			if _, err := r.SubmitJob(ctx, request); err != nil {
 				t.Fatalf("archived submission retry: %v", err)
 			}
-			restart := jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: handle.JobKey, JobID: "restart-payload", LastStepToKeep: 1, ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"restart":true}`)}}}
+			restart := jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: handle.JobKey, JobID: "restart-payload", LastStepToKeep: 1, ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"restart":true}`)}}}
 			restarted, err := r.SubmitRestartJob(ctx, restart)
 			if err != nil {
 				t.Fatal(err)

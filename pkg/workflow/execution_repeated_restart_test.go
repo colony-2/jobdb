@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -23,7 +25,7 @@ func TestExecutionRepeatedRestartSameBoundary(t *testing.T) {
 			for _, finiteParent := range []bool{false, true} {
 				scenario := func(t *testing.T) {
 					rt := alternateRuntime(t, backend)
-					ctx := context.Background()
+					ctx := celltest.Context(context.Background())
 					var priorRuns, workRuns atomic.Int32
 					task := executionTestTask{"echo", func(c wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
 						if strings.Contains(c.InvocationID, `task:"prior"`) {
@@ -70,7 +72,7 @@ func TestExecutionRepeatedRestartSameBoundary(t *testing.T) {
 						}
 						original, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: source})
 						require.NoError(t, err)
-						h, err := rt.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: source, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target}}})
+						h, err := rt.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: source, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target}}})
 						require.NoError(t, err)
 						started := time.Now()
 						out, err = runExecutionTest(t, rt, h.JobKey, w, task)
@@ -148,7 +150,7 @@ func TestExecutionRepeatedRestartRecovery(t *testing.T) {
 				if backend == "toy" {
 					time.Sleep(2 * time.Hour)
 				}
-				h, err := rt.SubmitRestartJob(context.Background(), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: source, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target}}})
+				h, err := rt.SubmitRestartJob(celltest.Context(context.Background()), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: source, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target}}})
 				require.NoError(t, err)
 				out, err = runExecutionTest(t, rt, h.JobKey, w) // persist external wait
 				require.NoError(t, err)
@@ -216,10 +218,10 @@ func TestExecutionRepeatedRestartStillTimesOut(t *testing.T) {
 		target := executionRestartTarget(t, rt, source, "target")
 		for generation := 1; generation <= 3; generation++ {
 			time.Sleep(2 * time.Minute)
-			h, err := rt.SubmitRestartJob(context.Background(), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: source, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target}}})
+			h, err := rt.SubmitRestartJob(celltest.Context(context.Background()), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: source, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target}}})
 			require.NoError(t, err)
 			start := time.Now()
-			run, err := wf.GetJobForRun(context.Background(), rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "timeout", LeaseDuration: time.Hour})
+			run, err := wf.GetJobForRun(celltest.Context(context.Background()), rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "timeout", LeaseDuration: time.Hour})
 			require.NoError(t, err)
 			out, err = run.Run(nil)
 			require.NoError(t, err)
@@ -240,7 +242,7 @@ func TestExecutionRepeatedRestartAdmission(t *testing.T) {
 		for _, mode := range []string{"prerequisite", "goal"} {
 			t.Run(backend+"/"+mode, func(t *testing.T) {
 				rt := alternateRuntime(t, backend)
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				var calls atomic.Int32
 				task := executionTestTask{"echo", func(_ wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) { calls.Add(1); return in, nil }}
 				w := wf.ExecutionWorker{JobType: "repeated-admission", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
@@ -275,7 +277,7 @@ func TestExecutionRepeatedRestartAdmission(t *testing.T) {
 				require.Equal(t, wf.JobRunCompleted, out.Status)
 				target := executionRestartTarget(t, rt, source, "target")
 				for generation := 1; generation <= 3; generation++ {
-					request := jobdb.SubmitRestartJob{PriorJobKey: source, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target}}
+					request := jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: source, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target}}
 					if generation != 2 {
 						dependency, goal := success, successInfo.GoalID
 						if generation == 3 {
@@ -304,7 +306,7 @@ func TestExecutionRepeatedRestartAdmission(t *testing.T) {
 					if generation == 2 {
 						// Also fork directly from the successful gated restart
 						// with a failing replacement gate, before advancing source.
-						replacement := jobdb.SubmitRestartJob{PriorJobKey: source, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target}}
+						replacement := jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: source, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target}}
 						if mode == "goal" {
 							replacement.Dependencies = []jobdb.Dependency{{Target: jobdb.DependencyTarget{GoalID: failureInfo.GoalID}, Condition: jobdb.JobPrereqSuccess}}
 						} else {

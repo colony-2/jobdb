@@ -2,11 +2,15 @@ package runtimecore_test
 
 import (
 	"context"
+
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
+
+	"testing"
+
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 type goalCaptureScheduler struct {
@@ -49,7 +53,7 @@ func TestGoalCorePublicationAndRestartReservation(t *testing.T) {
 	rt, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: scheduler, Chapters: history, Schemas: readTestSchemas{}})
 	require.NoError(t, err)
 	deps := []jobdb.Dependency{{Target: jobdb.DependencyTarget{GoalID: "upstream"}, Condition: jobdb.JobPrereqSuccess}}
-	handle, err := rt.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil), Dependencies: deps}})
+	handle, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil), Dependencies: deps}})
 	require.NoError(t, err)
 	require.Equal(t, "reserved-goal", handle.GoalID)
 	require.Equal(t, deps, scheduler.created.Dependencies)
@@ -57,7 +61,7 @@ func TestGoalCorePublicationAndRestartReservation(t *testing.T) {
 	// A committed restart retry must return before touching source history, even
 	// if the source or destination has advanced since the original operation.
 	history.created = false
-	h, err := rt.SubmitRestartJob(context.Background(), jobdb.SubmitRestartJobRequest{RequestID: "operation", Job: jobdb.SubmitRestartJob{PriorJobKey: jobdb.JobKey{TenantId: "tenant", JobId: "source"}, ShareGoal: true, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: "boundary"}}})
+	h, err := rt.SubmitRestartJob(celltest.Context(context.Background()), jobdb.SubmitRestartJobRequest{RequestID: "operation", Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: jobdb.JobKey{TenantId: "tenant", JobId: "source"}, ShareGoal: true, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: "boundary"}}})
 	require.NoError(t, err)
 	require.Equal(t, handle, h)
 	require.True(t, scheduler.preparation.ShareGoal)

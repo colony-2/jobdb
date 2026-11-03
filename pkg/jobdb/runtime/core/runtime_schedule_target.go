@@ -14,6 +14,9 @@ import (
 // scheduleTargetSnapshot owns target bytes so a later application mutation
 // cannot change a schedule's submitted input.
 type scheduleTargetSnapshot struct {
+	Cell          string                     `json:"cell"`
+	CellID        string                     `json:"cellId"`
+	CellRepo      string                     `json:"cellRepo"`
 	ClientPayload []byte                     `json:"clientPayloadBytes,omitempty"`
 	JobType       string                     `json:"jobType"`
 	Data          json.RawMessage            `json:"data,omitempty"`
@@ -60,7 +63,7 @@ func snapshotScheduleTarget(ctx context.Context, target jobdb.ScheduleTarget) (s
 	if err != nil {
 		return scheduleTargetSnapshot{}, err
 	}
-	return scheduleTargetSnapshot{ClientPayload: initial,
+	return scheduleTargetSnapshot{Cell: target.Cell, CellID: target.CellID, CellRepo: target.CellRepo, ClientPayload: initial,
 		JobType: target.JobType, Data: append(json.RawMessage(nil), raw...),
 		Artifacts: stored, RunPolicy: target.RunPolicy,
 		Metadata: jobdb.NormalizeJSON(target.Metadata),
@@ -77,7 +80,7 @@ func (s scheduleTargetSnapshot) toTarget() jobdb.ScheduleTarget {
 	if s.ClientPayload != nil {
 		update = &jobdb.ClientPayloadUpdate{Mode: "reset", Value: append([]byte(nil), s.ClientPayload...)}
 	}
-	return jobdb.ScheduleTarget{ClientPayloadUpdate: update,
+	return jobdb.ScheduleTarget{Cell: s.Cell, CellID: s.CellID, CellRepo: s.CellRepo, ClientPayloadUpdate: update,
 		JobType:   s.JobType,
 		Data:      &jobdb.SimpleTaskData{Data: append(json.RawMessage(nil), s.Data...), Artifacts: artifacts},
 		RunPolicy: s.RunPolicy,
@@ -100,7 +103,7 @@ func decodeSchedule(stored StoredSchedule) (jobdb.ScheduleInfo, error) {
 	}
 	return jobdb.ScheduleInfo{
 		TenantId: stored.ScheduleKey.TenantId, ScheduleId: stored.ScheduleKey.ScheduleId,
-		ScheduleKey: stored.ScheduleKey, State: stored.State, EffectiveState: stored.State,
+		PauseReason: stored.PauseReason, ScheduleKey: stored.ScheduleKey, State: stored.State, EffectiveState: stored.State,
 		Generation: stored.Generation, SpecHash: stored.SpecHash,
 		Trigger: trigger, Target: target.toTarget(), OverlapPolicy: stored.OverlapPolicy,
 		FailurePolicy: failure, NextFireAt: stored.NextFireAt,

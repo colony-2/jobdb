@@ -7,9 +7,11 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 )
 
 type runJobIfLeaseableStubRuntime struct {
+	WorkflowRuntime
 	leaseReq  GetJobLeaseRequest
 	leaseResp ExecutionLease
 	leaseErr  error
@@ -129,7 +131,7 @@ func TestGetJobForRunBuildsLeaseRequest(t *testing.T) {
 		jobResp: JobInfo{Status: JobStatusActive},
 	}
 
-	runnable, err := GetJobForRun(context.Background(), runtime, GetJobForRunRequest{
+	runnable, err := GetJobForRun(celltest.Context(context.Background()), runtime, GetJobForRunRequest{
 		JobKey:        jobKey,
 		JobWorker:     runJobIfLeaseableTestJob{name: "lease-job"},
 		TaskWorkers:   []TaskWorker{runJobIfLeaseableTestTask{name: "task-b"}, runJobIfLeaseableTestTask{name: "task-a"}},
@@ -183,7 +185,7 @@ func TestGetJobForRunReturnsCompletedWithoutLeaseForTerminalJob(t *testing.T) {
 		},
 	}
 
-	runnable, err := GetJobForRun(context.Background(), runtime, GetJobForRunRequest{
+	runnable, err := GetJobForRun(celltest.Context(context.Background()), runtime, GetJobForRunRequest{
 		JobKey:    jobKey,
 		JobWorker: runJobIfLeaseableTestJob{name: "lease-job"},
 	})
@@ -219,7 +221,7 @@ func TestGetJobForRunReportsSuspendedMissingRouteWithoutLease(t *testing.T) {
 		},
 	}
 
-	runnable, err := GetJobForRun(context.Background(), runtime, GetJobForRunRequest{
+	runnable, err := GetJobForRun(celltest.Context(context.Background()), runtime, GetJobForRunRequest{
 		JobKey:    jobKey,
 		JobWorker: runJobIfLeaseableTestJob{name: "lease-job"},
 	})
@@ -270,7 +272,7 @@ func TestJobRunnableRunDoesNotBlockOnListener(t *testing.T) {
 	}
 	seedJobStartForTest(t, runtime.runnerTestRuntime, jobKey, "lease-job", NewTaskDataOrPanic(map[string]any{"ok": true}), RunPolicy{})
 
-	runnable, err := GetJobForRun(context.Background(), runtime, GetJobForRunRequest{
+	runnable, err := GetJobForRun(celltest.Context(context.Background()), runtime, GetJobForRunRequest{
 		JobKey:    jobKey,
 		JobWorker: runJobIfLeaseableTestJob{name: "lease-job"},
 		WorkerID:  "worker-runnable",

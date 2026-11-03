@@ -16,7 +16,9 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/workflow"
+
 	jobdbtest "github.com/colony-2/jobdb/pkg/workflow/internal/jobdbtest"
 )
 
@@ -197,7 +199,7 @@ func observeViaMode[T any](
 	built := harness.New(t, workers...)
 	defer built.Shutdown(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 30*time.Second)
 	defer cancel()
 
 	subject := scenarioSubject{
@@ -911,7 +913,7 @@ func (j cleanupArtifactJob) Run(ctx workflow.ExecutionContext, input jobdb.JobDa
 	}
 	reuploaded := make([]jobdb.Artifact, 0, len(taskArtifacts))
 	for _, art := range taskArtifacts {
-		data, err := art.Bytes(context.Background())
+		data, err := art.Bytes(celltest.Context(context.Background()))
 		if err != nil {
 			return nil, err
 		}

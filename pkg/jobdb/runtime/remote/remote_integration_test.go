@@ -14,7 +14,10 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
+
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 )
 
@@ -58,7 +61,7 @@ func TestRemoteRuntimeLeaseAndMetadataRoundTrip(t *testing.T) {
 			name: "sqlite",
 			new: func(t *testing.T) (jobdb.WorkflowRuntime, func()) {
 				t.Helper()
-				embedded, err := sqliteruntime.StartEmbeddedRuntime(context.Background())
+				embedded, err := sqliteruntime.StartEmbeddedRuntime(celltest.Context(context.Background()))
 				if err != nil {
 					t.Fatalf("start embedded SQLite runtime: %v", err)
 				}
@@ -70,7 +73,7 @@ func TestRemoteRuntimeLeaseAndMetadataRoundTrip(t *testing.T) {
 			underlying, shutdown := tc.new(t)
 			defer shutdown()
 
-			server := httptest.NewServer(NewServer(underlying))
+			server := httptest.NewServer(celltest.Handler(NewServer(underlying)))
 			defer server.Close()
 
 			runtime, err := New(server.URL, server.Client())
@@ -78,12 +81,12 @@ func TestRemoteRuntimeLeaseAndMetadataRoundTrip(t *testing.T) {
 				t.Fatalf("new remote runtime: %v", err)
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 			defer cancel()
 
 			tenantID := "tenant-" + tc.name
 			handle, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
-				Job: jobdb.SubmitJob{
+				Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: tenantID,
 					JobType:  "lease-job",
 					Data:     jobdb.NewTaskDataOrPanic(map[string]int{"n": 7}),
@@ -154,10 +157,10 @@ func TestRemoteRuntimeLeaseAndMetadataRoundTrip(t *testing.T) {
 
 func TestRemoteRuntimePollWorkRequiresTenantId(t *testing.T) {
 	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		http.Error(w, "unexpected request", http.StatusInternalServerError)
-	}))
+	})))
 	defer server.Close()
 
 	runtime, err := New(server.URL, server.Client())
@@ -165,7 +168,7 @@ func TestRemoteRuntimePollWorkRequiresTenantId(t *testing.T) {
 		t.Fatalf("new remote runtime: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 5*time.Second)
 	defer cancel()
 
 	if _, err := runtime.PollWork(ctx, jobdb.PollWorkRequest{
@@ -181,7 +184,7 @@ func TestRemoteRuntimePollWorkRequiresTenantId(t *testing.T) {
 }
 
 func TestRemoteServerPollWorkRejectsInvalidTenantId(t *testing.T) {
-	server := httptest.NewServer(NewServer(toyruntime.New()))
+	server := httptest.NewServer(celltest.Handler(NewServer(toyruntime.New())))
 	defer server.Close()
 
 	tests := []struct {
@@ -235,7 +238,7 @@ func TestRemoteRuntimeChapterAndArtifactRoundTrip(t *testing.T) {
 			name: "sqlite",
 			new: func(t *testing.T) (jobdb.WorkflowRuntime, func()) {
 				t.Helper()
-				embedded, err := sqliteruntime.StartEmbeddedRuntime(context.Background())
+				embedded, err := sqliteruntime.StartEmbeddedRuntime(celltest.Context(context.Background()))
 				if err != nil {
 					t.Fatalf("start embedded SQLite runtime: %v", err)
 				}
@@ -247,7 +250,7 @@ func TestRemoteRuntimeChapterAndArtifactRoundTrip(t *testing.T) {
 			underlying, shutdown := tc.new(t)
 			defer shutdown()
 
-			server := httptest.NewServer(NewServer(underlying))
+			server := httptest.NewServer(celltest.Handler(NewServer(underlying)))
 			defer server.Close()
 
 			runtime, err := New(server.URL, server.Client())
@@ -255,12 +258,12 @@ func TestRemoteRuntimeChapterAndArtifactRoundTrip(t *testing.T) {
 				t.Fatalf("new remote runtime: %v", err)
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 			defer cancel()
 
 			tenantID := "tenant-artifact-" + tc.name
 			handle, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
-				Job: jobdb.SubmitJob{
+				Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: tenantID,
 					JobType:  "artifact-job",
 					Data:     jobdb.NewTaskDataOrPanic(map[string]int{"n": 3}),
@@ -365,7 +368,7 @@ func TestRemoteRuntimeChapterAndArtifactRoundTrip(t *testing.T) {
 
 func TestRemoteRuntimeSupportsExplicitJobIDs(t *testing.T) {
 	underlying := toyruntime.New()
-	server := httptest.NewServer(NewServer(underlying))
+	server := httptest.NewServer(celltest.Handler(NewServer(underlying)))
 	defer server.Close()
 
 	runtime, err := New(server.URL, server.Client())
@@ -373,8 +376,8 @@ func TestRemoteRuntimeSupportsExplicitJobIDs(t *testing.T) {
 		t.Fatalf("new remote runtime: %v", err)
 	}
 
-	handle, err := runtime.SubmitJob(context.Background(), jobdb.SubmitJobRequest{
-		Job: jobdb.SubmitJob{
+	handle, err := runtime.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{
+		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: "tenant-custom-id",
 			JobID:    "custom-job-id",
 			JobType:  "custom-id-job",
@@ -389,8 +392,8 @@ func TestRemoteRuntimeSupportsExplicitJobIDs(t *testing.T) {
 		t.Fatalf("unexpected job key %+v", handle.JobKey)
 	}
 
-	matching, err := runtime.SubmitJob(context.Background(), jobdb.SubmitJobRequest{
-		Job: jobdb.SubmitJob{
+	matching, err := runtime.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{
+		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: "tenant-custom-id",
 			JobID:    "custom-job-id",
 			JobType:  "custom-id-job",
@@ -405,8 +408,8 @@ func TestRemoteRuntimeSupportsExplicitJobIDs(t *testing.T) {
 		t.Fatalf("unexpected matching handle %+v", matching.JobKey)
 	}
 
-	_, err = runtime.SubmitJob(context.Background(), jobdb.SubmitJobRequest{
-		Job: jobdb.SubmitJob{
+	_, err = runtime.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{
+		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: "tenant-custom-id",
 			JobID:    "custom-job-id",
 			JobType:  "custom-id-job",
@@ -421,7 +424,7 @@ func TestRemoteRuntimeSupportsExplicitJobIDs(t *testing.T) {
 
 func TestRemoteRuntimeSchemaRegistryRoundTrip(t *testing.T) {
 	underlying := toyruntime.New()
-	server := httptest.NewServer(NewServer(underlying))
+	server := httptest.NewServer(celltest.Handler(NewServer(underlying)))
 	defer server.Close()
 
 	runtime, err := New(server.URL, server.Client())
@@ -429,7 +432,7 @@ func TestRemoteRuntimeSchemaRegistryRoundTrip(t *testing.T) {
 		t.Fatalf("new remote runtime: %v", err)
 	}
 
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	schema := json.RawMessage(`{
 		"$schema":"https://json-schema.org/draft/2020-12/schema",
 		"chapterShape":{
@@ -502,7 +505,7 @@ func TestRemoteRuntimeSchemaRegistryRoundTrip(t *testing.T) {
 	} {
 		t.Run("submit archived schema by "+tc.name, func(t *testing.T) {
 			_, err = runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
-				Job: jobdb.SubmitJob{
+				Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: "tenant-schema-remote",
 					JobType:  "archived-schema-job-" + tc.name,
 					Data:     jobdb.NewTaskDataOrPanic(map[string]string{"kind": "valid"}),
@@ -548,7 +551,7 @@ func TestRemoteRuntimeSchemaRegistryRoundTrip(t *testing.T) {
 
 func TestRemoteRuntimeSchemaValidationErrors(t *testing.T) {
 	underlying := toyruntime.New()
-	server := httptest.NewServer(NewServer(underlying))
+	server := httptest.NewServer(celltest.Handler(NewServer(underlying)))
 	defer server.Close()
 
 	runtime, err := New(server.URL, server.Client())
@@ -556,12 +559,12 @@ func TestRemoteRuntimeSchemaValidationErrors(t *testing.T) {
 		t.Fatalf("new remote runtime: %v", err)
 	}
 
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	tenantID := "tenant-schema-validation-remote"
 	schema := remoteChapterValidationSchemaForTest()
 
 	_, err = runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
-		Job: jobdb.SubmitJob{
+		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: tenantID,
 			JobType:  "schema-job",
 			Data:     jobdb.NewTaskDataOrPanic(map[string]string{"kind": "invalid"}),
@@ -573,7 +576,7 @@ func TestRemoteRuntimeSchemaValidationErrors(t *testing.T) {
 	}
 
 	handle, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
-		Job: jobdb.SubmitJob{
+		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: tenantID,
 			JobType:  "schema-job",
 			Data:     jobdb.NewTaskDataOrPanic(map[string]string{"kind": "valid"}),

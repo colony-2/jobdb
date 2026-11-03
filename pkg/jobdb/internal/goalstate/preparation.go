@@ -15,14 +15,18 @@ import (
 // Preparation reserves stable identities before history is written. The owning
 // scheduler publishes the reserved goal and job together only after preparation.
 type Preparation struct {
-	Key          jobdb.JobKey
-	RequestID    string
-	PriorJobID   string
-	ShareGoal    bool
-	Descriptor   string
-	Dependencies []jobdb.Dependency
+	Cell, CellRepo string
+	Target         jobdb.ResolvedCell
+	ParentJobID    string
+	Key            jobdb.JobKey
+	RequestID      string
+	PriorJobID     string
+	ShareGoal      bool
+	Descriptor     string
+	Dependencies   []jobdb.Dependency
 }
 type Prepared struct {
+	Target    jobdb.ResolvedCell
 	Key       jobdb.JobKey
 	GoalID    string
 	Published bool
@@ -42,6 +46,8 @@ func SubmitPreparation(ctx context.Context, req jobdb.SubmitJobRequest, parent s
 	job := req.Job
 	job.Data = nil
 	job.JobID = ""
+	job.Cell = ""
+	job.CellRepo = ""
 	if len(job.Dependencies) == 0 {
 		job.Dependencies = nil
 	}
@@ -53,7 +59,7 @@ func SubmitPreparation(ctx context.Context, req jobdb.SubmitJobRequest, parent s
 		Job          jobdb.SubmitJob
 		Data         string
 	}{"submit", parent, job, data})
-	return Preparation{Key: jobdb.JobKey{TenantId: req.Job.TenantId, JobId: req.Job.JobID}, Descriptor: descriptor, Dependencies: req.Job.Dependencies}, err
+	return Preparation{Cell: req.Job.Cell, CellRepo: req.Job.CellRepo, ParentJobID: parent, Key: jobdb.JobKey{TenantId: req.Job.TenantId, JobId: req.Job.JobID}, Descriptor: descriptor, Dependencies: req.Job.Dependencies}, err
 }
 func RestartPreparation(ctx context.Context, req jobdb.SubmitRestartJobRequest, parent string) (Preparation, error) {
 	if req.Job.ShareGoal && req.Job.JobID == "" && req.RequestID == "" {
@@ -77,6 +83,8 @@ func RestartPreparation(ctx context.Context, req jobdb.SubmitRestartJobRequest, 
 	job.ExtraTaskInput = nil
 	job.ExtraTaskOutput = nil
 	job.JobID = ""
+	job.Cell = ""
+	job.CellRepo = ""
 	if len(job.Dependencies) == 0 {
 		job.Dependencies = nil
 	}
@@ -88,7 +96,7 @@ func RestartPreparation(ctx context.Context, req jobdb.SubmitRestartJobRequest, 
 		Job           jobdb.SubmitRestartJob
 		Input, Output string
 	}{"restart", parent, job, in, out})
-	return Preparation{Key: jobdb.JobKey{TenantId: req.Job.PriorJobKey.TenantId, JobId: req.Job.JobID}, RequestID: req.RequestID, PriorJobID: req.Job.PriorJobKey.JobId, ShareGoal: req.Job.ShareGoal, Descriptor: descriptor, Dependencies: req.Job.Dependencies}, err
+	return Preparation{Cell: req.Job.Cell, CellRepo: req.Job.CellRepo, ParentJobID: parent, Key: jobdb.JobKey{TenantId: req.Job.PriorJobKey.TenantId, JobId: req.Job.JobID}, RequestID: req.RequestID, PriorJobID: req.Job.PriorJobKey.JobId, ShareGoal: req.Job.ShareGoal, Descriptor: descriptor, Dependencies: req.Job.Dependencies}, err
 }
 func canonicalJSON(v any) (string, error) {
 	raw, err := json.Marshal(v)

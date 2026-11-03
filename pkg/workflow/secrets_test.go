@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/stretchr/testify/require"
 )
@@ -33,7 +34,7 @@ func (w *secretReadingTask) Run(ctx TaskContext, input TaskData) (TaskData, erro
 	w.captured = ctx
 	// Repeated reads reuse values and omissions within the live job attempt.
 	for i := 0; i < 2; i++ {
-		result, err := ctx.ResolveSecrets(context.Background(), []string{"token", "denied"})
+		result, err := ctx.ResolveSecrets(celltest.Context(context.Background()), []string{"token", "denied"})
 		if err != nil {
 			return nil, err
 		}
@@ -53,7 +54,7 @@ func (*secretReadingJob) Name() string { return "secret-job" }
 func (w *secretReadingJob) Run(ctx ExecutionContext, input JobData) (JobData, error) {
 	w.captured = ctx
 	if w.readJob {
-		result, err := ctx.ResolveSecrets(context.Background(), []string{"token"})
+		result, err := ctx.ResolveSecrets(celltest.Context(context.Background()), []string{"token"})
 		if err != nil {
 			return nil, err
 		}
@@ -67,12 +68,12 @@ func (w *secretReadingJob) Run(ctx ExecutionContext, input JobData) (JobData, er
 func TestWorkflowContextsResolveSecretsWithoutRecordingOrReplayingValues(t *testing.T) {
 	for _, readJob := range []bool{false, true} {
 		t.Run(fmt.Sprint("job-read=", readJob), func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			provider := &workflowSecretProvider{}
 			runtime := toy.New(toy.WithSecretProvider(provider))
 			job, task := &secretReadingJob{readJob: readJob}, &secretReadingTask{}
 			ws := mustWorkSetForRunnerTest(t, job, task)
-			handle, err := runtime.SubmitJob(ctx, SubmitJobRequest{Job: SubmitJob{TenantId: "tenant", JobType: job.Name(), Data: NewTaskDataOrPanic("input")}})
+			handle, err := runtime.SubmitJob(ctx, SubmitJobRequest{Job: SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: job.Name(), Data: NewTaskDataOrPanic("input")}})
 			require.NoError(t, err)
 			lease, err := runtime.GetJobLease(ctx, GetJobLeaseRequest{JobKey: handle.JobKey, WorkerID: "worker", Routes: []Route{{JobType: job.Name()}}, LeaseDuration: time.Minute})
 			require.NoError(t, err)
@@ -110,17 +111,17 @@ func TestWorkflowContextsResolveSecretsWithoutRecordingOrReplayingValues(t *test
 
 func TestSecretContextRejectsReplayAndMissingLease(t *testing.T) {
 	runner := &workerRunner{replay: true}
-	_, err := runner.ResolveSecrets(context.Background(), []string{"token"})
+	_, err := runner.ResolveSecrets(celltest.Context(context.Background()), []string{"token"})
 	require.ErrorIs(t, err, ErrReplayShouldNeverMutate)
 	runner.replay = false
-	_, err = runner.ResolveSecrets(context.Background(), []string{"token"})
+	_, err = runner.ResolveSecrets(celltest.Context(context.Background()), []string{"token"})
 	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
-	_, err = (TaskContext{}).ResolveSecrets(context.Background(), []string{"token"})
+	_, err = (TaskContext{}).ResolveSecrets(celltest.Context(context.Background()), []string{"token"})
 	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
 }
 
 func TestSecretContextInvocationCancellationDiscardsResult(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	lease := &secretSessionLease{sessionTestLease: newSessionTestLease()}
 	lease.resolve = func(callCtx context.Context, _ []string) (SecretResolveResult, error) {
 		cancel()
@@ -128,7 +129,7 @@ func TestSecretContextInvocationCancellationDiscardsResult(t *testing.T) {
 		return SecretResolveResult{Secrets: map[string]SecretValue{"token": {Value: "late-value"}}}, nil
 	}
 	runner := &workerRunner{ctx: ctx, lease: lease}
-	result, err := runner.ResolveSecrets(context.Background(), []string{"token"})
+	result, err := runner.ResolveSecrets(celltest.Context(context.Background()), []string{"token"})
 	require.ErrorIs(t, err, jobdb.ErrSecretsUnavailable)
 	require.Empty(t, result.Secrets)
 }
@@ -140,7 +141,7 @@ type expiredSecretTask struct {
 
 func (*expiredSecretTask) Name() string { return "expired-task" }
 func (w *expiredSecretTask) Run(ctx TaskContext, input TaskData) (TaskData, error) {
-	if _, err := ctx.ResolveSecrets(context.Background(), []string{"token"}); err != nil {
+	if _, err := ctx.ResolveSecrets(celltest.Context(context.Background()), []string{"token"}); err != nil {
 		return nil, err
 	}
 	w.captured <- ctx
@@ -157,24 +158,24 @@ func (w *catchesSecretTaskTimeout) Run(ctx ExecutionContext, input JobData) (Job
 		return nil, fmt.Errorf("task did not time out")
 	}
 	taskCtx := <-w.task.captured
-	_, secretErr := taskCtx.ResolveSecrets(context.Background(), []string{"token"})
+	_, secretErr := taskCtx.ResolveSecrets(celltest.Context(context.Background()), []string{"token"})
 	close(w.task.release)
 	if secretErr == nil {
 		return nil, fmt.Errorf("expired task context still resolved secrets")
 	}
 	// The job still has a live lease; its own context remains usable.
-	_, err = ctx.ResolveSecrets(context.Background(), []string{"token"})
+	_, err = ctx.ResolveSecrets(celltest.Context(context.Background()), []string{"token"})
 	return input, err
 }
 
 func TestTaskSecretContextExpiresWhileJobLeaseRemainsLive(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	provider := &workflowSecretProvider{}
 	runtime := toy.New(toy.WithSecretProvider(provider))
 	task := &expiredSecretTask{captured: make(chan TaskContext, 1), release: make(chan struct{})}
 	job := &catchesSecretTaskTimeout{task: task}
 	ws := mustWorkSetForRunnerTest(t, job, task)
-	handle, err := runtime.SubmitJob(ctx, SubmitJobRequest{Job: SubmitJob{TenantId: "tenant", JobType: job.Name(), Data: NewTaskDataOrPanic("input")}})
+	handle, err := runtime.SubmitJob(ctx, SubmitJobRequest{Job: SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: job.Name(), Data: NewTaskDataOrPanic("input")}})
 	require.NoError(t, err)
 	lease, err := runtime.GetJobLease(ctx, GetJobLeaseRequest{JobKey: handle.JobKey, WorkerID: "worker", Routes: []Route{{JobType: job.Name()}}, LeaseDuration: time.Minute})
 	require.NoError(t, err)

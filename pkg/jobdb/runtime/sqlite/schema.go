@@ -3,9 +3,8 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+
 	"fmt"
-	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 const schemaSQL = `
@@ -13,6 +12,9 @@ CREATE TABLE IF NOT EXISTS jobdb_jobs (
 	tenant_id TEXT NOT NULL,
 	job_id TEXT NOT NULL,
  goal_id TEXT NOT NULL,
+ cell_id TEXT NOT NULL,
+ cell_name TEXT NOT NULL,
+ cell_repo TEXT NOT NULL,
  dependency_wait_id TEXT NOT NULL DEFAULT '',
 	job_type TEXT NOT NULL,
 	route_job_type TEXT NOT NULL,
@@ -40,7 +42,8 @@ CREATE TABLE IF NOT EXISTS jobdb_jobs (
 	alternate_job_type TEXT,
  alternate_task_type TEXT,
 	alternate_at_ns INTEGER,
-	PRIMARY KEY (tenant_id, job_id)
+	PRIMARY KEY (tenant_id, job_id),
+ FOREIGN KEY(tenant_id,cell_id) REFERENCES jobdb_cells(tenant_id,cell_id)
 );
 
 CREATE INDEX IF NOT EXISTS jobdb_jobs_poll_idx
@@ -50,6 +53,7 @@ CREATE INDEX IF NOT EXISTS jobdb_jobs_list_idx
 	ON jobdb_jobs (tenant_id, created_at_ns DESC, job_id DESC);
 
 CREATE TABLE IF NOT EXISTS jobdb_schedules (
+ pause_reason TEXT NOT NULL DEFAULT '',
 	tenant_id TEXT NOT NULL,
 	schedule_id TEXT NOT NULL,
 	state TEXT NOT NULL,
@@ -85,14 +89,25 @@ CREATE INDEX IF NOT EXISTS jobdb_schemas_list_idx
 `
 
 const goalSchemaSQL = `
+CREATE TABLE jobdb_cells(tenant_id TEXT NOT NULL,cell_id TEXT NOT NULL,name TEXT NOT NULL,repo TEXT NOT NULL,payload BLOB NOT NULL,PRIMARY KEY(tenant_id,cell_id),UNIQUE(tenant_id,name),UNIQUE(tenant_id,repo));
+CREATE TABLE jobdb_cell_names(tenant_id TEXT NOT NULL,name TEXT NOT NULL,cell_id TEXT NOT NULL,PRIMARY KEY(tenant_id,name),FOREIGN KEY(tenant_id,cell_id) REFERENCES jobdb_cells(tenant_id,cell_id));
+CREATE TABLE jobdb_cell_requests(tenant_id TEXT PRIMARY KEY,payload BLOB NOT NULL);
+CREATE INDEX jobdb_jobs_cell_idx ON jobdb_jobs(tenant_id,cell_id,job_id);
+
 CREATE INDEX IF NOT EXISTS jobdb_jobs_goal_idx ON jobdb_jobs(tenant_id,goal_id,job_id);
-CREATE TABLE IF NOT EXISTS jobdb_goals(tenant_id TEXT NOT NULL,goal_id TEXT NOT NULL,payload BLOB NOT NULL,PRIMARY KEY(tenant_id,goal_id));
+CREATE TABLE IF NOT EXISTS jobdb_goals(tenant_id TEXT NOT NULL,goal_id TEXT NOT NULL,state TEXT NOT NULL DEFAULT '',created_at_ns INTEGER NOT NULL DEFAULT 0,updated_at_ns INTEGER NOT NULL DEFAULT 0,payload BLOB NOT NULL,PRIMARY KEY(tenant_id,goal_id));
 CREATE TABLE IF NOT EXISTS jobdb_goal_candidates(tenant_id TEXT NOT NULL,goal_id TEXT NOT NULL,job_id TEXT NOT NULL,added_at_ns INTEGER NOT NULL,PRIMARY KEY(tenant_id,goal_id,job_id));
 CREATE INDEX IF NOT EXISTS jobdb_goal_candidates_job_idx ON jobdb_goal_candidates(tenant_id,job_id,goal_id);
 CREATE TABLE IF NOT EXISTS jobdb_dependency_waits(tenant_id TEXT NOT NULL,job_id TEXT NOT NULL,wait_id TEXT NOT NULL,state TEXT NOT NULL,payload BLOB NOT NULL,PRIMARY KEY(tenant_id,job_id,wait_id));
 CREATE TABLE IF NOT EXISTS jobdb_dependency_targets(tenant_id TEXT NOT NULL,job_id TEXT NOT NULL,wait_id TEXT NOT NULL,target_kind TEXT NOT NULL,target_id TEXT NOT NULL,PRIMARY KEY(tenant_id,job_id,wait_id,target_kind,target_id));
 CREATE INDEX IF NOT EXISTS jobdb_dependency_targets_lookup ON jobdb_dependency_targets(tenant_id,target_kind,target_id);
-CREATE TABLE IF NOT EXISTS jobdb_goal_preparations(tenant_id TEXT NOT NULL,job_id TEXT NOT NULL,request_id TEXT,goal_id TEXT NOT NULL,share_goal INTEGER NOT NULL,descriptor BLOB NOT NULL,dependencies BLOB NOT NULL,PRIMARY KEY(tenant_id,job_id),UNIQUE(tenant_id,request_id));
+CREATE TABLE IF NOT EXISTS jobdb_goal_preparations(tenant_id TEXT NOT NULL,job_id TEXT NOT NULL,request_id TEXT,goal_id TEXT NOT NULL,share_goal INTEGER NOT NULL,descriptor BLOB NOT NULL,cell_target BLOB NOT NULL,dependencies BLOB NOT NULL,PRIMARY KEY(tenant_id,job_id),UNIQUE(tenant_id,request_id));
+ CREATE INDEX jobdb_goals_state_idx ON jobdb_goals(tenant_id,state,goal_id);
+ CREATE INDEX jobdb_goals_created_idx ON jobdb_goals(tenant_id,created_at_ns,goal_id);
+ CREATE INDEX jobdb_goals_updated_idx ON jobdb_goals(tenant_id,updated_at_ns,goal_id);
+ CREATE INDEX jobdb_jobs_type_goal_idx ON jobdb_jobs(tenant_id,job_type,goal_id,job_id);
+ CREATE INDEX jobdb_dependency_targets_discovery_idx ON jobdb_dependency_targets(tenant_id,target_kind,target_id,job_id,wait_id);
+ CREATE INDEX jobdb_dependency_waits_state_idx ON jobdb_dependency_waits(tenant_id,job_id,state,wait_id);
 `
 
 func migrate(ctx context.Context, db *sql.DB) error {
@@ -103,14 +118,14 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version == 9 {
+	if version == 10 {
 		return nil
 	}
 	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tables); err != nil {
 		return err
 	}
 	if version != 0 || tables != 0 {
-		return fmt.Errorf("sqlite runtime: unsupported database format %d; stop JobDB and run jobdb-migrate-chapter-artifacts check/rewrite/verify (schema 8 required)", version)
+		return fmt.Errorf("sqlite runtime: unsupported database format %d; cell storage requires a fresh database; reset required (no old-job migration)", version)
 	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -123,64 +138,8 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	if _, err = tx.ExecContext(ctx, goalSchemaSQL); err != nil {
 		return err
 	}
-	if err = migrateGoalDiscovery(ctx, tx); err != nil {
-		return err
-	}
-	if _, err = tx.ExecContext(ctx, "PRAGMA user_version=9"); err != nil {
+	if _, err = tx.ExecContext(ctx, "PRAGMA user_version=10"); err != nil {
 		return err
 	}
 	return tx.Commit()
-}
-
-func knownGoalMigrationOutcome(status string) bool {
-	switch status {
-	case "success", "succeeded", "failed_app", "failed_system", "failed_timeout", "cancelled":
-		return true
-	}
-	return false
-}
-
-// Derived indexed columns avoid parsing every tenant goal on each discovery page.
-func migrateGoalDiscovery(ctx context.Context, tx *sql.Tx) error {
-	_, err := tx.ExecContext(ctx, `ALTER TABLE jobdb_goals ADD COLUMN state TEXT NOT NULL DEFAULT '';
- ALTER TABLE jobdb_goals ADD COLUMN created_at_ns INTEGER NOT NULL DEFAULT 0;
- ALTER TABLE jobdb_goals ADD COLUMN updated_at_ns INTEGER NOT NULL DEFAULT 0;
- CREATE INDEX jobdb_goals_state_idx ON jobdb_goals(tenant_id,state,goal_id);
- CREATE INDEX jobdb_goals_created_idx ON jobdb_goals(tenant_id,created_at_ns,goal_id);
- CREATE INDEX jobdb_goals_updated_idx ON jobdb_goals(tenant_id,updated_at_ns,goal_id);
- CREATE INDEX jobdb_jobs_type_goal_idx ON jobdb_jobs(tenant_id,job_type,goal_id,job_id);
- CREATE INDEX jobdb_dependency_targets_discovery_idx ON jobdb_dependency_targets(tenant_id,target_kind,target_id,job_id,wait_id);
- CREATE INDEX jobdb_dependency_waits_state_idx ON jobdb_dependency_waits(tenant_id,job_id,state,wait_id);`)
-	if err != nil {
-		return err
-	}
-	rows, err := tx.QueryContext(ctx, "SELECT payload FROM jobdb_goals")
-	if err != nil {
-		return err
-	}
-	var goals []jobdb.GoalInfo
-	for rows.Next() {
-		var raw []byte
-		var g jobdb.GoalInfo
-		if err = rows.Scan(&raw); err != nil {
-			rows.Close()
-			return err
-		}
-		if err = json.Unmarshal(raw, &g); err != nil {
-			rows.Close()
-			return err
-		}
-		goals = append(goals, g)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return err
-	}
-	for _, g := range goals {
-		if _, err = tx.ExecContext(ctx, "UPDATE jobdb_goals SET state=?,created_at_ns=?,updated_at_ns=? WHERE tenant_id=? AND goal_id=?", g.State, g.CreatedAt.UnixNano(), g.UpdatedAt.UnixNano(), g.GoalKey.TenantId, g.GoalKey.GoalID); err != nil {
-			return err
-		}
-	}
-	return nil
 }

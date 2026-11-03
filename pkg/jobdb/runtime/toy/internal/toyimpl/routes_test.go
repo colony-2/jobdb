@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,10 +15,12 @@ func TestPrimaryClaimPreservesFutureAlternate(t *testing.T) {
 	for _, method := range []string{"poll", "get"} {
 		t.Run(method, func(t *testing.T) {
 			rt := New()
+			c, err := rt.CreateCell(celltest.Context(context.Background()), jobdb.CreateCellRequest{TenantID: "tenant", Name: "test", Repo: "example.test/test"})
+			require.NoError(t, err)
 			key := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 			primary := jobdb.Route{JobType: "job", TaskType: "primary"}
 			fallback := jobdb.Route{JobType: "job"}
-			record := &jobRecord{
+			record := &jobRecord{cell: c.Resolved(),
 				route: primary, alternateRoute: &fallback,
 				alternateAt: time.Now().Add(time.Hour), status: jobdb.JobStatusReady,
 			}
@@ -25,14 +28,14 @@ func TestPrimaryClaimPreservesFutureAlternate(t *testing.T) {
 			claim := func(route jobdb.Route) jobdb.ExecutionLease {
 				t.Helper()
 				if method == "poll" {
-					leases, err := rt.PollWork(context.Background(), jobdb.PollWorkRequest{
+					leases, err := rt.PollWork(celltest.Context(context.Background()), jobdb.PollWorkRequest{
 						TenantId: key.TenantId, Routes: []jobdb.Route{route}, WorkerID: "worker",
 					})
 					require.NoError(t, err)
 					require.Len(t, leases, 1)
 					return leases[0]
 				}
-				lease, err := rt.GetJobLease(context.Background(), jobdb.GetJobLeaseRequest{
+				lease, err := rt.GetJobLease(celltest.Context(context.Background()), jobdb.GetJobLeaseRequest{
 					JobKey: key, Routes: []jobdb.Route{route}, WorkerID: "worker",
 				})
 				require.NoError(t, err)
@@ -70,14 +73,16 @@ func TestExpiredLeaseActivatesAlternateRouteInSamePoll(t *testing.T) {
 
 func TestAvailableRoutesDiscoveryTracksTimeWithoutMutation(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		ctx := context.Background()
+		ctx := celltest.Context(context.Background())
 		rt := New()
+		c, err := rt.CreateCell(celltest.Context(context.Background()), jobdb.CreateCellRequest{TenantID: "tenant", Name: "test", Repo: "example.test/test"})
+		require.NoError(t, err)
 		primary := jobdb.Route{JobType: "job", TaskType: "input"}
 		alternate := jobdb.Route{JobType: "job"}
 		now := time.Now()
 		for _, mode := range []string{"alternate", "delay", "dependency", "lease"} {
 			key := jobdb.JobKey{TenantId: "tenant", JobId: mode}
-			record := &jobRecord{jobType: "job", route: primary, status: jobdb.JobStatusReady, createdAt: now}
+			record := &jobRecord{cell: c.Resolved(), jobType: "job", route: primary, status: jobdb.JobStatusReady, createdAt: now}
 			switch mode {
 			case "alternate":
 				record.alternateRoute = &alternate
@@ -89,7 +94,7 @@ func TestAvailableRoutesDiscoveryTracksTimeWithoutMutation(t *testing.T) {
 				record.status = jobdb.JobStatusPendingJobs
 				record.waitFor = []string{"blocker"}
 				record.waitDeadline = now.Add(time.Minute)
-				rt.engine.jobRecords[jobdb.JobKey{TenantId: "tenant", JobId: "blocker"}] = &jobRecord{status: jobdb.JobStatusReady}
+				rt.engine.jobRecords[jobdb.JobKey{TenantId: "tenant", JobId: "blocker"}] = &jobRecord{cell: c.Resolved(), status: jobdb.JobStatusReady}
 			case "lease":
 				record.status = jobdb.JobStatusActive
 				record.leased = true

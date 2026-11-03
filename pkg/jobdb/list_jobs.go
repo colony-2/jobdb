@@ -21,6 +21,9 @@ type DependencyWaitSummary struct {
 // or evaluated dependency explanations. Client payloads and execution state are
 // returned in full from the same listing snapshot.
 type JobSummary struct {
+	Cell                string
+	CellID              string
+	CellRepo            string
 	BlockingWaitSummary *DependencyWaitSummary
 	// Deprecated: use GetJob or GetDependencyWait. Not populated by compact lists.
 	BlockingWait *DependencyWaitInfo
@@ -72,7 +75,8 @@ type JobTaskFilter struct {
 // ListJobsRequest filters and paginates the union of active + archived jobs.
 // TenantIds must contain at least one tenant ID.
 type ListJobsRequest struct {
-	GoalIDs []string
+	CellNames []string
+	GoalIDs   []string
 	// IncludeHidden includes jobs hidden by DeleteJobs. Direct history lookups
 	// use this option so deletion does not break thin clones or references.
 	IncludeHidden bool

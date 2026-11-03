@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	celljson "encoding/json"
+
 	jobdb "github.com/colony-2/jobdb/pkg/jobdb"
 	clientpayload "github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 	"github.com/go-chi/chi/v5"
@@ -24,42 +26,49 @@ import (
 
 const (
 	BearerAuthScopes = "bearerAuth.Scopes"
+	LeaseTokenScopes = "leaseToken.Scopes"
+)
+
+// Defines values for CellState.
+const (
+	CellStateACTIVE  CellState = "ACTIVE"
+	CellStateRETIRED CellState = "RETIRED"
 )
 
 // Defines values for ErrorCode.
 const (
-	ChapterApplicationPayloadTooLarge ErrorCode = "chapter_application_payload_too_large"
-	ChapterNotFound                   ErrorCode = "chapter_not_found"
-	ConfigurationFailed               ErrorCode = "configuration_failed"
-	ConfigurationReadTooLarge         ErrorCode = "configuration_read_too_large"
-	ConfigurationRevisionMismatch     ErrorCode = "configuration_revision_mismatch"
-	ConfigurationTooLarge             ErrorCode = "configuration_too_large"
-	ConfigurationUnavailable          ErrorCode = "configuration_unavailable"
-	Conflict                          ErrorCode = "conflict"
-	DelegationDeadlineReached         ErrorCode = "delegation_deadline_reached"
-	DelegationNotSupported            ErrorCode = "delegation_not_supported"
-	DelegationUnavailable             ErrorCode = "delegation_unavailable"
-	DependencyCycle                   ErrorCode = "dependency_cycle"
-	DependencyWaitConflict            ErrorCode = "dependency_wait_conflict"
-	DependencyWaitNotFound            ErrorCode = "dependency_wait_not_found"
-	ExecutionLeaseLost                ErrorCode = "execution_lease_lost"
-	ExistingJobMismatch               ErrorCode = "existing_job_mismatch"
-	GoalConflict                      ErrorCode = "goal_conflict"
-	GoalNotFound                      ErrorCode = "goal_not_found"
-	Internal                          ErrorCode = "internal"
-	InvalidConfigurationRequest       ErrorCode = "invalid_configuration_request"
-	InvalidDelegationCredential       ErrorCode = "invalid_delegation_credential"
-	InvalidDelegationRequest          ErrorCode = "invalid_delegation_request"
-	InvalidDependency                 ErrorCode = "invalid_dependency"
-	InvalidRequest                    ErrorCode = "invalid_request"
-	JobNotComplete                    ErrorCode = "job_not_complete"
-	JobNotFound                       ErrorCode = "job_not_found"
-	JobSchemaArchived                 ErrorCode = "job_schema_archived"
-	JobSchemaNotFound                 ErrorCode = "job_schema_not_found"
-	JobSchemaValidationFailed         ErrorCode = "job_schema_validation_failed"
-	LeasePermissionDenied             ErrorCode = "lease_permission_denied"
-	NotFound                          ErrorCode = "not_found"
-	WorkflowNotDeterministic          ErrorCode = "workflow_not_deterministic"
+	ErrorCodeChapterApplicationPayloadTooLarge ErrorCode = "chapter_application_payload_too_large"
+	ErrorCodeChapterNotFound                   ErrorCode = "chapter_not_found"
+	ErrorCodeConfigurationFailed               ErrorCode = "configuration_failed"
+	ErrorCodeConfigurationReadTooLarge         ErrorCode = "configuration_read_too_large"
+	ErrorCodeConfigurationRevisionMismatch     ErrorCode = "configuration_revision_mismatch"
+	ErrorCodeConfigurationTooLarge             ErrorCode = "configuration_too_large"
+	ErrorCodeConfigurationUnavailable          ErrorCode = "configuration_unavailable"
+	ErrorCodeConflict                          ErrorCode = "conflict"
+	ErrorCodeDelegationDeadlineReached         ErrorCode = "delegation_deadline_reached"
+	ErrorCodeDelegationNotSupported            ErrorCode = "delegation_not_supported"
+	ErrorCodeDelegationUnavailable             ErrorCode = "delegation_unavailable"
+	ErrorCodeDependencyCycle                   ErrorCode = "dependency_cycle"
+	ErrorCodeDependencyWaitConflict            ErrorCode = "dependency_wait_conflict"
+	ErrorCodeDependencyWaitNotFound            ErrorCode = "dependency_wait_not_found"
+	ErrorCodeExecutionLeaseLost                ErrorCode = "execution_lease_lost"
+	ErrorCodeExistingJobMismatch               ErrorCode = "existing_job_mismatch"
+	ErrorCodeGoalConflict                      ErrorCode = "goal_conflict"
+	ErrorCodeGoalNotFound                      ErrorCode = "goal_not_found"
+	ErrorCodeInternal                          ErrorCode = "internal"
+	ErrorCodeInvalidConfigurationRequest       ErrorCode = "invalid_configuration_request"
+	ErrorCodeInvalidDelegationCredential       ErrorCode = "invalid_delegation_credential"
+	ErrorCodeInvalidDelegationRequest          ErrorCode = "invalid_delegation_request"
+	ErrorCodeInvalidDependency                 ErrorCode = "invalid_dependency"
+	ErrorCodeInvalidRequest                    ErrorCode = "invalid_request"
+	ErrorCodeJobNotComplete                    ErrorCode = "job_not_complete"
+	ErrorCodeJobNotFound                       ErrorCode = "job_not_found"
+	ErrorCodeJobSchemaArchived                 ErrorCode = "job_schema_archived"
+	ErrorCodeJobSchemaNotFound                 ErrorCode = "job_schema_not_found"
+	ErrorCodeJobSchemaValidationFailed         ErrorCode = "job_schema_validation_failed"
+	ErrorCodeLeasePermissionDenied             ErrorCode = "lease_permission_denied"
+	ErrorCodeNotFound                          ErrorCode = "not_found"
+	ErrorCodeWorkflowNotDeterministic          ErrorCode = "workflow_not_deterministic"
 )
 
 // Defines values for ExecutionChapterKind.
@@ -166,10 +175,10 @@ const (
 
 // Defines values for ScheduleState.
 const (
-	ACTIVE        ScheduleState = "ACTIVE"
-	ARCHIVED      ScheduleState = "ARCHIVED"
-	FAILUREPAUSED ScheduleState = "FAILURE_PAUSED"
-	PAUSED        ScheduleState = "PAUSED"
+	ScheduleStateACTIVE        ScheduleState = "ACTIVE"
+	ScheduleStateARCHIVED      ScheduleState = "ARCHIVED"
+	ScheduleStateFAILUREPAUSED ScheduleState = "FAILURE_PAUSED"
+	ScheduleStatePAUSED        ScheduleState = "PAUSED"
 )
 
 // Defines values for ScheduleTriggerKind.
@@ -201,6 +210,20 @@ const (
 // Defines values for TaskOutcomeTimeoutKind.
 const (
 	Timeout TaskOutcomeTimeoutKind = "timeout"
+)
+
+// Defines values for StateFilter.
+const (
+	StateFilterACTIVE  StateFilter = "ACTIVE"
+	StateFilterALL     StateFilter = "ALL"
+	StateFilterRETIRED StateFilter = "RETIRED"
+)
+
+// Defines values for ListCellsParamsState.
+const (
+	ListCellsParamsStateACTIVE  ListCellsParamsState = "ACTIVE"
+	ListCellsParamsStateALL     ListCellsParamsState = "ALL"
+	ListCellsParamsStateRETIRED ListCellsParamsState = "RETIRED"
 )
 
 // AddChapterRequest defines model for AddChapterRequest.
@@ -242,6 +265,32 @@ type CancelJobRequest struct {
 	Reason   *string `json:"reason,omitempty"`
 	WorkerId *string `json:"workerId,omitempty"`
 }
+
+// Cell defines model for Cell.
+type Cell = interface{}
+
+// CellId Opaque server-generated stable identity. JobDB resolves names to this ID and stores it on owned resources. c2j may use names for submission and ignore the ID until needed.
+type CellId = string
+
+// CellMetadata Application properties, at most 16 KiB encoded as compact UTF-8 JSON (enforced by server). No authorization semantics. PATCH replaces the whole object.
+type CellMetadata map[string]JsonValue
+
+// CellName Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+type CellName = string
+
+// CellRepo Credential-free repository locator. Accept recognized host/owner/repo, HTTPS,
+// and standard-port SSH/SCP forms. Canonicalize to lowercase-host/repository-path,
+// preserving path case and removing one .git suffix and trailing slash. Ignore
+// SSH transport username. Reject HTTP credentials, query/fragment components,
+// empty/traversing paths, unsupported custom transports/ports, and local paths.
+// Deployment-managed aliases can map otherwise unsupported locators to a shared
+// canonical identity. Do not guess equivalence. No network/provider validation
+// is performed. Cells return the canonical form, e.g. github.com/colony-2/payments.
+// Git clone transport and authentication are separate c2j configuration.
+type CellRepo = string
+
+// CellState defines model for CellState.
+type CellState string
 
 // ChapterBody defines model for ChapterBody.
 type ChapterBody struct {
@@ -317,6 +366,31 @@ type ConfigurationSnapshot struct {
 	Values   map[string]ApplicationPayload `json:"values"`
 }
 
+// CreateCellRequest Administrative registration; name and repo required. description and metadata default to empty values. The server assigns ID/root designation. Root bootstrap additionally requires cells.bootstrapRoot authority.
+type CreateCellRequest struct {
+	Description *string `json:"description,omitempty"`
+
+	// Metadata Application properties, at most 16 KiB encoded as compact UTF-8 JSON (enforced by server). No authorization semantics. PATCH replaces the whole object.
+	Metadata *CellMetadata `json:"metadata,omitempty"`
+
+	// Name Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+	Name CellName `json:"name"`
+
+	// Repo Credential-free repository locator. Accept recognized host/owner/repo, HTTPS,
+	// and standard-port SSH/SCP forms. Canonicalize to lowercase-host/repository-path,
+	// preserving path case and removing one .git suffix and trailing slash. Ignore
+	// SSH transport username. Reject HTTP credentials, query/fragment components,
+	// empty/traversing paths, unsupported custom transports/ports, and local paths.
+	// Deployment-managed aliases can map otherwise unsupported locators to a shared
+	// canonical identity. Do not guess equivalence. No network/provider validation
+	// is performed. Cells return the canonical form, e.g. github.com/colony-2/payments.
+	// Git clone transport and authentication are separate c2j configuration.
+	Repo CellRepo `json:"repo"`
+
+	// RequestId Optional idempotency identifier, scoped to tenant and authenticated principal. Retained for the cell lifetime; not its cellId.
+	RequestId *string `json:"requestId,omitempty"`
+}
+
 // CreateDelegationRequest Restrict authority until notAfter, or while the exact parent lease remains live if omitted. Credential refresh never extends either bound.
 type CreateDelegationRequest = jobdb.CreateDelegationRequest
 
@@ -354,8 +428,9 @@ type DelegationPermissions struct {
 
 // DelegationSubmitPermission defines model for DelegationSubmitPermission.
 type DelegationSubmitPermission struct {
-	JobIds   DelegationNames `json:"jobIds"`
-	JobTypes DelegationNames `json:"jobTypes"`
+	CellNames *DelegationNames `json:"cellNames,omitempty"`
+	JobIds    DelegationNames  `json:"jobIds"`
+	JobTypes  DelegationNames  `json:"jobTypes"`
 }
 
 // DelegationWritePermission Only TaskAttemptOutcome chapters. Artifact selectors allow fresh uploads, never stored references.
@@ -528,15 +603,48 @@ type JobDependencyFailureCode string
 
 // JobHandle defines model for JobHandle.
 type JobHandle struct {
-	GoalId string `json:"goalId"`
-	JobKey JobKey `json:"jobKey"`
+	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+	Cell CellName `json:"cell"`
+
+	// CellId Opaque server-generated stable identity. JobDB resolves names to this ID and stores it on owned resources. c2j may use names for submission and ignore the ID until needed.
+	CellId CellId `json:"cellId"`
+
+	// CellRepo Credential-free repository locator. Accept recognized host/owner/repo, HTTPS,
+	// and standard-port SSH/SCP forms. Canonicalize to lowercase-host/repository-path,
+	// preserving path case and removing one .git suffix and trailing slash. Ignore
+	// SSH transport username. Reject HTTP credentials, query/fragment components,
+	// empty/traversing paths, unsupported custom transports/ports, and local paths.
+	// Deployment-managed aliases can map otherwise unsupported locators to a shared
+	// canonical identity. Do not guess equivalence. No network/provider validation
+	// is performed. Cells return the canonical form, e.g. github.com/colony-2/payments.
+	// Git clone transport and authentication are separate c2j configuration.
+	CellRepo CellRepo `json:"cellRepo"`
+	GoalId   string   `json:"goalId"`
+	JobKey   JobKey   `json:"jobKey"`
 }
 
 // JobInfo defines model for JobInfo.
 type JobInfo struct {
-	BlockingWait          *DependencyWaitInfo `json:"blockingWait,omitempty"`
-	ClientPayload         json.RawMessage     `json:"clientPayload,omitempty"`
-	ClientPayloadRevision string              `json:"clientPayloadRevision"`
+	BlockingWait *DependencyWaitInfo `json:"blockingWait,omitempty"`
+
+	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+	Cell CellName `json:"cell"`
+
+	// CellId Opaque server-generated stable identity. JobDB resolves names to this ID and stores it on owned resources. c2j may use names for submission and ignore the ID until needed.
+	CellId CellId `json:"cellId"`
+
+	// CellRepo Credential-free repository locator. Accept recognized host/owner/repo, HTTPS,
+	// and standard-port SSH/SCP forms. Canonicalize to lowercase-host/repository-path,
+	// preserving path case and removing one .git suffix and trailing slash. Ignore
+	// SSH transport username. Reject HTTP credentials, query/fragment components,
+	// empty/traversing paths, unsupported custom transports/ports, and local paths.
+	// Deployment-managed aliases can map otherwise unsupported locators to a shared
+	// canonical identity. Do not guess equivalence. No network/provider validation
+	// is performed. Cells return the canonical form, e.g. github.com/colony-2/payments.
+	// Git clone transport and authentication are separate c2j configuration.
+	CellRepo              CellRepo        `json:"cellRepo"`
+	ClientPayload         json.RawMessage `json:"clientPayload,omitempty"`
+	ClientPayloadRevision string          `json:"clientPayloadRevision"`
 
 	// CompletionDetail Persisted completion diagnostic text.
 	CompletionDetail *string `json:"completionDetail,omitempty"`
@@ -630,10 +738,27 @@ type JobSummary struct {
 	BlockingWait *DependencyWaitInfo `json:"blockingWait,omitempty"`
 
 	// BlockingWaitSummary Persisted pending wait identity and deadline. Does not evaluate dependency targets or candidate jobs. Absent after the wait becomes terminal or its deadline elapses.
-	BlockingWaitSummary   *DependencyWaitSummary `json:"blockingWaitSummary,omitempty"`
-	CancelRequested       bool                   `json:"cancelRequested"`
-	ClientPayload         json.RawMessage        `json:"clientPayload,omitempty"`
-	ClientPayloadRevision string                 `json:"clientPayloadRevision"`
+	BlockingWaitSummary *DependencyWaitSummary `json:"blockingWaitSummary,omitempty"`
+	CancelRequested     bool                   `json:"cancelRequested"`
+
+	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+	Cell CellName `json:"cell"`
+
+	// CellId Opaque server-generated stable identity. JobDB resolves names to this ID and stores it on owned resources. c2j may use names for submission and ignore the ID until needed.
+	CellId CellId `json:"cellId"`
+
+	// CellRepo Credential-free repository locator. Accept recognized host/owner/repo, HTTPS,
+	// and standard-port SSH/SCP forms. Canonicalize to lowercase-host/repository-path,
+	// preserving path case and removing one .git suffix and trailing slash. Ignore
+	// SSH transport username. Reject HTTP credentials, query/fragment components,
+	// empty/traversing paths, unsupported custom transports/ports, and local paths.
+	// Deployment-managed aliases can map otherwise unsupported locators to a shared
+	// canonical identity. Do not guess equivalence. No network/provider validation
+	// is performed. Cells return the canonical form, e.g. github.com/colony-2/payments.
+	// Git clone transport and authentication are separate c2j configuration.
+	CellRepo              CellRepo        `json:"cellRepo"`
+	ClientPayload         json.RawMessage `json:"clientPayload,omitempty"`
+	ClientPayloadRevision string          `json:"clientPayloadRevision"`
 
 	// CompletionDetail Persisted terminal completion detail. Empty is valid, including for success.
 	CompletionDetail *string `json:"completionDetail,omitempty"`
@@ -666,10 +791,21 @@ type JobTaskFilter struct {
 // JsonSchemaFragment JSON Schema draft 2020-12 object or boolean schema fragment.
 type JsonSchemaFragment = json.RawMessage
 
+// JsonValue Application-owned JSON value.
+type JsonValue = celljson.RawMessage
+
 // KeepAliveLeaseResponse defines model for KeepAliveLeaseResponse.
 type KeepAliveLeaseResponse struct {
 	Lease      *ExecutionLease `json:"lease,omitempty"`
 	LeaseToken string          `json:"leaseToken"`
+}
+
+// ListCellsResponse defines model for ListCellsResponse.
+type ListCellsResponse struct {
+	Cells []Cell `json:"cells"`
+
+	// NextPageToken Omitted on the last page; never null or an empty string.
+	NextPageToken *string `json:"nextPageToken,omitempty"`
 }
 
 // ListChaptersResponse defines model for ListChaptersResponse.
@@ -702,10 +838,11 @@ type ListJobsRequest struct {
 	// before pagination. Read-only: does not acquire a lease or change
 	// nextRoute, which remains the stored route. Acquire with the same
 	// supported routes; availability can change after listing.
-	AvailableRoutes *[]Route   `json:"availableRoutes,omitempty"`
-	CreatedAfter    *time.Time `json:"createdAfter,omitempty"`
-	CreatedBefore   *time.Time `json:"createdBefore,omitempty"`
-	GoalIds         *[]string  `json:"goalIds,omitempty"`
+	AvailableRoutes *[]Route    `json:"availableRoutes,omitempty"`
+	CellNames       *[]CellName `json:"cellNames,omitempty"`
+	CreatedAfter    *time.Time  `json:"createdAfter,omitempty"`
+	CreatedBefore   *time.Time  `json:"createdBefore,omitempty"`
+	GoalIds         *[]string   `json:"goalIds,omitempty"`
 
 	// IncludeHidden Include jobs hidden by deleteJobs, for direct history lookup or inspection. Does not make them runnable again.
 	IncludeHidden *bool            `json:"includeHidden,omitempty"`
@@ -848,6 +985,8 @@ type MetadataValue struct {
 
 // PollWorkRequest defines model for PollWorkRequest.
 type PollWorkRequest struct {
+	CellNames *[]CellName `json:"cellNames,omitempty"`
+
 	// LeaseDuration Duration string controlling how long acquired leases should be held.
 	LeaseDuration *string    `json:"leaseDuration,omitempty"`
 	Limit         int        `json:"limit"`
@@ -890,9 +1029,35 @@ type RescheduleExecutionRequest struct {
 	WaitUntil *time.Time `json:"waitUntil,omitempty"`
 }
 
+// ResolveCellRequest defines model for ResolveCellRequest.
+type ResolveCellRequest struct {
+	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+	Cell CellName `json:"cell"`
+}
+
 // ResolveSecretsBody defines model for ResolveSecretsBody.
 type ResolveSecretsBody struct {
 	Names []string `json:"names"`
+}
+
+// ResolvedCell Minimal active target information for loading a recipe/submitting a job. It grants no history, metadata, or secret access.
+type ResolvedCell struct {
+	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+	Cell CellName `json:"cell"`
+
+	// CellId Opaque server-generated stable identity. JobDB resolves names to this ID and stores it on owned resources. c2j may use names for submission and ignore the ID until needed.
+	CellId CellId `json:"cellId"`
+
+	// CellRepo Credential-free repository locator. Accept recognized host/owner/repo, HTTPS,
+	// and standard-port SSH/SCP forms. Canonicalize to lowercase-host/repository-path,
+	// preserving path case and removing one .git suffix and trailing slash. Ignore
+	// SSH transport username. Reject HTTP credentials, query/fragment components,
+	// empty/traversing paths, unsupported custom transports/ports, and local paths.
+	// Deployment-managed aliases can map otherwise unsupported locators to a shared
+	// canonical identity. Do not guess equivalence. No network/provider validation
+	// is performed. Cells return the canonical form, e.g. github.com/colony-2/payments.
+	// Git clone transport and authentication are separate c2j configuration.
+	CellRepo CellRepo `json:"cellRepo"`
 }
 
 // RestartExtraChapter defines model for RestartExtraChapter.
@@ -950,6 +1115,7 @@ type ScheduleInfo struct {
 	NextFireAt     *time.Time            `json:"nextFireAt,omitempty"`
 	NextJobKey     *JobKey               `json:"nextJobKey,omitempty"`
 	OverlapPolicy  ScheduleOverlapPolicy `json:"overlapPolicy"`
+	PauseReason    *string               `json:"pauseReason,omitempty"`
 	ScheduleId     string                `json:"scheduleId"`
 	ScheduleKey    ScheduleKey           `json:"scheduleKey"`
 	SpecHash       string                `json:"specHash"`
@@ -990,6 +1156,22 @@ type ScheduleState string
 
 // ScheduleTarget defines model for ScheduleTarget.
 type ScheduleTarget struct {
+	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+	Cell CellName `json:"cell"`
+
+	// CellId Opaque server-generated stable identity. JobDB resolves names to this ID and stores it on owned resources. c2j may use names for submission and ignore the ID until needed.
+	CellId *CellId `json:"cellId,omitempty"`
+
+	// CellRepo Credential-free repository locator. Accept recognized host/owner/repo, HTTPS,
+	// and standard-port SSH/SCP forms. Canonicalize to lowercase-host/repository-path,
+	// preserving path case and removing one .git suffix and trailing slash. Ignore
+	// SSH transport username. Reject HTTP credentials, query/fragment components,
+	// empty/traversing paths, unsupported custom transports/ports, and local paths.
+	// Deployment-managed aliases can map otherwise unsupported locators to a shared
+	// canonical identity. Do not guess equivalence. No network/provider validation
+	// is performed. Cells return the canonical form, e.g. github.com/colony-2/payments.
+	// Git clone transport and authentication are separate c2j configuration.
+	CellRepo            *CellRepo            `json:"cellRepo,omitempty"`
 	ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
 	Data                TaskDataWrite        `json:"data"`
 	JobType             string               `json:"jobType"`
@@ -1062,7 +1244,21 @@ type StoredTaskData struct {
 
 // SubmitJob defines model for SubmitJob.
 type SubmitJob struct {
-	AvailableAt         *time.Time           `json:"availableAt,omitempty"`
+	AvailableAt *time.Time `json:"availableAt,omitempty"`
+
+	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+	Cell CellName `json:"cell"`
+
+	// CellRepo Credential-free repository locator. Accept recognized host/owner/repo, HTTPS,
+	// and standard-port SSH/SCP forms. Canonicalize to lowercase-host/repository-path,
+	// preserving path case and removing one .git suffix and trailing slash. Ignore
+	// SSH transport username. Reject HTTP credentials, query/fragment components,
+	// empty/traversing paths, unsupported custom transports/ports, and local paths.
+	// Deployment-managed aliases can map otherwise unsupported locators to a shared
+	// canonical identity. Do not guess equivalence. No network/provider validation
+	// is performed. Cells return the canonical form, e.g. github.com/colony-2/payments.
+	// Git clone transport and authentication are separate c2j configuration.
+	CellRepo            *CellRepo            `json:"cellRepo,omitempty"`
 	ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
 	Data                TaskDataWrite        `json:"data"`
 	Dependencies        *[]Dependency        `json:"dependencies,omitempty"`
@@ -1082,6 +1278,19 @@ type SubmitJobRequest struct {
 
 // SubmitRestartJob defines model for SubmitRestartJob.
 type SubmitRestartJob struct {
+	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+	Cell CellName `json:"cell"`
+
+	// CellRepo Credential-free repository locator. Accept recognized host/owner/repo, HTTPS,
+	// and standard-port SSH/SCP forms. Canonicalize to lowercase-host/repository-path,
+	// preserving path case and removing one .git suffix and trailing slash. Ignore
+	// SSH transport username. Reject HTTP credentials, query/fragment components,
+	// empty/traversing paths, unsupported custom transports/ports, and local paths.
+	// Deployment-managed aliases can map otherwise unsupported locators to a shared
+	// canonical identity. Do not guess equivalence. No network/provider validation
+	// is performed. Cells return the canonical form, e.g. github.com/colony-2/payments.
+	// Git clone transport and authentication are separate c2j configuration.
+	CellRepo            *CellRepo            `json:"cellRepo,omitempty"`
 	ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
 	Dependencies        *[]Dependency        `json:"dependencies,omitempty"`
 	ExecutionRestart    *ExecutionRestart    `json:"executionRestart,omitempty"`
@@ -1205,6 +1414,28 @@ type TriggerScheduleRequest struct {
 	WorkerId    *string    `json:"workerId,omitempty"`
 }
 
+// UpdateCellRequest Mutable properties of an active cell. Omitted fields are preserved; supplied metadata replaces the map. Root name must remain root. All changes commit atomically with If-Match.
+type UpdateCellRequest struct {
+	Description *string `json:"description,omitempty"`
+
+	// Metadata Application properties, at most 16 KiB encoded as compact UTF-8 JSON (enforced by server). No authorization semantics. PATCH replaces the whole object.
+	Metadata *CellMetadata `json:"metadata,omitempty"`
+
+	// Name Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+	Name *CellName `json:"name,omitempty"`
+
+	// Repo Credential-free repository locator. Accept recognized host/owner/repo, HTTPS,
+	// and standard-port SSH/SCP forms. Canonicalize to lowercase-host/repository-path,
+	// preserving path case and removing one .git suffix and trailing slash. Ignore
+	// SSH transport username. Reject HTTP credentials, query/fragment components,
+	// empty/traversing paths, unsupported custom transports/ports, and local paths.
+	// Deployment-managed aliases can map otherwise unsupported locators to a shared
+	// canonical identity. Do not guess equivalence. No network/provider validation
+	// is performed. Cells return the canonical form, e.g. github.com/colony-2/payments.
+	// Git clone transport and authentication are separate c2j configuration.
+	Repo *CellRepo `json:"repo,omitempty"`
+}
+
 // UpsertScheduleRequest defines model for UpsertScheduleRequest.
 type UpsertScheduleRequest struct {
 	ExpectedGeneration *int64                 `json:"expectedGeneration,omitempty"`
@@ -1226,6 +1457,12 @@ type ChildJobId = string
 // EndOrdinal defines model for EndOrdinal.
 type EndOrdinal = int64
 
+// IfMatch defines model for IfMatch.
+type IfMatch = string
+
+// IsRootFilter defines model for IsRootFilter.
+type IsRootFilter = bool
+
 // JobId defines model for JobId.
 type JobId = string
 
@@ -1235,8 +1472,17 @@ type LeaseId = string
 // LeaseTokenHeader defines model for LeaseTokenHeader.
 type LeaseTokenHeader = string
 
+// NameFilter Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+type NameFilter = CellName
+
 // Ordinal defines model for Ordinal.
 type Ordinal = int64
+
+// PageSize defines model for PageSize.
+type PageSize = int32
+
+// PageToken defines model for PageToken.
+type PageToken = string
 
 // ParentJobId defines model for ParentJobId.
 type ParentJobId = string
@@ -1247,8 +1493,80 @@ type ScheduleId = string
 // StartOrdinal defines model for StartOrdinal.
 type StartOrdinal = int64
 
+// StateFilter defines model for StateFilter.
+type StateFilter string
+
 // TenantId defines model for TenantId.
 type TenantId = string
+
+// BadRequest defines model for BadRequest.
+type BadRequest = ErrorResponse
+
+// CellResult defines model for CellResult.
+type CellResult = Cell
+
+// Conflict defines model for Conflict.
+type Conflict = ErrorResponse
+
+// Forbidden defines model for Forbidden.
+type Forbidden = ErrorResponse
+
+// InternalError defines model for InternalError.
+type InternalError = ErrorResponse
+
+// NotFound defines model for NotFound.
+type NotFound = ErrorResponse
+
+// PreconditionFailed defines model for PreconditionFailed.
+type PreconditionFailed = ErrorResponse
+
+// PreconditionRequired defines model for PreconditionRequired.
+type PreconditionRequired = ErrorResponse
+
+// ResolveConflict defines model for ResolveConflict.
+type ResolveConflict = ErrorResponse
+
+// RetirementConflict defines model for RetirementConflict.
+type RetirementConflict = ErrorResponse
+
+// Unauthorized defines model for Unauthorized.
+type Unauthorized = ErrorResponse
+
+// ListCellsParams defines parameters for ListCells.
+type ListCellsParams struct {
+	// Name Exact current name or permanent alias. Resolves at most one visible cell. Use state=ALL for retired lookup.
+	Name *NameFilter `form:"name,omitempty" json:"name,omitempty"`
+
+	// IsRoot Filter on the stored rootCellId binding, independently of display name.
+	IsRoot *IsRootFilter `form:"isRoot,omitempty" json:"isRoot,omitempty"`
+
+	// State Lifecycle filter. ALL includes retired cells for history and name lookup.
+	State *ListCellsParamsState `form:"state,omitempty" json:"state,omitempty"`
+
+	// PageSize Maximum visible records; may change between pages.
+	PageSize *PageSize `form:"pageSize,omitempty" json:"pageSize,omitempty"`
+
+	// PageToken Opaque continuation bound to tenant, authenticated principal, and filters
+	// (excluding pageSize). Repeat the same filters on each page. Integrity-protected;
+	// not an authorization grant. Invalid, expired, or mismatched tokens return
+	// 400 invalid_page_token. Current authorization is rechecked on every page.
+	PageToken *PageToken `form:"pageToken,omitempty" json:"pageToken,omitempty"`
+}
+
+// ListCellsParamsState defines parameters for ListCells.
+type ListCellsParamsState string
+
+// UpdateCellParams defines parameters for UpdateCell.
+type UpdateCellParams struct {
+	// IfMatch Exactly one strong ETag from a cell response. Missing: 428; stale: 412; weak, wildcard, or list: 400.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// RetireCellParams defines parameters for RetireCell.
+type RetireCellParams struct {
+	// IfMatch Exactly one strong ETag from a cell response. Missing: 428; stale: 412; weak, wildcard, or list: 400.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
 
 // RemoveTenantConfigurationValueParams defines parameters for RemoveTenantConfigurationValue.
 type RemoveTenantConfigurationValueParams struct {
@@ -1320,6 +1638,11 @@ type ResolveSecretsWithLeaseParams struct {
 	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
 }
 
+// ResolveCellWithLeaseParams defines parameters for ResolveCellWithLease.
+type ResolveCellWithLeaseParams struct {
+	XJobDBLeaseToken string `json:"X-JobDB-Lease-Token"`
+}
+
 // SubmitJobWithLeaseParams defines parameters for SubmitJobWithLease.
 type SubmitJobWithLeaseParams struct {
 	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
@@ -1347,6 +1670,12 @@ type ListJobSchemasParams struct {
 
 // PollWorkJSONRequestBody defines body for PollWork for application/json ContentType.
 type PollWorkJSONRequestBody = PollWorkRequest
+
+// CreateCellJSONRequestBody defines body for CreateCell for application/json ContentType.
+type CreateCellJSONRequestBody = CreateCellRequest
+
+// UpdateCellJSONRequestBody defines body for UpdateCell for application/json ContentType.
+type UpdateCellJSONRequestBody = UpdateCellRequest
 
 // RemoveTenantConfigurationValueJSONRequestBody defines body for RemoveTenantConfigurationValue for application/json ContentType.
 type RemoveTenantConfigurationValueJSONRequestBody = RemoveConfigurationBody
@@ -1404,6 +1733,9 @@ type ResolveSecretsWithLeaseJSONRequestBody = ResolveSecretsBody
 
 // PutRestartJobJSONRequestBody defines body for PutRestartJob for application/json ContentType.
 type PutRestartJobJSONRequestBody = SubmitRestartJobRequest
+
+// ResolveCellWithLeaseJSONRequestBody defines body for ResolveCellWithLease for application/json ContentType.
+type ResolveCellWithLeaseJSONRequestBody = ResolveCellRequest
 
 // SubmitJobWithLeaseJSONRequestBody defines body for SubmitJobWithLease for application/json ContentType.
 type SubmitJobWithLeaseJSONRequestBody = SubmitJobRequest
@@ -2086,6 +2418,25 @@ type ClientInterface interface {
 
 	PollWork(ctx context.Context, body PollWorkJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListCells request
+	ListCells(ctx context.Context, tenantId TenantId, params *ListCellsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateCellWithBody request with any body
+	CreateCellWithBody(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CreateCell(ctx context.Context, tenantId TenantId, body CreateCellJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetCell request
+	GetCell(ctx context.Context, tenantId TenantId, cellId CellId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateCellWithBody request with any body
+	UpdateCellWithBody(ctx context.Context, tenantId TenantId, cellId CellId, params *UpdateCellParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	UpdateCell(ctx context.Context, tenantId TenantId, cellId CellId, params *UpdateCellParams, body UpdateCellJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RetireCell request
+	RetireCell(ctx context.Context, tenantId TenantId, cellId CellId, params *RetireCellParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetTenantConfiguration request
 	GetTenantConfiguration(ctx context.Context, tenantId TenantId, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -2220,6 +2571,11 @@ type ClientInterface interface {
 
 	PutRestartJob(ctx context.Context, tenantId TenantId, jobId JobId, body PutRestartJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ResolveCellWithLeaseWithBody request with any body
+	ResolveCellWithLeaseWithBody(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *ResolveCellWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ResolveCellWithLease(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *ResolveCellWithLeaseParams, body ResolveCellWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// SubmitJobWithLeaseWithBody request with any body
 	SubmitJobWithLeaseWithBody(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *SubmitJobWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -2307,6 +2663,90 @@ func (c *Client) PollWorkWithBody(ctx context.Context, contentType string, body 
 
 func (c *Client) PollWork(ctx context.Context, body PollWorkJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPollWorkRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListCells(ctx context.Context, tenantId TenantId, params *ListCellsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListCellsRequest(c.Server, tenantId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateCellWithBody(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateCellRequestWithBody(c.Server, tenantId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateCell(ctx context.Context, tenantId TenantId, body CreateCellJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateCellRequest(c.Server, tenantId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetCell(ctx context.Context, tenantId TenantId, cellId CellId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetCellRequest(c.Server, tenantId, cellId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UpdateCellWithBody(ctx context.Context, tenantId TenantId, cellId CellId, params *UpdateCellParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateCellRequestWithBody(c.Server, tenantId, cellId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UpdateCell(ctx context.Context, tenantId TenantId, cellId CellId, params *UpdateCellParams, body UpdateCellJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateCellRequest(c.Server, tenantId, cellId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RetireCell(ctx context.Context, tenantId TenantId, cellId CellId, params *RetireCellParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRetireCellRequest(c.Server, tenantId, cellId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -2929,6 +3369,30 @@ func (c *Client) PutRestartJob(ctx context.Context, tenantId TenantId, jobId Job
 	return c.Client.Do(req)
 }
 
+func (c *Client) ResolveCellWithLeaseWithBody(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *ResolveCellWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResolveCellWithLeaseRequestWithBody(c.Server, tenantId, parentJobId, leaseId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ResolveCellWithLease(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *ResolveCellWithLeaseParams, body ResolveCellWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResolveCellWithLeaseRequest(c.Server, tenantId, parentJobId, leaseId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) SubmitJobWithLeaseWithBody(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *SubmitJobWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSubmitJobWithLeaseRequestWithBody(c.Server, tenantId, parentJobId, leaseId, params, contentType, body)
 	if err != nil {
@@ -3301,6 +3765,339 @@ func NewPollWorkRequestWithBody(server string, contentType string, body io.Reade
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListCellsRequest generates requests for ListCells
+func NewListCellsRequest(server string, tenantId TenantId, params *ListCellsParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/cells", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.Name != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "name", runtime.ParamLocationQuery, *params.Name); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.IsRoot != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "isRoot", runtime.ParamLocationQuery, *params.IsRoot); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.State != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "state", runtime.ParamLocationQuery, *params.State); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.PageSize != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "pageSize", runtime.ParamLocationQuery, *params.PageSize); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.PageToken != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "pageToken", runtime.ParamLocationQuery, *params.PageToken); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateCellRequest calls the generic CreateCell builder with application/json body
+func NewCreateCellRequest(server string, tenantId TenantId, body CreateCellJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateCellRequestWithBody(server, tenantId, "application/json", bodyReader)
+}
+
+// NewCreateCellRequestWithBody generates requests for CreateCell with any type of body
+func NewCreateCellRequestWithBody(server string, tenantId TenantId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/cells", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetCellRequest generates requests for GetCell
+func NewGetCellRequest(server string, tenantId TenantId, cellId CellId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "cellId", runtime.ParamLocationPath, cellId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/cells/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateCellRequest calls the generic UpdateCell builder with application/json body
+func NewUpdateCellRequest(server string, tenantId TenantId, cellId CellId, params *UpdateCellParams, body UpdateCellJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateCellRequestWithBody(server, tenantId, cellId, params, "application/json", bodyReader)
+}
+
+// NewUpdateCellRequestWithBody generates requests for UpdateCell with any type of body
+func NewUpdateCellRequestWithBody(server string, tenantId TenantId, cellId CellId, params *UpdateCellParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "cellId", runtime.ParamLocationPath, cellId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/cells/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PATCH", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.IfMatch != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithLocation("simple", false, "If-Match", runtime.ParamLocationHeader, *params.IfMatch)
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("If-Match", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewRetireCellRequest generates requests for RetireCell
+func NewRetireCellRequest(server string, tenantId TenantId, cellId CellId, params *RetireCellParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "cellId", runtime.ParamLocationPath, cellId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/cells/%s/retire", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.IfMatch != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithLocation("simple", false, "If-Match", runtime.ParamLocationHeader, *params.IfMatch)
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("If-Match", headerParam0)
+		}
+
+	}
 
 	return req, nil
 }
@@ -5148,6 +5945,80 @@ func NewPutRestartJobRequestWithBody(server string, tenantId TenantId, jobId Job
 	return req, nil
 }
 
+// NewResolveCellWithLeaseRequest calls the generic ResolveCellWithLease builder with application/json body
+func NewResolveCellWithLeaseRequest(server string, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *ResolveCellWithLeaseParams, body ResolveCellWithLeaseJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewResolveCellWithLeaseRequestWithBody(server, tenantId, parentJobId, leaseId, params, "application/json", bodyReader)
+}
+
+// NewResolveCellWithLeaseRequestWithBody generates requests for ResolveCellWithLease with any type of body
+func NewResolveCellWithLeaseRequestWithBody(server string, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *ResolveCellWithLeaseParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "parentJobId", runtime.ParamLocationPath, parentJobId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithLocation("simple", false, "leaseId", runtime.ParamLocationPath, leaseId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs/%s/leases/%s/cells/resolve", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithLocation("simple", false, "X-JobDB-Lease-Token", runtime.ParamLocationHeader, params.XJobDBLeaseToken)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-JobDB-Lease-Token", headerParam0)
+
+	}
+
+	return req, nil
+}
+
 // NewSubmitJobWithLeaseRequest calls the generic SubmitJobWithLease builder with application/json body
 func NewSubmitJobWithLeaseRequest(server string, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *SubmitJobWithLeaseParams, body SubmitJobWithLeaseJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -6103,6 +6974,25 @@ type ClientWithResponsesInterface interface {
 
 	PollWorkWithResponse(ctx context.Context, body PollWorkJSONRequestBody, reqEditors ...RequestEditorFn) (*PollWorkHTTPResponse, error)
 
+	// ListCellsWithResponse request
+	ListCellsWithResponse(ctx context.Context, tenantId TenantId, params *ListCellsParams, reqEditors ...RequestEditorFn) (*ListCellsHTTPResponse, error)
+
+	// CreateCellWithBodyWithResponse request with any body
+	CreateCellWithBodyWithResponse(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateCellHTTPResponse, error)
+
+	CreateCellWithResponse(ctx context.Context, tenantId TenantId, body CreateCellJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateCellHTTPResponse, error)
+
+	// GetCellWithResponse request
+	GetCellWithResponse(ctx context.Context, tenantId TenantId, cellId CellId, reqEditors ...RequestEditorFn) (*GetCellHTTPResponse, error)
+
+	// UpdateCellWithBodyWithResponse request with any body
+	UpdateCellWithBodyWithResponse(ctx context.Context, tenantId TenantId, cellId CellId, params *UpdateCellParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateCellHTTPResponse, error)
+
+	UpdateCellWithResponse(ctx context.Context, tenantId TenantId, cellId CellId, params *UpdateCellParams, body UpdateCellJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateCellHTTPResponse, error)
+
+	// RetireCellWithResponse request
+	RetireCellWithResponse(ctx context.Context, tenantId TenantId, cellId CellId, params *RetireCellParams, reqEditors ...RequestEditorFn) (*RetireCellHTTPResponse, error)
+
 	// GetTenantConfigurationWithResponse request
 	GetTenantConfigurationWithResponse(ctx context.Context, tenantId TenantId, reqEditors ...RequestEditorFn) (*GetTenantConfigurationHTTPResponse, error)
 
@@ -6237,6 +7127,11 @@ type ClientWithResponsesInterface interface {
 
 	PutRestartJobWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, body PutRestartJobJSONRequestBody, reqEditors ...RequestEditorFn) (*PutRestartJobHTTPResponse, error)
 
+	// ResolveCellWithLeaseWithBodyWithResponse request with any body
+	ResolveCellWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *ResolveCellWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ResolveCellWithLeaseHTTPResponse, error)
+
+	ResolveCellWithLeaseWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *ResolveCellWithLeaseParams, body ResolveCellWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*ResolveCellWithLeaseHTTPResponse, error)
+
 	// SubmitJobWithLeaseWithBodyWithResponse request with any body
 	SubmitJobWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *SubmitJobWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SubmitJobWithLeaseHTTPResponse, error)
 
@@ -6328,6 +7223,147 @@ func (r PollWorkHTTPResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r PollWorkHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ListCellsHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ListCellsResponse
+	JSON400      *BadRequest
+	JSON401      *Unauthorized
+	JSON403      *Forbidden
+	JSON404      *NotFound
+	JSON500      *InternalError
+}
+
+// Status returns HTTPResponse.Status
+func (r ListCellsHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListCellsHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type CreateCellHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *Cell
+	JSON400      *BadRequest
+	JSON401      *Unauthorized
+	JSON403      *Forbidden
+	JSON404      *NotFound
+	JSON409      *Conflict
+	JSON500      *InternalError
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateCellHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateCellHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetCellHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *CellResult
+	JSON400      *BadRequest
+	JSON401      *Unauthorized
+	JSON404      *NotFound
+	JSON500      *InternalError
+}
+
+// Status returns HTTPResponse.Status
+func (r GetCellHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetCellHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type UpdateCellHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *CellResult
+	JSON400      *BadRequest
+	JSON401      *Unauthorized
+	JSON403      *Forbidden
+	JSON404      *NotFound
+	JSON409      *Conflict
+	JSON412      *PreconditionFailed
+	JSON428      *PreconditionRequired
+	JSON500      *InternalError
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateCellHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateCellHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type RetireCellHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *CellResult
+	JSON400      *BadRequest
+	JSON401      *Unauthorized
+	JSON403      *Forbidden
+	JSON404      *NotFound
+	JSON409      *RetirementConflict
+	JSON412      *PreconditionFailed
+	JSON428      *PreconditionRequired
+	JSON500      *InternalError
+}
+
+// Status returns HTTPResponse.Status
+func (r RetireCellHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RetireCellHTTPResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -7071,6 +8107,34 @@ func (r PutRestartJobHTTPResponse) StatusCode() int {
 	return 0
 }
 
+type ResolveCellWithLeaseHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ResolvedCell
+	JSON400      *BadRequest
+	JSON401      *Unauthorized
+	JSON403      *Forbidden
+	JSON404      *NotFound
+	JSON409      *ResolveConflict
+	JSON500      *InternalError
+}
+
+// Status returns HTTPResponse.Status
+func (r ResolveCellWithLeaseHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ResolveCellWithLeaseHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type SubmitJobWithLeaseHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -7448,6 +8512,67 @@ func (c *ClientWithResponses) PollWorkWithResponse(ctx context.Context, body Pol
 		return nil, err
 	}
 	return ParsePollWorkHTTPResponse(rsp)
+}
+
+// ListCellsWithResponse request returning *ListCellsHTTPResponse
+func (c *ClientWithResponses) ListCellsWithResponse(ctx context.Context, tenantId TenantId, params *ListCellsParams, reqEditors ...RequestEditorFn) (*ListCellsHTTPResponse, error) {
+	rsp, err := c.ListCells(ctx, tenantId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListCellsHTTPResponse(rsp)
+}
+
+// CreateCellWithBodyWithResponse request with arbitrary body returning *CreateCellHTTPResponse
+func (c *ClientWithResponses) CreateCellWithBodyWithResponse(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateCellHTTPResponse, error) {
+	rsp, err := c.CreateCellWithBody(ctx, tenantId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateCellHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) CreateCellWithResponse(ctx context.Context, tenantId TenantId, body CreateCellJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateCellHTTPResponse, error) {
+	rsp, err := c.CreateCell(ctx, tenantId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateCellHTTPResponse(rsp)
+}
+
+// GetCellWithResponse request returning *GetCellHTTPResponse
+func (c *ClientWithResponses) GetCellWithResponse(ctx context.Context, tenantId TenantId, cellId CellId, reqEditors ...RequestEditorFn) (*GetCellHTTPResponse, error) {
+	rsp, err := c.GetCell(ctx, tenantId, cellId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetCellHTTPResponse(rsp)
+}
+
+// UpdateCellWithBodyWithResponse request with arbitrary body returning *UpdateCellHTTPResponse
+func (c *ClientWithResponses) UpdateCellWithBodyWithResponse(ctx context.Context, tenantId TenantId, cellId CellId, params *UpdateCellParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateCellHTTPResponse, error) {
+	rsp, err := c.UpdateCellWithBody(ctx, tenantId, cellId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateCellHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) UpdateCellWithResponse(ctx context.Context, tenantId TenantId, cellId CellId, params *UpdateCellParams, body UpdateCellJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateCellHTTPResponse, error) {
+	rsp, err := c.UpdateCell(ctx, tenantId, cellId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateCellHTTPResponse(rsp)
+}
+
+// RetireCellWithResponse request returning *RetireCellHTTPResponse
+func (c *ClientWithResponses) RetireCellWithResponse(ctx context.Context, tenantId TenantId, cellId CellId, params *RetireCellParams, reqEditors ...RequestEditorFn) (*RetireCellHTTPResponse, error) {
+	rsp, err := c.RetireCell(ctx, tenantId, cellId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRetireCellHTTPResponse(rsp)
 }
 
 // GetTenantConfigurationWithResponse request returning *GetTenantConfigurationHTTPResponse
@@ -7890,6 +9015,23 @@ func (c *ClientWithResponses) PutRestartJobWithResponse(ctx context.Context, ten
 	return ParsePutRestartJobHTTPResponse(rsp)
 }
 
+// ResolveCellWithLeaseWithBodyWithResponse request with arbitrary body returning *ResolveCellWithLeaseHTTPResponse
+func (c *ClientWithResponses) ResolveCellWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *ResolveCellWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ResolveCellWithLeaseHTTPResponse, error) {
+	rsp, err := c.ResolveCellWithLeaseWithBody(ctx, tenantId, parentJobId, leaseId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResolveCellWithLeaseHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) ResolveCellWithLeaseWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *ResolveCellWithLeaseParams, body ResolveCellWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*ResolveCellWithLeaseHTTPResponse, error) {
+	rsp, err := c.ResolveCellWithLease(ctx, tenantId, parentJobId, leaseId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResolveCellWithLeaseHTTPResponse(rsp)
+}
+
 // SubmitJobWithLeaseWithBodyWithResponse request with arbitrary body returning *SubmitJobWithLeaseHTTPResponse
 func (c *ClientWithResponses) SubmitJobWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *SubmitJobWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SubmitJobWithLeaseHTTPResponse, error) {
 	rsp, err := c.SubmitJobWithLeaseWithBody(ctx, tenantId, parentJobId, leaseId, params, contentType, body, reqEditors...)
@@ -8152,6 +9294,353 @@ func ParsePollWorkHTTPResponse(rsp *http.Response) (*PollWorkHTTPResponse, error
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListCellsHTTPResponse parses an HTTP response from a ListCellsWithResponse call
+func ParseListCellsHTTPResponse(rsp *http.Response) (*ListCellsHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListCellsHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ListCellsResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateCellHTTPResponse parses an HTTP response from a CreateCellWithResponse call
+func ParseCreateCellHTTPResponse(rsp *http.Response) (*CreateCellHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateCellHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Cell
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetCellHTTPResponse parses an HTTP response from a GetCellWithResponse call
+func ParseGetCellHTTPResponse(rsp *http.Response) (*GetCellHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetCellHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CellResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUpdateCellHTTPResponse parses an HTTP response from a UpdateCellWithResponse call
+func ParseUpdateCellHTTPResponse(rsp *http.Response) (*UpdateCellHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateCellHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CellResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 412:
+		var dest PreconditionFailed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON412 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 428:
+		var dest PreconditionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON428 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRetireCellHTTPResponse parses an HTTP response from a RetireCellWithResponse call
+func ParseRetireCellHTTPResponse(rsp *http.Response) (*RetireCellHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RetireCellHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CellResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest RetirementConflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 412:
+		var dest PreconditionFailed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON412 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 428:
+		var dest PreconditionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON428 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
 
 	}
 
@@ -9212,6 +10701,74 @@ func ParsePutRestartJobHTTPResponse(rsp *http.Response) (*PutRestartJobHTTPRespo
 	return response, nil
 }
 
+// ParseResolveCellWithLeaseHTTPResponse parses an HTTP response from a ResolveCellWithLeaseWithResponse call
+func ParseResolveCellWithLeaseHTTPResponse(rsp *http.Response) (*ResolveCellWithLeaseHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ResolveCellWithLeaseHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ResolvedCell
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ResolveConflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseSubmitJobWithLeaseHTTPResponse parses an HTTP response from a SubmitJobWithLeaseWithResponse call
 func ParseSubmitJobWithLeaseHTTPResponse(rsp *http.Response) (*SubmitJobWithLeaseHTTPResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -9703,6 +11260,21 @@ type ServerInterface interface {
 	// Poll work
 	// (POST /v1/jobs/poll)
 	PollWork(w http.ResponseWriter, r *http.Request)
+	// List visible cells in a tenant
+	// (GET /v1/tenants/{tenantId}/cells)
+	ListCells(w http.ResponseWriter, r *http.Request, tenantId TenantId, params ListCellsParams)
+	// Create a cell with a generated immutable ID
+	// (POST /v1/tenants/{tenantId}/cells)
+	CreateCell(w http.ResponseWriter, r *http.Request, tenantId TenantId)
+	// Read one visible cell
+	// (GET /v1/tenants/{tenantId}/cells/{cellId})
+	GetCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId)
+	// Change cell name, repo, description, or metadata
+	// (PATCH /v1/tenants/{tenantId}/cells/{cellId})
+	UpdateCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params UpdateCellParams)
+	// Retire an idle cell while retaining its identity and history
+	// (POST /v1/tenants/{tenantId}/cells/{cellId}/retire)
+	RetireCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params RetireCellParams)
 	// Read the complete tenant configuration
 	// (GET /v1/tenants/{tenantId}/configuration)
 	GetTenantConfiguration(w http.ResponseWriter, r *http.Request, tenantId TenantId)
@@ -9799,6 +11371,9 @@ type ServerInterface interface {
 	// Submit restart job with explicit job ID
 	// (PUT /v1/tenants/{tenantId}/jobs/{jobId}/restart)
 	PutRestartJob(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId)
+	// Resolve an active cell name within lease submission scope
+	// (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells/resolve)
+	ResolveCellWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params ResolveCellWithLeaseParams)
 	// Submit child job with lease
 	// (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/jobs)
 	SubmitJobWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params SubmitJobWithLeaseParams)
@@ -9856,6 +11431,36 @@ type Unimplemented struct{}
 // Poll work
 // (POST /v1/jobs/poll)
 func (_ Unimplemented) PollWork(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List visible cells in a tenant
+// (GET /v1/tenants/{tenantId}/cells)
+func (_ Unimplemented) ListCells(w http.ResponseWriter, r *http.Request, tenantId TenantId, params ListCellsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Create a cell with a generated immutable ID
+// (POST /v1/tenants/{tenantId}/cells)
+func (_ Unimplemented) CreateCell(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read one visible cell
+// (GET /v1/tenants/{tenantId}/cells/{cellId})
+func (_ Unimplemented) GetCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Change cell name, repo, description, or metadata
+// (PATCH /v1/tenants/{tenantId}/cells/{cellId})
+func (_ Unimplemented) UpdateCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params UpdateCellParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Retire an idle cell while retaining its identity and history
+// (POST /v1/tenants/{tenantId}/cells/{cellId}/retire)
+func (_ Unimplemented) RetireCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params RetireCellParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -10045,6 +11650,12 @@ func (_ Unimplemented) PutRestartJob(w http.ResponseWriter, r *http.Request, ten
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Resolve an active cell name within lease submission scope
+// (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells/resolve)
+func (_ Unimplemented) ResolveCellWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params ResolveCellWithLeaseParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Submit child job with lease
 // (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/jobs)
 func (_ Unimplemented) SubmitJobWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params SubmitJobWithLeaseParams) {
@@ -10161,6 +11772,279 @@ func (siw *ServerInterfaceWrapper) PollWork(w http.ResponseWriter, r *http.Reque
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PollWork(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListCells operation middleware
+func (siw *ServerInterfaceWrapper) ListCells(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListCellsParams
+
+	// ------------- Optional query parameter "name" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "name", r.URL.Query(), &params.Name)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "isRoot" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "isRoot", r.URL.Query(), &params.IsRoot)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "isRoot", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "state" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "state", r.URL.Query(), &params.State)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "pageSize" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "pageSize", r.URL.Query(), &params.PageSize)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pageSize", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "pageToken" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "pageToken", r.URL.Query(), &params.PageToken)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pageToken", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListCells(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateCell operation middleware
+func (siw *ServerInterfaceWrapper) CreateCell(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateCell(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCell operation middleware
+func (siw *ServerInterfaceWrapper) GetCell(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "cellId" -------------
+	var cellId CellId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "cellId", chi.URLParam(r, "cellId"), &cellId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cellId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCell(w, r, tenantId, cellId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateCell operation middleware
+func (siw *ServerInterfaceWrapper) UpdateCell(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "cellId" -------------
+	var cellId CellId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "cellId", chi.URLParam(r, "cellId"), &cellId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cellId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateCellParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateCell(w, r, tenantId, cellId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RetireCell operation middleware
+func (siw *ServerInterfaceWrapper) RetireCell(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "cellId" -------------
+	var cellId CellId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "cellId", chi.URLParam(r, "cellId"), &cellId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cellId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RetireCellParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RetireCell(w, r, tenantId, cellId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -11899,6 +13783,85 @@ func (siw *ServerInterfaceWrapper) PutRestartJob(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// ResolveCellWithLease operation middleware
+func (siw *ServerInterfaceWrapper) ResolveCellWithLease(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "parentJobId" -------------
+	var parentJobId ParentJobId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "parentJobId", chi.URLParam(r, "parentJobId"), &parentJobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "parentJobId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "leaseId" -------------
+	var leaseId LeaseId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "leaseId", chi.URLParam(r, "leaseId"), &leaseId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "leaseId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, LeaseTokenScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ResolveCellWithLeaseParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-JobDB-Lease-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-JobDB-Lease-Token")]; found {
+		var XJobDBLeaseToken string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-JobDB-Lease-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-JobDB-Lease-Token", valueList[0], &XJobDBLeaseToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-JobDB-Lease-Token", Err: err})
+			return
+		}
+
+		params.XJobDBLeaseToken = XJobDBLeaseToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-JobDB-Lease-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-JobDB-Lease-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResolveCellWithLease(w, r, tenantId, parentJobId, leaseId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // SubmitJobWithLease operation middleware
 func (siw *ServerInterfaceWrapper) SubmitJobWithLease(w http.ResponseWriter, r *http.Request) {
 
@@ -12806,6 +14769,21 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/v1/jobs/poll", wrapper.PollWork)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/tenants/{tenantId}/cells", wrapper.ListCells)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/cells", wrapper.CreateCell)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/tenants/{tenantId}/cells/{cellId}", wrapper.GetCell)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/v1/tenants/{tenantId}/cells/{cellId}", wrapper.UpdateCell)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/cells/{cellId}/retire", wrapper.RetireCell)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/tenants/{tenantId}/configuration", wrapper.GetTenantConfiguration)
 	})
 	r.Group(func(r chi.Router) {
@@ -12902,6 +14880,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Put(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/restart", wrapper.PutRestartJob)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells/resolve", wrapper.ResolveCellWithLease)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/jobs", wrapper.SubmitJobWithLease)
 	})
 	r.Group(func(r chi.Router) {
@@ -12953,6 +14934,100 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	return r
 }
 
+type BadRequestResponseHeaders struct {
+	CacheControl string
+}
+type BadRequestJSONResponse struct {
+	Body ErrorResponse
+
+	Headers BadRequestResponseHeaders
+}
+
+type CellResultResponseHeaders struct {
+	CacheControl string
+	ETag         string
+}
+type CellResultJSONResponse struct {
+	Body Cell
+
+	Headers CellResultResponseHeaders
+}
+
+type ConflictResponseHeaders struct {
+	CacheControl string
+}
+type ConflictJSONResponse struct {
+	Body ErrorResponse
+
+	Headers ConflictResponseHeaders
+}
+
+type ForbiddenResponseHeaders struct {
+	CacheControl string
+}
+type ForbiddenJSONResponse struct {
+	Body ErrorResponse
+
+	Headers ForbiddenResponseHeaders
+}
+
+type InternalErrorResponseHeaders struct {
+	CacheControl string
+}
+type InternalErrorJSONResponse struct {
+	Body ErrorResponse
+
+	Headers InternalErrorResponseHeaders
+}
+
+type NotFoundResponseHeaders struct {
+	CacheControl string
+}
+type NotFoundJSONResponse struct {
+	Body ErrorResponse
+
+	Headers NotFoundResponseHeaders
+}
+
+type PreconditionFailedResponseHeaders struct {
+	CacheControl string
+}
+type PreconditionFailedJSONResponse struct {
+	Body ErrorResponse
+
+	Headers PreconditionFailedResponseHeaders
+}
+
+type PreconditionRequiredResponseHeaders struct {
+	CacheControl string
+}
+type PreconditionRequiredJSONResponse struct {
+	Body ErrorResponse
+
+	Headers PreconditionRequiredResponseHeaders
+}
+
+type ResolveConflictJSONResponse ErrorResponse
+
+type RetirementConflictResponseHeaders struct {
+	CacheControl string
+}
+type RetirementConflictJSONResponse struct {
+	Body ErrorResponse
+
+	Headers RetirementConflictResponseHeaders
+}
+
+type UnauthorizedResponseHeaders struct {
+	CacheControl    string
+	WWWAuthenticate string
+}
+type UnauthorizedJSONResponse struct {
+	Body ErrorResponse
+
+	Headers UnauthorizedResponseHeaders
+}
+
 type PollWorkRequestObject struct {
 	Body *PollWorkJSONRequestBody
 }
@@ -12970,6 +15045,444 @@ func (response PollWork200JSONResponse) VisitPollWorkResponse(w http.ResponseWri
 	w.WriteHeader(200)
 
 	return json.NewEncoder(w).Encode(response)
+}
+
+type ListCellsRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Params   ListCellsParams
+}
+
+type ListCellsResponseObject interface {
+	VisitListCellsResponse(w http.ResponseWriter) error
+}
+
+type ListCells200ResponseHeaders struct {
+	CacheControl string
+}
+
+type ListCells200JSONResponse struct {
+	Body    ListCellsResponse
+	Headers ListCells200ResponseHeaders
+}
+
+func (response ListCells200JSONResponse) VisitListCellsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListCells400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListCells400JSONResponse) VisitListCellsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListCells401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListCells401JSONResponse) VisitListCellsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("WWW-Authenticate", fmt.Sprint(response.Headers.WWWAuthenticate))
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListCells403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListCells403JSONResponse) VisitListCellsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListCells404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListCells404JSONResponse) VisitListCellsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ListCells500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListCells500JSONResponse) VisitListCellsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type CreateCellRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Body     *CreateCellJSONRequestBody
+}
+
+type CreateCellResponseObject interface {
+	VisitCreateCellResponse(w http.ResponseWriter) error
+}
+
+type CreateCell201ResponseHeaders struct {
+	CacheControl string
+	ETag         string
+	Location     string
+}
+
+type CreateCell201JSONResponse struct {
+	Body    Cell
+	Headers CreateCell201ResponseHeaders
+}
+
+func (response CreateCell201JSONResponse) VisitCreateCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type CreateCell400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateCell400JSONResponse) VisitCreateCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type CreateCell401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateCell401JSONResponse) VisitCreateCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("WWW-Authenticate", fmt.Sprint(response.Headers.WWWAuthenticate))
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type CreateCell403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateCell403JSONResponse) VisitCreateCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type CreateCell404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateCell404JSONResponse) VisitCreateCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type CreateCell409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateCell409JSONResponse) VisitCreateCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type CreateCell500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response CreateCell500JSONResponse) VisitCreateCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetCellRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	CellId   CellId   `json:"cellId"`
+}
+
+type GetCellResponseObject interface {
+	VisitGetCellResponse(w http.ResponseWriter) error
+}
+
+type GetCell200JSONResponse struct{ CellResultJSONResponse }
+
+func (response GetCell200JSONResponse) VisitGetCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetCell400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response GetCell400JSONResponse) VisitGetCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetCell401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetCell401JSONResponse) VisitGetCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("WWW-Authenticate", fmt.Sprint(response.Headers.WWWAuthenticate))
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetCell404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetCell404JSONResponse) VisitGetCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type GetCell500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetCell500JSONResponse) VisitGetCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type UpdateCellRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	CellId   CellId   `json:"cellId"`
+	Params   UpdateCellParams
+	Body     *UpdateCellJSONRequestBody
+}
+
+type UpdateCellResponseObject interface {
+	VisitUpdateCellResponse(w http.ResponseWriter) error
+}
+
+type UpdateCell200JSONResponse struct{ CellResultJSONResponse }
+
+func (response UpdateCell200JSONResponse) VisitUpdateCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type UpdateCell400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateCell400JSONResponse) VisitUpdateCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type UpdateCell401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateCell401JSONResponse) VisitUpdateCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("WWW-Authenticate", fmt.Sprint(response.Headers.WWWAuthenticate))
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type UpdateCell403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateCell403JSONResponse) VisitUpdateCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type UpdateCell404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateCell404JSONResponse) VisitUpdateCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type UpdateCell409JSONResponse struct{ ConflictJSONResponse }
+
+func (response UpdateCell409JSONResponse) VisitUpdateCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type UpdateCell412JSONResponse struct{ PreconditionFailedJSONResponse }
+
+func (response UpdateCell412JSONResponse) VisitUpdateCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(412)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type UpdateCell428JSONResponse struct {
+	PreconditionRequiredJSONResponse
+}
+
+func (response UpdateCell428JSONResponse) VisitUpdateCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(428)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type UpdateCell500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response UpdateCell500JSONResponse) VisitUpdateCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RetireCellRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	CellId   CellId   `json:"cellId"`
+	Params   RetireCellParams
+}
+
+type RetireCellResponseObject interface {
+	VisitRetireCellResponse(w http.ResponseWriter) error
+}
+
+type RetireCell200JSONResponse struct{ CellResultJSONResponse }
+
+func (response RetireCell200JSONResponse) VisitRetireCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RetireCell400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response RetireCell400JSONResponse) VisitRetireCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RetireCell401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RetireCell401JSONResponse) VisitRetireCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("WWW-Authenticate", fmt.Sprint(response.Headers.WWWAuthenticate))
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RetireCell403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RetireCell403JSONResponse) VisitRetireCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RetireCell404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RetireCell404JSONResponse) VisitRetireCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RetireCell409JSONResponse struct{ RetirementConflictJSONResponse }
+
+func (response RetireCell409JSONResponse) VisitRetireCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RetireCell412JSONResponse struct{ PreconditionFailedJSONResponse }
+
+func (response RetireCell412JSONResponse) VisitRetireCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(412)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RetireCell428JSONResponse struct {
+	PreconditionRequiredJSONResponse
+}
+
+func (response RetireCell428JSONResponse) VisitRetireCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(428)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RetireCell500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RetireCell500JSONResponse) VisitRetireCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response.Body)
 }
 
 type GetTenantConfigurationRequestObject struct {
@@ -14273,6 +16786,95 @@ func (response PutRestartJob413JSONResponse) VisitPutRestartJobResponse(w http.R
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ResolveCellWithLeaseRequestObject struct {
+	TenantId    TenantId    `json:"tenantId"`
+	ParentJobId ParentJobId `json:"parentJobId"`
+	LeaseId     LeaseId     `json:"leaseId"`
+	Params      ResolveCellWithLeaseParams
+	Body        *ResolveCellWithLeaseJSONRequestBody
+}
+
+type ResolveCellWithLeaseResponseObject interface {
+	VisitResolveCellWithLeaseResponse(w http.ResponseWriter) error
+}
+
+type ResolveCellWithLease200ResponseHeaders struct {
+	CacheControl string
+}
+
+type ResolveCellWithLease200JSONResponse struct {
+	Body    ResolvedCell
+	Headers ResolveCellWithLease200ResponseHeaders
+}
+
+func (response ResolveCellWithLease200JSONResponse) VisitResolveCellWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ResolveCellWithLease400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ResolveCellWithLease400JSONResponse) VisitResolveCellWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ResolveCellWithLease401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ResolveCellWithLease401JSONResponse) VisitResolveCellWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("WWW-Authenticate", fmt.Sprint(response.Headers.WWWAuthenticate))
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ResolveCellWithLease403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ResolveCellWithLease403JSONResponse) VisitResolveCellWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ResolveCellWithLease404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ResolveCellWithLease404JSONResponse) VisitResolveCellWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type ResolveCellWithLease409JSONResponse struct{ ResolveConflictJSONResponse }
+
+func (response ResolveCellWithLease409JSONResponse) VisitResolveCellWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ResolveCellWithLease500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ResolveCellWithLease500JSONResponse) VisitResolveCellWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
 type SubmitJobWithLeaseRequestObject struct {
 	TenantId    TenantId    `json:"tenantId"`
 	ParentJobId ParentJobId `json:"parentJobId"`
@@ -14684,6 +17286,21 @@ type StrictServerInterface interface {
 	// Poll work
 	// (POST /v1/jobs/poll)
 	PollWork(ctx context.Context, request PollWorkRequestObject) (PollWorkResponseObject, error)
+	// List visible cells in a tenant
+	// (GET /v1/tenants/{tenantId}/cells)
+	ListCells(ctx context.Context, request ListCellsRequestObject) (ListCellsResponseObject, error)
+	// Create a cell with a generated immutable ID
+	// (POST /v1/tenants/{tenantId}/cells)
+	CreateCell(ctx context.Context, request CreateCellRequestObject) (CreateCellResponseObject, error)
+	// Read one visible cell
+	// (GET /v1/tenants/{tenantId}/cells/{cellId})
+	GetCell(ctx context.Context, request GetCellRequestObject) (GetCellResponseObject, error)
+	// Change cell name, repo, description, or metadata
+	// (PATCH /v1/tenants/{tenantId}/cells/{cellId})
+	UpdateCell(ctx context.Context, request UpdateCellRequestObject) (UpdateCellResponseObject, error)
+	// Retire an idle cell while retaining its identity and history
+	// (POST /v1/tenants/{tenantId}/cells/{cellId}/retire)
+	RetireCell(ctx context.Context, request RetireCellRequestObject) (RetireCellResponseObject, error)
 	// Read the complete tenant configuration
 	// (GET /v1/tenants/{tenantId}/configuration)
 	GetTenantConfiguration(ctx context.Context, request GetTenantConfigurationRequestObject) (GetTenantConfigurationResponseObject, error)
@@ -14780,6 +17397,9 @@ type StrictServerInterface interface {
 	// Submit restart job with explicit job ID
 	// (PUT /v1/tenants/{tenantId}/jobs/{jobId}/restart)
 	PutRestartJob(ctx context.Context, request PutRestartJobRequestObject) (PutRestartJobResponseObject, error)
+	// Resolve an active cell name within lease submission scope
+	// (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells/resolve)
+	ResolveCellWithLease(ctx context.Context, request ResolveCellWithLeaseRequestObject) (ResolveCellWithLeaseResponseObject, error)
 	// Submit child job with lease
 	// (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/jobs)
 	SubmitJobWithLease(ctx context.Context, request SubmitJobWithLeaseRequestObject) (SubmitJobWithLeaseResponseObject, error)
@@ -14883,6 +17503,156 @@ func (sh *strictHandler) PollWork(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PollWorkResponseObject); ok {
 		if err := validResponse.VisitPollWorkResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListCells operation middleware
+func (sh *strictHandler) ListCells(w http.ResponseWriter, r *http.Request, tenantId TenantId, params ListCellsParams) {
+	var request ListCellsRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListCells(ctx, request.(ListCellsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListCells")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListCellsResponseObject); ok {
+		if err := validResponse.VisitListCellsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateCell operation middleware
+func (sh *strictHandler) CreateCell(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
+	var request CreateCellRequestObject
+
+	request.TenantId = tenantId
+
+	var body CreateCellJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateCell(ctx, request.(CreateCellRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateCell")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateCellResponseObject); ok {
+		if err := validResponse.VisitCreateCellResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetCell operation middleware
+func (sh *strictHandler) GetCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId) {
+	var request GetCellRequestObject
+
+	request.TenantId = tenantId
+	request.CellId = cellId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetCell(ctx, request.(GetCellRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetCell")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetCellResponseObject); ok {
+		if err := validResponse.VisitGetCellResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateCell operation middleware
+func (sh *strictHandler) UpdateCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params UpdateCellParams) {
+	var request UpdateCellRequestObject
+
+	request.TenantId = tenantId
+	request.CellId = cellId
+	request.Params = params
+
+	var body UpdateCellJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateCell(ctx, request.(UpdateCellRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateCell")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateCellResponseObject); ok {
+		if err := validResponse.VisitUpdateCellResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RetireCell operation middleware
+func (sh *strictHandler) RetireCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params RetireCellParams) {
+	var request RetireCellRequestObject
+
+	request.TenantId = tenantId
+	request.CellId = cellId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RetireCell(ctx, request.(RetireCellRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RetireCell")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RetireCellResponseObject); ok {
+		if err := validResponse.VisitRetireCellResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -15901,6 +18671,42 @@ func (sh *strictHandler) PutRestartJob(w http.ResponseWriter, r *http.Request, t
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PutRestartJobResponseObject); ok {
 		if err := validResponse.VisitPutRestartJobResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ResolveCellWithLease operation middleware
+func (sh *strictHandler) ResolveCellWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params ResolveCellWithLeaseParams) {
+	var request ResolveCellWithLeaseRequestObject
+
+	request.TenantId = tenantId
+	request.ParentJobId = parentJobId
+	request.LeaseId = leaseId
+	request.Params = params
+
+	var body ResolveCellWithLeaseJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ResolveCellWithLease(ctx, request.(ResolveCellWithLeaseRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResolveCellWithLease")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ResolveCellWithLeaseResponseObject); ok {
+		if err := validResponse.VisitResolveCellWithLeaseResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -208,7 +208,7 @@ func (s *Store) CreateLinkedStory(ctx context.Context, key storage.StoryKey, lin
 	if err := storage.ValidateStoryLink(key, link); err != nil {
 		return storage.StoryRecord{}, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginWrite(ctx)
 	if err != nil {
 		return storage.StoryRecord{}, fmt.Errorf("sqlite chapterstore: begin create linked story: %w", err)
 	}
@@ -289,7 +289,7 @@ func (s *Store) Publish(ctx context.Context, key storage.StoryKey, now time.Time
 	if err := s.Health(ctx); err != nil {
 		return storage.StoryRecord{}, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginWrite(ctx)
 	if err != nil {
 		return storage.StoryRecord{}, fmt.Errorf("sqlite chapterstore: begin publish: %w", err)
 	}
@@ -329,7 +329,7 @@ func (s *Store) TombstoneStory(ctx context.Context, key storage.StoryKey, now ti
 	if err := s.Health(ctx); err != nil {
 		return storage.StoryRecord{}, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginWrite(ctx)
 	if err != nil {
 		return storage.StoryRecord{}, fmt.Errorf("sqlite chapterstore: begin tombstone: %w", err)
 	}
@@ -379,7 +379,7 @@ func (s *Store) AppendChapter(ctx context.Context, rec storage.ChapterRecord, no
 	if err := s.Health(ctx); err != nil {
 		return storage.StoryRecord{}, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginWrite(ctx)
 	if err != nil {
 		return storage.StoryRecord{}, fmt.Errorf("sqlite chapterstore: begin append: %w", err)
 	}
@@ -740,4 +740,18 @@ func isConstraint(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "constraint") || strings.Contains(msg, "unique")
+}
+
+// Reserve the writer before reading chapter metadata. A deferred read snapshot
+// cannot safely upgrade after another connection commits, even with busy_timeout.
+func (s *Store) beginWrite(ctx context.Context) (*sql.Tx, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = tx.ExecContext(ctx, "UPDATE jobdb_chapter_stories SET chapter_count=chapter_count WHERE 0"); err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+	return tx, nil
 }

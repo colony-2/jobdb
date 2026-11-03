@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/workflow"
+
 	jobdbtest "github.com/colony-2/jobdb/pkg/workflow/internal/jobdbtest"
 )
 
@@ -69,7 +71,7 @@ func startManualStorageJob(
 ) (jobdb.JobKey, jobdb.ExecutionLease) {
 	t.Helper()
 
-	jobKey, err := submit(ctx, jobdb.SubmitJob{
+	jobKey, err := submit(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 		TenantId: tenantID,
 		JobType:  "manual-storage",
 		JobID:    jobID,
@@ -105,7 +107,7 @@ func TestRuntimeArtifactRoundTripParityAcrossBuiltInRuntimes(t *testing.T) {
 			built := harness.New(t)
 			defer built.Shutdown(t)
 
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 30*time.Second)
 			defer cancel()
 
 			jobKey, lease := startManualStorageJob(t, ctx, func(ctx context.Context, start jobdb.SubmitJob) (jobdb.JobKey, error) {
@@ -297,7 +299,7 @@ func TestArtifactCleanupVisibleBehaviorParityAcrossBuiltInRuntimes(t *testing.T)
 				ws := jobdbtest.MustWorkSet(t, job, task)
 
 				return observeViaMode(t, harness, mode, []workflow.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) artifactCleanupObservation {
-					jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{
+					jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 						TenantId: subject.built.WorkerTenantID,
 						JobType:  job.Name(),
 						JobID:    "cleanup-visible",

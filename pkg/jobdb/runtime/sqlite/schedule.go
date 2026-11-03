@@ -15,11 +15,14 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/core"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/cellstate"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 	"github.com/google/uuid"
 )
 
 type scheduleRow struct {
+	pauseReason   string
 	tenantID      string
 	scheduleID    string
 	state         jobdb.ScheduleState
@@ -37,6 +40,9 @@ type scheduleRow struct {
 }
 
 type storedScheduleTarget struct {
+	Cell          string                   `json:"cell"`
+	CellID        string                   `json:"cellId"`
+	CellRepo      string                   `json:"cellRepo"`
 	ClientPayload []byte                   `json:"clientPayloadBytes,omitempty"`
 	JobType       string                   `json:"jobType"`
 	Data          json.RawMessage          `json:"data,omitempty"`
@@ -53,7 +59,7 @@ type storedScheduleArtifact struct {
 }
 
 const scheduleColumns = `
-tenant_id, schedule_id, state, generation, spec_hash, trigger_json, target_json,
+tenant_id, schedule_id, pause_reason, state, generation, spec_hash, trigger_json, target_json,
 target_job_type, overlap_policy, failure_policy_json, next_fire_at_ns,
 next_job_id, created_at_ns, updated_at_ns
 `
@@ -93,6 +99,24 @@ func (r *Runtime) UpsertSchedule(ctx context.Context, req jobdb.UpsertScheduleRe
 	}
 	var row scheduleRow
 	err = r.withTx(ctx, func(tx *sql.Tx) error {
+		cells, err := loadCells(ctx, tx, req.TenantId)
+		if err != nil {
+			return err
+		}
+		if _, ok := cells.ByName(req.Target.Cell); !ok {
+			return jobdb.ErrCellNotFound
+		}
+		binding, err := cells.Resolve(ctx, req.TenantId, req.Target.Cell, req.Target.CellRepo, nil, nil, false)
+		if err != nil {
+			return err
+		}
+		target.Cell = binding.Cell
+		target.CellID = binding.CellID
+		target.CellRepo = binding.CellRepo
+		specHash, err = jobdb.ScheduleSpecHash(req.Trigger, target.toScheduleTarget(), req.OverlapPolicy, req.FailurePolicy)
+		if err != nil {
+			return err
+		}
 		existing, found, err := r.loadScheduleRowTx(ctx, tx, jobdb.ScheduleKey{TenantId: req.TenantId, ScheduleId: req.ScheduleId})
 		if err != nil {
 			return err
@@ -132,7 +156,7 @@ func (r *Runtime) UpsertSchedule(ctx context.Context, req jobdb.UpsertScheduleRe
 		if found {
 			_, err = tx.ExecContext(ctx, `
 UPDATE jobdb_schedules
-SET state = ?, generation = ?, spec_hash = ?, trigger_json = ?, target_json = ?,
+SET pause_reason='', state = ?, generation = ?, spec_hash = ?, trigger_json = ?, target_json = ?,
 	target_job_type = ?, overlap_policy = ?, failure_policy_json = ?,
 	next_fire_at_ns = ?, next_job_id = ?, updated_at_ns = ?
 WHERE tenant_id = ? AND schedule_id = ?`,
@@ -371,7 +395,7 @@ func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRu
 			return jobdb.ListScheduleRunsResponse{}, err
 		}
 		nextRoute := row.nextRoute
-		job := jobdb.JobSummary{GoalID: row.goalID,
+		job := jobdb.JobSummary{Cell: row.cell.Cell, CellID: row.cell.CellID, CellRepo: row.cell.CellRepo, GoalID: row.goalID,
 			JobKey:           key,
 			Status:           status,
 			CompletionStatus: row.completionStatus.String,
@@ -452,6 +476,26 @@ func (r *Runtime) mutateScheduleState(ctx context.Context, req jobdb.ScheduleMut
 		if existing.state == jobdb.ScheduleStateArchived && state != jobdb.ScheduleStateArchived {
 			return fmt.Errorf("%w: archived schedule cannot change state", jobdb.ErrConflict)
 		}
+		if state == jobdb.ScheduleStateActive {
+			cells, err := loadCells(ctx, tx, req.ScheduleKey.TenantId)
+			if err != nil {
+				return err
+			}
+			c, ok := cells.Cells[existing.target.CellID]
+			if !ok {
+				return jobdb.ErrCellNotFound
+			}
+			if c.State != jobdb.CellActive {
+				return jobdb.ErrCellRetired
+			}
+			if c.Repo != existing.target.CellRepo {
+				return jobdb.ErrCellRepoMismatch
+			}
+			if err := jobdb.AuthorizeCell(ctx, req.ScheduleKey.TenantId, c.ID, "jobs.submit"); err != nil {
+				return err
+			}
+			existing.pauseReason = ""
+		}
 		next, err := jobdb.InitialScheduleFire(existing.trigger, now)
 		if err != nil {
 			return err
@@ -467,9 +511,9 @@ func (r *Runtime) mutateScheduleState(ctx context.Context, req jobdb.ScheduleMut
 		}
 		_, err = tx.ExecContext(ctx, `
 UPDATE jobdb_schedules
-SET state = ?, generation = ?, next_fire_at_ns = ?, next_job_id = ?, updated_at_ns = ?
+SET pause_reason = ?, state = ?, generation = ?, next_fire_at_ns = ?, next_job_id = ?, updated_at_ns = ?
 WHERE tenant_id = ? AND schedule_id = ?`,
-			existing.state, existing.generation, nullIntArg(existing.nextFireAtNS), nullStringArg(existing.nextJobID),
+			existing.pauseReason, existing.state, existing.generation, nullIntArg(existing.nextFireAtNS), nullStringArg(existing.nextJobID),
 			existing.updatedAtNS, existing.tenantID, existing.scheduleID)
 		if err != nil {
 			return err
@@ -494,9 +538,22 @@ func (r *Runtime) submitScheduledOccurrence(ctx context.Context, row scheduleRow
 	return r.submitScheduledOccurrenceWithJobID(ctx, row, jobID, scheduledAt, previousJobID, failureBits, manual, workerID)
 }
 
-func (r *Runtime) submitScheduledOccurrenceWithJobID(ctx context.Context, row scheduleRow, jobID string, scheduledAt time.Time, previousJobID string, failureBits string, manual bool, workerID string) (jobdb.JobKey, error) {
+func (r *Runtime) submitScheduledOccurrenceWithJobID(ctx context.Context, row scheduleRow, jobID string, scheduledAt time.Time, previousJobID string, failureBits string, manual bool, workerID string) (result jobdb.JobKey, retErr error) {
 	jobKey := jobdb.JobKey{TenantId: row.tenantID, JobId: jobID}
 	target := row.target.toScheduleTarget()
+	ctx = cellstate.WithSchedule(ctx, jobdb.ScheduleKey{TenantId: row.tenantID, ScheduleId: row.scheduleID})
+	prep, e := goalstate.SubmitPreparation(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: row.tenantID, JobID: jobID, Cell: target.Cell, CellRepo: target.CellRepo, JobType: target.JobType, Data: target.Data, RunPolicy: target.RunPolicy, Metadata: target.Metadata}}, "")
+	if e != nil {
+		return jobdb.JobKey{}, e
+	}
+	if _, e = r.PrepareJob(ctx, prep); e != nil {
+		return jobdb.JobKey{}, e
+	}
+	defer func() {
+		if retErr != nil {
+			_ = r.DiscardJobPreparation(context.WithoutCancel(ctx), jobKey)
+		}
+	}()
 	windowSize := row.failurePolicy.WindowSize
 	if windowSize <= 0 {
 		windowSize = len(failureBits)
@@ -608,7 +665,7 @@ func scanScheduleRow(scanner interface{ Scan(dest ...any) error }) (scheduleRow,
 	var overlap string
 	if err := scanner.Scan(
 		&row.tenantID,
-		&row.scheduleID,
+		&row.scheduleID, &row.pauseReason,
 		&state,
 		&row.generation,
 		&row.specHash,
@@ -673,7 +730,7 @@ func storedTargetFromSchedule(ctx context.Context, target jobdb.ScheduleTarget) 
 	if err != nil {
 		return storedScheduleTarget{}, err
 	}
-	return storedScheduleTarget{ClientPayload: initial,
+	return storedScheduleTarget{Cell: target.Cell, CellID: target.CellID, CellRepo: target.CellRepo, ClientPayload: initial,
 		JobType:   target.JobType,
 		Data:      data,
 		Artifacts: storedArtifacts,
@@ -691,7 +748,7 @@ func (t storedScheduleTarget) toScheduleTarget() jobdb.ScheduleTarget {
 	if t.ClientPayload != nil {
 		update = &jobdb.ClientPayloadUpdate{Mode: "reset", Value: append([]byte(nil), t.ClientPayload...)}
 	}
-	return jobdb.ScheduleTarget{ClientPayloadUpdate: update,
+	return jobdb.ScheduleTarget{Cell: t.Cell, CellID: t.CellID, CellRepo: t.CellRepo, ClientPayloadUpdate: update,
 		JobType:   t.JobType,
 		Data:      jobdb.JobData(&jobdb.SimpleTaskData{Data: append(json.RawMessage(nil), t.Data...), Artifacts: artifacts}),
 		RunPolicy: t.RunPolicy,
@@ -714,6 +771,7 @@ func scheduleInfoFromRow(row scheduleRow) jobdb.ScheduleInfo {
 		ScheduleId:     row.scheduleID,
 		ScheduleKey:    key,
 		State:          row.state,
+		PauseReason:    row.pauseReason,
 		EffectiveState: row.state,
 		Generation:     row.generation,
 		SpecHash:       row.specHash,

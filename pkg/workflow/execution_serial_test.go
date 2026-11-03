@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -66,7 +68,7 @@ func TestExecutionOrchestrationFinishesBeforeCatchAndRetry(t *testing.T) {
 					})
 				}}
 				key := submitExecutionTest(t, rt, worker)
-				run, err := wf.GetJobForRun(context.Background(), rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: worker, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "serial", LeaseDuration: time.Hour})
+				run, err := wf.GetJobForRun(celltest.Context(context.Background()), rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: worker, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "serial", LeaseDuration: time.Hour})
 				require.NoError(t, err)
 				type result struct {
 					out wf.JobRunOutcome
@@ -94,13 +96,13 @@ func TestExecutionOrchestrationFinishesBeforeCatchAndRetry(t *testing.T) {
 					wantTaskRuns = 1
 				}
 				require.Equal(t, wantTaskRuns, taskRuns)
-				before, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+				before, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 				require.NoError(t, err)
 				value, err := replayExecutionTest(t, rt, key, worker, task)
 				require.NoError(t, err)
 				require.Equal(t, res.out.Output.GetDataOrPanic(), value.GetDataOrPanic())
 				require.Equal(t, wantTaskRuns, taskRuns)
-				after, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+				after, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 				require.NoError(t, err)
 				require.Equal(t, before, after)
 			})

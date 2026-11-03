@@ -7,13 +7,14 @@ import (
 	"testing"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/stretchr/testify/require"
 )
 
 func TestRestartDoesNotRevalidateInheritedChapters(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	rt := New(WithMaxChapterApplicationPayloadBytes(2 * 1024 * 1024))
-	source, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "legacy", JobType: "legacy", Data: jobdb.NewTaskDataOrPanic(strings.Repeat("x", 300000))}})
+	source, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "legacy", JobType: "legacy", Data: jobdb.NewTaskDataOrPanic(strings.Repeat("x", 300000))}})
 	require.NoError(t, err)
 	leases, err := rt.PollWork(ctx, jobdb.PollWorkRequest{TenantId: "tenant", WorkerID: "writer", Routes: []jobdb.Route{{JobType: "legacy"}}, Limit: 1})
 	require.NoError(t, err)
@@ -22,7 +23,7 @@ func TestRestartDoesNotRevalidateInheritedChapters(t *testing.T) {
 	require.NoError(t, rt.PutChapter(ctx, jobdb.PutChapterRequest{Ref: jobdb.ChapterRef{JobKey: source.JobKey, Ordinal: 1}, LeaseID: leases[0].LeaseID(), Chapter: ch}))
 	rt.engine.maxChapterApplicationPayloadBytes = 0
 	for _, schema := range []json.RawMessage{nil, json.RawMessage(`{"chapterShape":false}`)} {
-		req := jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: source.JobKey, LastStepToKeep: 0}}
+		req := jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: source.JobKey, LastStepToKeep: 0}}
 		if schema != nil {
 			req.Job.Schema = &jobdb.JobSchemaSelector{Schema: schema}
 		}

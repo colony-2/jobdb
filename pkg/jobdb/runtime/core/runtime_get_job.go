@@ -27,7 +27,7 @@ func (r *Runtime) GetJob(ctx context.Context, key jobdb.JobKey) (jobdb.JobInfo, 
 	if stored.WorkKind == WorkKindTask && stored.TaskWork != nil {
 		route.TaskType = stored.TaskWork.TaskType
 	}
-	info := jobdb.JobInfo{NextRoute: &route, WaitFor: append([]string(nil), stored.WaitForJobIDs...), BlockingWait: stored.BlockingWait, GoalID: stored.GoalID, OtherGoalIDs: stored.OtherGoalIDs,
+	info := jobdb.JobInfo{Cell: stored.Cell.Cell, CellID: stored.Cell.CellID, CellRepo: stored.Cell.CellRepo, NextRoute: &route, WaitFor: append([]string(nil), stored.WaitForJobIDs...), BlockingWait: stored.BlockingWait, GoalID: stored.GoalID, OtherGoalIDs: stored.OtherGoalIDs,
 		Status: stored.Status, SchemaHash: stored.SchemaHash,
 		ClientPayload: append([]byte(nil), stored.ClientPayload...), ClientPayloadRevision: stored.ClientPayloadRevision, ExecutionState: executionState(stored.RunPolicy, stored.TaskWork),
 		Data: &runtimeJobData{err: jobdb.ErrJobNotComplete},

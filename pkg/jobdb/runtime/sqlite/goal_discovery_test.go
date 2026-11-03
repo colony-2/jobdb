@@ -10,33 +10,27 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/stretchr/testify/require"
 )
 
-func TestGoalDiscoveryMigrationAndReadOnlyProjection(t *testing.T) {
-	ctx := context.Background()
-	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "v7.db"))
+func TestGoalDiscoveryFreshSchemaAndReadOnlyProjection(t *testing.T) {
+	ctx := celltest.Context(context.Background())
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "cells.db"))
 	require.NoError(t, err)
 	defer db.Close()
-	_, err = db.ExecContext(ctx, schemaSQL+goalSchemaSQL+"PRAGMA user_version=7;")
+	_, err = db.ExecContext(ctx, schemaSQL+goalSchemaSQL+"PRAGMA user_version=10;")
 	require.NoError(t, err)
 	at := time.Date(2026, 10, 1, 12, 0, 0, 123456789, time.UTC)
 	g := jobdb.GoalInfo{GoalKey: jobdb.GoalKey{TenantId: "tenant", GoalID: "goal"}, State: jobdb.GoalOpen, Revision: 1, CreatedAt: at, UpdatedAt: at}
 	raw, err := json.Marshal(g)
 	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, "INSERT INTO jobdb_goals(tenant_id,goal_id,payload) VALUES(?,?,?)", "tenant", "goal", raw)
+	_, err = db.ExecContext(ctx, "INSERT INTO jobdb_goals(tenant_id,goal_id,payload,state,created_at_ns,updated_at_ns) VALUES(?,?,?,?,?,?)", "tenant", "goal", raw, g.State, at.UnixNano(), at.UnixNano())
 	require.NoError(t, err)
 	for _, id := range []string{"producer", "consumer"} {
-		_, err = db.ExecContext(ctx, `INSERT INTO jobdb_jobs(tenant_id,job_id,goal_id,job_type,route_job_type,initial_payload_digest,available_at_ns,created_at_ns,updated_at_ns) VALUES('tenant',?,'goal','work','work','',1,1,1)`, id)
+		_, err = db.ExecContext(ctx, `INSERT INTO jobdb_jobs(cell_id,cell_name,cell_repo,tenant_id,job_id,goal_id,job_type,route_job_type,initial_payload_digest,available_at_ns,created_at_ns,updated_at_ns) VALUES('cell-test','test','example.test/test','tenant',?,'goal','work','work','',1,1,1)`, id)
 		require.NoError(t, err)
 	}
-	require.ErrorContains(t, migrate(ctx, db), "jobdb-migrate-chapter-artifacts")
-	// Exercise the indexed projection upgrade in isolation; live startup no longer
-	// upgrades pre-cutover databases implicitly.
-	tx, err := db.BeginTx(ctx, nil)
-	require.NoError(t, err)
-	require.NoError(t, migrateGoalDiscovery(ctx, tx))
-	require.NoError(t, tx.Commit())
 	rt := &Runtime{db: db}
 	page, err := rt.ListGoals(ctx, jobdb.ListGoalsRequest{TenantId: "tenant", States: []jobdb.GoalState{jobdb.GoalOpen}, CreatedAfter: &at, CreatedBefore: &at})
 	require.NoError(t, err)

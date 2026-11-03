@@ -11,7 +11,12 @@ import (
 // Scheduler persists job and schedule state and performs atomic lease
 // mutations for runtime core.
 type Scheduler interface {
+	jobdb.CellRuntime
+	ResolveCellWithLeaseByID(context.Context, jobdb.JobKey, string, string, string) (jobdb.ResolvedCell, error)
 	GoalScheduler
+	// ResolveScheduleCell resolves an existing active target with jobs.submit authority.
+	// UpsertSchedule and active-state mutations must recheck its ID/repo in the commit transaction.
+	ResolveScheduleCell(context.Context, string, string, string) (jobdb.ResolvedCell, error)
 	CreateJob(ctx context.Context, req CreateJobRequest) (StoredJob, error)
 	GetJob(ctx context.Context, key jobdb.JobKey) (StoredJob, error)
 	ListJobs(ctx context.Context, req ListJobsRequest) (ListJobsResponse, error)
@@ -37,6 +42,7 @@ type Scheduler interface {
 // CreateJobRequest contains the immutable job facts and initial route written
 // after runtime core has validated and encoded the first chapter.
 type CreateJobRequest struct {
+	Cell                  jobdb.ResolvedCell
 	GoalID                string
 	ShareGoal             bool
 	Dependencies          []jobdb.Dependency
@@ -74,6 +80,7 @@ type AlternateRoute struct {
 
 // StoredJob joins immutable facts with current or archived scheduler state.
 type StoredJob struct {
+	Cell                  jobdb.ResolvedCell
 	BlockingWaitSummary   *jobdb.DependencyWaitSummary
 	BlockingWait          *jobdb.DependencyWaitInfo
 	GoalID                string
@@ -117,7 +124,8 @@ type CompletionSnapshot struct {
 
 // ListJobsRequest is the scheduler-side form of job listing.
 type ListJobsRequest struct {
-	GoalIDs []string
+	CellNames []string
+	GoalIDs   []string
 	// IncludeHidden must be applied before pagination by deletion-capable stores.
 	IncludeHidden bool
 	TenantIds     []string
@@ -148,6 +156,7 @@ type ListJobsResponse struct {
 
 // WorkRequest asks the scheduler to atomically lease queue work.
 type WorkRequest struct {
+	CellNames      []string
 	TenantId       string
 	WorkerID       string
 	Selector       WorkSelector
@@ -182,6 +191,7 @@ type LeaseIdentity struct {
 
 // LeaseSnapshot is the typed lease returned by the scheduler.
 type LeaseSnapshot struct {
+	Cell                  jobdb.ResolvedCell
 	GoalID                string
 	Identity              LeaseIdentity
 	JobType               string
@@ -277,6 +287,7 @@ type ScheduleStateMutation struct {
 
 // StoredSchedule is the scheduler's logical view of a schedule.
 type StoredSchedule struct {
+	PauseReason           string
 	ScheduleKey           jobdb.ScheduleKey
 	State                 jobdb.ScheduleState
 	Generation            int64

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: jobdb Runtime API
-  version: 0.1.0
+  version: 0.6.0
   summary: Backend-agnostic runtime protocol for jobdb remote execution
   description: |
     This API mirrors the current `jobdb.WorkflowRuntime` boundary. It
@@ -1575,11 +1575,290 @@ paths:
               schema:
                 type: string
                 format: binary
+  /v1/tenants/{tenantId}/cells:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    get:
+      tags:
+        - cells
+      operationId: listCells
+      summary: List visible cells in a tenant
+      description: "Requires tenant access and cells.list; include only cells visible under cells.get.\nFilter name matches the current name or a permanent alias, yielding zero or one\nvisible result. state defaults to ACTIVE; ALL includes retired records. Apply\nall filters and visibility before pagination. isRoot queries the server binding.\n\nSort by immutable ID, with no unfiltered counts. Use cells: [] for empty results\nand omit nextPageToken at the end. Tokens bind tenant, principal, and repeated\nfilters; recheck authorization each page. Traversal is live, not a snapshot.\nRead/name lookup never creates a cell. c2j can submit directly by name without\na preceding lookup; the runtime performs authoritative resolution."
+      x-jobdb-authorization:
+        permission: cells.list
+        resource: tenant
+        itemPermission: cells.get
+      parameters:
+        - $ref: '#/components/parameters/NameFilter'
+        - $ref: '#/components/parameters/IsRootFilter'
+        - $ref: '#/components/parameters/StateFilter'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/PageToken'
+      responses:
+        '200':
+          description: Authorized page, possibly empty.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListCellsResponse'
+              example:
+                cells:
+                  - tenantId: acme
+                    description: Customer-facing workloads
+                    createdAt: '2026-11-03T20:00:00Z'
+                    metadata:
+                      team: payments
+                      environment: prod
+                    isRoot: false
+                    revision: r1
+                    updatedAt: '2026-11-03T20:00:00Z'
+                    id: cell_019d03e9-066b-76b3-9b46-47d306b0aa1f
+                    state: ACTIVE
+                    name: payments
+                    repo: github.com/colony-2/payments
+                    aliases: []
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags:
+        - cells
+      operationId: createCell
+      summary: Create a cell with a generated immutable ID
+      description: "Requires tenant cells.create. Register a name and canonical repository locator;\nno Git API/network verification or repository creation occurs. Name/aliases and\ncanonical repo must be unique within the tenant across active and retired cells.\nConflicts return 409 cell_conflict with no mutation. Atomically generate the ID,\ninitialize ACTIVE state, and persist properties. Creating name root additionally\nrequires trusted cells.bootstrapRoot authority and atomically records rootCellId.\nClients cannot supply isRoot or select the ID.\n\nOptional requestId is scoped to tenant and authenticated principal. Persist\nnormalized creation properties and original result for the cell lifetime.\nMatching replay rechecks authority and retirement (409 cell_retired), then returns\nthe original snapshot/ETag, possibly stale. Different properties return 409\nrequest_conflict. Omitted description/metadata normalize to empty string/{}.\nWithout requestId, POST is not idempotent. Root job-submission
+        leases do not\nby themselves authorize this administrative endpoint.\n\nThe jobdb cell create-root command uses this endpoint with fixed name root.\nIt never renames or repoints an existing root. CLI retries may confirm a matching\nexisting root through authorized lookup; this does not change POST idempotency."
+      x-jobdb-authorization:
+        permission: cells.create
+        resource: tenant
+        rootBootstrapPermission: cells.bootstrapRoot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCellRequest'
+            example:
+              name: payments
+              repo: github.com/colony-2/payments
+              description: Payments workloads
+              metadata:
+                team: payments
+              requestId: provision-payments-001
+      responses:
+        '201':
+          description: Cell created, or original successful response replayed for the same requestId.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Location:
+              description: Relative URI of the created cell, with encoded path segments.
+              required: true
+              schema:
+                type: string
+                format: uri-reference
+              example: /v1/tenants/acme/cells/cell_019d03e9-066b-76b3-9b46-47d306b0aa1f
+            ETag:
+              $ref: '#/components/headers/CellETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cell'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/tenants/{tenantId}/cells/{cellId}:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+      - $ref: '#/components/parameters/CellId'
+    get:
+      tags:
+        - cells
+      operationId: getCell
+      summary: Read one visible cell
+      description: "Requires tenant access and cells.get. Missing and inaccessible cells both\nreturn 404. Retired cells remain readable. Return the current record and ETag.\nThis permission grants no workload access; reads never provision cells."
+      x-jobdb-authorization:
+        permission: cells.get
+        resource: cell
+      responses:
+        '200':
+          $ref: '#/components/responses/CellResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    patch:
+      tags:
+        - cells
+      operationId: updateCell
+      summary: Change cell name, repo, description, or metadata
+      description: "Requires cells.get and cells.update; authorize before preconditions/conflicts.\nRequire a strong current If-Match: missing 428, stale 412, malformed 400.\nOnly active cells can change. Omitted properties remain unchanged; metadata\nreplaces the whole map ({} clears it) and empty description clears it. Metadata\nvalues may be arbitrary JSON, including nested objects, arrays, and null. This\nis typed application/json PATCH, not JSON Merge Patch. Empty patches, null\ntop-level fields, and server-owned fields are invalid.\n\nRename reserves the old name as a permanent alias for this ID. Current names\nand aliases must be unique within the tenant, including retired cells. Rename\nto the cell's own alias is allowed; remove the new current name from aliases.\nThe reserved root name cannot be claimed by another cell or changed on root\n(409 root_cell_protected). Supplying name root on root is an allowed no-op.\nRoot repo/description/metadata can be updated by an authorized administrator.\n\
+        Root ID and designation are immutable; root cannot retire.\n\nNormalize repo using the registration contract and enforce unique current repo\nwithin the tenant, including retired cells. Repointing releases the former repo\nlocator for reuse. No Git operations, credential changes, or idle-cell check\noccur. Existing jobs retain their submitted repo snapshots for leases, execution,\nretry/replay, and restart. Fresh submissions resolve the new mapping and must\nserialize with PATCH; obsolete repo assertions fail with cell_repo_mismatch.\nSchedules retain expected repo and pause on mismatch until explicitly updated.\n\nAtomically validate all properties, revision, root protection, and uniqueness;\nany failure rejects the entire PATCH. A no-op, including an equivalent normalized\nrepo, preserves revision/time; otherwise advance both. Updates never change job\nownership. Conflict returns 409 cell_conflict, retired target 409 cell_retired."
+      x-jobdb-authorization:
+        permissions:
+          - cells.get
+          - cells.update
+        resource: cell
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCellRequest'
+            example:
+              name: payments-prod
+              metadata:
+                team: payments
+                environment: prod
+              repo: github.com/colony-2/payments-service
+      responses:
+        '200':
+          $ref: '#/components/responses/CellResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/tenants/{tenantId}/cells/{cellId}/retire:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+      - $ref: '#/components/parameters/CellId'
+    post:
+      tags:
+        - cells
+      operationId: retireCell
+      summary: Retire an idle cell while retaining its identity and history
+      description: "Requires cells.get and cells.retire, and current strong If-Match (missing 428,\nstale 412, malformed 400). Root cannot retire (409 root_cell_protected).\nAtomically require no nonterminal jobs (including hidden/waiting/retrying), live\nleases, active schedules, open goals, or pending submission reservations;\notherwise 409 cell_busy, without cancelling or draining work.\n\nSerialize against submission/registration, scheduling, and acquisition. Set\nRETIRED state and server retiredAt/updatedAt and advance revision. Preserve ID,\nname/aliases, repo, metadata, jobs, and artifacts. Authorized reads continue.\nAll new work, acquisitions, schedule changes, and cell updates are denied.\nExisting-job idempotent confirmation may return the already committed job after\ncurrent authorization checks; it creates no new work. There is no delete or\nautomatic resurrection. A repeat with current ETag returns the retired record;\nan old ETag returns 412. Retirement has no Git archive/delete
+        side effect."
+      x-jobdb-authorization:
+        permissions:
+          - cells.get
+          - cells.retire
+        resource: cell
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          $ref: '#/components/responses/CellResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/RetirementConflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells/resolve:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+      - $ref: '#/components/parameters/ParentJobId'
+      - $ref: '#/components/parameters/LeaseId'
+    post:
+      operationId: resolveCellWithLease
+      tags:
+        - leases
+      summary: Resolve an active cell name within lease submission scope
+      security:
+        - bearerAuth: []
+          leaseToken: []
+      description: "Read-only. Verify the signed live lease, path binding, attenuation, and deadline.\nRequire effective jobs.submit authority and target-cell scope. Root owner scope\ncovers all tenant names; ordinary scope covers its own cell unless explicitly\ngranting more targets. A delegation without jobs.submit cannot resolve targets.\nReturn canonical cell name, immutable ID, and registered repo only. This supports\nname-only c2j requests that must load a recipe before job submission. It grants\nno cell metadata, job history, or secret access. Job-type/job-ID restrictions\nremain checked at submission; resolution cannot expand them.\n\nMissing or inaccessible names return 404. An authorized retired cell returns\n409 cell_retired. Current names and reserved aliases resolve to the same ID.\nNo registration, job creation, Git network call, or policy mutation occurs.\nSubsequent submission must recheck authority, repo assertion, and active state."
+      x-jobdb-authorization:
+        permission: jobs.submit
+        target: effective submission cell scope
+        effect: bounded name/ID/repo resolution only
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveCellRequest'
+            example:
+              cell: payments
+      responses:
+        '200':
+          description: Minimal active cell identity and repository.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolvedCell'
+              example:
+                cell: payments
+                cellId: cell_019d03e9-066b-76b3-9b46-47d306b0aa1f
+                cellRepo: github.com/colony-2/payments
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/ResolveConflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      parameters:
+        - name: X-JobDB-Lease-Token
+          in: header
+          required: true
+          schema:
+            type: string
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
+    leaseToken:
+      type: apiKey
+      in: header
+      name: X-JobDB-Lease-Token
+      description: Signed live parent lease, bound to URL identity. Root owner leases grant submission to any tenant cell including implicit registration. Non-root ceilings and delegation attenuation remain enforced. The release rejects pre-change lease/delegation formats; only the new ownership-bound profile is accepted.
   parameters:
     TenantId:
       name: tenantId
@@ -1658,6 +1937,61 @@ components:
       required: true
       schema:
         type: string
+    CellId:
+      name: cellId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/CellId'
+    PageSize:
+      name: pageSize
+      in: query
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 1000
+        default: 100
+      description: Maximum visible records; may change between pages.
+    PageToken:
+      name: pageToken
+      in: query
+      schema:
+        type: string
+        minLength: 1
+      description: "Opaque continuation bound to tenant, authenticated principal, and filters\n(excluding pageSize). Repeat the same filters on each page. Integrity-protected;\nnot an authorization grant. Invalid, expired, or mismatched tokens return\n400 invalid_page_token. Current authorization is rechecked on every page."
+    IsRootFilter:
+      name: isRoot
+      in: query
+      description: Filter on the stored rootCellId binding, independently of display name.
+      schema:
+        type: boolean
+    IfMatch:
+      name: If-Match
+      in: header
+      required: false
+      description: 'Exactly one strong ETag from a cell response. Missing: 428; stale: 412; weak, wildcard, or list: 400.'
+      schema:
+        type: string
+        minLength: 3
+      example: '"r1"'
+    StateFilter:
+      name: state
+      in: query
+      description: Lifecycle filter. ALL includes retired cells for history and name lookup.
+      schema:
+        type: string
+        enum:
+          - ACTIVE
+          - RETIRED
+          - ALL
+        default: ACTIVE
+    NameFilter:
+      name: name
+      in: query
+      description: Exact current name or permanent alias. Resolves at most one visible cell. Use state=ALL for retired lookup.
+      schema:
+        $ref: '#/components/schemas/CellName'
   schemas:
     GoalKey:
       type: object
@@ -1689,7 +2023,7 @@ components:
     GoalSummary:
       type: object
       additionalProperties: false
-      required: [goalKey, state, revision, createdAt, updatedAt, candidateCount, nonTerminalCandidateCount, terminalCandidateCount, unavailableCandidateCount]
+      required: [goalKey, state, revision, createdAt, updatedAt, candidateCount, nonTerminalCandidateCount, terminalCandidateCount, unavailableCandidateCount, cell, cellId, cellRepo]
       x-go-type: jobdb.GoalSummary
       x-go-type-import:
         name: jobdb
@@ -1707,6 +2041,12 @@ components:
         nonTerminalCandidateCount: {type: integer, format: int64}
         terminalCandidateCount: {type: integer, format: int64}
         unavailableCandidateCount: {type: integer, format: int64}
+        cell:
+          $ref: '#/components/schemas/CellName'
+        cellId:
+          $ref: '#/components/schemas/CellId'
+        cellRepo:
+          $ref: '#/components/schemas/CellRepo'
     GoalCandidateFilter:
       type: object
       x-go-type: jobdb.GoalCandidateFilter
@@ -1723,7 +2063,7 @@ components:
             required: [path, values]
             properties:
               path: {type: array, items: {type: string}}
-              values: {type: array, items: {oneOf: [{type: string}, {type: number}, {type: boolean}]}}
+              values: {type: array, items: {oneOf: [type: string, type: number, type: boolean]}}
     ListGoalsRequest:
       type: object
       x-go-type: jobdb.ListGoalsRequest
@@ -1773,7 +2113,7 @@ components:
     GoalInfo:
       type: object
       additionalProperties: false
-      required: [goalKey, state, revision, createdAt, updatedAt]
+      required: [goalKey, state, revision, createdAt, updatedAt, cell, cellId, cellRepo]
       x-go-type: jobdb.GoalInfo
       x-go-type-import:
         name: jobdb
@@ -1787,6 +2127,12 @@ components:
         createdAt: {type: string, format: date-time}
         updatedAt: {type: string, format: date-time}
         closedAt: {type: string, format: date-time}
+        cell:
+          $ref: '#/components/schemas/CellName'
+        cellId:
+          $ref: '#/components/schemas/CellId'
+        cellRepo:
+          $ref: '#/components/schemas/CellRepo'
     GoalCandidateInfo:
       type: object
       additionalProperties: false
@@ -1927,6 +2273,8 @@ components:
       properties:
         jobTypes: {$ref: '#/components/schemas/DelegationNames'}
         jobIds: {$ref: '#/components/schemas/DelegationNames'}
+        cellNames:
+          $ref: '#/components/schemas/DelegationNames'
     DelegationWritePermission:
       type: object
       additionalProperties: false
@@ -2340,13 +2688,24 @@ components:
           type: string
     JobHandle:
       type: object
-      required: [goalId, jobKey]
+      required:
+        - goalId
+        - jobKey
+        - cell
+        - cellId
+        - cellRepo
       additionalProperties: false
       properties:
         goalId:
           type: string
         jobKey:
           $ref: '#/components/schemas/JobKey'
+        cell:
+          $ref: '#/components/schemas/CellName'
+        cellRepo:
+          $ref: '#/components/schemas/CellRepo'
+        cellId:
+          $ref: '#/components/schemas/CellId'
     ScheduleState:
       type: string
       enum:
@@ -2385,7 +2744,10 @@ components:
           description: Duration string for interval schedules.
     ScheduleTarget:
       type: object
-      required: [jobType, data]
+      required:
+        - jobType
+        - data
+        - cell
       additionalProperties: false
       properties:
         clientPayloadUpdate:
@@ -2398,6 +2760,14 @@ components:
           $ref: '#/components/schemas/RunPolicy'
         metadata:
           $ref: '#/components/schemas/Metadata'
+        cell:
+          $ref: '#/components/schemas/CellName'
+        cellRepo:
+          $ref: '#/components/schemas/CellRepo'
+          x-go-type-skip-optional-pointer: true
+        cellId:
+          $ref: '#/components/schemas/CellId'
+          x-go-type-skip-optional-pointer: true
     ScheduleFailurePolicy:
       type: object
       additionalProperties: false
@@ -2509,6 +2879,8 @@ components:
         updatedAt:
           type: string
           format: date-time
+        pauseReason:
+          type: string
     ScheduleKey:
       type: object
       required: [tenantId, scheduleId]
@@ -2750,7 +3122,10 @@ components:
             $ref: '#/components/schemas/StoredArtifact'
     SubmitJob:
       type: object
-      required: [jobType, data]
+      required:
+        - jobType
+        - data
+        - cell
       additionalProperties: false
       properties:
         dependencies:
@@ -2776,6 +3151,10 @@ components:
         availableAt:
           type: string
           format: date-time
+        cell:
+          $ref: '#/components/schemas/CellName'
+        cellRepo:
+          $ref: '#/components/schemas/CellRepo'
     SubmitJobRequest:
       type: object
       required: [job]
@@ -2790,7 +3169,10 @@ components:
           format: date-time
     SubmitRestartJob:
       type: object
-      required: [priorJobKey, lastStepToKeep]
+      required:
+        - priorJobKey
+        - lastStepToKeep
+        - cell
       additionalProperties: false
       properties:
         shareGoal:
@@ -2818,6 +3200,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/JobPrerequisite'
+        cell:
+          $ref: '#/components/schemas/CellName'
+        cellRepo:
+          $ref: '#/components/schemas/CellRepo'
     SubmitRestartJobRequest:
       type: object
       required: [job]
@@ -2888,6 +3274,12 @@ components:
             predicate mean OR on the same field.
           items:
             $ref: '#/components/schemas/MetadataPredicate'
+        cellNames:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/CellName'
     GetJobLeaseRequest:
       type: object
       additionalProperties: false
@@ -3242,7 +3634,16 @@ components:
             $ref: '#/components/schemas/ArtifactWrite'
     JobInfo:
       type: object
-      required: [goalId, otherGoalIds, status, data, executionState, clientPayloadRevision]
+      required:
+        - goalId
+        - otherGoalIds
+        - status
+        - data
+        - executionState
+        - clientPayloadRevision
+        - cell
+        - cellId
+        - cellRepo
       additionalProperties: false
       properties:
         nextRoute:
@@ -3284,6 +3685,12 @@ components:
             has not completed yet.
         schemaHash:
           $ref: '#/components/schemas/JobSchemaHash'
+        cell:
+          $ref: '#/components/schemas/CellName'
+        cellRepo:
+          $ref: '#/components/schemas/CellRepo'
+        cellId:
+          $ref: '#/components/schemas/CellId'
     JobTaskFilter:
       type: object
       required: [jobType, taskType]
@@ -3402,9 +3809,29 @@ components:
           maximum: 200
         pageToken:
           type: string
+        cellNames:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/CellName'
     JobSummary:
       type: object
-      required: [goalId, otherGoalIds, jobKey, status, jobType, waitFor, availableAt, cancelRequested, createdAt, executionState, clientPayloadRevision]
+      required:
+        - goalId
+        - otherGoalIds
+        - jobKey
+        - status
+        - jobType
+        - waitFor
+        - availableAt
+        - cancelRequested
+        - createdAt
+        - executionState
+        - clientPayloadRevision
+        - cell
+        - cellId
+        - cellRepo
       description: List responses include stored completion detail, full opaque client payload and revision, execution state, prerequisites, and application metadata. Only additional memberships and evaluated dependency explanations require detail APIs.
       additionalProperties: false
       properties:
@@ -3481,6 +3908,12 @@ components:
           $ref: '#/components/schemas/JobSchemaHash'
         parentJobId:
           type: string
+        cell:
+          $ref: '#/components/schemas/CellName'
+        cellRepo:
+          $ref: '#/components/schemas/CellRepo'
+        cellId:
+          $ref: '#/components/schemas/CellId'
     ListJobsResponse:
       type: object
       required: [jobs]
@@ -3537,3 +3970,373 @@ components:
         deadline:
           type: string
           format: date-time
+    CellId:
+      type: string
+      minLength: 1
+      maxLength: 128
+      description: Opaque server-generated stable identity. JobDB resolves names to this ID and stores it on owned resources. c2j may use names for submission and ignore the ID until needed.
+      examples:
+        - cell_019d03e9-066b-76b3-9b46-47d306b0aa1f
+    CreateCellRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - repo
+      description: Administrative registration; name and repo required. description and metadata default to empty values. The server assigns ID/root designation. Root bootstrap additionally requires cells.bootstrapRoot authority.
+      properties:
+        description:
+          type: string
+          maxLength: 2048
+        metadata:
+          $ref: '#/components/schemas/CellMetadata'
+        requestId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Optional idempotency identifier, scoped to tenant and authenticated principal. Retained for the cell lifetime; not its cellId.
+        name:
+          $ref: '#/components/schemas/CellName'
+        repo:
+          $ref: '#/components/schemas/CellRepo'
+    Cell:
+      type: object
+      additionalProperties: false
+      required:
+        - tenantId
+        - id
+        - name
+        - description
+        - metadata
+        - isRoot
+        - revision
+        - createdAt
+        - updatedAt
+        - repo
+        - state
+        - aliases
+      properties:
+        tenantId:
+          type: string
+          minLength: 1
+        description:
+          type: string
+          maxLength: 2048
+        createdAt:
+          type: string
+          format: date-time
+          description: Server-assigned creation timestamp, returned in UTC with Z offset.
+          readOnly: true
+        metadata:
+          $ref: '#/components/schemas/CellMetadata'
+        isRoot:
+          type: boolean
+          readOnly: true
+          description: Server-owned root designation; exactly one per tenant. Its name is permanently root; root bootstrap is administrative.
+        revision:
+          type: string
+          minLength: 1
+          readOnly: true
+          description: Opaque version; use the quoted ETag for conditional updates.
+        updatedAt:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Server mutation timestamp in UTC; initially equals createdAt.
+        id:
+          $ref: '#/components/schemas/CellId'
+        state:
+          $ref: '#/components/schemas/CellState'
+          readOnly: true
+        retiredAt:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Server UTC retirement time; present only for RETIRED cells.
+        name:
+          $ref: '#/components/schemas/CellName'
+        repo:
+          $ref: '#/components/schemas/CellRepo'
+          description: Current registered repository locator; editable through authorized PATCH. Existing jobs keep their submission snapshots.
+        aliases:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/CellName'
+          readOnly: true
+          description: Permanent former names from renames of cells created after the hard break, resolving to this ID. Excludes current name. No imported legacy aliases; no removal/reassignment through this API.
+      allOf:
+        - if:
+            properties:
+              state:
+                const: RETIRED
+          then:
+            required:
+              - retiredAt
+          else:
+            not:
+              required:
+                - retiredAt
+    ListCellsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - cells
+      properties:
+        cells:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/Cell'
+        nextPageToken:
+          type: string
+          minLength: 1
+          description: Omitted on the last page; never null or an empty string.
+    JsonValue:
+      description: Application-owned JSON value.
+      oneOf:
+        - type: 'null'
+        - type: boolean
+        - type: number
+        - type: string
+        - type: array
+          items:
+            $ref: '#/components/schemas/JsonValue'
+        - type: object
+          additionalProperties:
+            $ref: '#/components/schemas/JsonValue'
+      x-go-type: celljson.RawMessage
+      x-go-type-import:
+        name: celljson
+        path: encoding/json
+    CellMetadata:
+      type: object
+      maxProperties: 64
+      propertyNames:
+        minLength: 1
+        maxLength: 128
+      additionalProperties:
+        $ref: '#/components/schemas/JsonValue'
+      description: Application properties, at most 16 KiB encoded as compact UTF-8 JSON (enforced by server). No authorization semantics. PATCH replaces the whole object.
+      examples:
+        - team: payments
+          environment: prod
+    UpdateCellRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        description:
+          type: string
+          maxLength: 2048
+        metadata:
+          $ref: '#/components/schemas/CellMetadata'
+        name:
+          $ref: '#/components/schemas/CellName'
+        repo:
+          $ref: '#/components/schemas/CellRepo'
+      description: Mutable properties of an active cell. Omitted fields are preserved; supplied metadata replaces the map. Root name must remain root. All changes commit atomically with If-Match.
+    CellState:
+      type: string
+      enum:
+        - ACTIVE
+        - RETIRED
+    CellName:
+      type: string
+      minLength: 1
+      maxLength: 128
+      pattern: ^[A-Za-z0-9._-]+$
+      not:
+        enum:
+          - .
+          - ..
+      description: Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+      examples:
+        - root
+        - payments
+        - payments-prod
+    CellRepo:
+      type: string
+      minLength: 1
+      maxLength: 2048
+      description: "Credential-free repository locator. Accept recognized host/owner/repo, HTTPS,\nand standard-port SSH/SCP forms. Canonicalize to lowercase-host/repository-path,\npreserving path case and removing one .git suffix and trailing slash. Ignore\nSSH transport username. Reject HTTP credentials, query/fragment components,\nempty/traversing paths, unsupported custom transports/ports, and local paths.\nDeployment-managed aliases can map otherwise unsupported locators to a shared\ncanonical identity. Do not guess equivalence. No network/provider validation\nis performed. Cells return the canonical form, e.g. github.com/colony-2/payments.\nGit clone transport and authentication are separate c2j configuration."
+      examples:
+        - github.com/colony-2/payments
+        - https://github.com/colony-2/payments.git
+        - git@github.com:colony-2/payments.git
+    CellNameSelector:
+      description: Optional attenuation of target-cell scope. Omission inherits the parent ceiling. any:true never expands a non-root ceiling. Names include current names or reserved aliases; an empty names list denies all targets.
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required:
+            - any
+          properties:
+            any:
+              type: boolean
+              const: true
+        - type: object
+          additionalProperties: false
+          required:
+            - names
+          properties:
+            names:
+              type: array
+              uniqueItems: true
+              maxItems: 256
+              items:
+                $ref: '#/components/schemas/CellName'
+    ResolveCellRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - cell
+      properties:
+        cell:
+          $ref: '#/components/schemas/CellName'
+    ResolvedCell:
+      type: object
+      additionalProperties: false
+      required:
+        - cell
+        - cellId
+        - cellRepo
+      properties:
+        cell:
+          $ref: '#/components/schemas/CellName'
+        cellId:
+          $ref: '#/components/schemas/CellId'
+        cellRepo:
+          $ref: '#/components/schemas/CellRepo'
+      description: Minimal active target information for loading a recipe/submitting a job. It grants no history, metadata, or secret access.
+  headers:
+    NoStore:
+      required: true
+      schema:
+        type: string
+        const: no-store
+    CellETag:
+      description: Strong ETag containing the quoted opaque revision. Creation replay returns the original revision, possibly stale.
+      required: true
+      schema:
+        type: string
+      example: '"r1"'
+  responses:
+    CellResult:
+      description: Cell record and ETag. Matching create-request replay returns the original snapshot only while the cell remains active; use GET for current state.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+        ETag:
+          $ref: '#/components/headers/CellETag'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Cell'
+    BadRequest:
+      description: invalid_request for invalid input, or invalid_page_token for a rejected cursor.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: unauthorized; authentication is missing or invalid.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+        WWW-Authenticate:
+          required: true
+          schema:
+            type: string
+          example: Bearer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: forbidden for denied administration/target/creation authority; lease_permission_denied for an attenuated or non-root lease lacking the required target submission scope. Inaccessible existing targets are concealed as 404 where applicable.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: not_found; tenant or cell is absent or inaccessible, without distinguishing these cases.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: not_found
+            message: Resource not found.
+    InternalError:
+      description: internal; unexpected server failure without implementation details.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: cell_conflict for a reserved name/alias/repo; request_conflict for requestId reuse; cell_retired for active-only mutation/replay; root_cell_protected for attempted root rename. No partial change.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    PreconditionFailed:
+      description: precondition_failed; If-Match does not match the current revision. No mutation occurred.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    PreconditionRequired:
+      description: precondition_required; supply If-Match with a current strong ETag. No mutation occurred.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RetirementConflict:
+      description: cell_busy for unfinished work/live leases/active schedules/open goals/pending reservations, or root_cell_protected. No state change.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    SubmissionBadRequest:
+      description: invalid_request for invalid input or missing cell name; cell_repo_required when target cell does not exist and cellRepo is absent.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    SubmissionConflict:
+      description: cell_repo_mismatch for an existing-cell repo assertion mismatch; cell_conflict for reserved name/alias/repo; cell_retired for new work in a retired cell; root_cell_required for missing root; existing_job_mismatch for changed explicit-ID job; execution_lease_lost for expired/replaced parent lease.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ResolveConflict:
+      description: cell_retired for an authorized retired target, or execution_lease_lost when the parent is no longer live. No mutation.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

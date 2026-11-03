@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/leaseauth"
 	"github.com/stretchr/testify/require"
 )
@@ -25,11 +26,11 @@ func (f secretProviderFunc) ResolveSecrets(ctx context.Context, r jobdb.SecretRe
 
 func secretLeaseFixture(t *testing.T) (*Runtime, jobdb.ExecutionLease) {
 	t.Helper()
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	embedded, err := StartEmbeddedRuntime(ctx)
 	require.NoError(t, err)
 	t.Cleanup(embedded.Shutdown)
-	h, err := embedded.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "job", JobType: "job", Metadata: json.RawMessage(`{"team":"build"}`), Data: jobdb.NewTaskDataOrPanic(1)}})
+	h, err := embedded.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "job", JobType: "job", Metadata: json.RawMessage(`{"team":"build"}`), Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, err)
 	l, err := embedded.Runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "job"}}, LeaseDuration: time.Minute})
 	require.NoError(t, err)
@@ -39,7 +40,7 @@ func secretLeaseFixture(t *testing.T) (*Runtime, jobdb.ExecutionLease) {
 
 func TestSecretResolutionContextFreshnessAndNoPersistence(t *testing.T) {
 	r, l := secretLeaseFixture(t)
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	calls := 0
 	r.secretProvider = secretProviderFunc(func(_ context.Context, req jobdb.SecretResolveRequest) (jobdb.SecretResolveResult, error) {
 		calls++
@@ -75,7 +76,7 @@ func TestSecretResolutionVerifiedPrincipal(t *testing.T) {
 			require.Equal(t, principal, req.Principal)
 			return jobdb.SecretResolveResult{}, nil
 		})
-		ctx := leaseauth.WithClaims(context.Background(), leaseauth.Claims{TenantID: "tenant", JobID: "job", LeaseID: l.LeaseID(), WorkerID: "worker", ExpiresAt: time.Now().Add(time.Minute), Principal: principal})
+		ctx := leaseauth.WithClaims(celltest.Context(context.Background()), leaseauth.Claims{TenantID: "tenant", JobID: "job", LeaseID: l.LeaseID(), WorkerID: "worker", ExpiresAt: time.Now().Add(time.Minute), Principal: principal})
 		result, err := r.ResolveSecrets(ctx, jobdb.ResolveSecretsRequest{JobKey: l.Job().JobKey, LeaseID: l.LeaseID(), Names: []string{"token"}})
 		require.NoError(t, err)
 		require.NotNil(t, result.Secrets)
@@ -95,13 +96,13 @@ func TestSecretResolutionRechecksExpiredTokenAndDoesNotCacheDenials(t *testing.T
 		}
 		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "new-value"}}}, nil
 	})
-	result, err := l.ResolveSecrets(context.Background(), []string{"token"})
+	result, err := l.ResolveSecrets(celltest.Context(context.Background()), []string{"token"})
 	require.NoError(t, err)
 	require.Empty(t, result.Secrets)
-	result, err = l.ResolveSecrets(context.Background(), []string{"token"})
+	result, err = l.ResolveSecrets(celltest.Context(context.Background()), []string{"token"})
 	require.NoError(t, err)
 	require.Equal(t, "new-value", result.Secrets["token"].Value)
-	ctx := leaseauth.WithClaims(context.Background(), leaseauth.Claims{TenantID: "tenant", JobID: "job", LeaseID: l.LeaseID(), WorkerID: "worker", ExpiresAt: time.Now().Add(200 * time.Millisecond)})
+	ctx := leaseauth.WithClaims(celltest.Context(context.Background()), leaseauth.Claims{TenantID: "tenant", JobID: "job", LeaseID: l.LeaseID(), WorkerID: "worker", ExpiresAt: time.Now().Add(200 * time.Millisecond)})
 	result, err = r.ResolveSecrets(ctx, jobdb.ResolveSecretsRequest{JobKey: l.Job().JobKey, LeaseID: l.LeaseID(), Names: []string{"token"}})
 	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
 	require.Empty(t, result.Secrets)
@@ -136,7 +137,7 @@ func TestSecretResolutionRejectsProviderFailures(t *testing.T) {
 				}
 				return result, nil
 			})
-			result, err := l.ResolveSecrets(context.Background(), []string{"token"})
+			result, err := l.ResolveSecrets(celltest.Context(context.Background()), []string{"token"})
 			require.Error(t, err)
 			require.Empty(t, result.Secrets)
 			require.NotContains(t, fmt.Sprintf("%+v %#v", err, err), "do-not-leak")
@@ -148,7 +149,7 @@ func TestSecretResolutionLeaseLossDuringLookup(t *testing.T) {
 	for _, op := range []string{"cancel", "reschedule", "expire", "complete", "supersede"} {
 		t.Run(op, func(t *testing.T) {
 			r, l := secretLeaseFixture(t)
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			started, release := make(chan struct{}), make(chan struct{})
 			done := make(chan error, 1)
 			r.secretProvider = secretProviderFunc(func(context.Context, jobdb.SecretResolveRequest) (jobdb.SecretResolveResult, error) {
@@ -189,7 +190,7 @@ func TestSecretResolutionLeaseLossDuringLookup(t *testing.T) {
 func TestDefaultSecretStoreLocationAndPersistence(t *testing.T) {
 	for _, constructor := range []string{"path", "dsn", "handle"} {
 		t.Run(constructor, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			dir := t.TempDir()
 			path := filepath.Join(dir, "jobs.db")
 			if constructor != "path" {
@@ -241,7 +242,7 @@ func TestDefaultSecretStoreLocationAndPersistence(t *testing.T) {
 }
 
 func TestDefaultMemorySecretStoreIsolation(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	for _, constructor := range []string{"config", "handle"} {
 		t.Run(constructor, func(t *testing.T) {
 			for i := 0; i < 2; i++ {
@@ -269,7 +270,7 @@ func TestDefaultMemorySecretStoreIsolation(t *testing.T) {
 }
 
 func TestInjectedProviderOverridesDefaultStore(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	for _, constructor := range []string{"config", "handle"} {
 		t.Run(constructor, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "jobs.db")

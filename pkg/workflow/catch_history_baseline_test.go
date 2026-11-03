@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -20,11 +22,11 @@ import (
 func catchHistoryRuntimes(t *testing.T, backend string) (jobdb.WorkflowRuntime, jobdb.WorkflowRuntime) {
 	t.Helper()
 	cfg := sqlite.Config{DBPath: filepath.Join(t.TempDir(), "catch.db")}
-	store, err := sqlite.NewFromConfig(context.Background(), cfg)
+	store, err := sqlite.NewFromConfig(celltest.Context(context.Background()), cfg)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = store.Close(context.Background()) })
+	t.Cleanup(func() { _ = store.Close(celltest.Context(context.Background())) })
 	if backend == "remote" {
-		server := httptest.NewServer(remote.NewServer(store))
+		server := httptest.NewServer(celltest.Handler(remote.NewServer(store)))
 		t.Cleanup(server.Close)
 		recording, err := remote.New(server.URL, server.Client())
 		require.NoError(t, err)
@@ -32,9 +34,9 @@ func catchHistoryRuntimes(t *testing.T, backend string) (jobdb.WorkflowRuntime, 
 		require.NoError(t, err)
 		return recording, inspection
 	}
-	inspection, err := sqlite.NewFromConfig(context.Background(), cfg)
+	inspection, err := sqlite.NewFromConfig(celltest.Context(context.Background()), cfg)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = inspection.Close(context.Background()) })
+	t.Cleanup(func() { _ = inspection.Close(celltest.Context(context.Background())) })
 	return store, inspection
 }
 
@@ -88,7 +90,7 @@ func TestCatchHistoryBaseline(t *testing.T) {
 				return in, nil
 			}}
 			key := submitExecutionTest(t, recording, w)
-			run, err := wf.GetJobForRun(context.Background(), recording, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "baseline", LeaseDuration: time.Minute})
+			run, err := wf.GetJobForRun(celltest.Context(context.Background()), recording, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "baseline", LeaseDuration: time.Minute})
 			require.NoError(t, err)
 			observer := &catchBaselineObserver{}
 			done := make(chan error, 1)
@@ -98,7 +100,7 @@ func TestCatchHistoryBaseline(t *testing.T) {
 			case <-time.After(20 * time.Second):
 				t.Fatal("handler gate not reached")
 			}
-			before, err := jobdb.GetJobRun(context.Background(), inspection, jobdb.GetJobRunRequest{JobKey: key})
+			before, err := jobdb.GetJobRun(celltest.Context(context.Background()), inspection, jobdb.GetJobRunRequest{JobKey: key})
 			require.NoError(t, err)
 			selected, accepted := 0, 0
 			for _, e := range before.Execution {
@@ -113,7 +115,7 @@ func TestCatchHistoryBaseline(t *testing.T) {
 			require.Zero(t, accepted)
 			unblock()
 			require.NoError(t, <-done)
-			after, err := jobdb.GetJobRun(context.Background(), inspection, jobdb.GetJobRunRequest{JobKey: key})
+			after, err := jobdb.GetJobRun(celltest.Context(context.Background()), inspection, jobdb.GetJobRunRequest{JobKey: key})
 			require.NoError(t, err)
 			accepted = 0
 			for _, e := range after.Execution {
@@ -147,13 +149,13 @@ func TestCatchHistoryBaselineCompactScopes(t *testing.T) {
 				return in, nil
 			}}
 			key := submitExecutionTest(t, recording, w)
-			run, err := wf.GetJobForRun(context.Background(), recording, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, WorkerID: "baseline", LeaseDuration: time.Minute})
+			run, err := wf.GetJobForRun(celltest.Context(context.Background()), recording, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, WorkerID: "baseline", LeaseDuration: time.Minute})
 			require.NoError(t, err)
 			o := &catchBaselineObserver{}
 			out, err := run.Run(o)
 			require.NoError(t, err)
 			require.Equal(t, wf.JobRunCompleted, out.Status)
-			info, err := jobdb.GetJobRun(context.Background(), inspection, jobdb.GetJobRunRequest{JobKey: key})
+			info, err := jobdb.GetJobRun(celltest.Context(context.Background()), inspection, jobdb.GetJobRunRequest{JobKey: key})
 			require.NoError(t, err)
 			ordinals := map[int64]int{}
 			handled := 0

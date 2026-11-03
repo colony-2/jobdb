@@ -19,6 +19,7 @@ type workerRunnerOptions struct {
 	WorkerID       string
 	JobKey         JobKey
 	GoalID         string
+	Cell           jobdb.ResolvedCell
 	Observer       ReplayObserver
 	Replay         bool
 	AwaitThreshold time.Duration
@@ -42,6 +43,7 @@ type workerRunner struct {
 	ctx                context.Context
 	jobKey             JobKey
 	goalID             string
+	cell               jobdb.ResolvedCell
 	configurationCache attemptCache[*ConfigurationSnapshot]
 	secretCache        *attemptCache[map[string]*SecretValue]
 	secretCacheInit    sync.Once
@@ -55,9 +57,12 @@ func newWorkerRunner(runtime WorkflowRuntime, ws *WorkSet, lease ExecutionLease,
 	}
 	jobKey := JobKey{}
 	goalID := opts.GoalID
+	cell := opts.Cell
 	if lease != nil {
 		jobKey = lease.Job().JobKey
 		goalID = lease.Job().GoalID
+		h := lease.Job()
+		cell = jobdb.ResolvedCell{Cell: h.Cell, CellID: h.CellID, CellRepo: h.CellRepo}
 	} else if opts.JobKey != (JobKey{}) {
 		jobKey = opts.JobKey
 	}
@@ -75,6 +80,7 @@ func newWorkerRunner(runtime WorkflowRuntime, ws *WorkSet, lease ExecutionLease,
 		awaitThreshold: opts.AwaitThreshold,
 		jobKey:         jobKey,
 		goalID:         goalID,
+		cell:           cell,
 	}
 }
 

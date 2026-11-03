@@ -2,6 +2,7 @@ package runtimecore
 
 import (
 	"context"
+
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate"
 )
@@ -20,6 +21,7 @@ type PreparedJob = goalstate.Prepared
 type GoalScheduler interface {
 	jobdb.GoalRuntime
 	PrepareJob(context.Context, JobPreparation) (PreparedJob, error)
+	DiscardJobPreparation(context.Context, jobdb.JobKey) error
 }
 
 func (r *Runtime) GetGoal(ctx context.Context, k jobdb.GoalKey) (jobdb.GoalInfo, error) {

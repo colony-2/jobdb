@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -59,13 +60,13 @@ func TestLeaseSessionFreshSecretLookupAllowsRenewal(t *testing.T) {
 		}
 		return next, nil
 	}
-	session, err := startLeaseSession(context.Background(), lease)
+	session, err := startLeaseSession(celltest.Context(context.Background()), lease)
 	require.NoError(t, err)
 	defer session.close()
 	runner := &workerRunner{ctx: session.ctx, lease: session}
 	done := make(chan error, 1)
 	go func() {
-		_, err := runner.ResolveSecretsFresh(context.Background(), []string{"token"})
+		_, err := runner.ResolveSecretsFresh(celltest.Context(context.Background()), []string{"token"})
 		done <- err
 	}()
 	<-started
@@ -76,7 +77,7 @@ func TestLeaseSessionFreshSecretLookupAllowsRenewal(t *testing.T) {
 	}
 	close(release)
 	require.NoError(t, <-done)
-	cached, err := runner.ResolveSecrets(context.Background(), []string{"token"})
+	cached, err := runner.ResolveSecrets(celltest.Context(context.Background()), []string{"token"})
 	require.NoError(t, err)
 	require.Equal(t, "value", cached.Secrets["token"].Value)
 }
@@ -85,7 +86,7 @@ func TestLeaseSessionRenewalTimeout(t *testing.T) {
 	lease := newSessionTestLease()
 	lease.expiry = time.Now().Add(30 * time.Millisecond)
 	lease.renew = func(ctx context.Context) (jobdb.RenewableExecutionLease, error) { <-ctx.Done(); return nil, ctx.Err() }
-	_, err := startLeaseSession(context.Background(), lease)
+	_, err := startLeaseSession(celltest.Context(context.Background()), lease)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	var renewal *jobdb.LeaseRenewalError
 	require.ErrorAs(t, err, &renewal)
@@ -110,15 +111,15 @@ func TestLeaseSessionSerializesReleaseAndRenewal(t *testing.T) {
 				next.expiry = time.Now().Add(120 * time.Millisecond)
 				return &next, nil
 			}
-			session, err := startLeaseSession(context.Background(), lease)
+			session, err := startLeaseSession(celltest.Context(context.Background()), lease)
 			require.NoError(t, err)
 			<-entered
 			released := make(chan error, 1)
 			go func() {
 				if reschedule {
-					released <- session.Reschedule(context.Background(), RescheduleExecutionRequest{})
+					released <- session.Reschedule(celltest.Context(context.Background()), RescheduleExecutionRequest{})
 				} else {
-					released <- session.Complete(context.Background(), CompleteExecutionRequest{})
+					released <- session.Complete(celltest.Context(context.Background()), CompleteExecutionRequest{})
 				}
 			}()
 			close(unblock)
@@ -133,14 +134,14 @@ func TestLeaseSessionSerializesReleaseAndRenewal(t *testing.T) {
 func TestLeaseSessionFailureIsNotMaskedByTerminalRead(t *testing.T) {
 	runtime := &runJobIfLeaseableStubRuntime{jobResp: JobInfo{Status: JobStatusCompleted}}
 	for _, err := range []error{ErrExecutionLeaseLost, &jobdb.LeaseRenewalError{Err: errors.New("transport")}} {
-		_, got := classifyJobRunAfterRun(context.Background(), runtime, JobKey{}, nil, nil, err)
+		_, got := classifyJobRunAfterRun(celltest.Context(context.Background()), runtime, JobKey{}, nil, nil, err)
 		require.ErrorIs(t, got, err)
 	}
 }
 func TestSuppliedLeaseRequiresRenewalSupport(t *testing.T) {
 	lease := &fakeExecutionLease{leaseID: "lease", job: JobHandle{JobKey: JobKey{TenantId: "tenant", JobId: "job"}}}
 	runtime := &runJobIfLeaseableStubRuntime{}
-	_, err := GetJobForRunWithLease(context.Background(), runtime, lease, GetJobForRunRequest{JobKey: lease.Job().JobKey, JobWorker: runJobIfLeaseableTestJob{name: "job"}})
+	_, err := GetJobForRunWithLease(celltest.Context(context.Background()), runtime, lease, GetJobForRunRequest{JobKey: lease.Job().JobKey, JobWorker: runJobIfLeaseableTestJob{name: "job"}})
 	require.ErrorIs(t, err, jobdb.ErrLeaseRenewalUnsupported)
 	require.Equal(t, GetJobLeaseRequest{}, runtime.leaseReq)
 }

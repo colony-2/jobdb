@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +21,7 @@ func TestExecutionGoalWaitRecoveryAndReplay(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		for _, inTask := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/task=%v", backend, inTask), func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				rt := alternateRuntime(t, backend)
 				producer := wf.ExecutionWorker{JobType: "producer", Execute: func(wf.ExecutionContext, jobdb.JobData) (jobdb.JobData, error) {
 					return jobdb.NewTaskDataOrPanic("winner"), nil
@@ -82,9 +84,9 @@ func TestExecutionGoalFailureAdmissionAndReplay(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		for _, submission := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/submission=%v", backend, submission), func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				rt := alternateRuntime(t, backend)
-				a, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: "producer", Data: jobdb.NewTaskDataOrPanic(nil)}})
+				a, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "producer", Data: jobdb.NewTaskDataOrPanic(nil)}})
 				require.NoError(t, err)
 				goal := jobdb.GoalKey{TenantId: "tenant", GoalID: a.GoalID}
 				var calls atomic.Int32
@@ -93,7 +95,7 @@ func TestExecutionGoalFailureAdmissionAndReplay(t *testing.T) {
 					_, err := c.AwaitGoals(goal.GoalID)
 					return nil, err
 				}}
-				request := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: "consumer", Data: jobdb.NewTaskDataOrPanic(nil), RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 3}}}}
+				request := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "consumer", Data: jobdb.NewTaskDataOrPanic(nil), RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 3}}}}
 				if submission {
 					request.Job.Dependencies = []jobdb.Dependency{{Target: jobdb.DependencyTarget{GoalID: goal.GoalID}, Condition: jobdb.JobPrereqSuccess}}
 				}
@@ -132,7 +134,7 @@ func TestExecutionGoalFailureAdmissionAndReplay(t *testing.T) {
 func TestExecutionRestartGoalAdmission(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			rt := alternateRuntime(t, backend)
 			var calls atomic.Int32
 			task := executionTestTask{"echo", func(_ wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) { return in, nil }}
@@ -153,9 +155,9 @@ func TestExecutionRestartGoalAdmission(t *testing.T) {
 				}
 			}
 			require.NotEmpty(t, target)
-			upstream, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: "upstream", Data: jobdb.NewTaskDataOrPanic(nil)}})
+			upstream, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "upstream", Data: jobdb.NewTaskDataOrPanic(nil)}})
 			require.NoError(t, err)
-			restart, err := rt.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: source, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target}, Dependencies: []jobdb.Dependency{{Target: jobdb.DependencyTarget{GoalID: upstream.GoalID}, Condition: jobdb.JobPrereqSuccess}}}})
+			restart, err := rt.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: source, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target}, Dependencies: []jobdb.Dependency{{Target: jobdb.DependencyTarget{GoalID: upstream.GoalID}, Condition: jobdb.JobPrereqSuccess}}}})
 			require.NoError(t, err)
 			_, err = rt.FailGoal(ctx, jobdb.FailGoalRequest{GoalKey: jobdb.GoalKey{TenantId: "tenant", GoalID: upstream.GoalID}, Message: "new dependency failed"})
 			require.NoError(t, err)

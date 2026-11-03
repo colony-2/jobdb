@@ -7,6 +7,12 @@ adapter.
 This package does not define job workers, task workers, or the worker engine.
 For worker processes, use [pkg/workflow](../workflow/README.md).
 
+The named-cell release requires a fresh execution store. Submit requests need
+`Cell`; creating an ordinary cell with its first job also needs `CellRepo` and
+creation authority. Embedded runtimes take trusted policy through
+`jobdb.WithCellAuthority`; HTTP embeddings supply it in authenticated middleware.
+See [named cells](../../docs/SPEC-Tenant-Cells.md) for root bootstrap and policy scope.
+
 ## What Lives Here
 
 - `WorkflowRuntime`: backend-agnostic runtime interface.
@@ -103,6 +109,7 @@ input := jobdb.NewTaskDataOrPanic(map[string]any{"n": 1})
 
 handle, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
     Job: jobdb.SubmitJob{
+        Cell: "example", CellRepo: "github.com/example/workflows",
         TenantId: "tenant-a",
         JobType:  "example-job",
         Data:     input,

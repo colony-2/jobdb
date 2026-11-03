@@ -56,7 +56,7 @@ func validateDelegationPolicy(p jobdb.DelegationPermissions) error {
 		}
 		return true
 	}
-	if p.Submit != nil && (!names(p.Submit.JobTypes) || !names(p.Submit.JobIDs)) {
+	if p.Submit != nil && (!names(p.Submit.JobTypes) || !names(p.Submit.JobIDs) || p.Submit.CellNames != nil && !names(*p.Submit.CellNames)) {
 		return fmt.Errorf("invalid submission selectors")
 	}
 	if !names(jobdb.DelegationNames{Names: p.Secrets}) {

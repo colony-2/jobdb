@@ -1,5 +1,8 @@
 # Binary chapter cutover: validation
 
+Historical document: its old-data migration instructions are superseded by the
+[named-cell fresh-store cutover](SPEC-Tenant-Cells.md#hard-break-release-policy).
+
 Tested on Linux ARM64 on 2026-10-28. This report records local validation; it does not imply a deployment or an
 in-place migration of user data.
 

@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 )
 
 func TestHealthcheckTargetURLDefaultsFromListenEnvironment(t *testing.T) {
@@ -61,26 +63,26 @@ func TestHealthcheckTargetURLRejectsInvalidArguments(t *testing.T) {
 }
 
 func TestRunHealthcheck(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/healthz" {
 			t.Errorf("request path = %q, want /healthz", r.URL.Path)
 		}
 		w.WriteHeader(http.StatusOK)
-	}))
+	})))
 	defer server.Close()
 
-	if err := runHealthcheck(context.Background(), server.Client(), server.URL+"/healthz"); err != nil {
+	if err := runHealthcheck(celltest.Context(context.Background()), server.Client(), server.URL+"/healthz"); err != nil {
 		t.Fatalf("runHealthcheck returned error: %v", err)
 	}
 }
 
 func TestRunHealthcheckRejectsUnhealthyResponse(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
+	})))
 	defer server.Close()
 
-	if err := runHealthcheck(context.Background(), server.Client(), server.URL+"/healthz"); err == nil {
+	if err := runHealthcheck(celltest.Context(context.Background()), server.Client(), server.URL+"/healthz"); err == nil {
 		t.Fatal("runHealthcheck returned nil error")
 	}
 }

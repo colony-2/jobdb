@@ -11,9 +11,11 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/cellstate"
 )
 
 type executionLease struct {
+	cell                  jobdb.ResolvedCell
 	goalID                string
 	mu                    sync.Mutex // protects this handle's expiry during KeepAlive
 	clientPayload         json.RawMessage
@@ -49,7 +51,7 @@ func (l *executionLease) checkExpiry() error {
 func (l *executionLease) LeaseSchemaHash() string { return l.schemaHash }
 
 func (l *executionLease) Job() jobdb.JobHandle {
-	return jobdb.JobHandle{JobKey: l.jobKey, GoalID: l.goalID}
+	return l.cell.Handle(l.jobKey, l.goalID)
 }
 
 func (l *executionLease) Route() jobdb.Route { return l.route }
@@ -314,7 +316,7 @@ func (r *Runtime) SubmitJobWithLeaseByID(ctx context.Context, parentJobKey jobdb
 		return jobdb.JobHandle{}, err
 	}
 	req.Job.TenantId = parentJobKey.TenantId
-	return r.submitJobWithParent(ctx, req, parentJobKey.JobId)
+	return r.submitJobWithParent(cellstate.WithLease(ctx, cellstate.LeaseProof{JobKey: parentJobKey, LeaseID: leaseID, WorkerID: workerID}), req, parentJobKey.JobId)
 }
 
 func (r *Runtime) SubmitRestartJobWithLeaseByID(ctx context.Context, parentJobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
@@ -334,7 +336,7 @@ func (r *Runtime) SubmitRestartJobWithLeaseByID(ctx context.Context, parentJobKe
 		return jobdb.JobHandle{}, fmt.Errorf("prior job tenantId must match parent tenantId")
 	}
 	req.Job.PriorJobKey.TenantId = parentJobKey.TenantId
-	return r.submitRestartJobWithParent(ctx, req, parentJobKey.JobId)
+	return r.submitRestartJobWithParent(cellstate.WithLease(ctx, cellstate.LeaseProof{JobKey: parentJobKey, LeaseID: leaseID, WorkerID: workerID}), req, parentJobKey.JobId)
 }
 
 // ValidateExecutionLeaseByID checks a live parent without extending it.
@@ -346,7 +348,7 @@ func (r *Runtime) ValidateExecutionLeaseByID(ctx context.Context, key jobdb.JobK
 	if err != nil {
 		return jobdb.LeaseValidity{}, err
 	}
-	return jobdb.LeaseValidity{GoalID: row.goalID, ExpiresAt: timeFromNS(row.leaseExpiresAtNS.Int64), Route: row.nextRoute}, nil
+	return jobdb.LeaseValidity{Cell: row.cell, GoalID: row.goalID, ExpiresAt: timeFromNS(row.leaseExpiresAtNS.Int64), Route: row.nextRoute}, nil
 }
 
 func (r *Runtime) validateLease(ctx context.Context, jobKey jobdb.JobKey, leaseID string, workerID string) (jobRow, error) {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,10 +26,10 @@ func runRestartClonesMetadata(t *testing.T, harnesses []Harness) {
 				t.Run(tc.name, func(t *testing.T) {
 					built := buildFixture(t, harness)
 					defer built.Shutdown(t)
-					ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+					ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 					defer cancel()
 					r := built.Runtime
-					parent, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
+					parent, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 						TenantId: built.WorkerTenantID, JobType: "metadata-parent", Data: NumberTaskData(0),
 						Metadata: json.RawMessage(`{"parentOnly":true}`),
 					}})
@@ -38,7 +39,7 @@ func runRestartClonesMetadata(t *testing.T, harnesses []Harness) {
 					})
 					require.NoError(t, err)
 					require.NotNil(t, lease)
-					source, err := lease.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
+					source, err := lease.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 						JobType: "metadata-source", Data: NumberTaskData(1), Metadata: tc.metadata,
 					}})
 					require.NoError(t, err)
@@ -70,7 +71,7 @@ func runRestartClonesMetadata(t *testing.T, harnesses []Harness) {
 					original := read(source)
 					require.Equal(t, parent.JobKey.JobId, original.ParentJobID)
 					for _, viaLease := range []bool{false, true} {
-						req := jobdb.SubmitRestartJobRequest{RequestID: "metadata-root", Job: jobdb.SubmitRestartJob{PriorJobKey: source.JobKey}}
+						req := jobdb.SubmitRestartJobRequest{RequestID: "metadata-root", Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: source.JobKey}}
 						submit := r.SubmitRestartJob
 						wantParent := ""
 						if viaLease {
@@ -87,7 +88,7 @@ func runRestartClonesMetadata(t *testing.T, harnesses []Harness) {
 						require.Equal(t, decode(original.Metadata), decode(copied.Metadata))
 						require.Equal(t, wantParent, copied.ParentJobID)
 						complete(restarted)
-						next, err := r.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: restarted.JobKey}})
+						next, err := r.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: restarted.JobKey}})
 						require.NoError(t, err)
 						require.Equal(t, decode(original.Metadata), decode(read(next).Metadata))
 					}

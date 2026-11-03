@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/crashconcern"
 	"github.com/stretchr/testify/require"
 )
@@ -17,12 +18,12 @@ func runCrashConcern(t *testing.T, harnesses []Harness) {
 		t.Run(h.Name, func(t *testing.T) {
 			f := buildFixture(t, h)
 			defer f.Shutdown(t)
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 30*time.Second)
 			defer cancel()
 			r := f.Runtime
 			route := jobdb.Route{JobType: "crash-concern"}
 			submit := func(id string) jobdb.JobKey {
-				handle, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
+				handle, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: f.WorkerTenantID, JobID: id, JobType: route.JobType, Data: NumberTaskData(1),
 				}})
 				require.NoError(t, err)

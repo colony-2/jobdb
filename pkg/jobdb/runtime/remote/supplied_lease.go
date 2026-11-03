@@ -35,7 +35,7 @@ func (c LeaseCapability) Encode() ([]byte, error) {
 }
 func (c LeaseCapability) valid() bool {
 	w := c.wire
-	return w.Version == 1 && w.TenantID != "" && w.JobID != "" && w.LeaseID != "" && w.Token != ""
+	return w.Version == 2 && w.TenantID != "" && w.JobID != "" && w.LeaseID != "" && w.Token != ""
 }
 
 // DecodeLeaseCapability parses a credential without trusting it. ImportLease
@@ -63,7 +63,7 @@ func ExportLease(lease jobdb.ExecutionLease) (LeaseCapability, error) {
 		return LeaseCapability{}, jobdb.ErrLeaseRenewalUnsupported
 	}
 	key := lease.Job().JobKey
-	c := LeaseCapability{wire: leaseCapabilityWire{Version: 1, TenantID: key.TenantId, JobID: key.JobId, LeaseID: lease.LeaseID(), Token: token.LeaseToken()}}
+	c := LeaseCapability{wire: leaseCapabilityWire{Version: 2, TenantID: key.TenantId, JobID: key.JobId, LeaseID: lease.LeaseID(), Token: token.LeaseToken()}}
 	if !c.valid() {
 		return LeaseCapability{}, jobdb.ErrExecutionLeaseLost
 	}

@@ -8,10 +8,11 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 )
 
 func TestSchemaRegistryLifecycle(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	embedded, err := StartEmbeddedRuntime(ctx)
 	if err != nil {
 		t.Fatalf("start runtime: %v", err)
@@ -64,7 +65,7 @@ func TestSchemaRegistryLifecycle(t *testing.T) {
 }
 
 func TestSchemaRegistryMissing(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	embedded, err := StartEmbeddedRuntime(ctx)
 	if err != nil {
 		t.Fatalf("start runtime: %v", err)
@@ -79,7 +80,7 @@ func TestSchemaRegistryMissing(t *testing.T) {
 }
 
 func TestSubmitJobSchemaAssociation(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	embedded, err := StartEmbeddedRuntime(ctx)
 	if err != nil {
 		t.Fatalf("start runtime: %v", err)
@@ -95,7 +96,7 @@ func TestSubmitJobSchemaAssociation(t *testing.T) {
 		t.Fatalf("compute schema hash: %v", err)
 	}
 	_, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{
-		Job: jobdb.SubmitJob{
+		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: tenantID,
 			JobType:  "invalid-schema-job",
 			Data:     jobdb.NewTaskDataOrPanic(map[string]string{"kind": "invalid"}),
@@ -106,7 +107,7 @@ func TestSubmitJobSchemaAssociation(t *testing.T) {
 		t.Fatalf("submit invalid schema job error = %v, want ErrJobSchemaValidation", err)
 	}
 	handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{
-		Job: jobdb.SubmitJob{
+		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: tenantID,
 			JobType:  "schema-job",
 			Data:     jobdb.NewTaskDataOrPanic(map[string]string{"kind": "valid"}),
@@ -224,7 +225,7 @@ func TestSubmitJobSchemaAssociation(t *testing.T) {
 	} {
 		t.Run("submit archived schema by "+tc.name, func(t *testing.T) {
 			_, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{
-				Job: jobdb.SubmitJob{
+				Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: tenantID,
 					JobType:  "archived-schema-job-" + tc.name,
 					Data:     jobdb.NewTaskDataOrPanic(map[string]string{"kind": "valid"}),
@@ -241,7 +242,7 @@ func TestSubmitJobSchemaAssociation(t *testing.T) {
 	}
 
 	plain, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{
-		Job: jobdb.SubmitJob{
+		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: tenantID,
 			JobType:  "plain-job",
 			Data:     jobdb.NewTaskDataOrPanic(map[string]int{"n": 3}),

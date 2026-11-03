@@ -4,24 +4,26 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/http/httptest"
+	"testing"
+
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/stretchr/testify/require"
-	"net/http/httptest"
-	"testing"
 )
 
 func TestGoalsCommands(t *testing.T) {
 	rt := toy.New()
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	submit := func() jobdb.JobHandle {
-		h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
+		h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 		require.NoError(t, err)
 		return h
 	}
 	a, b := submit(), submit()
-	server := httptest.NewServer(remote.NewServer(rt))
+	server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
 	defer server.Close()
 	run := func(args ...string) []byte {
 		root := newRootCmd()

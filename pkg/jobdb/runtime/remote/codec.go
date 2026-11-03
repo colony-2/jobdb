@@ -65,16 +65,19 @@ func (d *jobInfoTaskData) TaskDataResult() (jobdb.TaskData, error) {
 }
 
 func toAPIJobHandle(handle jobdb.JobHandle) runtimeapi.JobHandle {
-	return runtimeapi.JobHandle{GoalId: handle.GoalID,
+	return runtimeapi.JobHandle{Cell: handle.Cell, CellId: handle.CellID, CellRepo: handle.CellRepo, GoalId: handle.GoalID,
 		JobKey: toAPIJobKey(handle.JobKey),
 	}
 }
 
 func fromAPIJobHandle(handle runtimeapi.JobHandle) (jobdb.JobHandle, error) {
+	if handle.Cell == "" || handle.CellId == "" || handle.CellRepo == "" {
+		return jobdb.JobHandle{}, fmt.Errorf("server response missing required cell fields")
+	}
 	if handle.GoalId == "" {
 		return jobdb.JobHandle{}, fmt.Errorf("server response missing required goalId")
 	}
-	return jobdb.JobHandle{GoalID: handle.GoalId,
+	return jobdb.JobHandle{Cell: handle.Cell, CellID: handle.CellId, CellRepo: handle.CellRepo, GoalID: handle.GoalId,
 		JobKey: fromAPIJobKey(handle.JobKey),
 	}, nil
 }
@@ -1405,10 +1408,10 @@ func chapterMetadataFromAPIRecord(chapter runtimeapi.ChapterRecord) (jobdb.Chapt
 func jobInfoToAPI(ctx context.Context, info jobdb.JobInfo) (runtimeapi.JobInfo, error) {
 	state, err := executionStateToAPI(info.ExecutionState)
 	if err != nil {
-		return runtimeapi.JobInfo{}, err
+		return runtimeapi.JobInfo{Cell: info.Cell, CellId: info.CellID, CellRepo: info.CellRepo}, err
 	}
 	waitFor := nonNilStrings(info.WaitFor)
-	out := runtimeapi.JobInfo{NextRoute: routePtrToAPI(info.NextRoute), CompletionStatus: stringPtrOrNil(info.CompletionStatus), CompletionDetail: stringPtrOrNil(info.CompletionDetail), WaitFor: &waitFor, BlockingWait: info.BlockingWait, GoalId: info.GoalID, OtherGoalIds: nonNilStrings(info.OtherGoalIDs),
+	out := runtimeapi.JobInfo{Cell: info.Cell, CellId: info.CellID, CellRepo: info.CellRepo, NextRoute: routePtrToAPI(info.NextRoute), CompletionStatus: stringPtrOrNil(info.CompletionStatus), CompletionDetail: stringPtrOrNil(info.CompletionDetail), WaitFor: &waitFor, BlockingWait: info.BlockingWait, GoalId: info.GoalID, OtherGoalIds: nonNilStrings(info.OtherGoalIDs),
 		ExecutionState: state, ClientPayload: cloneRawMessage(info.ClientPayload), ClientPayloadRevision: strconv.FormatInt(info.ClientPayloadRevision, 10),
 		SchemaHash: schemaHashPtr(info.SchemaHash),
 		Status:     runtimeapi.JobStatus(info.Status),
@@ -1419,7 +1422,7 @@ func jobInfoToAPI(ctx context.Context, info jobdb.JobInfo) (runtimeapi.JobInfo, 
 	}
 	stored, err := taskDataToAPIStored(ctx, taskData, payloadErr)
 	if err != nil {
-		return runtimeapi.JobInfo{}, err
+		return runtimeapi.JobInfo{Cell: info.Cell, CellId: info.CellID, CellRepo: info.CellRepo}, err
 	}
 	out.Data = stored
 	return out, nil
@@ -1427,17 +1430,17 @@ func jobInfoToAPI(ctx context.Context, info jobdb.JobInfo) (runtimeapi.JobInfo, 
 
 func jobInfoFromAPI(runtime *Runtime, jobKey jobdb.JobKey, info runtimeapi.JobInfo) (jobdb.JobInfo, error) {
 	if info.GoalId == "" || info.OtherGoalIds == nil {
-		return jobdb.JobInfo{}, fmt.Errorf("server response missing required goal fields")
+		return jobdb.JobInfo{Cell: info.Cell, CellID: info.CellId, CellRepo: info.CellRepo}, fmt.Errorf("server response missing required goal fields")
 	}
 	state, err := executionStateFromAPI(info.ExecutionState)
 	if err != nil {
-		return jobdb.JobInfo{}, err
+		return jobdb.JobInfo{Cell: info.Cell, CellID: info.CellId, CellRepo: info.CellRepo}, err
 	}
 	revision, err := payloadRevision(info.ClientPayloadRevision)
 	if err != nil {
-		return jobdb.JobInfo{}, err
+		return jobdb.JobInfo{Cell: info.Cell, CellID: info.CellId, CellRepo: info.CellRepo}, err
 	}
-	out := jobdb.JobInfo{NextRoute: routePtrFromAPI(info.NextRoute), CompletionStatus: stringValue(info.CompletionStatus), CompletionDetail: stringValue(info.CompletionDetail), WaitFor: cloneStringSlice(info.WaitFor), BlockingWait: info.BlockingWait, GoalID: info.GoalId, OtherGoalIDs: info.OtherGoalIds,
+	out := jobdb.JobInfo{Cell: info.Cell, CellID: info.CellId, CellRepo: info.CellRepo, NextRoute: routePtrFromAPI(info.NextRoute), CompletionStatus: stringValue(info.CompletionStatus), CompletionDetail: stringValue(info.CompletionDetail), WaitFor: cloneStringSlice(info.WaitFor), BlockingWait: info.BlockingWait, GoalID: info.GoalId, OtherGoalIDs: info.OtherGoalIds,
 		ExecutionState: state, ClientPayload: cloneRawMessage(info.ClientPayload), ClientPayloadRevision: revision,
 		Status:     jobdb.JobStatus(info.Status),
 		Data:       &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
@@ -1448,7 +1451,7 @@ func jobInfoFromAPI(runtime *Runtime, jobKey jobdb.JobKey, info runtimeapi.JobIn
 	}
 	taskData, payloadErr := taskDataFromAPIStored(runtime, jobKey, *info.Data)
 	if payloadErr != nil && taskData == nil {
-		return jobdb.JobInfo{}, payloadErr
+		return jobdb.JobInfo{Cell: info.Cell, CellID: info.CellId, CellRepo: info.CellRepo}, payloadErr
 	}
 	out.Data = &jobInfoTaskData{taskData: taskData, err: payloadErr}
 	return out, nil
@@ -1457,13 +1460,13 @@ func jobInfoFromAPI(runtime *Runtime, jobKey jobdb.JobKey, info runtimeapi.JobIn
 func jobSummaryToAPI(summary jobdb.JobSummary) (runtimeapi.JobSummary, error) {
 	state, err := executionStateToAPI(summary.ExecutionState)
 	if err != nil {
-		return runtimeapi.JobSummary{}, err
+		return runtimeapi.JobSummary{Cell: summary.Cell, CellId: summary.CellID, CellRepo: summary.CellRepo}, err
 	}
 	metadata, err := metadataJSONToAPI(summary.Metadata)
 	if err != nil {
-		return runtimeapi.JobSummary{}, err
+		return runtimeapi.JobSummary{Cell: summary.Cell, CellId: summary.CellID, CellRepo: summary.CellRepo}, err
 	}
-	out := runtimeapi.JobSummary{BlockingWaitSummary: summary.BlockingWaitSummary, BlockingWait: summary.BlockingWait, GoalId: summary.GoalID, OtherGoalIds: nonNilStrings(summary.OtherGoalIDs),
+	out := runtimeapi.JobSummary{Cell: summary.Cell, CellId: summary.CellID, CellRepo: summary.CellRepo, BlockingWaitSummary: summary.BlockingWaitSummary, BlockingWait: summary.BlockingWait, GoalId: summary.GoalID, OtherGoalIds: nonNilStrings(summary.OtherGoalIDs),
 		CompletionStatus:      stringPtrOrNil(summary.CompletionStatus),
 		CompletionDetail:      stringPtrOrNil(summary.CompletionDetail),
 		ArchivedAt:            summary.ArchivedAt,
@@ -1489,21 +1492,21 @@ func jobSummaryToAPI(summary jobdb.JobSummary) (runtimeapi.JobSummary, error) {
 
 func jobSummaryFromAPI(summary runtimeapi.JobSummary) (jobdb.JobSummary, error) {
 	if summary.GoalId == "" || summary.OtherGoalIds == nil {
-		return jobdb.JobSummary{}, fmt.Errorf("server response missing required goal fields")
+		return jobdb.JobSummary{Cell: summary.Cell, CellID: summary.CellId, CellRepo: summary.CellRepo}, fmt.Errorf("server response missing required goal fields")
 	}
 	revision, err := payloadRevision(summary.ClientPayloadRevision)
 	if err != nil {
-		return jobdb.JobSummary{BlockingWait: summary.BlockingWait, GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds}, err
+		return jobdb.JobSummary{Cell: summary.Cell, CellID: summary.CellId, CellRepo: summary.CellRepo, BlockingWait: summary.BlockingWait, GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds}, err
 	}
 	state, err := executionStateFromAPI(summary.ExecutionState)
 	if err != nil {
-		return jobdb.JobSummary{BlockingWait: summary.BlockingWait, GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds}, err
+		return jobdb.JobSummary{Cell: summary.Cell, CellID: summary.CellId, CellRepo: summary.CellRepo, BlockingWait: summary.BlockingWait, GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds}, err
 	}
 	metadata, err := metadataAPIToJSON(summary.Metadata)
 	if err != nil {
-		return jobdb.JobSummary{BlockingWait: summary.BlockingWait, GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds}, err
+		return jobdb.JobSummary{Cell: summary.Cell, CellID: summary.CellId, CellRepo: summary.CellRepo, BlockingWait: summary.BlockingWait, GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds}, err
 	}
-	return jobdb.JobSummary{BlockingWaitSummary: summary.BlockingWaitSummary, BlockingWait: summary.BlockingWait, GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds,
+	return jobdb.JobSummary{Cell: summary.Cell, CellID: summary.CellId, CellRepo: summary.CellRepo, BlockingWaitSummary: summary.BlockingWaitSummary, BlockingWait: summary.BlockingWait, GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds,
 		CompletionStatus:      stringValue(summary.CompletionStatus),
 		CompletionDetail:      stringValue(summary.CompletionDetail),
 		JobKey:                fromAPIJobKey(summary.JobKey),
@@ -1651,20 +1654,20 @@ func scheduleFailurePolicyFromAPI(policy *runtimeapi.ScheduleFailurePolicy) jobd
 func scheduleTargetToAPI(ctx context.Context, target jobdb.ScheduleTarget) (runtimeapi.ScheduleTarget, error) {
 	data, err := taskDataToAPIWrite(ctx, jobdb.TaskData(target.Data))
 	if err != nil {
-		return runtimeapi.ScheduleTarget{
+		return runtimeapi.ScheduleTarget{Cell: target.Cell, CellId: optionalNonEmptyString(target.CellID), CellRepo: optionalNonEmptyString(target.CellRepo),
 			ClientPayloadUpdate: target.ClientPayloadUpdate}, err
 	}
 	runPolicy, err := runPolicyToAPI(target.RunPolicy)
 	if err != nil {
-		return runtimeapi.ScheduleTarget{
+		return runtimeapi.ScheduleTarget{Cell: target.Cell, CellId: optionalNonEmptyString(target.CellID), CellRepo: optionalNonEmptyString(target.CellRepo),
 			ClientPayloadUpdate: target.ClientPayloadUpdate}, err
 	}
 	metadata, err := metadataJSONToAPI(target.Metadata)
 	if err != nil {
-		return runtimeapi.ScheduleTarget{
+		return runtimeapi.ScheduleTarget{Cell: target.Cell, CellId: optionalNonEmptyString(target.CellID), CellRepo: optionalNonEmptyString(target.CellRepo),
 			ClientPayloadUpdate: target.ClientPayloadUpdate}, err
 	}
-	return runtimeapi.ScheduleTarget{
+	return runtimeapi.ScheduleTarget{Cell: target.Cell, CellId: optionalNonEmptyString(target.CellID), CellRepo: optionalNonEmptyString(target.CellRepo),
 		ClientPayloadUpdate: target.ClientPayloadUpdate,
 		Data:                data,
 		JobType:             target.JobType,
@@ -1676,17 +1679,17 @@ func scheduleTargetToAPI(ctx context.Context, target jobdb.ScheduleTarget) (runt
 func scheduleTargetFromAPI(target runtimeapi.ScheduleTarget) (jobdb.ScheduleTarget, error) {
 	data, err := taskDataFromAPIWrite(target.Data)
 	if err != nil {
-		return jobdb.ScheduleTarget{}, err
+		return jobdb.ScheduleTarget{Cell: target.Cell, CellID: cellIfMatch(target.CellId), CellRepo: cellIfMatch(target.CellRepo)}, err
 	}
 	runPolicy, err := runPolicyFromAPI(target.RunPolicy)
 	if err != nil {
-		return jobdb.ScheduleTarget{}, err
+		return jobdb.ScheduleTarget{Cell: target.Cell, CellID: cellIfMatch(target.CellId), CellRepo: cellIfMatch(target.CellRepo)}, err
 	}
 	metadata, err := metadataAPIToJSON(target.Metadata)
 	if err != nil {
-		return jobdb.ScheduleTarget{}, err
+		return jobdb.ScheduleTarget{Cell: target.Cell, CellID: cellIfMatch(target.CellId), CellRepo: cellIfMatch(target.CellRepo)}, err
 	}
-	return jobdb.ScheduleTarget{
+	return jobdb.ScheduleTarget{Cell: target.Cell, CellID: cellIfMatch(target.CellId), CellRepo: cellIfMatch(target.CellRepo),
 		ClientPayloadUpdate: target.ClientPayloadUpdate, JobType: target.JobType,
 		Data:      jobdb.JobData(data),
 		RunPolicy: runPolicy,
@@ -1699,7 +1702,7 @@ func scheduleInfoToAPI(ctx context.Context, info jobdb.ScheduleInfo) (runtimeapi
 	if err != nil {
 		return runtimeapi.ScheduleInfo{}, err
 	}
-	out := runtimeapi.ScheduleInfo{
+	out := runtimeapi.ScheduleInfo{PauseReason: optionalNonEmptyString(info.PauseReason),
 		CreatedAt:      info.CreatedAt,
 		EffectiveState: runtimeapi.ScheduleState(info.EffectiveState),
 		FailurePolicy:  scheduleFailurePolicyToAPI(info.FailurePolicy),
@@ -1731,7 +1734,7 @@ func scheduleInfoFromAPI(info runtimeapi.ScheduleInfo) (jobdb.ScheduleInfo, erro
 	if err != nil {
 		return jobdb.ScheduleInfo{}, err
 	}
-	out := jobdb.ScheduleInfo{
+	out := jobdb.ScheduleInfo{PauseReason: cellIfMatch(info.PauseReason),
 		TenantId:       info.TenantId,
 		ScheduleId:     info.ScheduleId,
 		ScheduleKey:    scheduleKeyFromAPI(info.ScheduleKey),
@@ -2220,4 +2223,11 @@ func routesFromAPI(routes []runtimeapi.Route) []jobdb.Route {
 		out[i] = jobdb.Route(r)
 	}
 	return out
+}
+
+func optionalNonEmptyString(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
 }

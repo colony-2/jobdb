@@ -12,10 +12,11 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 )
 
 func TestScheduleMetadataIsHiddenFromPublicJobViews(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	embedded, err := StartEmbeddedRuntime(ctx)
 	if err != nil {
 		t.Fatalf("start runtime: %v", err)
@@ -119,7 +120,7 @@ func TestScheduleMetadataIsHiddenFromPublicJobViews(t *testing.T) {
 }
 
 func TestScheduleLeasePreflightSubmitsSerialSuccessorBeforeReturningLease(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	embedded, err := StartEmbeddedRuntime(ctx)
 	if err != nil {
 		t.Fatalf("start runtime: %v", err)
@@ -181,7 +182,7 @@ func TestScheduleLeasePreflightSubmitsSerialSuccessorBeforeReturningLease(t *tes
 }
 
 func TestScheduledTargetArtifactsAreSnapshottedAndReplayed(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	embedded, err := StartEmbeddedRuntime(ctx)
 	if err != nil {
 		t.Fatalf("start runtime: %v", err)
@@ -197,7 +198,7 @@ func TestScheduledTargetArtifactsAreSnapshottedAndReplayed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create source artifact: %v", err)
 	}
-	info, err := embedded.Runtime.UpsertSchedule(ctx, jobdb.UpsertScheduleRequest{
+	info, err := celltest.Schedule(ctx, embedded.Runtime, jobdb.UpsertScheduleRequest{
 		TenantId:      "tenant",
 		ScheduleId:    "schedule-artifact-target",
 		RequestTime:   time.Now().UTC(),
@@ -206,7 +207,7 @@ func TestScheduledTargetArtifactsAreSnapshottedAndReplayed(t *testing.T) {
 			Kind:     jobdb.ScheduleTriggerInterval,
 			Interval: time.Hour,
 		},
-		Target: jobdb.ScheduleTarget{
+		Target: jobdb.ScheduleTarget{Cell: "test", CellRepo: "example.test/test",
 			JobType:  "scheduled-job",
 			Data:     jobdb.JobData(&jobdb.SimpleTaskData{Data: []byte(`{"n":1}`), Artifacts: []jobdb.Artifact{artifact}}),
 			Metadata: json.RawMessage(`{"customer":"acme"}`),
@@ -256,7 +257,7 @@ func TestScheduledTargetArtifactsAreSnapshottedAndReplayed(t *testing.T) {
 }
 
 func TestPausedScheduleCancelsUnstartedOccurrenceWithReason(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	embedded, err := StartEmbeddedRuntime(ctx)
 	if err != nil {
 		t.Fatalf("start runtime: %v", err)
@@ -298,21 +299,21 @@ func TestPausedScheduleCancelsUnstartedOccurrenceWithReason(t *testing.T) {
 }
 
 func TestScheduleRejectsInvalidTargetMetadataAndStateConflicts(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	embedded, err := StartEmbeddedRuntime(ctx)
 	if err != nil {
 		t.Fatalf("start runtime: %v", err)
 	}
 	defer embedded.Shutdown()
 
-	_, err = embedded.Runtime.UpsertSchedule(ctx, jobdb.UpsertScheduleRequest{
+	_, err = celltest.Schedule(ctx, embedded.Runtime, jobdb.UpsertScheduleRequest{
 		TenantId:   "tenant",
 		ScheduleId: "invalid-metadata",
 		Trigger: jobdb.ScheduleTrigger{
 			Kind:     jobdb.ScheduleTriggerInterval,
 			Interval: time.Hour,
 		},
-		Target: jobdb.ScheduleTarget{
+		Target: jobdb.ScheduleTarget{Cell: "test", CellRepo: "example.test/test",
 			JobType:  "scheduled-job",
 			Data:     jobdb.JobData(jobdb.NewTaskDataOrPanic(map[string]any{"n": 1})),
 			Metadata: json.RawMessage(`["not","object"]`),
@@ -342,14 +343,14 @@ func TestScheduleRejectsInvalidTargetMetadataAndStateConflicts(t *testing.T) {
 }
 
 func TestScheduleFailurePolicyCancelsSuccessorBeforeAppLease(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	embedded, err := StartEmbeddedRuntime(ctx)
 	if err != nil {
 		t.Fatalf("start runtime: %v", err)
 	}
 	defer embedded.Shutdown()
 
-	info, err := embedded.Runtime.UpsertSchedule(ctx, jobdb.UpsertScheduleRequest{
+	info, err := celltest.Schedule(ctx, embedded.Runtime, jobdb.UpsertScheduleRequest{
 		TenantId:      "tenant",
 		ScheduleId:    "schedule-failure-policy",
 		RequestTime:   time.Now().UTC(),
@@ -362,7 +363,7 @@ func TestScheduleFailurePolicyCancelsSuccessorBeforeAppLease(t *testing.T) {
 			WindowSize:            2,
 			MaxSequentialFailures: 1,
 		},
-		Target: jobdb.ScheduleTarget{
+		Target: jobdb.ScheduleTarget{Cell: "test", CellRepo: "example.test/test",
 			JobType:  "scheduled-job",
 			Data:     jobdb.JobData(jobdb.NewTaskDataOrPanic(map[string]any{"n": 1})),
 			Metadata: json.RawMessage(`{"customer":"acme","jobdb_customer":"visible","_jobdb":"app-visible"}`),
@@ -426,7 +427,7 @@ func TestScheduleFailurePolicyCancelsSuccessorBeforeAppLease(t *testing.T) {
 }
 
 func TestStartedScheduleRunIsReleasableAfterPauseAndLeaseExpiry(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	embedded, err := StartEmbeddedRuntime(ctx)
 	if err != nil {
 		t.Fatalf("start runtime: %v", err)
@@ -487,7 +488,7 @@ func TestStartedScheduleRunIsReleasableAfterPauseAndLeaseExpiry(t *testing.T) {
 
 func upsertScheduleForTest(t *testing.T, ctx context.Context, runtime *Runtime, scheduleID string, now time.Time, interval time.Duration) jobdb.ScheduleInfo {
 	t.Helper()
-	info, err := runtime.UpsertSchedule(ctx, jobdb.UpsertScheduleRequest{
+	info, err := celltest.Schedule(ctx, runtime, jobdb.UpsertScheduleRequest{
 		TenantId:      "tenant",
 		ScheduleId:    scheduleID,
 		RequestTime:   now,
@@ -496,7 +497,7 @@ func upsertScheduleForTest(t *testing.T, ctx context.Context, runtime *Runtime, 
 			Kind:     jobdb.ScheduleTriggerInterval,
 			Interval: interval,
 		},
-		Target: jobdb.ScheduleTarget{
+		Target: jobdb.ScheduleTarget{Cell: "test", CellRepo: "example.test/test",
 			JobType:  "scheduled-job",
 			Data:     jobdb.JobData(jobdb.NewTaskDataOrPanic(map[string]any{"n": 1})),
 			Metadata: json.RawMessage(`{"customer":"acme","jobdb_customer":"visible","_jobdb":"app-visible"}`),

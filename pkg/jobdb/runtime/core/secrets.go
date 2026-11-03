@@ -44,6 +44,6 @@ func (r *Runtime) resolveSecrets(ctx context.Context, access secretsbroker.Acces
 			return secretsbroker.Snapshot{}, err
 		}
 
-		return secretsbroker.Snapshot{AppMetadata: append(json.RawMessage(nil), row.AppMetadata...), LeaseExpiresAt: snapshot.Identity.ExpiresAt}, nil
+		return secretsbroker.Snapshot{Cell: row.Cell, AppMetadata: append(json.RawMessage(nil), row.AppMetadata...), LeaseExpiresAt: snapshot.Identity.ExpiresAt}, nil
 	})
 }

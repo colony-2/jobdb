@@ -9,6 +9,8 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/cellstate"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 )
 
@@ -41,6 +43,24 @@ func (r *Runtime) UpsertSchedule(ctx context.Context, req jobdb.UpsertScheduleRe
 		state = jobdb.ScheduleStatePaused
 	}
 	r.engine.mu.Lock()
+	cells := r.engine.cellsLocked(req.TenantId)
+	if _, ok := cells.ByName(req.Target.Cell); !ok {
+		r.engine.mu.Unlock()
+		return jobdb.ScheduleInfo{}, jobdb.ErrCellNotFound
+	}
+	binding, err := cells.Resolve(ctx, req.TenantId, req.Target.Cell, req.Target.CellRepo, nil, nil, false)
+	if err != nil {
+		r.engine.mu.Unlock()
+		return jobdb.ScheduleInfo{}, err
+	}
+	target.Cell = binding.Cell
+	target.CellID = binding.CellID
+	target.CellRepo = binding.CellRepo
+	specHash, err = jobdb.ScheduleSpecHash(req.Trigger, target, req.OverlapPolicy, req.FailurePolicy)
+	if err != nil {
+		r.engine.mu.Unlock()
+		return jobdb.ScheduleInfo{}, err
+	}
 	existing := r.engine.schedules[key]
 	if existing != nil && existing.info.State == jobdb.ScheduleStateArchived {
 		r.engine.mu.Unlock()
@@ -161,7 +181,7 @@ func (r *Runtime) TriggerSchedule(ctx context.Context, req jobdb.TriggerSchedule
 		return jobdb.JobHandle{}, err
 	}
 	jobInfo, err := r.GetJob(ctx, key)
-	return jobdb.JobHandle{JobKey: key, GoalID: jobInfo.GoalID}, err
+	return jobdb.JobHandle{JobKey: key, GoalID: jobInfo.GoalID, Cell: jobInfo.Cell, CellID: jobInfo.CellID, CellRepo: jobInfo.CellRepo}, err
 }
 
 func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRunsRequest) (jobdb.ListScheduleRunsResponse, error) {
@@ -237,7 +257,7 @@ func (r *Runtime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRu
 				continue
 			}
 		}
-		job := jobdb.JobSummary{GoalID: rec.goalID, OtherGoalIDs: r.engine.otherGoalsLocked(key),
+		job := jobdb.JobSummary{Cell: rec.cell.Cell, CellID: rec.cell.CellID, CellRepo: rec.cell.CellRepo, GoalID: rec.goalID, OtherGoalIDs: r.engine.otherGoalsLocked(key),
 			JobKey:           key,
 			Status:           rec.currentStatus(time.Now()),
 			CompletionStatus: rec.completionStatus,
@@ -297,6 +317,25 @@ func (r *Runtime) mutateScheduleState(ctx context.Context, req jobdb.ScheduleMut
 		r.engine.mu.Unlock()
 		return jobdb.ScheduleInfo{}, fmt.Errorf("%w: archived schedule cannot change state", jobdb.ErrConflict)
 	}
+	if state == jobdb.ScheduleStateActive {
+		c, ok := r.engine.cellsLocked(req.ScheduleKey.TenantId).Cells[rec.info.Target.CellID]
+		var err error
+		switch {
+		case !ok:
+			err = jobdb.ErrCellNotFound
+		case c.State != jobdb.CellActive:
+			err = jobdb.ErrCellRetired
+		case c.Repo != rec.info.Target.CellRepo:
+			err = jobdb.ErrCellRepoMismatch
+		default:
+			err = jobdb.AuthorizeCell(ctx, req.ScheduleKey.TenantId, c.ID, "jobs.submit")
+		}
+		if err != nil {
+			r.engine.mu.Unlock()
+			return jobdb.ScheduleInfo{}, err
+		}
+		rec.info.PauseReason = ""
+	}
 	next, err := jobdb.InitialScheduleFire(rec.info.Trigger, now)
 	if err != nil {
 		r.engine.mu.Unlock()
@@ -326,9 +365,22 @@ func (r *Runtime) submitScheduledOccurrence(ctx context.Context, info jobdb.Sche
 	return r.submitScheduledOccurrenceWithJobID(ctx, info, jobdb.ScheduleRunJobID(info.ScheduleId, info.Generation, scheduledAt), scheduledAt, previousJobID, failureBits, manual, workerID)
 }
 
-func (r *Runtime) submitScheduledOccurrenceWithJobID(ctx context.Context, info jobdb.ScheduleInfo, jobID string, scheduledAt time.Time, previousJobID string, failureBits string, manual bool, workerID string) (jobdb.JobKey, error) {
+func (r *Runtime) submitScheduledOccurrenceWithJobID(ctx context.Context, info jobdb.ScheduleInfo, jobID string, scheduledAt time.Time, previousJobID string, failureBits string, manual bool, workerID string) (result jobdb.JobKey, retErr error) {
 	jobKey := jobdb.JobKey{TenantId: info.TenantId, JobId: jobID}
 	target := info.Target
+	ctx = cellstate.WithSchedule(ctx, info.ScheduleKey)
+	prep, e := goalstate.SubmitPreparation(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: info.TenantId, JobID: jobID, Cell: target.Cell, CellRepo: target.CellRepo, JobType: target.JobType, Data: target.Data, RunPolicy: target.RunPolicy, Metadata: target.Metadata}}, "")
+	if e != nil {
+		return jobdb.JobKey{}, e
+	}
+	if _, e = r.PrepareJob(ctx, prep); e != nil {
+		return jobdb.JobKey{}, e
+	}
+	defer func() {
+		if retErr != nil {
+			_ = r.DiscardJobPreparation(context.WithoutCancel(ctx), jobKey)
+		}
+	}()
 	windowSize := info.FailurePolicy.WindowSize
 	if windowSize <= 0 {
 		windowSize = len(failureBits)
@@ -425,7 +477,7 @@ func (r *Runtime) submitScheduledOccurrenceWithJobID(ctx context.Context, info j
 		return jobKey, nil
 	}
 	r.engine.jobRecords[jobKey] = record
-	if err := r.engine.publishGoalLocked(jobKey, record); err != nil {
+	if err := r.engine.publishGoalLocked(ctx, jobKey, record); err != nil {
 		delete(r.engine.jobRecords, jobKey)
 		r.engine.mu.Unlock()
 		return jobdb.JobKey{}, err

@@ -11,8 +11,11 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
+
 	sqlitesecrets "github.com/colony-2/jobdb/pkg/jobdb/secrets/sqlite"
 	"github.com/stretchr/testify/require"
 )
@@ -28,9 +31,9 @@ func providerRuntime(t *testing.T, backend string, provider jobdb.SecretProvider
 	if backend == "toy" {
 		return toy.New(toy.WithSecretProvider(provider))
 	}
-	r, err := sqliteruntime.NewFromConfig(context.Background(), sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), SecretProvider: provider})
+	r, err := sqliteruntime.NewFromConfig(celltest.Context(context.Background()), sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), SecretProvider: provider})
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, r.Close(context.Background())) })
+	t.Cleanup(func() { require.NoError(t, r.Close(celltest.Context(context.Background()))) })
 	return r
 }
 
@@ -40,7 +43,7 @@ func TestSecretProvidersIndependentOfJobStorage(t *testing.T) {
 		for _, transport := range []string{"embedded", "http"} {
 			for _, providerType := range []string{"custom", "sqlite"} {
 				t.Run(backend+"/"+transport+"/"+providerType, func(t *testing.T) {
-					ctx := context.Background()
+					ctx := celltest.Context(context.Background())
 					requests := make(chan jobdb.SecretResolveRequest, 4)
 					var version atomic.Int32
 					var provider jobdb.SecretProvider = testSecretProvider(func(_ context.Context, req jobdb.SecretResolveRequest) (jobdb.SecretResolveResult, error) {
@@ -59,13 +62,13 @@ func TestSecretProvidersIndependentOfJobStorage(t *testing.T) {
 					backendRuntime := providerRuntime(t, backend, provider)
 					runtime := backendRuntime
 					if transport == "http" {
-						server := httptest.NewServer(NewServer(runtime))
+						server := httptest.NewServer(celltest.Handler(NewServer(runtime)))
 						t.Cleanup(server.Close)
 						client, err := New(server.URL, server.Client())
 						require.NoError(t, err)
 						runtime = client
 					}
-					job, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: "job", Metadata: json.RawMessage(`{"team":"build"}`), Data: jobdb.NewTaskDataOrPanic(1)}})
+					job, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "job", Metadata: json.RawMessage(`{"team":"build"}`), Data: jobdb.NewTaskDataOrPanic(1)}})
 					require.NoError(t, err)
 					lease, err := runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: job.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "job"}}, LeaseDuration: time.Minute})
 					require.NoError(t, err)
@@ -115,15 +118,15 @@ func TestToyProviderReceivesOnlySignedPrincipal(t *testing.T) {
 	signer := newLeaseTokenSigner()
 	handler, err := newServer(backend, signer)
 	require.NoError(t, err)
-	server := httptest.NewServer(handler)
+	server := httptest.NewServer(celltest.Handler(handler))
 	defer server.Close()
 	client, err := New(server.URL, server.Client())
 	require.NoError(t, err)
 	lease := secretsRemoteLease(t, client, "tenant").(*remoteExecutionLease)
 	principal := "signed-subject"
-	lease.leaseToken, err = signer.mintWithPrincipal(lease.jobKey, lease.leaseID, "worker", "", time.Now().Add(time.Minute), time.Minute, &principal)
+	lease.leaseToken, err = signer.mintWithPrincipal(lease.jobKey, lease.leaseID, "worker", "", time.Now().Add(time.Minute), time.Minute, &principal, lease.cell)
 	require.NoError(t, err)
-	_, err = lease.ResolveSecrets(context.Background(), []string{"token"})
+	_, err = lease.ResolveSecrets(celltest.Context(context.Background()), []string{"token"})
 	require.NoError(t, err)
 	req := <-received
 	require.Equal(t, &principal, req.Principal)
@@ -136,7 +139,7 @@ func TestLeaseBoundProviderContextAcrossTransports(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite"} {
 		for _, transport := range []string{"embedded", "http"} {
 			t.Run(backend+"/"+transport, func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				requests := make(chan jobdb.SecretResolveRequest, 2)
 				provider := testSecretProvider(func(_ context.Context, req jobdb.SecretResolveRequest) (jobdb.SecretResolveResult, error) {
 					requests <- req
@@ -148,13 +151,13 @@ func TestLeaseBoundProviderContextAcrossTransports(t *testing.T) {
 				})
 				runtime := providerRuntime(t, backend, provider)
 				if transport == "http" {
-					server := httptest.NewServer(NewServer(runtime))
+					server := httptest.NewServer(celltest.Handler(NewServer(runtime)))
 					t.Cleanup(server.Close)
 					var err error
 					runtime, err = New(server.URL, server.Client())
 					require.NoError(t, err)
 				}
-				job, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: "job", Metadata: json.RawMessage(`{"lease":{"LeaseID":"forged","AuthorizedNotAfter":"2099-01-01T00:00:00Z"}}`), Data: jobdb.NewTaskDataOrPanic(1)}})
+				job, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "job", Metadata: json.RawMessage(`{"lease":{"LeaseID":"forged","AuthorizedNotAfter":"2099-01-01T00:00:00Z"}}`), Data: jobdb.NewTaskDataOrPanic(1)}})
 				require.NoError(t, err)
 				lease, err := runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: job.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "job"}}, LeaseDuration: time.Minute})
 				require.NoError(t, err)

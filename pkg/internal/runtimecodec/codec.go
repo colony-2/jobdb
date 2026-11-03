@@ -145,7 +145,7 @@ func DecodeChapter(body []byte) (ChapterEnvelope, error) {
 		return ChapterEnvelope{}, err
 	}
 	if record.GetFormatVersion() != ChapterFormatVersion {
-		return ChapterEnvelope{}, fmt.Errorf("unsupported chapter format; run jobdb-migrate-chapter-artifacts")
+		return ChapterEnvelope{}, fmt.Errorf("unsupported chapter format; initialize a fresh cell-format store")
 	}
 	if err := rejectUnknown(&record); err != nil {
 		return ChapterEnvelope{}, err

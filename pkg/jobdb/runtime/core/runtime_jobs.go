@@ -51,7 +51,7 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 	} else if pageSize > jobdb.MaxListJobsPageSize {
 		pageSize = jobdb.MaxListJobsPageSize
 	}
-	stored, err := r.scheduler.ListJobs(ctx, ListJobsRequest{GoalIDs: req.GoalIDs,
+	stored, err := r.scheduler.ListJobs(ctx, ListJobsRequest{CellNames: req.CellNames, GoalIDs: req.GoalIDs,
 		IncludeHidden:   req.IncludeHidden,
 		TenantIds:       append([]string(nil), req.TenantIds...),
 		Statuses:        append([]jobdb.JobStatus(nil), req.Statuses...),
@@ -98,7 +98,7 @@ func jobListSummaryFromStored(row StoredJob) (jobdb.JobSummary, error) {
 	if row.WorkKind == WorkKindTask && row.TaskWork != nil {
 		nextRoute.TaskType = row.TaskWork.TaskType
 	}
-	summary := jobdb.JobSummary{BlockingWaitSummary: row.BlockingWaitSummary, GoalID: row.GoalID,
+	summary := jobdb.JobSummary{Cell: row.Cell.Cell, CellID: row.Cell.CellID, CellRepo: row.Cell.CellRepo, BlockingWaitSummary: row.BlockingWaitSummary, GoalID: row.GoalID,
 		JobKey: row.JobKey, Status: row.Status, JobType: row.JobType,
 		ClientPayloadRevision: row.ClientPayloadRevision,
 		ClientPayload:         append([]byte(nil), row.ClientPayload...),

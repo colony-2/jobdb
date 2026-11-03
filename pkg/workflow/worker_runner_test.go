@@ -15,9 +15,11 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 )
 
 type runnerTestRuntime struct {
+	WorkflowRuntime
 	mu sync.Mutex
 
 	chapters   map[JobKey]map[int64]Chapter
@@ -421,8 +423,8 @@ func TestWorkerRunnerContextSubmitJobUsesLease(t *testing.T) {
 		jobKey:   parent,
 	}
 
-	var jobCtx ExecutionContext = &executionContext{ctx: context.Background(), run: &executionRun{r: runner}}
-	childKeyHandle, err := jobCtx.SubmitJob(context.Background(), SubmitJob{
+	var jobCtx ExecutionContext = &executionContext{ctx: celltest.Context(context.Background()), run: &executionRun{r: runner}}
+	childKeyHandle, err := jobCtx.SubmitJob(celltest.Context(context.Background()), SubmitJob{Cell: "test", CellRepo: "example.test/test",
 		JobID:   "child",
 		JobType: "child-type",
 		Data:    &SimpleTaskData{Data: json.RawMessage(`{"n":1}`)},
@@ -436,7 +438,7 @@ func TestWorkerRunnerContextSubmitJobUsesLease(t *testing.T) {
 	}
 
 	taskCtx := newTaskContextWithLeaseActions(parent, 1, nil, nil, nil, runner.SubmitJob, runner.SubmitRestartJob, runner.ClientPayload, runner.ClientPayloadRevision, jobCtx.Yield, runner.ResolveSecrets, runner.ResolveSecretsFresh, runner.GetConfiguration)
-	restartKeyHandle, err := taskCtx.SubmitRestartJob(context.Background(), SubmitRestartJobRequest{RequestID: "stable-restart", Job: SubmitRestartJob{
+	restartKeyHandle, err := taskCtx.SubmitRestartJob(celltest.Context(context.Background()), SubmitRestartJobRequest{RequestID: "stable-restart", Job: SubmitRestartJob{Cell: "test",
 		JobID:          "child-restart",
 		PriorJobKey:    JobKey{JobId: "prior"},
 		LastStepToKeep: 0,
@@ -480,7 +482,7 @@ func seedJobStartForTest(t *testing.T, runtime *runnerTestRuntime, jobKey JobKey
 	if err != nil {
 		t.Fatalf("get input data: %v", err)
 	}
-	inputHash, err := computeInputHash(context.Background(), input)
+	inputHash, err := computeInputHash(celltest.Context(context.Background()), input)
 	if err != nil {
 		t.Fatalf("compute input hash: %v", err)
 	}
@@ -756,13 +758,13 @@ func TestWorkerRunnerJobRestartUsesCache(t *testing.T) {
 
 	lease1 := &fakeExecutionLease{runtime: runtime, job: JobHandle{JobKey: jobKey}, route: Route{JobType: job.Name()}, payload: json.RawMessage(`{}`)}
 	runner1 := newWorkerRunner(runtime, ws, lease1, workerRunnerOptions{JobPolicy: RunPolicy{}})
-	if _, err := runner1.DoJob(context.Background()); err != nil {
+	if _, err := runner1.DoJob(celltest.Context(context.Background())); err != nil {
 		t.Fatalf("first do job: %v", err)
 	}
 
 	lease2 := &fakeExecutionLease{runtime: runtime, job: JobHandle{JobKey: jobKey}, route: Route{JobType: job.Name()}, payload: json.RawMessage(`{}`)}
 	runner2 := newWorkerRunner(runtime, ws, lease2, workerRunnerOptions{JobPolicy: RunPolicy{}})
-	if _, err := runner2.DoJob(context.Background()); err != nil {
+	if _, err := runner2.DoJob(celltest.Context(context.Background())); err != nil {
 		t.Fatalf("second do job: %v", err)
 	}
 
@@ -783,13 +785,13 @@ func TestWorkerRunnerTaskRestartUsesCache(t *testing.T) {
 
 	lease1 := &fakeExecutionLease{runtime: runtime, job: JobHandle{JobKey: jobKey}, route: Route{JobType: job.Name()}, payload: json.RawMessage(`{}`)}
 	runner1 := newWorkerRunner(runtime, ws, lease1, workerRunnerOptions{JobPolicy: RunPolicy{}})
-	if _, err := runner1.DoJob(context.Background()); err != nil {
+	if _, err := runner1.DoJob(celltest.Context(context.Background())); err != nil {
 		t.Fatalf("first do job: %v", err)
 	}
 
 	lease2 := &fakeExecutionLease{runtime: runtime, job: JobHandle{JobKey: jobKey}, route: Route{JobType: job.Name()}, payload: json.RawMessage(`{}`)}
 	runner2 := newWorkerRunner(runtime, ws, lease2, workerRunnerOptions{JobPolicy: RunPolicy{}})
-	if _, err := runner2.DoJob(context.Background()); err != nil {
+	if _, err := runner2.DoJob(celltest.Context(context.Background())); err != nil {
 		t.Fatalf("second do job: %v", err)
 	}
 
@@ -810,14 +812,14 @@ func TestWorkerRunnerJobRetryWithFailures(t *testing.T) {
 
 	lease := &fakeExecutionLease{runtime: runtime, job: JobHandle{JobKey: jobKey}, route: Route{JobType: job.Name()}, payload: json.RawMessage(`{}`)}
 	runner := newWorkerRunner(runtime, ws, lease, workerRunnerOptions{JobPolicy: policy})
-	if _, err := runner.DoJob(context.Background()); err != nil {
+	if _, err := runner.DoJob(celltest.Context(context.Background())); err != nil {
 		t.Fatalf("do job: %v", err)
 	}
 
 	if got := count.Load(); got != 2 {
 		t.Fatalf("expected 2 attempts, got %d", got)
 	}
-	chapters, err := runtime.ListChapters(context.Background(), ListChaptersRequest{JobKey: jobKey})
+	chapters, err := runtime.ListChapters(celltest.Context(context.Background()), ListChaptersRequest{JobKey: jobKey})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -858,14 +860,14 @@ func TestWorkerRunnerTaskRetryWithFailures(t *testing.T) {
 
 	lease := &fakeExecutionLease{runtime: runtime, job: JobHandle{JobKey: jobKey}, route: Route{JobType: job.Name()}, payload: json.RawMessage(`{}`)}
 	runner := newWorkerRunner(runtime, ws, lease, workerRunnerOptions{JobPolicy: RunPolicy{}})
-	if _, err := runner.DoJob(context.Background()); err != nil {
+	if _, err := runner.DoJob(celltest.Context(context.Background())); err != nil {
 		t.Fatalf("do job: %v", err)
 	}
 
 	if got := count.Load(); got != 2 {
 		t.Fatalf("expected 2 task attempts, got %d", got)
 	}
-	chapters, err := runtime.ListChapters(context.Background(), ListChaptersRequest{JobKey: jobKey})
+	chapters, err := runtime.ListChapters(celltest.Context(context.Background()), ListChaptersRequest{JobKey: jobKey})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -902,7 +904,7 @@ func TestWorkerRunnerAwaitJobsReschedulesAndExits(t *testing.T) {
 
 	lease := &fakeExecutionLease{runtime: runtime, job: JobHandle{JobKey: parent}, route: Route{JobType: job.Name()}, payload: json.RawMessage(`{}`)}
 	runner := newWorkerRunner(runtime, ws, lease, workerRunnerOptions{JobPolicy: RunPolicy{}})
-	done, errCh := runRunnerAsync(context.Background(), runner)
+	done, errCh := runRunnerAsync(celltest.Context(context.Background()), runner)
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
@@ -938,7 +940,7 @@ func TestWorkerRunnerTaskAwaitJobsReschedulesAndExits(t *testing.T) {
 
 	lease := &fakeExecutionLease{runtime: runtime, job: JobHandle{JobKey: parent}, route: Route{JobType: job.Name()}, payload: json.RawMessage(`{}`)}
 	runner := newWorkerRunner(runtime, ws, lease, workerRunnerOptions{JobPolicy: RunPolicy{}})
-	done, errCh := runRunnerAsync(context.Background(), runner)
+	done, errCh := runRunnerAsync(celltest.Context(context.Background()), runner)
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
@@ -970,7 +972,7 @@ func TestWorkerRunnerAwaitDurationRecycleReschedulesAndExits(t *testing.T) {
 
 	lease := &fakeExecutionLease{runtime: runtime, job: JobHandle{JobKey: jobKey}, route: Route{JobType: job.Name()}, payload: json.RawMessage(`{}`)}
 	runner := newWorkerRunner(runtime, ws, lease, workerRunnerOptions{JobPolicy: RunPolicy{}, AwaitThreshold: 50 * time.Millisecond})
-	done, errCh := runRunnerAsync(context.Background(), runner)
+	done, errCh := runRunnerAsync(celltest.Context(context.Background()), runner)
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
@@ -1007,7 +1009,7 @@ func TestWorkerRunnerRescheduleSetsAlternateRouteFromInvocationTimeout(t *testin
 
 	lease := &fakeExecutionLease{runtime: runtime, job: JobHandle{JobKey: jobKey}, route: Route{JobType: job.Name()}, payload: json.RawMessage(`{}`)}
 	runner := newWorkerRunner(runtime, ws, lease, workerRunnerOptions{JobPolicy: RunPolicy{}})
-	done, errCh := runRunnerAsync(context.Background(), runner)
+	done, errCh := runRunnerAsync(celltest.Context(context.Background()), runner)
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
@@ -1050,7 +1052,7 @@ func TestWorkerRunnerLeaseLossOnMissingTaskExitsWithoutFailure(t *testing.T) {
 		rescheduleErr: ErrExecutionLeaseLost,
 	}
 	runner := newWorkerRunner(runtime, ws, lease, workerRunnerOptions{JobPolicy: RunPolicy{}})
-	done, errCh := runRunnerAsync(context.Background(), runner)
+	done, errCh := runRunnerAsync(celltest.Context(context.Background()), runner)
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
@@ -1071,7 +1073,7 @@ func TestWorkerRunnerLeaseLossOnMissingTaskExitsWithoutFailure(t *testing.T) {
 	if len(completeCalls) != 0 {
 		t.Fatalf("expected no complete calls, got %d", len(completeCalls))
 	}
-	chapters, err := runtime.ListChapters(context.Background(), ListChaptersRequest{JobKey: jobKey})
+	chapters, err := runtime.ListChapters(celltest.Context(context.Background()), ListChaptersRequest{JobKey: jobKey})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1098,7 +1100,7 @@ func TestWorkerRunnerIgnoresLeaseLossOnComplete(t *testing.T) {
 		completeErr: ErrExecutionLeaseLost,
 	}
 	runner := newWorkerRunner(runtime, ws, lease, workerRunnerOptions{JobPolicy: RunPolicy{}})
-	if _, err := runner.DoJob(context.Background()); !IsExecutionLeaseLost(err) {
+	if _, err := runner.DoJob(celltest.Context(context.Background())); !IsExecutionLeaseLost(err) {
 		t.Fatalf("expected lease lost, got %v", err)
 	}
 
@@ -1106,7 +1108,7 @@ func TestWorkerRunnerIgnoresLeaseLossOnComplete(t *testing.T) {
 	if len(completeCalls) != 1 {
 		t.Fatalf("expected 1 complete call, got %d", len(completeCalls))
 	}
-	chapters, err := runtime.ListChapters(context.Background(), ListChaptersRequest{JobKey: jobKey})
+	chapters, err := runtime.ListChapters(celltest.Context(context.Background()), ListChaptersRequest{JobKey: jobKey})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1133,7 +1135,7 @@ func TestWorkerRunnerDoesNotCompleteLeaseOnPersistFailure(t *testing.T) {
 
 	lease := &fakeExecutionLease{runtime: runtime, job: JobHandle{JobKey: jobKey}, route: Route{JobType: job.Name()}, payload: json.RawMessage(`{}`)}
 	runner := newWorkerRunner(runtime, ws, lease, workerRunnerOptions{JobPolicy: RunPolicy{}})
-	if _, err := runner.DoJob(context.Background()); err == nil {
+	if _, err := runner.DoJob(celltest.Context(context.Background())); err == nil {
 		t.Fatal("expected persist error")
 	}
 
@@ -1141,7 +1143,7 @@ func TestWorkerRunnerDoesNotCompleteLeaseOnPersistFailure(t *testing.T) {
 	if len(completeCalls) != 1 {
 		t.Fatalf("expected 1 complete call, got %d", len(completeCalls))
 	}
-	chapters, err := runtime.ListChapters(context.Background(), ListChaptersRequest{JobKey: jobKey})
+	chapters, err := runtime.ListChapters(celltest.Context(context.Background()), ListChaptersRequest{JobKey: jobKey})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1162,7 +1164,7 @@ func TestWorkerRunnerStopsKeepAliveOnExit(t *testing.T) {
 
 	lease := &fakeExecutionLease{runtime: runtime, job: JobHandle{JobKey: jobKey}, route: Route{JobType: job.Name()}, payload: json.RawMessage(`{}`)}
 	runner := newWorkerRunner(runtime, ws, lease, workerRunnerOptions{JobPolicy: RunPolicy{}})
-	if _, err := runner.DoJob(context.Background()); err != nil {
+	if _, err := runner.DoJob(celltest.Context(context.Background())); err != nil {
 		t.Fatalf("do job: %v", err)
 	}
 
@@ -1212,4 +1214,8 @@ func (r *runnerTestRuntime) ListGoals(context.Context, jobdb.ListGoalsRequest) (
 }
 func (r *runnerTestRuntime) ListDependencyWaits(context.Context, jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error) {
 	return jobdb.ListDependencyWaitsResponse{}, nil
+}
+
+func (l *fakeExecutionLease) ResolveCell(context.Context, string) (jobdb.ResolvedCell, error) {
+	return jobdb.ResolvedCell{}, errors.New("unexpected cell resolution")
 }

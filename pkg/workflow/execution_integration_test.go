@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -33,13 +35,13 @@ func invocation(site string) wf.TaskCall {
 }
 func runExecutionTest(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, w wf.ExecutionWorker, tasks ...wf.TaskWorker) (wf.JobRunOutcome, error) {
 	t.Helper()
-	run, err := wf.GetJobForRun(context.Background(), rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: tasks, WorkerID: "execution-test", LeaseDuration: time.Second, ConsumerVersions: map[string]string{"c2j": "X", "pulse": "Y"}})
+	run, err := wf.GetJobForRun(celltest.Context(context.Background()), rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: tasks, WorkerID: "execution-test", LeaseDuration: time.Second, ConsumerVersions: map[string]string{"c2j": "X", "pulse": "Y"}})
 	require.NoError(t, err)
 	return run.Run(nil)
 }
 func submitExecutionTest(t *testing.T, rt jobdb.WorkflowRuntime, w wf.ExecutionWorker) jobdb.JobKey {
 	t.Helper()
-	h, err := rt.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("job")}})
+	h, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("job")}})
 	require.NoError(t, err)
 	return h.JobKey
 }
@@ -47,7 +49,7 @@ func replayExecutionTest(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKe
 	t.Helper()
 	e, err := wf.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("tenant").PlusWorkers(w, tasks...).BuildEngine()
 	require.NoError(t, err)
-	return e.ReplayJobRun(context.Background(), wf.ReplayRunRequest{JobKey: key})
+	return e.ReplayJobRun(celltest.Context(context.Background()), wf.ReplayRunRequest{JobKey: key})
 }
 func TestExecutionInvocationsAcrossRuntimes(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
@@ -72,7 +74,7 @@ func TestExecutionInvocationsAcrossRuntimes(t *testing.T) {
 			out, err := runExecutionTest(t, rt, key, w, task)
 			require.NoError(t, err)
 			require.Equal(t, wf.JobRunCompleted, out.Status)
-			before, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+			before, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 			require.NoError(t, err)
 			value, err := replayExecutionTest(t, rt, key, w, task)
 			require.NoError(t, err)
@@ -81,7 +83,7 @@ func TestExecutionInvocationsAcrossRuntimes(t *testing.T) {
 			require.JSONEq(t, `"original"`, string(raw))
 			require.EqualValues(t, 1, builds.Load())
 			require.EqualValues(t, 1, runs.Load())
-			after, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+			after, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 			require.NoError(t, err)
 			require.Equal(t, before, after)
 			for _, change := range []string{"type", "command", "contract", "site"} {
@@ -203,7 +205,7 @@ func TestExecutionExternalHandoff(t *testing.T) {
 			require.Equal(t, wf.JobRunSuspended, out.Status)
 			engine, err := wf.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("tenant").PlusWorkers(w).BuildEngine()
 			require.NoError(t, err)
-			handle, err := engine.GetWaitingTask(context.Background(), key)
+			handle, err := engine.GetWaitingTask(celltest.Context(context.Background()), key)
 			require.NoError(t, err)
 			input, err := handle.Data()
 			require.NoError(t, err)
@@ -213,8 +215,8 @@ func TestExecutionExternalHandoff(t *testing.T) {
 			_, err = replayExecutionTest(t, rt, key, w)
 			require.Error(t, err)
 			require.EqualValues(t, 1, builds.Load())
-			require.NoError(t, handle.Finish(context.Background(), jobdb.NewTaskDataOrPanic("external-output")))
-			require.Error(t, handle.Finish(context.Background(), jobdb.NewTaskDataOrPanic("stale-output")))
+			require.NoError(t, handle.Finish(celltest.Context(context.Background()), jobdb.NewTaskDataOrPanic("external-output")))
+			require.Error(t, handle.Finish(celltest.Context(context.Background()), jobdb.NewTaskDataOrPanic("stale-output")))
 			out, err = runExecutionTest(t, rt, key, w)
 			require.NoError(t, err)
 			require.Equal(t, wf.JobRunCompleted, out.Status)
@@ -246,7 +248,7 @@ func TestExecutionPatchedRestart(t *testing.T) {
 			out, err := runExecutionTest(t, rt, key, w, task)
 			require.NoError(t, err)
 			require.Equal(t, wf.JobRunCompleted, out.Status)
-			before, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+			before, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 			require.NoError(t, err)
 			var target string
 			for _, rec := range executionRecords(t, rt, key) {
@@ -255,7 +257,7 @@ func TestExecutionPatchedRestart(t *testing.T) {
 				}
 			}
 			require.NotEmpty(t, target)
-			h, err := rt.SubmitRestartJob(context.Background(), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: key, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target, Payload: json.RawMessage(`"new"`)}}})
+			h, err := rt.SubmitRestartJob(celltest.Context(context.Background()), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: key, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target, Payload: json.RawMessage(`"new"`)}}})
 			require.NoError(t, err)
 			out, err = runExecutionTest(t, rt, h.JobKey, w, task)
 			require.NoError(t, err)
@@ -267,10 +269,10 @@ func TestExecutionPatchedRestart(t *testing.T) {
 			_, err = replayExecutionTest(t, rt, h.JobKey, w, task)
 			require.NoError(t, err)
 			require.EqualValues(t, 3, runs.Load())
-			after, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+			after, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 			require.NoError(t, err)
 			require.Equal(t, before, after)
-			_, err = rt.SubmitRestartJob(context.Background(), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: key, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: "missing"}}})
+			_, err = rt.SubmitRestartJob(celltest.Context(context.Background()), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: key, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: "missing"}}})
 			require.Error(t, err)
 		})
 	}
@@ -349,7 +351,7 @@ func TestExecutionRecoveryInputSnapshots(t *testing.T) {
 		for _, committed := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/committed=%v", backend, committed), func(t *testing.T) {
 				base := alternateRuntime(t, backend)
-				ctx, cancel := context.WithCancel(context.Background())
+				ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 				defer cancel()
 				rt := &executionFaultRuntime{WorkflowRuntime: base, cancel: cancel, fail: func(r jobdb.ExecutionRecord) bool {
 					if committed {
@@ -480,7 +482,7 @@ func TestExecutionVersionsAndInspection(t *testing.T) {
 			out, err := runExecutionTest(t, rt, key, w)
 			require.NoError(t, err)
 			require.Equal(t, wf.JobRunCompleted, out.Status)
-			info, err := jobdb.GetJobRun(context.Background(), rt, jobdb.GetJobRunRequest{JobKey: key})
+			info, err := jobdb.GetJobRun(celltest.Context(context.Background()), rt, jobdb.GetJobRunRequest{JobKey: key})
 			require.NoError(t, err)
 			require.NotEmpty(t, info.Execution)
 			require.Equal(t, jobdb.ExecutionPatternVersion, info.Execution[0].Record.Versions.ExecutionPatternVersion)
@@ -590,7 +592,7 @@ func TestExecutionExternalDeadlineAndReplacement(t *testing.T) {
 			require.Equal(t, wf.JobRunSuspended, out.Status)
 			engine, err := wf.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("tenant").PlusWorkers(w).BuildEngine()
 			require.NoError(t, err)
-			stale, err := engine.GetWaitingTask(context.Background(), key)
+			stale, err := engine.GetWaitingTask(celltest.Context(context.Background()), key)
 			require.NoError(t, err)
 			time.Sleep(100 * time.Millisecond)
 			// Let timeout processing replace the waiting generation before
@@ -599,11 +601,11 @@ func TestExecutionExternalDeadlineAndReplacement(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, wf.JobRunSuspended, out.Status)
 			require.EqualValues(t, 1, builds.Load())
-			fresh, err := engine.GetWaitingTask(context.Background(), key)
+			fresh, err := engine.GetWaitingTask(celltest.Context(context.Background()), key)
 			require.NoError(t, err)
 			require.NotEqual(t, stale.TaskOrdinalToComplete(), fresh.TaskOrdinalToComplete())
-			require.Error(t, stale.Finish(context.Background(), jobdb.NewTaskDataOrPanic("old-generation")))
-			require.NoError(t, fresh.Finish(context.Background(), jobdb.NewTaskDataOrPanic("fresh")))
+			require.Error(t, stale.Finish(celltest.Context(context.Background()), jobdb.NewTaskDataOrPanic("old-generation")))
+			require.NoError(t, fresh.Finish(celltest.Context(context.Background()), jobdb.NewTaskDataOrPanic("fresh")))
 			out, err = runExecutionTest(t, rt, key, w)
 			require.NoError(t, err)
 			require.Equal(t, wf.JobRunCompleted, out.Status)
@@ -615,7 +617,7 @@ func TestExecutionExternalDeadlineAndReplacement(t *testing.T) {
 
 func TestExecutionRecoveryDuringHandler(t *testing.T) {
 	rt := alternateRuntime(t, "sqlite")
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	defer cancel()
 	fault := &executionFaultRuntime{WorkflowRuntime: rt, cancel: cancel, fail: func(r jobdb.ExecutionRecord) bool { return r.Kind == "result" && strings.Contains(r.ID, `"second"`) }}
 	var first, second, predicates atomic.Int32
@@ -667,7 +669,7 @@ func TestExecutionRecoveryDuringHandler(t *testing.T) {
 
 func TestExecutionScopeDeadlineSurvivesRecovery(t *testing.T) {
 	rt := alternateRuntime(t, "sqlite")
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	defer cancel()
 	fault := &executionFaultRuntime{WorkflowRuntime: rt, cancel: cancel, fail: func(r jobdb.ExecutionRecord) bool {
 		return r.Kind == "result" && r.ID == `/scope:"$job"#1/attempt:1`
@@ -697,7 +699,7 @@ func TestExecutionScopeDeadlineSurvivesRecovery(t *testing.T) {
 
 func executionRestartTarget(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, site string) string {
 	t.Helper()
-	info, err := jobdb.GetJobRun(context.Background(), rt, jobdb.GetJobRunRequest{JobKey: key})
+	info, err := jobdb.GetJobRun(celltest.Context(context.Background()), rt, jobdb.GetJobRunRequest{JobKey: key})
 	require.NoError(t, err)
 	for _, entry := range info.Execution {
 		if entry.Record.Kind == "scope" && strings.HasSuffix(entry.Record.ID, fmt.Sprintf("scope:%q#1", site)) {
@@ -742,11 +744,11 @@ func TestExecutionRestartBudgetsAndRepeatedFork(t *testing.T) {
 				if backend == "toy" {
 					time.Sleep(2 * time.Minute)
 				}
-				original, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: source})
+				original, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: source})
 				require.NoError(t, err)
 				outer := executionRestartTarget(t, rt, source, "outer") + "/attempt:1"
 				if backend == "toy" {
-					info, err := jobdb.GetJobRun(context.Background(), rt, jobdb.GetJobRunRequest{JobKey: source})
+					info, err := jobdb.GetJobRun(celltest.Context(context.Background()), rt, jobdb.GetJobRunRequest{JobKey: source})
 					require.NoError(t, err)
 					for _, entry := range info.Execution {
 						if !entry.Record.TotalDeadline.IsZero() {
@@ -756,17 +758,17 @@ func TestExecutionRestartBudgetsAndRepeatedFork(t *testing.T) {
 				}
 				target := executionRestartTarget(t, rt, source, site)
 				patch, _ := json.Marshal(fmt.Sprintf("patch-%d", i))
-				req := jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: source, JobID: fmt.Sprintf("fork-%d", i), ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target, Payload: patch}}}
-				h, err := rt.SubmitRestartJob(context.Background(), req)
+				req := jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: source, JobID: fmt.Sprintf("fork-%d", i), ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target, Payload: patch}}}
+				h, err := rt.SubmitRestartJob(celltest.Context(context.Background()), req)
 				require.NoError(t, err)
-				same, err := rt.SubmitRestartJob(context.Background(), req)
+				same, err := rt.SubmitRestartJob(celltest.Context(context.Background()), req)
 				require.NoError(t, err)
 				require.Equal(t, h.JobKey, same.JobKey)
 				changed := req
 				copy := *req.Job.ExecutionRestart
 				copy.Payload = json.RawMessage(`"different"`)
 				changed.Job.ExecutionRestart = &copy
-				_, err = rt.SubmitRestartJob(context.Background(), changed)
+				_, err = rt.SubmitRestartJob(celltest.Context(context.Background()), changed)
 				require.Error(t, err)
 				restartedAt := time.Now()
 				out, err = runExecutionTest(t, rt, h.JobKey, w, task)
@@ -777,7 +779,7 @@ func TestExecutionRestartBudgetsAndRepeatedFork(t *testing.T) {
 				require.JSONEq(t, string(patch), string(raw))
 				_, err = replayExecutionTest(t, rt, h.JobKey, w, task)
 				require.NoError(t, err)
-				info, err := jobdb.GetJobRun(context.Background(), rt, jobdb.GetJobRunRequest{JobKey: h.JobKey})
+				info, err := jobdb.GetJobRun(celltest.Context(context.Background()), rt, jobdb.GetJobRunRequest{JobKey: h.JobKey})
 				require.NoError(t, err)
 				var deadline time.Time
 				for _, entry := range info.Execution {
@@ -791,7 +793,7 @@ func TestExecutionRestartBudgetsAndRepeatedFork(t *testing.T) {
 				}
 				require.False(t, deadline.IsZero(), "continuation must refresh the ancestor's budget")
 				require.False(t, deadline.Before(restartedAt.Add(time.Minute)), "continuation must receive a full new budget")
-				after, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: source})
+				after, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: source})
 				require.NoError(t, err)
 				require.Equal(t, original, after, "restart must not rewrite source history")
 				source = h.JobKey
@@ -822,20 +824,20 @@ func TestExecutionBackoffAndVersionRecovery(t *testing.T) {
 		return c.DoTask(call, func(context.Context) (jobdb.TaskData, error) { builds.Add(1); return in, nil })
 	}}
 	key := submitExecutionTest(t, rt, w)
-	run, err := wf.GetJobForRun(context.Background(), rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "old", LeaseDuration: time.Second, AwaitThreshold: time.Millisecond, ConsumerVersions: map[string]string{"c2j": "old"}})
+	run, err := wf.GetJobForRun(celltest.Context(context.Background()), rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "old", LeaseDuration: time.Second, AwaitThreshold: time.Millisecond, ConsumerVersions: map[string]string{"c2j": "old"}})
 	require.NoError(t, err)
 	out, err := run.Run(nil)
 	require.NoError(t, err)
 	require.Equal(t, wf.JobRunSuspended, out.Status)
 	time.Sleep(95 * time.Millisecond)
-	run, err = wf.GetJobForRun(context.Background(), rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "new", LeaseDuration: time.Second, ConsumerVersions: map[string]string{"c2j": "new", "pulse": "Y"}})
+	run, err = wf.GetJobForRun(celltest.Context(context.Background()), rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "new", LeaseDuration: time.Second, ConsumerVersions: map[string]string{"c2j": "new", "pulse": "Y"}})
 	require.NoError(t, err)
 	out, err = run.Run(nil)
 	require.NoError(t, err)
 	require.Equal(t, wf.JobRunCompleted, out.Status, "error: %v", out.JobError)
 	require.EqualValues(t, 1, builds.Load())
 	require.EqualValues(t, 2, runs.Load())
-	info, err := jobdb.GetJobRun(context.Background(), rt, jobdb.GetJobRunRequest{JobKey: key})
+	info, err := jobdb.GetJobRun(celltest.Context(context.Background()), rt, jobdb.GetJobRunRequest{JobKey: key})
 	require.NoError(t, err)
 	require.Equal(t, "old", info.Execution[0].Record.Versions.ConsumerVersions["c2j"])
 	var versions []string
@@ -868,9 +870,9 @@ func TestExecutionArtifactsAndSuppliedLease(t *testing.T) {
 				return c.DoTask(invocation("artifact"), func(context.Context) (jobdb.TaskData, error) { return in, nil })
 			}}
 			key := submitExecutionTest(t, rt, w)
-			lease, err := rt.GetJobLease(context.Background(), jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "supplied", Routes: []jobdb.Route{{JobType: w.Name()}}, LeaseDuration: time.Second})
+			lease, err := rt.GetJobLease(celltest.Context(context.Background()), jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "supplied", Routes: []jobdb.Route{{JobType: w.Name()}}, LeaseDuration: time.Second})
 			require.NoError(t, err)
-			run, err := wf.GetJobForRunWithLease(context.Background(), rt, lease, wf.GetJobForRunRequest{JobKey: key, JobWorker: &w, TaskWorkers: []wf.TaskWorker{task}, ConsumerVersions: map[string]string{"pulse": "supplied"}})
+			run, err := wf.GetJobForRunWithLease(celltest.Context(context.Background()), rt, lease, wf.GetJobForRunRequest{JobKey: key, JobWorker: &w, TaskWorkers: []wf.TaskWorker{task}, ConsumerVersions: map[string]string{"pulse": "supplied"}})
 			require.NoError(t, err)
 			out, err := run.Run(nil)
 			require.NoError(t, err)
@@ -884,7 +886,7 @@ func TestExecutionArtifactsAndSuppliedLease(t *testing.T) {
 			require.Len(t, artifacts, 1)
 			keyref, err := artifacts[0].ArtifactKey()
 			require.NoError(t, err)
-			artifact, err := rt.OpenArtifact(context.Background(), jobdb.ArtifactRef{JobKey: key, Ordinal: keyref.TaskOrdinal, Name: keyref.Name})
+			artifact, err := rt.OpenArtifact(celltest.Context(context.Background()), jobdb.ArtifactRef{JobKey: key, Ordinal: keyref.TaskOrdinal, Name: keyref.Name})
 			require.NoError(t, err)
 			reader, err := artifact.Open()
 			require.NoError(t, err)
@@ -892,7 +894,7 @@ func TestExecutionArtifactsAndSuppliedLease(t *testing.T) {
 			data, err := io.ReadAll(reader)
 			require.NoError(t, err)
 			require.Equal(t, "durable artifact", string(data))
-			info, err := jobdb.GetJobRun(context.Background(), rt, jobdb.GetJobRunRequest{JobKey: key})
+			info, err := jobdb.GetJobRun(celltest.Context(context.Background()), rt, jobdb.GetJobRunRequest{JobKey: key})
 			require.NoError(t, err)
 			require.Equal(t, "supplied", info.Execution[0].Record.Versions.ConsumerVersions["pulse"])
 		})
@@ -939,7 +941,7 @@ func TestExecutionInterruptedTaskNeverBuildsDuringReplay(t *testing.T) {
 					})
 				}}
 				key := submitExecutionTest(t, rt, w)
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 10*time.Second)
 				defer cancel()
 				run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "interrupted-test", LeaseDuration: time.Second})
 				require.NoError(t, err)
@@ -967,7 +969,7 @@ func TestExecutionChildJoinOutcomes(t *testing.T) {
 			var submits, after atomic.Int32
 			task := executionTestTask{"echo", func(c wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
 				submits.Add(1)
-				keyHandle, err := c.SubmitJob(c.Context(), jobdb.SubmitJob{JobID: "child", JobType: "child", Data: in})
+				keyHandle, err := c.SubmitJob(c.Context(), jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", JobID: "child", JobType: "child", Data: in})
 				key := keyHandle.JobKey
 				if err != nil {
 					return nil, err
@@ -1086,7 +1088,7 @@ func TestExecutionCacheLifetime(t *testing.T) {
 			return in, nil
 		})
 	}}
-	h, err := rt.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("job"), RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 2}}}})
+	h, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("job"), RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 2}}}})
 	require.NoError(t, err)
 	out, err := runExecutionTest(t, rt, h.JobKey, w, task)
 	require.NoError(t, err)
@@ -1097,7 +1099,7 @@ func TestExecutionCacheLifetime(t *testing.T) {
 	_, err = replayExecutionTest(t, rt, h.JobKey, w, task)
 	require.NoError(t, err)
 	require.EqualValues(t, 2, rt.secret.Load())
-	chapters, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: h.JobKey})
+	chapters, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: h.JobKey})
 	require.NoError(t, err)
 	raw, err := json.Marshal(chapters)
 	require.NoError(t, err)

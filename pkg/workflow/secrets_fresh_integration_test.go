@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/stretchr/testify/require"
@@ -31,12 +32,12 @@ func TestFreshSecretsBootstrapTasksAndRenewal(t *testing.T) {
 		for _, callback := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/callback=%t", transport, callback), func(t *testing.T) {
 				t.Parallel()
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 5*time.Second)
 				defer cancel()
 				provider := &freshIntegrationProvider{requests: make(chan jobdb.SecretResolveRequest, 16)}
 				var runtime jobdb.WorkflowRuntime = toy.New(toy.WithSecretProvider(provider))
 				if transport == "http" {
-					server := httptest.NewServer(remote.NewServer(runtime))
+					server := httptest.NewServer(celltest.Handler(remote.NewServer(runtime)))
 					t.Cleanup(server.Close)
 					var err error
 					runtime, err = remote.New(server.URL, server.Client())
@@ -111,7 +112,7 @@ func TestFreshSecretsBootstrapTasksAndRenewal(t *testing.T) {
 						})
 					}}
 				}
-				job, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: worker.Name(), Data: NewTaskDataOrPanic(1)}})
+				job, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: worker.Name(), Data: NewTaskDataOrPanic(1)}})
 				require.NoError(t, err)
 				runnable, err := GetJobForRun(ctx, runtime, GetJobForRunRequest{JobKey: job.JobKey, JobWorker: worker, TaskWorkers: []TaskWorker{task}, LeaseDuration: 900 * time.Millisecond,
 					BeforeRun: func(runCtx context.Context, lease ExecutionLease) error {
@@ -133,7 +134,7 @@ func TestFreshSecretsBootstrapTasksAndRenewal(t *testing.T) {
 				require.True(t, second.Lease.AuthorizedNotAfter.After(first.Lease.AuthorizedNotAfter))
 				require.Equal(t, first.Lease.LeaseID, second.Lease.LeaseID)
 				for _, resolver := range []SecretResolver{bootstrap, capturedJob, capturedTask} {
-					result, err := resolver.ResolveSecretsFresh(context.Background(), []string{"token"})
+					result, err := resolver.ResolveSecretsFresh(celltest.Context(context.Background()), []string{"token"})
 					require.Error(t, err)
 					require.Empty(t, result.Secrets)
 				}
@@ -151,7 +152,7 @@ func TestFreshSecretsBootstrapTasksAndRenewal(t *testing.T) {
 func TestBootstrapSecretResolverFollowsAttemptCacheReset(t *testing.T) {
 	for _, callback := range []bool{false, true} {
 		t.Run(fmt.Sprint(callback), func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			provider := &freshIntegrationProvider{requests: make(chan jobdb.SecretResolveRequest, 8)}
 			runtime := toy.New(toy.WithSecretProvider(provider))
 			var bootstrap SecretResolver
@@ -181,7 +182,7 @@ func TestBootstrapSecretResolverFollowsAttemptCacheReset(t *testing.T) {
 			if callback {
 				worker = ExecutionWorker{JobType: "cache-job", Execute: func(ec ExecutionContext, _ JobData) (JobData, error) { return body(ec) }}
 			}
-			job, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: worker.Name(), Data: NewTaskDataOrPanic(1), RunPolicy: RunPolicy{Retry: RetryPolicy{MaximumAttempts: 2, BackoffCoefficient: 1}}}})
+			job, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: worker.Name(), Data: NewTaskDataOrPanic(1), RunPolicy: RunPolicy{Retry: RetryPolicy{MaximumAttempts: 2, BackoffCoefficient: 1}}}})
 			require.NoError(t, err)
 			runnable, err := GetJobForRun(ctx, runtime, GetJobForRunRequest{JobKey: job.JobKey, JobWorker: worker, BeforeRun: func(ctx context.Context, _ ExecutionLease) error {
 				bootstrap, _ = SecretResolverFromContext(ctx)

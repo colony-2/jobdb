@@ -8,6 +8,8 @@ import (
 // SubmitJob defines the parameters for starting a new workflow job.
 // If JobID is provided, it will be used as the job identifier; otherwise, a new unique ID will be generated.
 type SubmitJob struct {
+	Cell                string
+	CellRepo            string
 	Dependencies        []Dependency
 	ClientPayloadUpdate *ClientPayloadUpdate
 	TenantId            string             // REQUIRED: Tenant for this job
@@ -31,6 +33,8 @@ type ExecutionRestart struct {
 // SubmitRestartJob creates a new job with a retained history prefix and a copy
 // of PriorJobKey's application metadata. Metadata cannot be overridden.
 type SubmitRestartJob struct {
+	Cell                string
+	CellRepo            string
 	ShareGoal           bool
 	Dependencies        []Dependency
 	ExecutionRestart    *ExecutionRestart
@@ -77,6 +81,9 @@ const (
 )
 
 type JobInfo struct {
+	Cell                  string
+	CellID                string
+	CellRepo              string
 	NextRoute             *Route
 	CompletionStatus      string
 	CompletionDetail      string

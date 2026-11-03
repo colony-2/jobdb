@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -46,7 +48,7 @@ func TestExecutionNestedDeadlinesAndHandlerBudget(t *testing.T) {
 						})
 					}}
 					key := submitExecutionTest(t, rt, w)
-					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 10*time.Second)
 					defer cancel()
 					run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "nested-deadline", LeaseDuration: time.Second})
 					require.NoError(t, err)
@@ -103,11 +105,11 @@ func TestExecutionPatchedContinuationRecovery(t *testing.T) {
 				out, err := runExecutionTest(t, base, source, w, task)
 				require.NoError(t, err)
 				require.Equal(t, wf.JobRunCompleted, out.Status)
-				original, err := base.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: source})
+				original, err := base.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: source})
 				require.NoError(t, err)
-				h, err := base.SubmitRestartJob(context.Background(), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: source, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: executionRestartTarget(t, base, source, "patched"), Payload: json.RawMessage(`"patched-value"`)}}})
+				h, err := base.SubmitRestartJob(celltest.Context(context.Background()), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: source, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: executionRestartTarget(t, base, source, "patched"), Payload: json.RawMessage(`"patched-value"`)}}})
 				require.NoError(t, err)
-				ctx, cancel := context.WithCancel(context.Background())
+				ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 				defer cancel()
 				rt := &executionFaultRuntime{WorkflowRuntime: base, cancel: cancel, fail: func(r jobdb.ExecutionRecord) bool {
 					if committed {
@@ -120,7 +122,7 @@ func TestExecutionPatchedContinuationRecovery(t *testing.T) {
 				_, err = run.Run(nil)
 				require.Error(t, err)
 				require.True(t, rt.fired.Load())
-				interrupted, err := base.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: h.JobKey})
+				interrupted, err := base.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: h.JobKey})
 				require.NoError(t, err)
 				var continuation json.RawMessage
 				for _, ch := range interrupted {
@@ -154,7 +156,7 @@ func TestExecutionPatchedContinuationRecovery(t *testing.T) {
 				_, err = replayExecutionTest(t, base, h.JobKey, w, task)
 				require.NoError(t, err)
 				require.Equal(t, want, runs.Load())
-				final, err := base.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: h.JobKey})
+				final, err := base.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: h.JobKey})
 				require.NoError(t, err)
 				continuations := 0
 				for _, ch := range final {
@@ -170,7 +172,7 @@ func TestExecutionPatchedContinuationRecovery(t *testing.T) {
 					}
 				}
 				require.Equal(t, 1, continuations, "recovery must retain continuation budget")
-				after, err := base.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: source})
+				after, err := base.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: source})
 				require.NoError(t, err)
 				require.Equal(t, original, after)
 			})
@@ -235,7 +237,7 @@ func TestExecutionRestartPrerequisite(t *testing.T) {
 			out, err = runExecutionTest(t, rt, source, w)
 			require.NoError(t, err)
 			require.Equal(t, wf.JobRunCompleted, out.Status)
-			h, err := rt.SubmitRestartJob(context.Background(), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: source, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: executionRestartTarget(t, rt, source, "target")}, Prerequisites: []jobdb.JobPrerequisite{{JobID: dependency.JobId, Condition: jobdb.JobPrereqSuccess}}}})
+			h, err := rt.SubmitRestartJob(celltest.Context(context.Background()), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: source, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: executionRestartTarget(t, rt, source, "target")}, Prerequisites: []jobdb.JobPrerequisite{{JobID: dependency.JobId, Condition: jobdb.JobPrereqSuccess}}}})
 			require.NoError(t, err)
 			out, err = runExecutionTest(t, rt, h.JobKey, w)
 			require.NoError(t, err)

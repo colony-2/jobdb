@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -84,7 +86,7 @@ func TestExecutionPrerequisiteAdmission(t *testing.T) {
 				require.NoError(t, err)
 				var calls atomic.Int32
 				w := wf.ExecutionWorker{JobType: "dependent", Execute: func(_ wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) { calls.Add(1); return in, nil }}
-				h, err := rt.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("job"), Prerequisites: []jobdb.JobPrerequisite{{JobID: key.JobId, Condition: jobdb.JobPrereqSuccess}}}})
+				h, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("job"), Prerequisites: []jobdb.JobPrerequisite{{JobID: key.JobId, Condition: jobdb.JobPrereqSuccess}}}})
 				require.NoError(t, err)
 				out, err := runExecutionTest(t, rt, h.JobKey, w)
 				require.NoError(t, err)
@@ -96,7 +98,7 @@ func TestExecutionPrerequisiteAdmission(t *testing.T) {
 					require.ErrorContains(t, out.JobError, "did not succeed")
 					require.Zero(t, calls.Load())
 				}
-				info, err := rt.GetJob(context.Background(), h.JobKey)
+				info, err := rt.GetJob(celltest.Context(context.Background()), h.JobKey)
 				require.NoError(t, err)
 				require.Equal(t, jobdb.JobStatusCompleted, info.Status)
 				_, err = replayExecutionTest(t, rt, h.JobKey, w)
@@ -115,7 +117,7 @@ func TestExecutionLiveMismatchCompletesJob(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
 			base := alternateRuntime(t, backend)
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 			defer cancel()
 			rt := &executionFaultRuntime{WorkflowRuntime: base, cancel: cancel, fail: func(r jobdb.ExecutionRecord) bool { return r.Kind == "result" && r.ID == `/scope:"$job"#1/attempt:1` }}
 			var builds atomic.Int32
@@ -140,7 +142,7 @@ func TestExecutionLiveMismatchCompletesJob(t *testing.T) {
 			require.Equal(t, wf.JobRunFailed, out.Status)
 			require.ErrorContains(t, out.JobError, "logical descriptor changed")
 			require.EqualValues(t, 1, builds.Load())
-			job, err := base.GetJob(context.Background(), key)
+			job, err := base.GetJob(celltest.Context(context.Background()), key)
 			require.NoError(t, err)
 			require.Equal(t, jobdb.JobStatusCompleted, job.Status)
 		})
@@ -195,7 +197,7 @@ func TestExecutionUncertainFinalCompletion(t *testing.T) {
 					return c.DoTask(invocation("task"), func(context.Context) (jobdb.TaskData, error) { return in, nil })
 				}}
 				key := submitExecutionTest(t, rt, w)
-				run, err := wf.GetJobForRun(context.Background(), rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "first", LeaseDuration: 500 * time.Millisecond})
+				run, err := wf.GetJobForRun(celltest.Context(context.Background()), rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "first", LeaseDuration: 500 * time.Millisecond})
 				require.NoError(t, err)
 				result, err := run.Run(nil)
 				if partial {
@@ -206,7 +208,7 @@ func TestExecutionUncertainFinalCompletion(t *testing.T) {
 					require.Equal(t, wf.JobRunCompleted, result.Status)
 				}
 				require.True(t, rt.fired.Load())
-				before, err := base.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+				before, err := base.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 				require.NoError(t, err)
 				if partial {
 					var out wf.JobRunOutcome
@@ -217,12 +219,12 @@ func TestExecutionUncertainFinalCompletion(t *testing.T) {
 					}, 2*time.Second, 20*time.Millisecond)
 					require.Equal(t, wf.JobRunCompleted, out.Status)
 				}
-				job, err := base.GetJob(context.Background(), key)
+				job, err := base.GetJob(celltest.Context(context.Background()), key)
 				require.NoError(t, err)
 				require.Equal(t, jobdb.JobStatusCompleted, job.Status)
 				_, err = replayExecutionTest(t, base, key, w, task)
 				require.NoError(t, err)
-				after, err := base.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+				after, err := base.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 				require.NoError(t, err)
 				require.Equal(t, before, after)
 				require.EqualValues(t, 1, runs.Load())
@@ -242,12 +244,12 @@ func TestExecutionExternalCompletionValidation(t *testing.T) {
 			out, err := runExecutionTest(t, rt, key, w)
 			require.NoError(t, err)
 			require.Equal(t, wf.JobRunSuspended, out.Status)
-			info, err := rt.GetJob(context.Background(), key)
+			info, err := rt.GetJob(celltest.Context(context.Background()), key)
 			require.NoError(t, err)
 			wait := info.ExecutionState.TaskWait
 			require.NotNil(t, wait)
 			req := jobdb.CompleteTaskIfWaitingRequest{JobKey: key, Route: jobdb.Route{JobType: w.Name(), TaskType: "echo"}, ResumeJobType: w.Name(), InputOrdinal: wait.InputOrdinal, OutputOrdinal: wait.OutputOrdinal, InputHash: wait.InputHash, Data: jobdb.NewTaskDataOrPanic("winner")}
-			before, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+			before, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 			require.NoError(t, err)
 			for _, field := range []string{"input", "output", "generation", "missing-generation", "missing-input", "route", "resume"} {
 				bad := req
@@ -267,12 +269,12 @@ func TestExecutionExternalCompletionValidation(t *testing.T) {
 				case "resume":
 					bad.ResumeJobType = "wrong"
 				}
-				require.Error(t, rt.CompleteTaskIfWaiting(context.Background(), bad), field)
-				after, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+				require.Error(t, rt.CompleteTaskIfWaiting(celltest.Context(context.Background()), bad), field)
+				after, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 				require.NoError(t, err)
 				require.Equal(t, before, after, field)
 			}
-			require.NoError(t, rt.CompleteTaskIfWaiting(context.Background(), req))
+			require.NoError(t, rt.CompleteTaskIfWaiting(celltest.Context(context.Background()), req))
 			out, err = runExecutionTest(t, rt, key, w)
 			require.NoError(t, err)
 			require.Equal(t, wf.JobRunCompleted, out.Status)

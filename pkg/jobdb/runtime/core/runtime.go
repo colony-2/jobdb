@@ -47,6 +47,10 @@ func NewRuntime(cfg Config) (*Runtime, error) {
 
 // GetChapter returns a stored visible chapter.
 func (r *Runtime) GetChapter(ctx context.Context, ref jobdb.ChapterRef) (jobdb.Chapter, error) {
+	if err := r.requirePublishedJob(ctx, ref.JobKey); err != nil {
+		return jobdb.Chapter{}, err
+	}
+
 	if err := r.validate(); err != nil {
 		return jobdb.Chapter{}, err
 	}
@@ -65,6 +69,10 @@ func (r *Runtime) GetChapter(ctx context.Context, ref jobdb.ChapterRef) (jobdb.C
 
 // ListChapters returns visible chapters in ascending ordinal order.
 func (r *Runtime) ListChapters(ctx context.Context, req jobdb.ListChaptersRequest) ([]jobdb.Chapter, error) {
+	if err := r.requirePublishedJob(ctx, req.JobKey); err != nil {
+		return nil, err
+	}
+
 	if err := r.validate(); err != nil {
 		return nil, err
 	}
@@ -93,6 +101,10 @@ func (r *Runtime) ListChapters(ctx context.Context, req jobdb.ListChaptersReques
 
 // OpenArtifact opens a committed chapter artifact.
 func (r *Runtime) OpenArtifact(ctx context.Context, ref jobdb.ArtifactRef) (jobdb.ArtifactReader, error) {
+	if err := r.requirePublishedJob(ctx, ref.JobKey); err != nil {
+		return nil, err
+	}
+
 	if err := r.validate(); err != nil {
 		return nil, err
 	}
@@ -124,4 +136,12 @@ type chapterRegistry struct {
 func (s chapterRegistry) ChapterApplicationPayloadLimit() int64 { return s.limit }
 func (r *Runtime) chapterRegistry() chapterRegistry {
 	return chapterRegistry{r.schemas, r.maxChapterApplicationPayloadBytes}
+}
+
+func (r *Runtime) requirePublishedJob(ctx context.Context, key jobdb.JobKey) error {
+	if err := r.validate(); err != nil {
+		return err
+	}
+	_, err := r.scheduler.GetJob(ctx, key)
+	return err
 }

@@ -7,16 +7,17 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/stretchr/testify/require"
 )
 
 func TestDeletionPersistsAndRollsBackAtomically(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	cfg := Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")}
 	rt, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	for _, id := range []string{"a", "b"} {
-		_, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: id, JobType: "job", Data: jobdb.NewTaskDataOrPanic(nil)}})
+		_, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: id, JobType: "job", Data: jobdb.NewTaskDataOrPanic(nil)}})
 		require.NoError(t, err)
 	}
 	lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "a"}, Routes: []jobdb.Route{{JobType: "job"}}, WorkerID: "holder", LeaseDuration: time.Hour})

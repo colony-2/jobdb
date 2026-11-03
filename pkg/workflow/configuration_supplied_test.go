@@ -6,18 +6,19 @@ import (
 	"testing"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSuppliedLeaseConfigurationReads(t *testing.T) {
 	f := newSuppliedFixture(t)
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	_, err := f.backend.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "tenant", Name: "x", Value: json.RawMessage(`1`)})
 	require.NoError(t, err)
 	lease := f.imported(t)
 	job := suppliedJob{run: func(work workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
-		a, e := work.GetConfiguration(context.Background())
+		a, e := work.GetConfiguration(celltest.Context(context.Background()))
 		if e != nil {
 			return nil, e
 		}
@@ -26,7 +27,7 @@ func TestSuppliedLeaseConfigurationReads(t *testing.T) {
 		if e != nil {
 			return nil, e
 		}
-		b, e := work.GetConfiguration(context.Background())
+		b, e := work.GetConfiguration(celltest.Context(context.Background()))
 		if e != nil {
 			return nil, e
 		}

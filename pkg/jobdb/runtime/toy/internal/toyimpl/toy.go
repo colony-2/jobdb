@@ -16,6 +16,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/crashconcern"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/cellstate"
 	"github.com/segmentio/ksuid"
 )
 
@@ -45,6 +46,7 @@ func WithJobIDGenerator(gen JobIDGenerator) Option {
 
 // ToyEngine holds the in-memory state backing the toy WorkflowRuntime.
 type ToyEngine struct {
+	cells                             map[string]*cellstate.State
 	maxChapterApplicationPayloadBytes int64
 	goals                             *goalstate.Memory
 	preparedGoals                     map[jobdb.JobKey]preparedGoalJob
@@ -69,6 +71,7 @@ type runtimeArtifactKey struct {
 }
 
 type jobRecord struct {
+	cell                  jobdb.ResolvedCell
 	key                   jobdb.JobKey
 	goalID                string
 	dependencyWaitID      string
@@ -706,15 +709,6 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 		cursorJob  string
 		hasCursor  bool
 	)
-	if req.PageToken != "" {
-		createdAt, jobKey, err := jobdb.DecodeListJobsPageToken(req.PageToken)
-		if err != nil {
-			return jobdb.ListJobsResponse{}, err
-		}
-		cursorTime = createdAt
-		cursorJob = jobKey.String()
-		hasCursor = true
-	}
 
 	jobTypeAllowed := func(jt string) bool {
 		if len(req.JobTypes) == 0 {
@@ -796,6 +790,40 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 
 	records := make([]jobdb.JobSummary, 0)
 	e.mu.Lock()
+	allowedCells := map[string]bool{}
+	for _, tenant := range req.TenantIds {
+		ids, err := e.cellsLocked(tenant).Select(ctx, tenant, req.CellNames, "jobs.list")
+		if err != nil {
+			e.mu.Unlock()
+			return jobdb.ListJobsResponse{}, err
+		}
+		for id := range ids {
+			allowedCells[id] = true
+		}
+	}
+	selected := []string(nil)
+	if req.CellNames != nil {
+		for id := range allowedCells {
+			selected = append(selected, id)
+		}
+	}
+	binding := cellstate.JobQueryBinding(ctx, req, selected)
+	req.PageToken, err = cellstate.UnwrapJobCursor(req.PageToken, binding)
+	if err != nil {
+		e.mu.Unlock()
+		return jobdb.ListJobsResponse{}, err
+	}
+	if req.PageToken != "" {
+		createdAt, jobKey, err := jobdb.DecodeListJobsPageToken(req.PageToken)
+		if err != nil {
+			e.mu.Unlock()
+			return jobdb.ListJobsResponse{}, err
+		}
+		cursorTime = createdAt
+		cursorJob = jobKey.String()
+		hasCursor = true
+	}
+
 	now := time.Now().UTC()
 	for key, rec := range e.jobRecords {
 		rec.mu.Lock()
@@ -810,7 +838,7 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 		}
 
 		// Filter by tenant - must match one of the requested tenants
-		if !tenantAllowed(key.TenantId) {
+		if !tenantAllowed(key.TenantId) || !allowedCells[rec.cell.CellID] {
 			rec.mu.Unlock()
 			continue
 		}
@@ -906,7 +934,7 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 			e.mu.Unlock()
 			return jobdb.ListJobsResponse{}, err
 		}
-		summary := jobdb.JobSummary{BlockingWaitSummary: blocking, GoalID: rec.goalID,
+		summary := jobdb.JobSummary{Cell: e.cellsLocked(key.TenantId).Cells[rec.cell.CellID].Name, CellID: rec.cell.CellID, CellRepo: rec.cell.CellRepo, BlockingWaitSummary: blocking, GoalID: rec.goalID,
 			JobKey:                key,
 			Status:                status,
 			CompletionStatus:      rec.completionStatus,
@@ -956,7 +984,7 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 	if len(filtered) > pageSize {
 		last := filtered[pageSize-1]
 		if tok, err := jobdb.EncodeListJobsPageToken(last.CreatedAt, last.JobKey); err == nil {
-			nextToken = tok
+			nextToken = cellstate.WrapJobCursor(tok, binding)
 		}
 		filtered = filtered[:pageSize]
 	}

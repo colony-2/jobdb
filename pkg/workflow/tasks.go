@@ -30,6 +30,7 @@ type FindTasksWaitingRequest struct {
 
 type TaskContext struct {
 	goalID              string
+	cell                jobdb.ResolvedCell
 	executionContext    context.Context
 	createDelegation    func(context.Context, jobdb.CreateDelegationRequest) (jobdb.RenewableExecutionLease, error)
 	getConfiguration    func(context.Context) (ConfigurationSnapshot, error)
@@ -202,4 +203,6 @@ func (tc TaskContext) AwaitDependencies(deps ...jobdb.Dependency) ([]jobdb.Depen
 }
 
 // Job returns the execution identity. Manually built contexts have no goal ID.
-func (tc TaskContext) Job() JobHandle { return JobHandle{JobKey: tc.JobKey, GoalID: tc.goalID} }
+func (tc TaskContext) Job() JobHandle {
+	return JobHandle{JobKey: tc.JobKey, GoalID: tc.goalID, Cell: tc.cell.Cell, CellID: tc.cell.CellID, CellRepo: tc.cell.CellRepo}
+}

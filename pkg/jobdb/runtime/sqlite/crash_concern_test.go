@@ -7,17 +7,18 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/crashconcern"
 	"github.com/stretchr/testify/require"
 )
 
 func TestCrashConcernPersistenceAndReset(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	cfg := Config{DBPath: filepath.Join(t.TempDir(), "job.db")}
 	r, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = r.Close(ctx) })
-	h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "job", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
+	h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "job", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, err)
 	claim := func() jobdb.ExecutionLease {
 		lease, err := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "job"}}})
@@ -61,7 +62,7 @@ func TestCrashConcernPersistenceAndReset(t *testing.T) {
 }
 
 func TestCrashConcernBlocksTaskAndAlternateClaims(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	r, _, req := waitingTaskFixture(t)
 	_, err := r.db.ExecContext(ctx, `UPDATE jobdb_jobs SET consecutive_expirations=?,lease_id='expired',lease_expires_at_ns=0,
 alternate_job_type='job',alternate_task_type='fallback',alternate_at_ns=?`, crashconcern.DefaultThreshold, time.Now().Add(-time.Second).UnixNano())

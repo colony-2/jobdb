@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore"
 	"github.com/stretchr/testify/require"
 )
@@ -50,7 +51,7 @@ func (c *listCountingConn) ExecContext(ctx context.Context, query string, args [
 }
 
 func TestStoredListFieldsUseOneQueryPerPage(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	path := filepath.Join(t.TempDir(), "list.db")
 	r, err := NewFromConfig(ctx, Config{DBPath: path})
 	require.NoError(t, err)
@@ -62,7 +63,7 @@ func TestStoredListFieldsUseOneQueryPerPage(t *testing.T) {
 	waitFor, err := encodeWaitFor([]string{"unresolved-b", "unresolved-a"})
 	require.NoError(t, err)
 	for i := 0; i < 201; i++ {
-		_, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: fmt.Sprintf("job-%03d", i), JobType: "work", Data: jobdb.NewTaskDataOrPanic(1)}})
+		_, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: fmt.Sprintf("job-%03d", i), JobType: "work", Data: jobdb.NewTaskDataOrPanic(1)}})
 		require.NoError(t, err)
 	}
 	// Inject stored snapshots without task chapters. Both branches must copy them.

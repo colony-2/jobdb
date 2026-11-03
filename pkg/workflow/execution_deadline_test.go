@@ -6,13 +6,14 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/stretchr/testify/require"
 )
 
 func TestExecutionDeadlineWithoutTimerDelivery(t *testing.T) {
 	for _, phase := range []string{"admission", "completion"} {
 		t.Run(phase, func(t *testing.T) {
-			ctx, cancel := context.WithCancelCause(context.Background())
+			ctx, cancel := context.WithCancelCause(celltest.Context(context.Background()))
 			defer cancel(context.Canceled)
 			// Keep the timer pending to model a delayed timer goroutine deterministically.
 			timer := time.NewTimer(time.Hour)
@@ -42,7 +43,7 @@ func TestExecutionDeadlineWithoutTimerDelivery(t *testing.T) {
 }
 
 func TestExecutionStartedWorkerAndHandlerCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancelCause(context.Background())
+	ctx, cancel := context.WithCancelCause(celltest.Context(context.Background()))
 	defer cancel(context.Canceled)
 	run := &executionRun{live: true, r: &workerRunner{}, active: map[*executionContext]bool{}}
 	root := &executionContext{ctx: ctx, cancel: cancel, run: run}
@@ -123,7 +124,7 @@ func TestExecutionRecordedTimeoutUnwindsNestedScopes(t *testing.T) {
 			}
 			rec := jobdb.ExecutionRecord{Kind: "result", ID: id, ErrorKind: errorKind}
 			e := &executionRun{r: &workerRunner{replay: true}, active: map[*executionContext]bool{}, events: []executionEvent{{record: rec, ordinal: 7}}}
-			ctx, cancel := context.WithCancelCause(context.Background())
+			ctx, cancel := context.WithCancelCause(celltest.Context(context.Background()))
 			defer cancel(context.Canceled)
 			c := &executionContext{run: e, ctx: ctx, cancel: cancel}
 			_, err := c.finishBody("result", "/parent/attempt:1/child/attempt:1/grandchild/attempt:1", nil, errRecordedBoundary, nil)

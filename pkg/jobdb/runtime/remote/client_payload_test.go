@@ -6,7 +6,10 @@ import (
 	"testing"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
+
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtimetest"
 )
@@ -35,7 +38,7 @@ func runPayloadAndRouteConformance(t *testing.T, run func(*testing.T, ...runtime
 				var runtime jobdb.WorkflowRuntime = toyruntime.New()
 				cleanup := func() {}
 				if kind == "sqlite" {
-					embedded, err := sqliteruntime.StartEmbeddedRuntime(context.Background())
+					embedded, err := sqliteruntime.StartEmbeddedRuntime(celltest.Context(context.Background()))
 					if err != nil {
 						tb.Fatal(err)
 					}
@@ -43,7 +46,7 @@ func runPayloadAndRouteConformance(t *testing.T, run func(*testing.T, ...runtime
 					cleanup = embedded.Shutdown
 				}
 				if remote {
-					server := httptest.NewServer(NewServer(runtime))
+					server := httptest.NewServer(celltest.Handler(NewServer(runtime)))
 					inner := cleanup
 					cleanup = func() { server.Close(); inner() }
 					client, err := New(server.URL, server.Client())

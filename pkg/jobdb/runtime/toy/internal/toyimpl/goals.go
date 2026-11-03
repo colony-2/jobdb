@@ -3,11 +3,12 @@ package toyimpl
 import (
 	"context"
 	"fmt"
+	"sort"
+	"time"
+
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate"
 	"github.com/segmentio/ksuid"
-	"sort"
-	"time"
 )
 
 type preparedGoalJob struct {
@@ -50,6 +51,19 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (go
 	defer r.engine.mu.Unlock()
 	e := r.engine
 	e.initGoalsLocked()
+	if req.RequestID != "" {
+		if key, ok := e.goalRequests[jobdb.GoalKey{TenantId: req.Key.TenantId, GoalID: req.RequestID}]; ok {
+			if req.Key.JobId != "" && req.Key != key {
+				return goalstate.Prepared{}, jobdb.NewExistingJobMismatchError("destination differs")
+			}
+			req.Key = key
+		}
+	}
+	target, err := e.prepareCellLocked(ctx, req)
+	if err != nil {
+		return goalstate.Prepared{}, err
+	}
+	req.Target = target
 	key := req.Key
 	requestKey := jobdb.GoalKey{TenantId: key.TenantId, GoalID: req.RequestID}
 	if req.RequestID != "" {
@@ -61,10 +75,16 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (go
 		}
 	}
 	if old, ok := e.preparedGoals[key]; ok {
+		if old.Request.Target.CellRepo != target.CellRepo || old.Request.Target.Cell != target.Cell && old.Request.Target.CellID != target.CellID {
+			return goalstate.Prepared{}, jobdb.NewExistingJobMismatchError("cell differs")
+		}
+		if _, found := e.cellsLocked(key.TenantId).Cells[target.CellID]; !found {
+			target.CellID = old.Request.Target.CellID
+		}
 		if old.Request.Descriptor != req.Descriptor || old.Request.RequestID != req.RequestID {
 			return goalstate.Prepared{}, goalstate.PreparationMismatch(old.Request.Descriptor, req.Descriptor)
 		}
-		return goalstate.Prepared{Key: key, GoalID: old.GoalID, Published: e.jobRecords[key] != nil}, nil
+		return goalstate.Prepared{Target: target, Key: key, GoalID: old.GoalID, Published: e.jobRecords[key] != nil}, nil
 	}
 	if key.JobId == "" {
 		var err error
@@ -96,17 +116,22 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (go
 	if req.RequestID != "" {
 		e.goalRequests[requestKey] = key
 	}
-	return goalstate.Prepared{Key: key, GoalID: goalID}, nil
+	return goalstate.Prepared{Target: target, Key: key, GoalID: goalID}, nil
 }
 
 // publishGoalLocked is called with the new job provisionally inserted. It
 // commits a copy of goal state only after all validations succeed.
-func (e *ToyEngine) publishGoalLocked(key jobdb.JobKey, record *jobRecord) error {
+func (e *ToyEngine) publishGoalLocked(ctx context.Context, key jobdb.JobKey, record *jobRecord) error {
 	e.initGoalsLocked()
 	p, ok := e.preparedGoals[key]
 	if !ok {
-		p = preparedGoalJob{GoalID: ksuid.New().String()}
+		return jobdb.ErrInvalidCell
 	}
+	target, cells, err := e.publishCellLocked(ctx, key)
+	if err != nil {
+		return err
+	}
+	record.cell = target
 	state := e.goals.Clone()
 	gk := jobdb.GoalKey{TenantId: key.TenantId, GoalID: p.GoalID}
 	record.goalID = p.GoalID
@@ -120,7 +145,7 @@ func (e *ToyEngine) publishGoalLocked(key jobdb.JobKey, record *jobRecord) error
 			return jobdb.ErrGoalConflict
 		}
 	} else {
-		state.SaveGoal(jobdb.GoalInfo{GoalKey: gk, State: jobdb.GoalOpen, Revision: 1, CreatedAt: record.createdAt, UpdatedAt: record.createdAt})
+		state.SaveGoal(jobdb.GoalInfo{Cell: record.cell.Cell, CellID: record.cell.CellID, CellRepo: record.cell.CellRepo, GoalKey: gk, State: jobdb.GoalOpen, Revision: 1, CreatedAt: record.createdAt, UpdatedAt: record.createdAt})
 	}
 	engine := goalstate.Engine{Store: state, Now: time.Now().UTC()}
 	if len(p.Request.Dependencies) > 0 {
@@ -133,6 +158,7 @@ func (e *ToyEngine) publishGoalLocked(key jobdb.JobKey, record *jobRecord) error
 		return err
 	}
 	e.goals = state
+	e.cells[key.TenantId] = cells
 	return nil
 }
 func (r *Runtime) GetGoal(ctx context.Context, k jobdb.GoalKey) (jobdb.GoalInfo, error) {
@@ -201,4 +227,21 @@ func (e *ToyEngine) dependencyReadyLocked(record *jobRecord, now time.Time) (boo
 		return false, fmt.Errorf("wait for job %s: %w", record.key, err)
 	}
 	return w.State != jobdb.DependencyPending || (w.Deadline != nil && !now.Before(*w.Deadline)), nil
+}
+
+func (r *Runtime) DiscardJobPreparation(ctx context.Context, key jobdb.JobKey) error {
+	r.engine.mu.Lock()
+	defer r.engine.mu.Unlock()
+	e := r.engine
+	if e.jobRecords[key] != nil {
+		return nil
+	}
+	p, ok := e.preparedGoals[key]
+	if ok {
+		delete(e.preparedGoals, key)
+		if p.Request.RequestID != "" {
+			delete(e.goalRequests, jobdb.GoalKey{TenantId: key.TenantId, GoalID: p.Request.RequestID})
+		}
+	}
+	return nil
 }

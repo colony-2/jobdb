@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/workflow"
+
 	jobdbtest "github.com/colony-2/jobdb/pkg/workflow/internal/jobdbtest"
 )
 
@@ -61,7 +63,7 @@ func (j *awaitFailedChildJob) Run(ctx workflow.ExecutionContext, data jobdb.JobD
 	if err := ctx.AwaitJobs(j.childID); err != nil {
 		return nil, err
 	}
-	result, err := jobResultForTest(j.engine, context.Background(), jobdb.JobKey{
+	result, err := jobResultForTest(j.engine, celltest.Context(context.Background()), jobdb.JobKey{
 		TenantId: ctx.GetJobKey().TenantId,
 		JobId:    j.childID,
 	})
@@ -78,7 +80,7 @@ type awaitFailedChildViaRunOutputJob struct {
 func (awaitFailedChildViaRunOutputJob) Name() string { return "await-failed-child-run-output" }
 
 func (j *awaitFailedChildViaRunOutputJob) Run(ctx workflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
-	childKeyHandle, err := j.engine.SubmitJob(context.Background(), jobdb.SubmitJob{
+	childKeyHandle, err := j.engine.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 		TenantId: ctx.GetJobKey().TenantId,
 		JobType:  "failed-child",
 		JobID:    ctx.GetJobKey().JobId + "-child",
@@ -91,7 +93,7 @@ func (j *awaitFailedChildViaRunOutputJob) Run(ctx workflow.ExecutionContext, dat
 	if err := ctx.AwaitJobs(childKey.JobId); err != nil {
 		return nil, err
 	}
-	run, err := j.engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
+	run, err := j.engine.GetJobRun(celltest.Context(context.Background()), jobdb.GetJobRunRequest{
 		JobKey:           childKey,
 		IncludeOutputs:   true,
 		IncludeArtifacts: true,
@@ -141,7 +143,7 @@ func (t childRunOutputStartTask) Run(ctx workflow.TaskContext, data jobdb.TaskDa
 	if t.engine == nil || *t.engine == nil {
 		return nil, errors.New("engine not configured")
 	}
-	childKey, err := (*t.engine).SubmitJob(context.Background(), jobdb.SubmitJob{
+	childKey, err := (*t.engine).SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 		TenantId:  ctx.JobKey.TenantId,
 		JobType:   "child-run-output-failing-child",
 		Data:      data,
@@ -176,7 +178,7 @@ func (t childRunOutputFinishTask) Run(ctx workflow.TaskContext, data jobdb.TaskD
 		return nil, err
 	}
 	childKey := jobdb.JobKey{TenantId: ctx.JobKey.TenantId, JobId: childID}
-	run, err := (*t.engine).GetJobRun(context.Background(), jobdb.GetJobRunRequest{
+	run, err := (*t.engine).GetJobRun(celltest.Context(context.Background()), jobdb.GetJobRunRequest{
 		JobKey:           childKey,
 		IncludeOutputs:   true,
 		IncludeArtifacts: true,
@@ -226,10 +228,10 @@ func TestArtifactPassthroughAcrossBuiltInRuntimes(t *testing.T) {
 			built := harness.New(t, ws)
 			defer built.Shutdown(t)
 
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 			defer cancel()
 
-			jobKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
+			jobKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 				TenantId: built.WorkerTenantID,
 				JobType:  ws.JobWorker.Name(),
 				JobID:    "artifact-passthrough",
@@ -291,10 +293,10 @@ func TestAwaitFailedChildReplayAcrossBuiltInRuntimes(t *testing.T) {
 			defer built.Shutdown(t)
 			parent.engine = built.Engine
 
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 			defer cancel()
 
-			childKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
+			childKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 				TenantId: built.WorkerTenantID,
 				JobType:  child.Name(),
 				JobID:    parent.childID,
@@ -304,7 +306,7 @@ func TestAwaitFailedChildReplayAcrossBuiltInRuntimes(t *testing.T) {
 			if err != nil {
 				t.Fatalf("start child: %v", err)
 			}
-			parentKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
+			parentKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 				TenantId: childKey.TenantId,
 				JobType:  parent.Name(),
 				JobID:    "parent-await-failed-child",
@@ -371,10 +373,10 @@ func TestToyAwaitFailedChildViaGetJobRunOutputCompletes(t *testing.T) {
 	defer built.Shutdown(t)
 	parent.engine = built.Engine
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 	defer cancel()
 
-	parentKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
+	parentKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 		TenantId: built.WorkerTenantID,
 		JobType:  parent.Name(),
 		JobID:    "parent-await-failed-child-run-output",
@@ -429,10 +431,10 @@ func TestGetJobRunOutputErrorShapeStableAcrossBuiltInRuntimes(t *testing.T) {
 			defer built.Shutdown(t)
 			engineRef = built.Engine
 
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 			defer cancel()
 
-			jobKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{
+			jobKeyHandle, err := built.Engine.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 				TenantId:  built.WorkerTenantID,
 				JobType:   parent.Name(),
 				Data:      jobdbtest.NumberTaskData(1),

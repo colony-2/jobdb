@@ -9,7 +9,9 @@ import (
 	"testing"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
+
 	pb "github.com/colony-2/jobdb/pkg/jobdb/secrets/plugin/proto/v1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -40,21 +42,21 @@ func TestWireRejectsMissingValuesAndInvalidTimestamps(t *testing.T) {
 func TestPluginBoundsFullRequestEnvelope(t *testing.T) {
 	p := fixture(t)
 	req := jobdb.SecretResolveRequest{Names: []string{"echo"}, AppMetadata: json.RawMessage(`"` + strings.Repeat("x", DefaultMaxMessageBytes) + `"`)}
-	r, err := p.ResolveSecrets(context.Background(), req)
+	r, err := p.ResolveSecrets(celltest.Context(context.Background()), req)
 	require.ErrorIs(t, err, jobdb.ErrSecretRequestTooLarge)
 	require.Empty(t, r.Secrets)
 }
 
 func TestOptionalProvenanceAcceptsOlderHTTPRepresentations(t *testing.T) {
 	for _, body := range []string{`{"secrets":{"token":{"value":""}}}`, `{"secrets":{"token":{"value":"","providerId":"local"}}}`} {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			require.Equal(t, "POST", r.Method)
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(body))
-		}))
+		})))
 		client, err := remote.New(server.URL, server.Client())
 		require.NoError(t, err)
-		r, err := client.ResolveSecrets(context.Background(), jobdb.ResolveSecretsRequest{
+		r, err := client.ResolveSecrets(celltest.Context(context.Background()), jobdb.ResolveSecretsRequest{
 			JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}, LeaseID: "lease", LeaseToken: "test-capability", Names: []string{"token"},
 		})
 		server.Close()

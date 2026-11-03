@@ -8,17 +8,18 @@ import (
 	"testing"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/stretchr/testify/require"
 )
 
 func TestDeleteJobsHTTPValidation(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	rt := toy.New()
-	_, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "job", JobType: "job", Data: jobdb.NewTaskDataOrPanic(nil)}})
+	_, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "job", JobType: "job", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	require.NoError(t, err)
-	server := httptest.NewServer(remote.NewServer(rt))
+	server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
 	defer server.Close()
 	for _, body := range []string{
 		`{}`, `null`, `{"all":true,"jobIds":["job"]}`, `{"jobIds":[""]}`,
@@ -47,10 +48,10 @@ type withoutJobDeletion struct {
 
 func TestDeleteJobsUnsupportedBackend(t *testing.T) {
 	base := toy.New()
-	server := httptest.NewServer(remote.NewServer(withoutJobDeletion{base, base}))
+	server := httptest.NewServer(celltest.Handler(remote.NewServer(withoutJobDeletion{base, base})))
 	defer server.Close()
 	rt, err := remote.New(server.URL, server.Client())
 	require.NoError(t, err)
-	_, err = rt.DeleteJobs(context.Background(), jobdb.DeleteJobsRequest{TenantID: "tenant", All: true})
+	_, err = rt.DeleteJobs(celltest.Context(context.Background()), jobdb.DeleteJobsRequest{TenantID: "tenant", All: true})
 	require.ErrorIs(t, err, jobdb.ErrJobDeletionUnsupported)
 }

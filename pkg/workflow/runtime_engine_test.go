@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 )
 
 type fakeWorkflowRuntime struct {
+	WorkflowRuntime
 	startReq      SubmitJobRequest
 	restartReq    SubmitRestartJobRequest
 	cancelReq     CancelJobRequest
@@ -176,7 +178,7 @@ func TestRuntimeEngineDelegatesLifecycleMethodsToRuntime(t *testing.T) {
 		t.Fatalf("build engine: %v", err)
 	}
 
-	startKeyHandle, err := engine.SubmitJob(context.Background(), SubmitJob{
+	startKeyHandle, err := engine.SubmitJob(celltest.Context(context.Background()), SubmitJob{Cell: "test", CellRepo: "example.test/test",
 		TenantId: "tenant-a",
 		JobType:  "type-a",
 		Data:     NewTaskDataOrPanic(map[string]int{"value": 1}),
@@ -192,7 +194,7 @@ func TestRuntimeEngineDelegatesLifecycleMethodsToRuntime(t *testing.T) {
 		t.Fatalf("unexpected start request %+v", runtime.startReq)
 	}
 
-	restartKeyHandle, err := engine.SubmitRestartJob(context.Background(), SubmitRestartJobRequest{RequestID: "engine-restart", Job: SubmitRestartJob{
+	restartKeyHandle, err := engine.SubmitRestartJob(celltest.Context(context.Background()), SubmitRestartJobRequest{RequestID: "engine-restart", Job: SubmitRestartJob{Cell: "test",
 		PriorJobKey:    JobKey{TenantId: "tenant-z", JobId: "prior"},
 		LastStepToKeep: 3,
 	}})
@@ -208,7 +210,7 @@ func TestRuntimeEngineDelegatesLifecycleMethodsToRuntime(t *testing.T) {
 		t.Fatal("lost restart request ID")
 	}
 	jobKey := JobKey{TenantId: "tenant-status", JobId: "job-status"}
-	job, err := engine.GetJob(context.Background(), jobKey)
+	job, err := engine.GetJob(celltest.Context(context.Background()), jobKey)
 	if err != nil {
 		t.Fatalf("get job: %v", err)
 	}
@@ -227,7 +229,7 @@ func TestRuntimeEngineDelegatesLifecycleMethodsToRuntime(t *testing.T) {
 		t.Fatalf("unexpected result payload %+v", payload)
 	}
 
-	if err := engine.CancelJob(context.Background(), CancelJob{JobKey: jobKey, Reason: "reason"}); err != nil {
+	if err := engine.CancelJob(celltest.Context(context.Background()), CancelJob{JobKey: jobKey, Reason: "reason"}); err != nil {
 		t.Fatalf("cancel job: %v", err)
 	}
 	if runtime.cancelReq.JobKey != jobKey || runtime.cancelReq.Reason != "reason" {
@@ -235,7 +237,7 @@ func TestRuntimeEngineDelegatesLifecycleMethodsToRuntime(t *testing.T) {
 	}
 
 	jobRunReq := GetJobRunRequest{JobKey: JobKey{TenantId: "tenant-run", JobId: "job-run"}}
-	jobRunResp, err := engine.GetJobRun(context.Background(), jobRunReq)
+	jobRunResp, err := engine.GetJobRun(celltest.Context(context.Background()), jobRunReq)
 	if err != nil {
 		t.Fatalf("get job run: %v", err)
 	}
@@ -247,7 +249,7 @@ func TestRuntimeEngineDelegatesLifecycleMethodsToRuntime(t *testing.T) {
 	}
 
 	listReq := ListJobsRequest{TenantIds: []string{"tenant-d"}}
-	if _, err := engine.ListJobs(context.Background(), listReq); err != nil {
+	if _, err := engine.ListJobs(celltest.Context(context.Background()), listReq); err != nil {
 		t.Fatalf("list jobs: %v", err)
 	}
 	if len(runtime.listReq.TenantIds) != 1 || runtime.listReq.TenantIds[0] != "tenant-d" {
@@ -283,7 +285,7 @@ func TestRuntimeEngineDelegatesWaitingTaskMethodsToRuntime(t *testing.T) {
 		t.Fatalf("build engine: %v", err)
 	}
 
-	handles, err := engine.FindTasksWaiting(context.Background(), FindTasksWaitingRequest{
+	handles, err := engine.FindTasksWaiting(celltest.Context(context.Background()), FindTasksWaitingRequest{
 		JobType:        "job",
 		TaskType:       "task",
 		TenantIds:      []string{"tenant-x"},
@@ -315,14 +317,14 @@ func TestRuntimeEngineDelegatesWaitingTaskMethodsToRuntime(t *testing.T) {
 	if runtime.chapterRef.JobKey != waitKey || runtime.chapterRef.Ordinal != 1 {
 		t.Fatalf("unexpected chapter ref %+v", runtime.chapterRef)
 	}
-	if err := handles[0].Finish(context.Background(), NewTaskDataOrPanic(map[string]int{"value": 2})); err != nil {
+	if err := handles[0].Finish(celltest.Context(context.Background()), NewTaskDataOrPanic(map[string]int{"value": 2})); err != nil {
 		t.Fatalf("finish waiting task: %v", err)
 	}
 	if runtime.completeReq.JobKey != waitKey || runtime.completeReq.Route != (Route{JobType: "job", TaskType: "task"}) || runtime.completeReq.ResumeJobType != "job" {
 		t.Fatalf("unexpected complete request %+v", runtime.completeReq)
 	}
 
-	handle, err := engine.GetWaitingTask(context.Background(), waitKey)
+	handle, err := engine.GetWaitingTask(celltest.Context(context.Background()), waitKey)
 	if err != nil {
 		t.Fatalf("get waiting task: %v", err)
 	}
@@ -344,7 +346,7 @@ func TestRuntimeEngineDelegatesGetJobLeaseToRuntime(t *testing.T) {
 		t.Fatalf("build engine: %v", err)
 	}
 
-	got, err := engine.GetJobLease(context.Background(), GetJobLeaseRequest{
+	got, err := engine.GetJobLease(celltest.Context(context.Background()), GetJobLeaseRequest{
 		JobKey:        jobKey,
 		WorkerID:      "manual-worker",
 		Routes:        []Route{{JobType: "job-lease"}},
@@ -390,7 +392,7 @@ func TestRuntimeEngineLoadsArtifactsThroughRuntimeStorage(t *testing.T) {
 	if runtime.chapterRef.JobKey.JobId != "job-artifact" || runtime.chapterRef.Ordinal != 7 {
 		t.Fatalf("unexpected chapter ref %+v", runtime.chapterRef)
 	}
-	data, err := artifact.Bytes(context.Background())
+	data, err := artifact.Bytes(celltest.Context(context.Background()))
 	if err != nil {
 		t.Fatalf("read artifact: %v", err)
 	}
@@ -437,7 +439,7 @@ func TestTaskDiscoveryRechecksDetailRoute(t *testing.T) {
 		jobResp:  JobInfo{NextRoute: &Route{JobType: "job", TaskType: "changed"}, ExecutionState: ExecutionState{TaskWait: &TaskWait{InputOrdinal: 1, OutputOrdinal: 2, InputHash: "hash", ResumeJobType: "job"}}},
 	}
 	req := FindTasksWaitingRequest{JobType: "job", TaskType: "requested", TenantIds: []string{"tenant"}}
-	handles, err := findWaitingTasksFromRuntime(context.Background(), runtime, req)
+	handles, err := findWaitingTasksFromRuntime(celltest.Context(context.Background()), runtime, req)
 	if err != nil || len(handles) != 0 {
 		t.Fatalf("changed task returned by discovery: %v %v", handles, err)
 	}
@@ -447,7 +449,7 @@ func TestTaskDiscoveryRechecksDetailRoute(t *testing.T) {
 	// Older servers do not expose NextRoute in JobInfo. Their task coordinates
 	// remain usable together with the list's route during rolling upgrades.
 	runtime.jobResp.NextRoute = nil
-	handles, err = findWaitingTasksFromRuntime(context.Background(), runtime, req)
+	handles, err = findWaitingTasksFromRuntime(celltest.Context(context.Background()), runtime, req)
 	if err != nil || len(handles) != 1 || handles[0].TaskType() != "requested" || handles[0].TaskOrdinalToComplete() != 2 {
 		t.Fatalf("legacy detail route: %v %v", handles, err)
 	}

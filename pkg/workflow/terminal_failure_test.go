@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,7 +20,7 @@ func TestWorkerEngineReportsUnhandledRunnerError(t *testing.T) {
 	require.NoError(t, err)
 	// No initial chapter: execution fails before it can complete or reschedule.
 	lease := &fakeExecutionLease{runtime: rt, job: JobHandle{JobKey: JobKey{TenantId: "tenant", JobId: "broken"}}, route: Route{JobType: "job"}}
-	api.(*workerEngine).runLease(context.Background(), lease, "worker")
+	api.(*workerEngine).runLease(celltest.Context(context.Background()), lease, "worker")
 	require.Contains(t, logs.String(), "job execution failed")
 	require.Contains(t, logs.String(), `"tenantId":"tenant"`)
 	require.Contains(t, logs.String(), `"jobId":"broken"`)

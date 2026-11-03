@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,7 +31,7 @@ func (l *cacheTestLease) ResolveSecrets(ctx context.Context, names []string) (Se
 func TestAttemptCachesConcurrentReadsAndFailures(t *testing.T) {
 	for _, kind := range []string{"configuration", "secrets"} {
 		t.Run(kind, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 			defer cancel()
 			var calls atomic.Int32
 			entered, release := make(chan struct{}, 1), make(chan struct{})
@@ -87,7 +88,7 @@ func TestAttemptCachesConcurrentReadsAndFailures(t *testing.T) {
 			stop()
 			require.Error(t, read(canceled)) // Cache hits honor caller cancellation too.
 			cancel()
-			require.Error(t, read(context.Background()))
+			require.Error(t, read(celltest.Context(context.Background())))
 			require.Equal(t, int32(2), calls.Load())
 		})
 	}
@@ -97,13 +98,13 @@ func TestAttemptConfigurationSnapshotCopies(t *testing.T) {
 	source := ConfigurationSnapshot{Revision: "one", Values: map[string]json.RawMessage{"a": json.RawMessage(`{"x":1}`)}}
 	calls := 0
 	runner := &workerRunner{lease: &cacheTestLease{configuration: func(context.Context) (ConfigurationSnapshot, error) { calls++; return source, nil }}}
-	first, err := runner.GetConfiguration(context.Background())
+	first, err := runner.GetConfiguration(celltest.Context(context.Background()))
 	require.NoError(t, err)
 	first.Values["a"][5] = '9'
 	first.Values["added"] = json.RawMessage(`true`)
 	source.Values["a"][5] = '8'
 	source.Values["new"] = json.RawMessage(`true`)
-	next, err := runner.GetConfiguration(context.Background())
+	next, err := runner.GetConfiguration(celltest.Context(context.Background()))
 	require.NoError(t, err)
 	require.Equal(t, `{"x":1}`, string(next.Values["a"]))
 	require.Len(t, next.Values, 1)
@@ -123,10 +124,10 @@ func TestAttemptCachesEmptyResults(t *testing.T) {
 		},
 	}}
 	for i := 0; i < 2; i++ {
-		configuration, err := runner.GetConfiguration(context.Background())
+		configuration, err := runner.GetConfiguration(celltest.Context(context.Background()))
 		require.NoError(t, err)
 		require.Empty(t, configuration.Values)
-		result, err := runner.ResolveSecrets(context.Background(), []string{"missing"})
+		result, err := runner.ResolveSecrets(celltest.Context(context.Background()), []string{"missing"})
 		require.NoError(t, err)
 		require.Empty(t, result.Secrets)
 	}
@@ -148,40 +149,40 @@ func TestAttemptSecretsCacheNamesOmissionsCopiesAndExpiry(t *testing.T) {
 		return result, nil
 	}}
 	runner := &workerRunner{lease: lease}
-	first, err := runner.ResolveSecrets(context.Background(), []string{"a", "denied"})
+	first, err := runner.ResolveSecrets(celltest.Context(context.Background()), []string{"a", "denied"})
 	require.NoError(t, err)
 	*first.Secrets["a"].ExpiresAt = time.Now().Add(-time.Hour)
 	first.Secrets["a"] = SecretValue{Value: "modified"}
 	first.Secrets["denied"] = SecretValue{Value: "forged"}
-	cached, err := runner.ResolveSecrets(context.Background(), []string{"a", "denied"})
+	cached, err := runner.ResolveSecrets(celltest.Context(context.Background()), []string{"a", "denied"})
 	require.NoError(t, err)
 	require.Equal(t, "1", cached.Secrets["a"].Value)
 	require.NotContains(t, cached.Secrets, "denied")
-	second, err := runner.ResolveSecrets(context.Background(), []string{"b", "denied", "a"})
+	second, err := runner.ResolveSecrets(celltest.Context(context.Background()), []string{"b", "denied", "a"})
 	require.NoError(t, err)
 	require.Equal(t, "2", second.Secrets["a"].Value)
 	require.Equal(t, "2", second.Secrets["b"].Value)
 	require.NotContains(t, second.Secrets, "denied")
 	require.Equal(t, [][]string{{"a", "denied"}, {"a", "b"}}, requests)
-	subset, err := runner.ResolveSecrets(context.Background(), []string{"a"})
+	subset, err := runner.ResolveSecrets(celltest.Context(context.Background()), []string{"a"})
 	require.NoError(t, err)
 	require.Len(t, subset.Secrets, 1)
 	for _, names := range [][]string{nil, {""}, {"a", "a"}, {string([]byte{0xff})}} {
-		_, err = runner.ResolveSecrets(context.Background(), names)
+		_, err = runner.ResolveSecrets(celltest.Context(context.Background()), names)
 		require.ErrorIs(t, err, jobdb.ErrInvalidSecretRequest)
 	}
 	require.Len(t, requests, 2)
 	// Advance the cached deadline without a wall-clock sleep.
 	expired := time.Now().Add(-time.Second)
 	runner.secretCache.value["a"].ExpiresAt = &expired
-	result, err := runner.ResolveSecrets(context.Background(), []string{"a", "b"})
+	result, err := runner.ResolveSecrets(celltest.Context(context.Background()), []string{"a", "b"})
 	require.ErrorIs(t, err, jobdb.ErrSecretsUnavailable)
 	require.Empty(t, result.Secrets)
 	require.Len(t, requests, 2, "expiration must not silently rotate an attempt's value")
-	_, err = runner.ResolveSecrets(context.Background(), []string{"c"})
+	_, err = runner.ResolveSecrets(celltest.Context(context.Background()), []string{"c"})
 	require.NoError(t, err)
 	require.Equal(t, []string{"a", "b", "c"}, requests[2])
-	refreshed, err := runner.ResolveSecrets(context.Background(), []string{"a", "b", "c"})
+	refreshed, err := runner.ResolveSecrets(celltest.Context(context.Background()), []string{"a", "b", "c"})
 	require.NoError(t, err)
 	for _, value := range refreshed.Secrets {
 		require.Equal(t, "3", value.Value)
@@ -205,7 +206,7 @@ func TestSecretCacheExpansionRefreshesAvailableNames(t *testing.T) {
 		}
 		return result, nil
 	}}}
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	first, err := runner.ResolveSecrets(ctx, []string{"foo", "denied"})
 	require.NoError(t, err)
 	require.Equal(t, "1", first.Secrets["foo"].Value)
@@ -251,7 +252,7 @@ func TestSecretCacheExpansionRefreshesAvailableNames(t *testing.T) {
 func TestSecretCacheExpansionRejectsIncompleteRefresh(t *testing.T) {
 	for _, failure := range []string{"canceled", "expired"} {
 		t.Run(failure, func(t *testing.T) {
-			callCtx, cancel := context.WithCancel(context.Background())
+			callCtx, cancel := context.WithCancel(celltest.Context(context.Background()))
 			defer cancel()
 			calls := 0
 			runner := &workerRunner{lease: &cacheTestLease{secrets: func(_ context.Context, names []string) (SecretResolveResult, error) {
@@ -272,16 +273,16 @@ func TestSecretCacheExpansionRejectsIncompleteRefresh(t *testing.T) {
 				}
 				return result, nil
 			}}}
-			_, err := runner.ResolveSecrets(context.Background(), []string{"foo"})
+			_, err := runner.ResolveSecrets(celltest.Context(context.Background()), []string{"foo"})
 			require.NoError(t, err)
 			result, err := runner.ResolveSecrets(callCtx, []string{"bar"})
 			require.ErrorIs(t, err, jobdb.ErrSecretsUnavailable)
 			require.Empty(t, result.Secrets)
-			cached, err := runner.ResolveSecrets(context.Background(), []string{"foo"})
+			cached, err := runner.ResolveSecrets(celltest.Context(context.Background()), []string{"foo"})
 			require.NoError(t, err)
 			require.Equal(t, "1", cached.Secrets["foo"].Value)
 			require.Equal(t, 2, calls)
-			_, err = runner.ResolveSecrets(context.Background(), []string{"bar"})
+			_, err = runner.ResolveSecrets(celltest.Context(context.Background()), []string{"bar"})
 			require.NoError(t, err)
 			require.Equal(t, 3, calls, "failed fetch must not mark new names as unavailable")
 		})
@@ -310,11 +311,11 @@ type cacheReader interface {
 }
 
 func readCacheVersion(ctx cacheReader) (string, error) {
-	config, err := ctx.GetConfiguration(context.Background())
+	config, err := ctx.GetConfiguration(celltest.Context(context.Background()))
 	if err != nil {
 		return "", err
 	}
-	secrets, err := ctx.ResolveSecrets(context.Background(), []string{"token"})
+	secrets, err := ctx.ResolveSecrets(celltest.Context(context.Background()), []string{"token"})
 	if err != nil {
 		return "", err
 	}
@@ -377,7 +378,7 @@ func TestAttemptCacheLifecycle(t *testing.T) {
 						return nil, AppError{Payload: AppErrorPayload{Message: "retry", Level: "error"}}
 					}
 					if mode == "resume" {
-						return nil, ctx.Yield(context.Background(), YieldRequest{Reschedule: RescheduleExecutionRequest{NextRoute: Route{JobType: "cache-job"}}})
+						return nil, ctx.Yield(celltest.Context(context.Background()), YieldRequest{Reschedule: RescheduleExecutionRequest{NextRoute: Route{JobType: "cache-job"}}})
 					}
 				} else {
 					if _, err := readCacheVersion(old); err == nil {
@@ -389,13 +390,13 @@ func TestAttemptCacheLifecycle(t *testing.T) {
 			ws := mustWorkSetForRunnerTest(t, job, task)
 			seedJobStartForTest(t, runtime, key, job.Name(), NewTaskDataOrPanic("input"), retry)
 			runner := newWorkerRunner(runtime, ws, newLease(), workerRunnerOptions{JobPolicy: retry})
-			_, err := runner.DoJob(context.Background())
+			_, err := runner.DoJob(celltest.Context(context.Background()))
 			require.NoError(t, err)
 			if mode == "resume" {
 				_, _, _, reschedules := runner.lease.(*cacheTestLease).snapshot()
 				require.Len(t, reschedules, 1)
 				runner = newWorkerRunner(runtime, ws, newLease(), workerRunnerOptions{JobPolicy: retry})
-				_, err = runner.DoJob(context.Background())
+				_, err = runner.DoJob(celltest.Context(context.Background()))
 				require.NoError(t, err)
 			}
 			if mode == "task-retry" {

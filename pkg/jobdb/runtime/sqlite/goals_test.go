@@ -4,60 +4,30 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate"
 	"github.com/stretchr/testify/require"
 )
 
-func TestGoalMigrationV6(t *testing.T) {
-	ctx := context.Background()
-	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "old.db"))
-	require.NoError(t, err)
-	defer db.Close()
-	oldSchema := strings.ReplaceAll(strings.ReplaceAll(schemaSQL, " goal_id TEXT NOT NULL,\n", ""), " dependency_wait_id TEXT NOT NULL DEFAULT '',\n", "")
-	_, err = db.ExecContext(ctx, oldSchema)
-	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, "PRAGMA user_version=6")
-	require.NoError(t, err)
-	for _, status := range []string{"success", "succeeded", "failed_app", "cancelled", "active"} {
-		var archived any = int64(20)
-		var completion any = status
-		if status == "active" {
-			archived = nil
-			completion = nil
-		}
-		_, err = db.ExecContext(ctx, `INSERT INTO jobdb_jobs(tenant_id,job_id,job_type,route_job_type,initial_payload_digest,available_at_ns,created_at_ns,updated_at_ns,archived_at_ns,completion_status) VALUES('tenant',?,'work','work','',10,10,20,?,?)`, status, archived, completion)
-		require.NoError(t, err)
-	}
-	require.ErrorContains(t, migrate(ctx, db), "jobdb-migrate-chapter-artifacts")
-	var version int
-	require.NoError(t, db.QueryRow("PRAGMA user_version").Scan(&version))
-	require.Equal(t, 6, version)
-
-}
-func TestGoalMigrationRollsBackUnknownOutcome(t *testing.T) {
-	ctx := context.Background()
+func TestPreCellFormatRejected(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	require.NoError(t, err)
 	defer db.Close()
 	db.SetMaxOpenConns(1)
-	_, err = db.Exec(`CREATE TABLE jobdb_jobs(tenant_id TEXT,job_id TEXT,created_at_ns INTEGER,archived_at_ns INTEGER,completion_status TEXT); INSERT INTO jobdb_jobs VALUES('tenant','job',1,2,NULL); PRAGMA user_version=6;`)
+	_, err = db.Exec("CREATE TABLE jobdb_jobs(job_id TEXT); INSERT INTO jobdb_jobs VALUES('old'); PRAGMA user_version=9;")
 	require.NoError(t, err)
-	require.Error(t, migrate(ctx, db))
-	var version int
-	require.NoError(t, db.QueryRow("PRAGMA user_version").Scan(&version))
-	require.Equal(t, 6, version)
-	var tables int
-	require.NoError(t, db.QueryRow("SELECT count(*) FROM sqlite_master WHERE name='jobdb_goals'").Scan(&tables))
-	require.Zero(t, tables)
+	require.ErrorContains(t, migrate(context.Background(), db), "reset required")
+	var id string
+	require.NoError(t, db.QueryRow("SELECT job_id FROM jobdb_jobs").Scan(&id))
+	require.Equal(t, "old", id)
 }
 func TestGoalDurabilityAndIndependentWriters(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	cfg := Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")}
 	r1, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
@@ -66,7 +36,7 @@ func TestGoalDurabilityAndIndependentWriters(t *testing.T) {
 	require.NoError(t, err)
 	defer r2.Close(ctx)
 	submit := func(id string) jobdb.JobHandle {
-		h, err := r1.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: id, JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
+		h, err := r1.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: id, JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 		require.NoError(t, err)
 		return h
 	}
@@ -111,11 +81,11 @@ func TestGoalDurabilityAndIndependentWriters(t *testing.T) {
 	require.Equal(t, 1, links)
 }
 func TestGoalReservationSurvivesReopenBeforePublication(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	cfg := Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")}
 	r, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
-	req := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "new", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}}
+	req := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "new", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}}
 	prep, err := goalstate.SubmitPreparation(ctx, req, "")
 	require.NoError(t, err)
 	first, err := r.PrepareJob(ctx, prep)

@@ -8,6 +8,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type workerEngine struct {
@@ -414,6 +416,7 @@ func replayRuntimeJob(ctx context.Context, runtime WorkflowRuntime, spec *replay
 	}
 	runner := newWorkerRunner(replayRuntime, ws, nil, workerRunnerOptions{
 		GoalID:         info.GoalID,
+		Cell:           jobdb.ResolvedCell{Cell: info.Cell, CellID: info.CellID, CellRepo: info.CellRepo},
 		JobKey:         jobKey,
 		Logger:         spec.engine.logger.With("job", jobKey.String(), "route", jobType),
 		WorkerID:       spec.engine.workerID,

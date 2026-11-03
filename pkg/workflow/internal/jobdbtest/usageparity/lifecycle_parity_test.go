@@ -31,7 +31,7 @@ func TestExplicitJobIDParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []workflow.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) lifecycleObservation {
-				jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{
+				jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: subject.built.WorkerTenantID,
 					JobType:  ws.JobWorker.Name(),
 					JobID:    "custom-job-id",
@@ -86,7 +86,7 @@ func TestRestartJobParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []workflow.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) lifecycleObservation {
-				origKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{
+				origKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: subject.built.WorkerTenantID,
 					JobType:  jobdbtest.SequenceJobName,
 					JobID:    "restart-original",
@@ -97,7 +97,7 @@ func TestRestartJobParityAcrossBuiltInRuntimes(t *testing.T) {
 				}
 				subject.WaitForStatus(t, ctx, origKey, jobdb.JobStatusCompleted)
 
-				restartKey, err := subject.SubmitRestartJob(ctx, jobdb.SubmitRestartJob{
+				restartKey, err := subject.SubmitRestartJob(ctx, jobdb.SubmitRestartJob{Cell: "test",
 					PriorJobKey:    origKey,
 					LastStepToKeep: 0,
 					JobID:          "restart-copy",
@@ -158,7 +158,7 @@ func TestPrerequisiteParityAcrossBuiltInRuntimes(t *testing.T) {
 			}, func(t *testing.T, ctx context.Context, subject scenarioSubject) errorObservation {
 				tenantID := subject.built.WorkerTenantID
 
-				successKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{
+				successKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: tenantID,
 					JobType:  successWorker.Name(),
 					JobID:    "success",
@@ -167,7 +167,7 @@ func TestPrerequisiteParityAcrossBuiltInRuntimes(t *testing.T) {
 				if err != nil {
 					t.Fatalf("start success prereq via %s: %v", subject.mode, err)
 				}
-				failKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{
+				failKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: tenantID,
 					JobType:  failWorker.Name(),
 					JobID:    "fail",
@@ -179,7 +179,7 @@ func TestPrerequisiteParityAcrossBuiltInRuntimes(t *testing.T) {
 				subject.WaitForStatus(t, ctx, successKey, jobdb.JobStatusCompleted)
 				subject.WaitForStatus(t, ctx, failKey, jobdb.JobStatusCompleted)
 
-				successDependent, err := subject.SubmitJob(ctx, jobdb.SubmitJob{
+				successDependent, err := subject.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: tenantID,
 					JobType:  dependentWorker.Name(),
 					JobID:    "dependent-success",
@@ -191,7 +191,7 @@ func TestPrerequisiteParityAcrossBuiltInRuntimes(t *testing.T) {
 				if err != nil {
 					t.Fatalf("start dependent success via %s: %v", subject.mode, err)
 				}
-				failedDependent, err := subject.SubmitJob(ctx, jobdb.SubmitJob{
+				failedDependent, err := subject.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: tenantID,
 					JobType:  dependentWorker.Name(),
 					JobID:    "dependent-failed",
@@ -203,7 +203,7 @@ func TestPrerequisiteParityAcrossBuiltInRuntimes(t *testing.T) {
 				if err != nil {
 					t.Fatalf("start dependent failed via %s: %v", subject.mode, err)
 				}
-				completeDependent, err := subject.SubmitJob(ctx, jobdb.SubmitJob{
+				completeDependent, err := subject.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: tenantID,
 					JobType:  dependentWorker.Name(),
 					JobID:    "dependent-complete",

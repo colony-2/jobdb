@@ -12,22 +12,24 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/internal/executionmeta"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/stretchr/testify/require"
+
 	modernsqlite "modernc.org/sqlite"
 )
 
 func TestRestartLinksLegacyHistoryWithoutRevalidation(t *testing.T) {
 	for _, transport := range []string{"local", "remote"} {
 		t.Run(transport, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			counted := &listCountingConnector{dsn: filepath.Join(t.TempDir(), "restart.db"), drv: &modernsqlite.Driver{}}
 			db := sql.OpenDB(counted)
 			defer db.Close()
 			local, err := New(db, WithMaxChapterApplicationPayloadBytes(2*1024*1024))
 			require.NoError(t, err)
 			defer local.Close(ctx)
-			source, err := local.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "source", JobType: "legacy", Data: jobdb.NewTaskDataOrPanic(nil)}})
+			source, err := local.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "source", JobType: "legacy", Data: jobdb.NewTaskDataOrPanic(nil)}})
 			require.NoError(t, err)
 			leases, err := local.PollWork(ctx, jobdb.PollWorkRequest{TenantId: "tenant", WorkerID: "writer", Routes: []jobdb.Route{{JobType: "legacy"}}, Limit: 1})
 			require.NoError(t, err)
@@ -61,7 +63,7 @@ func TestRestartLinksLegacyHistoryWithoutRevalidation(t *testing.T) {
 			local.maxChapterApplicationPayloadBytes = 0
 			var rt jobdb.WorkflowRuntime = local
 			if transport == "remote" {
-				server := httptest.NewServer(remote.NewServer(local))
+				server := httptest.NewServer(celltest.Handler(remote.NewServer(local)))
 				defer server.Close()
 				rt, err = remote.New(server.URL, server.Client())
 				require.NoError(t, err)
@@ -71,7 +73,7 @@ func TestRestartLinksLegacyHistoryWithoutRevalidation(t *testing.T) {
 			require.NoError(t, err)
 			var shortQueries int64
 			for _, last := range []int64{4, 42} {
-				req := jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: source.JobKey, JobID: fmt.Sprintf("restart-%d", last), LastStepToKeep: last, Schema: &jobdb.JobSchemaSelector{Hash: schema.SchemaHash}}}
+				req := jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: source.JobKey, JobID: fmt.Sprintf("restart-%d", last), LastStepToKeep: last, Schema: &jobdb.JobSchemaSelector{Hash: schema.SchemaHash}}}
 				counted.queries.Store(0)
 				clone, err := rt.SubmitRestartJob(ctx, req)
 				queries := counted.queries.Load()
@@ -98,7 +100,7 @@ func TestRestartLinksLegacyHistoryWithoutRevalidation(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, clone, again)
 			}
-			logical := jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: source.JobKey, JobID: "logical", ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: "restart-target"}, Schema: &jobdb.JobSchemaSelector{Hash: schema.SchemaHash}}}
+			logical := jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: source.JobKey, JobID: "logical", ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: "restart-target"}, Schema: &jobdb.JobSchemaSelector{Hash: schema.SchemaHash}}}
 			clone, err := rt.SubmitRestartJob(ctx, logical)
 			require.NoError(t, err)
 			var localRows int
@@ -112,7 +114,7 @@ func TestRestartLinksLegacyHistoryWithoutRevalidation(t *testing.T) {
 			_, err = rt.SubmitRestartJob(ctx, logical)
 			require.ErrorIs(t, err, jobdb.ErrChapterApplicationPayloadTooLarge)
 
-			req := jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: source.JobKey, JobID: "extra", LastStepToKeep: 42, Schema: &jobdb.JobSchemaSelector{Hash: schema.SchemaHash}, ExtraTaskOutput: jobdb.NewTaskDataOrPanic(json.RawMessage(large))}}
+			req := jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: source.JobKey, JobID: "extra", LastStepToKeep: 42, Schema: &jobdb.JobSchemaSelector{Hash: schema.SchemaHash}, ExtraTaskOutput: jobdb.NewTaskDataOrPanic(json.RawMessage(large))}}
 			_, err = rt.SubmitRestartJob(ctx, req)
 			require.ErrorIs(t, err, jobdb.ErrChapterApplicationPayloadTooLarge, "new output still obeys the write limit")
 			req.Job.ExtraTaskOutput = jobdb.NewTaskDataOrPanic("small")

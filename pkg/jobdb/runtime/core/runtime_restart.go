@@ -24,7 +24,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 	return r.submitRestartJobWithParent(ctx, req, "")
 }
 
-func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.SubmitRestartJobRequest, parentJobID string) (jobdb.JobHandle, error) {
+func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.SubmitRestartJobRequest, parentJobID string) (handle jobdb.JobHandle, retErr error) {
 	if err := r.validate(); err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -42,9 +42,14 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
+	defer func() {
+		if retErr != nil {
+			_ = r.scheduler.DiscardJobPreparation(context.WithoutCancel(ctx), reserved.Key)
+		}
+	}()
 	req.Job.JobID = reserved.Key.JobId
 	if reserved.Published {
-		return jobdb.JobHandle{JobKey: reserved.Key, GoalID: reserved.GoalID}, nil
+		return reserved.Target.Handle(reserved.Key, reserved.GoalID), nil
 	}
 	job, executionRestart, err := ResolveExecutionRestart(ctx, r, req.Job)
 	if err != nil {
@@ -229,13 +234,13 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 			if err := validateStoredJobFacts(stored, key, jobType, schemaHash, parentJobID, metadata, policy, nil); err != nil {
 				return jobdb.JobHandle{}, err
 			}
-			return jobdb.JobHandle{JobKey: key, GoalID: reserved.GoalID}, nil
+			return stored.Cell.Handle(key, stored.GoalID), nil
 		}
 		if !errors.Is(err, jobdb.ErrJobNotFound) {
 			return jobdb.JobHandle{}, err
 		}
 	}
-	stored, err := r.scheduler.CreateJob(ctx, CreateJobRequest{GoalID: reserved.GoalID, ShareGoal: preparation.ShareGoal, Dependencies: preparation.Dependencies,
+	stored, err := r.scheduler.CreateJob(ctx, CreateJobRequest{Cell: reserved.Target, GoalID: reserved.GoalID, ShareGoal: preparation.ShareGoal, Dependencies: preparation.Dependencies,
 		ClientPayload: initial, ClientPayloadRevision: revision, InitialPayloadDigest: digest,
 		JobKey: key, JobType: jobType, ParentJobID: parentJobID, RunPolicy: policy,
 		AppMetadata: metadata, SchemaHash: schemaHash,
@@ -250,7 +255,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if err := validateStoredJobFacts(stored, key, jobType, schemaHash, parentJobID, metadata, policy, nil); err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	return jobdb.JobHandle{JobKey: key, GoalID: reserved.GoalID}, nil
+	return stored.Cell.Handle(key, stored.GoalID), nil
 }
 
 func (r *Runtime) validateExistingRestart(ctx context.Context, source, target ChapterLogKey,

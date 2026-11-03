@@ -32,6 +32,9 @@ func (r *Runtime) preflightScheduleLease(ctx context.Context, lease *runtimeLeas
 	if err != nil {
 		return r.cancelScheduledLease(ctx, lease, cancellationForOccurrence(occ, "schedule_missing", "schedule missing before app start", 0, ""))
 	}
+	if info.PauseReason == "cell_repo_mismatch" {
+		return true, nil
+	}
 	switch info.State {
 	case jobdb.ScheduleStatePaused:
 		return r.cancelScheduledLease(ctx, lease, cancellationForOccurrence(occ, "schedule_paused", "schedule paused before app start", info.Generation, info.SpecHash))

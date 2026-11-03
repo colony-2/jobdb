@@ -8,10 +8,11 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 )
 
 func TestSchemaRegistryLifecycle(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	rt := New()
 	schema := []byte(`{"chapterShape":{"type":"object","properties":{"ordinal":{"type":"integer"}}}}`)
 
@@ -70,14 +71,14 @@ func TestSchemaRegistryLifecycle(t *testing.T) {
 func TestSchemaRegistryMissing(t *testing.T) {
 	rt := New()
 	errHash := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-	_, err := rt.GetJobSchema(context.Background(), jobdb.JobSchemaKey{TenantId: "tenant-schema", SchemaHash: errHash})
+	_, err := rt.GetJobSchema(celltest.Context(context.Background()), jobdb.JobSchemaKey{TenantId: "tenant-schema", SchemaHash: errHash})
 	if !errors.Is(err, jobdb.ErrJobSchemaNotFound) {
 		t.Fatalf("get missing schema error = %v, want ErrJobSchemaNotFound", err)
 	}
 }
 
 func TestSubmitJobSchemaAssociation(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	rt := New()
 	tenantID := "tenant-schema-submit"
 	schema := chapterValidationSchemaForTest()
@@ -87,7 +88,7 @@ func TestSubmitJobSchemaAssociation(t *testing.T) {
 		t.Fatalf("compute schema hash: %v", err)
 	}
 	_, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{
-		Job: jobdb.SubmitJob{
+		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: tenantID,
 			JobType:  "invalid-schema-job",
 			Data:     jobdb.NewTaskDataOrPanic(map[string]string{"kind": "invalid"}),
@@ -98,7 +99,7 @@ func TestSubmitJobSchemaAssociation(t *testing.T) {
 		t.Fatalf("submit invalid schema job error = %v, want ErrJobSchemaValidation", err)
 	}
 	handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{
-		Job: jobdb.SubmitJob{
+		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: tenantID,
 			JobType:  "schema-job",
 			Data:     jobdb.NewTaskDataOrPanic(map[string]string{"kind": "valid"}),
@@ -216,7 +217,7 @@ func TestSubmitJobSchemaAssociation(t *testing.T) {
 	} {
 		t.Run("submit archived schema by "+tc.name, func(t *testing.T) {
 			_, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{
-				Job: jobdb.SubmitJob{
+				Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: tenantID,
 					JobType:  "archived-schema-job-" + tc.name,
 					Data:     jobdb.NewTaskDataOrPanic(map[string]string{"kind": "valid"}),
@@ -233,7 +234,7 @@ func TestSubmitJobSchemaAssociation(t *testing.T) {
 	}
 
 	plain, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{
-		Job: jobdb.SubmitJob{
+		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: tenantID,
 			JobType:  "plain-job",
 			Data:     jobdb.NewTaskDataOrPanic(map[string]int{"n": 3}),

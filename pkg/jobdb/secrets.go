@@ -50,6 +50,7 @@ type SecretResolveRequest struct {
 // bearer token. AuthorizedNotAfter includes the presenting capability's expiry,
 // which may precede LeaseExpiresAt even after the backend lease is renewed.
 type SecretLeaseContext struct {
+	Cell               ResolvedCell
 	LeaseID            string
 	WorkerID           string
 	LeaseExpiresAt     time.Time

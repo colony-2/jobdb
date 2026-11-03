@@ -50,6 +50,7 @@ func newRootCmd() *cobra.Command {
 	}
 
 	cmd.AddCommand(
+		newCellCmd(),
 		newSQLiteCmd(&listenAddr, &dbPath, &sqliteDSN, &blobDir, &blobStoreURI, &secretProvidersFile),
 		newSecretsCmd(),
 		newConfigurationCmd(),
@@ -114,7 +115,7 @@ func runToy(ctx context.Context, listenAddr string, providersFile string, limits
 	if providers.provider == nil {
 		slog.Info("no secret providers configured", "development_admin_provider", "none")
 	}
-	return serveHTTPFunc(ctx, listenAddr, remoteruntime.NewServer(providers.wrap(runtime)), nil)
+	return serveHTTPFunc(ctx, listenAddr, localCellAdministration(remoteruntime.NewServer(providers.wrap(runtime))), nil)
 }
 
 func runSQLite(ctx context.Context, listenAddr string, cfg sqliteruntime.Config, providersFile string) error {
@@ -136,7 +137,7 @@ func runSQLite(ctx context.Context, listenAddr string, cfg sqliteruntime.Config,
 		slog.Info("secret provider ready", "provider", "sqlite", "type", "sqlite", "automatic", true, "development_admin", true)
 	}
 	log.Printf("using SQLite runtime")
-	return serveHTTPFunc(ctx, listenAddr, remoteruntime.NewServer(providers.wrap(runtime)), runtime.Close)
+	return serveHTTPFunc(ctx, listenAddr, localCellAdministration(remoteruntime.NewServer(providers.wrap(runtime))), runtime.Close)
 }
 
 func sqliteConfigFromFlags(dbPath string, sqliteDSN string, blobDir string, blobStoreURI string) sqliteruntime.Config {

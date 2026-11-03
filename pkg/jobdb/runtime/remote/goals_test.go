@@ -3,14 +3,19 @@ package remote
 import (
 	"context"
 	"errors"
+
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
-	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
-	"github.com/stretchr/testify/require"
+
 	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
+
+	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
+	"github.com/stretchr/testify/require"
 )
 
 func goalRuntimes(t *testing.T, run func(*testing.T, jobdb.WorkflowRuntime)) {
@@ -21,13 +26,13 @@ func goalRuntimes(t *testing.T, run func(*testing.T, jobdb.WorkflowRuntime)) {
 				if backend == "toy" {
 					runtime = toyruntime.New()
 				} else {
-					embedded, err := sqliteruntime.StartEmbeddedRuntime(context.Background())
+					embedded, err := sqliteruntime.StartEmbeddedRuntime(celltest.Context(context.Background()))
 					require.NoError(t, err)
 					t.Cleanup(embedded.Shutdown)
 					runtime = embedded.Runtime
 				}
 				if transport == "http" {
-					server := httptest.NewServer(NewServer(runtime))
+					server := httptest.NewServer(celltest.Handler(NewServer(runtime)))
 					t.Cleanup(server.Close)
 					remote, err := New(server.URL, server.Client())
 					require.NoError(t, err)
@@ -40,7 +45,7 @@ func goalRuntimes(t *testing.T, run func(*testing.T, jobdb.WorkflowRuntime)) {
 }
 func goalSubmit(t *testing.T, r jobdb.WorkflowRuntime, id string, deps ...jobdb.Dependency) jobdb.JobHandle {
 	t.Helper()
-	handle, err := r.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: id, JobType: "work", Data: jobdb.NewTaskDataOrPanic("input"), Dependencies: deps}})
+	handle, err := r.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: id, JobType: "work", Data: jobdb.NewTaskDataOrPanic("input"), Dependencies: deps}})
 	require.NoError(t, err)
 	require.NotEmpty(t, handle.GoalID)
 	require.NotEqual(t, handle.JobKey.JobId, handle.GoalID)
@@ -51,7 +56,7 @@ func goalKey(h jobdb.JobHandle) jobdb.GoalKey {
 }
 func goalLease(t *testing.T, r jobdb.WorkflowRuntime, h jobdb.JobHandle) jobdb.ExecutionLease {
 	t.Helper()
-	lease, err := r.GetJobLease(context.Background(), jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "work"}}, LeaseDuration: time.Minute})
+	lease, err := r.GetJobLease(celltest.Context(context.Background()), jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "work"}}, LeaseDuration: time.Minute})
 	require.NoError(t, err)
 	return lease
 }
@@ -67,11 +72,11 @@ func goalComplete(t *testing.T, r jobdb.WorkflowRuntime, h jobdb.JobHandle, succ
 		outcome = jobdb.AppErrorOutcome{Error: jobdb.AppErrorPayload{Message: "try again"}}
 	}
 	chapter := jobdb.Chapter{Ordinal: 1, TaskType: "work", CreatedAt: time.Now().UTC(), Body: jobdb.JobAttemptOutcomeChapter{Outcome: outcome}}
-	require.NoError(t, lease.Complete(context.Background(), jobdb.CompleteExecutionRequest{Status: status, Chapter: &chapter}))
+	require.NoError(t, lease.Complete(celltest.Context(context.Background()), jobdb.CompleteExecutionRequest{Status: status, Chapter: &chapter}))
 }
 func TestGoalsLifecycle(t *testing.T) {
 	goalRuntimes(t, func(t *testing.T, r jobdb.WorkflowRuntime) {
-		ctx := context.Background()
+		ctx := celltest.Context(context.Background())
 		a := goalSubmit(t, r, "a")
 		info, err := r.GetGoal(ctx, goalKey(a))
 		require.NoError(t, err)
@@ -84,7 +89,7 @@ func TestGoalsLifecycle(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, info, after)
 		require.Nil(t, goalLease(t, r, consumer))
-		restart := jobdb.SubmitRestartJobRequest{RequestID: "replace-a", Job: jobdb.SubmitRestartJob{PriorJobKey: a.JobKey, ShareGoal: true, LastStepToKeep: 0}}
+		restart := jobdb.SubmitRestartJobRequest{RequestID: "replace-a", Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: a.JobKey, ShareGoal: true, LastStepToKeep: 0}}
 		b, err := r.SubmitRestartJob(ctx, restart)
 		require.NoError(t, err)
 		require.Equal(t, a.GoalID, b.GoalID)
@@ -129,7 +134,7 @@ func TestGoalRestartRequestIDConflicts(t *testing.T) {
 	goalRuntimes(t, func(t *testing.T, r jobdb.WorkflowRuntime) {
 		for _, mode := range []string{"direct", "lease"} {
 			t.Run(mode, func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				submit := r.SubmitRestartJob
 				if mode == "lease" {
 					parent := goalSubmit(t, r, "restart-parent")
@@ -141,7 +146,7 @@ func TestGoalRestartRequestIDConflicts(t *testing.T) {
 				goalComplete(t, r, source, false)
 				req := jobdb.SubmitRestartJobRequest{
 					RequestID: mode + "-restart",
-					Job:       jobdb.SubmitRestartJob{PriorJobKey: source.JobKey, ShareGoal: true},
+					Job:       jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: source.JobKey, ShareGoal: true},
 				}
 				restarted, err := submit(ctx, req)
 				require.NoError(t, err)
@@ -175,7 +180,7 @@ func TestGoalRestartRequestIDConflicts(t *testing.T) {
 }
 func TestGoalFailureSnapshotAndCancellation(t *testing.T) {
 	goalRuntimes(t, func(t *testing.T, r jobdb.WorkflowRuntime) {
-		ctx := context.Background()
+		ctx := celltest.Context(context.Background())
 		a := goalSubmit(t, r, "a")
 		b := goalSubmit(t, r, "b")
 		_, err := r.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: goalKey(a), JobID: b.JobKey.JobId})
@@ -205,7 +210,7 @@ func TestGoalFailureSnapshotAndCancellation(t *testing.T) {
 }
 func TestGoalAttachSuccessCycleAndDurableWait(t *testing.T) {
 	goalRuntimes(t, func(t *testing.T, r jobdb.WorkflowRuntime) {
-		ctx := context.Background()
+		ctx := celltest.Context(context.Background())
 		a := goalSubmit(t, r, "a")
 		b := goalSubmit(t, r, "b")
 		lease := goalLease(t, r, b)
@@ -234,7 +239,7 @@ func TestGoalAttachSuccessCycleAndDurableWait(t *testing.T) {
 }
 func TestConcurrentGoalResolution(t *testing.T) {
 	goalRuntimes(t, func(t *testing.T, r jobdb.WorkflowRuntime) {
-		ctx := context.Background()
+		ctx := celltest.Context(context.Background())
 		a := goalSubmit(t, r, "a")
 		b := goalSubmit(t, r, "b")
 		_, err := r.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: goalKey(a), JobID: b.JobKey.JobId})
@@ -264,7 +269,7 @@ func TestConcurrentGoalResolution(t *testing.T) {
 
 func TestDependencyTimeoutCancellationAndValidation(t *testing.T) {
 	goalRuntimes(t, func(t *testing.T, r jobdb.WorkflowRuntime) {
-		ctx := context.Background()
+		ctx := celltest.Context(context.Background())
 		a := goalSubmit(t, r, "a")
 		consumer := goalSubmit(t, r, "consumer")
 		lease := goalLease(t, r, consumer)
@@ -296,9 +301,9 @@ func TestDependencyTimeoutCancellationAndValidation(t *testing.T) {
 		}
 		_, err = r.GetGoal(ctx, jobdb.GoalKey{TenantId: "another", GoalID: a.GoalID})
 		require.ErrorIs(t, err, jobdb.ErrGoalNotFound)
-		_, err = r.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{JobID: "closed-restart", PriorJobKey: a.JobKey, ShareGoal: true}})
+		_, err = r.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", JobID: "closed-restart", PriorJobKey: a.JobKey, ShareGoal: true}})
 		require.ErrorIs(t, err, jobdb.ErrGoalConflict)
-		invalid := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "invalid", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil), Dependencies: []jobdb.Dependency{{Target: jobdb.DependencyTarget{JobID: "a", GoalID: a.GoalID}, Condition: jobdb.JobPrereqSuccess}}}}
+		invalid := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "invalid", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil), Dependencies: []jobdb.Dependency{{Target: jobdb.DependencyTarget{JobID: "a", GoalID: a.GoalID}, Condition: jobdb.JobPrereqSuccess}}}}
 		_, err = r.SubmitJob(ctx, invalid)
 		require.ErrorIs(t, err, jobdb.ErrInvalidDependency)
 	})

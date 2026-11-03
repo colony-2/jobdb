@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 )
 
 type pollTrackingRuntime struct {
@@ -136,7 +138,7 @@ func TestWorkerEngineSerializesPollsAndUsesDistinctWorkerIDs(t *testing.T) {
 		t.Fatalf("build worker engine: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	defer cancel()
 	done := make(chan struct{})
 	go func() {

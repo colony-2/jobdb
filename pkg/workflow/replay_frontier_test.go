@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,7 +16,7 @@ import (
 func TestReplayFrontierDoesNotInventDurableEvents(t *testing.T) {
 	for _, kind := range []string{"scope", "task", "attempt", "result", "catch", "decision", "wait", "sleep", "join", "admission", "dispatch"} {
 		t.Run(kind, func(t *testing.T) {
-			ctx, cancel := context.WithCancelCause(context.Background())
+			ctx, cancel := context.WithCancelCause(celltest.Context(context.Background()))
 			defer cancel(context.Canceled)
 			e := &executionRun{r: &workerRunner{replay: true}, ordinal: 7, initialVersions: jobdb.ExecutionVersions{ExecutionPatternVersion: jobdb.ExecutionPatternVersion}, active: map[*executionContext]bool{}}
 			c := &executionContext{run: e, ctx: ctx, cancel: cancel, deadline: time.Now().Add(-time.Hour)}
@@ -41,7 +42,7 @@ func TestReplayFrontierDoesNotInventDurableEvents(t *testing.T) {
 }
 
 func TestReplayUnfinishedBackoffAndMissingCatch(t *testing.T) {
-	ctx, cancel := context.WithCancelCause(context.Background())
+	ctx, cancel := context.WithCancelCause(celltest.Context(context.Background()))
 	defer cancel(context.Canceled)
 	e := &executionRun{r: &workerRunner{replay: true}, ordinal: 5, active: map[*executionContext]bool{}}
 	c := &executionContext{run: e, ctx: ctx, cancel: cancel, deadline: time.Now().Add(-time.Hour)}

@@ -7,6 +7,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -74,17 +75,17 @@ func TestExecutionReplayPreservesObserverHistoryAndExpiredBudgets(t *testing.T) 
 		seedJobStartForTest(t, rt, key, job.Name(), NewTaskDataOrPanic(42), policy)
 		lease := &fakeExecutionLease{runtime: rt, job: JobHandle{JobKey: key}, route: Route{JobType: job.Name()}}
 		live := &historyObserver{}
-		_, err := newWorkerRunner(rt, ws, lease, workerRunnerOptions{Observer: live}).DoJob(context.Background())
+		_, err := newWorkerRunner(rt, ws, lease, workerRunnerOptions{Observer: live}).DoJob(celltest.Context(context.Background()))
 		require.NoError(t, err)
-		before, err := rt.ListChapters(context.Background(), ListChaptersRequest{JobKey: key})
+		before, err := rt.ListChapters(celltest.Context(context.Background()), ListChaptersRequest{JobKey: key})
 		require.NoError(t, err)
 		time.Sleep(2 * time.Hour)
 		replay := &historyObserver{}
-		_, err = newWorkerRunner(rt, ws, nil, workerRunnerOptions{JobKey: key, Replay: true, Observer: replay}).DoJob(context.Background())
+		_, err = newWorkerRunner(rt, ws, nil, workerRunnerOptions{JobKey: key, Replay: true, Observer: replay}).DoJob(celltest.Context(context.Background()))
 		require.NoError(t, err)
 		require.Equal(t, live.events, replay.events)
 		require.EqualValues(t, 2, calls.Load())
-		after, err := rt.ListChapters(context.Background(), ListChaptersRequest{JobKey: key})
+		after, err := rt.ListChapters(celltest.Context(context.Background()), ListChaptersRequest{JobKey: key})
 		require.NoError(t, err)
 		require.Equal(t, before, after)
 	})

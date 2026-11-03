@@ -91,7 +91,7 @@ func TestExternalTaskCompletionParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []workflow.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) externalTaskObservation {
-				jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{
+				jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: subject.built.WorkerTenantID,
 					JobType:  ws.JobWorker.Name(),
 					JobID:    "approval",
@@ -156,7 +156,7 @@ func TestTaskFailureParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []workflow.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) failureObservation {
-				jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{
+				jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: subject.built.WorkerTenantID,
 					JobType:  ws.JobWorker.Name(),
 					JobID:    "task-failure",
@@ -207,7 +207,7 @@ func TestJobFailureParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []workflow.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) failureObservation {
-				jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{
+				jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: subject.built.WorkerTenantID,
 					JobType:  jobdbtest.FailingJobName,
 					JobID:    "job-failure",
@@ -258,7 +258,7 @@ func TestReplayAfterExternalTaskCompletionParityAcrossBuiltInRuntimes(t *testing
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []workflow.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) replayObservation {
-				jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{
+				jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: subject.built.WorkerTenantID,
 					JobType:  ws.JobWorker.Name(),
 					JobID:    "approval",
@@ -314,7 +314,7 @@ func TestAwaitJobsParityAcrossBuiltInRuntimes(t *testing.T) {
 						}
 					}()
 
-					childKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{
+					childKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 						TenantId: subject.built.WorkerTenantID,
 						JobType:  wsChild.JobWorker.Name(),
 						JobID:    "child",
@@ -330,7 +330,7 @@ func TestAwaitJobsParityAcrossBuiltInRuntimes(t *testing.T) {
 						t.Fatalf("child start signal via %s: %v", subject.mode, ctx.Err())
 					}
 
-					parentKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{
+					parentKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 						TenantId: childKey.TenantId,
 						JobType:  wsParent.JobWorker.Name(),
 						JobID:    "parent",
@@ -416,7 +416,7 @@ func TestTaskContextAwaitJobsParityAcrossBuiltInRuntimes(t *testing.T) {
 						}
 					}()
 
-					childKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{
+					childKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 						TenantId: subject.built.WorkerTenantID,
 						JobType:  wsChild.JobWorker.Name(),
 						JobID:    "child",
@@ -431,7 +431,7 @@ func TestTaskContextAwaitJobsParityAcrossBuiltInRuntimes(t *testing.T) {
 						t.Fatalf("child start signal via %s: %v", subject.mode, ctx.Err())
 					}
 
-					parentKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{
+					parentKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 						TenantId: childKey.TenantId,
 						JobType:  wsParent.JobWorker.Name(),
 						JobID:    "parent",
@@ -506,7 +506,7 @@ func TestAwaitDurationParityAcrossBuiltInRuntimes(t *testing.T) {
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []workflow.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) awaitDurationObservation {
 				started := time.Now()
-				jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{
+				jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: subject.built.WorkerTenantID,
 					JobType:  ws.JobWorker.Name(),
 					JobID:    "await-duration",
@@ -560,7 +560,7 @@ func TestJobRetryParityAcrossBuiltInRuntimes(t *testing.T) {
 				job := &retryJob{}
 				ws := jobdbtest.MustWorkSet(t, job)
 				return observeViaMode(t, harness, mode, []workflow.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) retryObservation {
-					jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{
+					jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 						TenantId: subject.built.WorkerTenantID,
 						JobType:  job.Name(),
 						JobID:    "retry-job",
@@ -610,7 +610,7 @@ func TestTaskRetryParityOnDirectRuntime(t *testing.T) {
 				task := &retryTask{}
 				ws := jobdbtest.MustWorkSet(t, job, task)
 				return observeViaMode(t, harness, mode, []workflow.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) retryObservation {
-					jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{
+					jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 						TenantId: subject.built.WorkerTenantID,
 						JobType:  job.Name(),
 						JobID:    "retry-task",

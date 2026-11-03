@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -47,7 +49,7 @@ func TestExecutionReplayDescriptorDiagnostics(t *testing.T) {
 			require.Equal(t, wf.JobRunFailed, out.Status)
 			var timeout jobdb.TimeoutError
 			require.ErrorAs(t, out.JobError, &timeout)
-			before, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+			before, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 			require.NoError(t, err)
 			originalOptions, originalCall := opts, call
 			for _, tc := range []struct {
@@ -84,7 +86,7 @@ func TestExecutionReplayDescriptorDiagnostics(t *testing.T) {
 					require.NotContains(t, err.Error(), "current-secret-value")
 					require.EqualValues(t, 1, builds.Load())
 					require.EqualValues(t, 1, runs.Load())
-					after, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+					after, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 					require.NoError(t, err)
 					require.Equal(t, before, after, "replay must not rewrite history")
 				})

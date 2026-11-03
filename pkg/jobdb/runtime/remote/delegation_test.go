@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -35,12 +36,12 @@ func newDelegationFixture(t *testing.T, kind string, provider jobdb.SecretProvid
 	f := &delegationFixture{backend: providerRuntime(t, kind, provider), signer: newLeaseTokenSigner()}
 	handler, err := newServer(f.backend, f.signer)
 	require.NoError(t, err)
-	f.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	f.server = httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/keepalive") && isDelegationToken(r.Header.Get("X-JobDB-Lease-Token")) {
 			f.renews.Add(1)
 		}
 		handler.ServeHTTP(w, r)
-	}))
+	})))
 	t.Cleanup(f.server.Close)
 	f.client, err = New(f.server.URL, f.server.Client())
 	require.NoError(t, err)
@@ -57,7 +58,7 @@ func delegationPolicy() jobdb.DelegationPermissions {
 }
 func (f *delegationFixture) create(t *testing.T, req jobdb.CreateDelegationRequest) *remoteExecutionLease {
 	t.Helper()
-	l, err := f.client.CreateDelegation(context.Background(), f.owner, req)
+	l, err := f.client.CreateDelegation(celltest.Context(context.Background()), f.owner, req)
 	require.NoError(t, err)
 	return l.(*remoteExecutionLease)
 }
@@ -65,7 +66,7 @@ func (f *delegationFixture) validity(t *testing.T) jobdb.LeaseValidity {
 	t.Helper()
 	v, err := f.backend.(interface {
 		ValidateExecutionLeaseByID(context.Context, jobdb.JobKey, string, string) (jobdb.LeaseValidity, error)
-	}).ValidateExecutionLeaseByID(context.Background(), f.owner.Job().JobKey, f.owner.LeaseID(), f.owner.(*remoteExecutionLease).workerID)
+	}).ValidateExecutionLeaseByID(celltest.Context(context.Background()), f.owner.Job().JobKey, f.owner.LeaseID(), f.owner.(*remoteExecutionLease).workerID)
 	require.NoError(t, err)
 	return v
 }
@@ -103,7 +104,7 @@ func delegationChapter(ordinal int64) jobdb.Chapter {
 func TestDelegationLeaseCompatibilityAndPermissions(t *testing.T) {
 	for _, kind := range []string{"toy", "sqlite"} {
 		t.Run(kind, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			var providerCalls atomic.Int32
 			f := newDelegationFixture(t, kind, testSecretProvider(func(_ context.Context, req jobdb.SecretResolveRequest) (jobdb.SecretResolveResult, error) {
 				providerCalls.Add(1)
@@ -127,11 +128,11 @@ func TestDelegationLeaseCompatibilityAndPermissions(t *testing.T) {
 			imported, err := isolated.ImportLease(ctx, importedCap)
 			require.NoError(t, err)
 			require.Equal(t, int32(0), f.renews.Load(), "import must not require renewal")
-			_, err = imported.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{JobType: "child", Data: jobdb.NewTaskDataOrPanic(42)}})
+			_, err = imported.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(42)}})
 			require.NoError(t, err)
-			_, err = imported.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{JobType: "other", Data: jobdb.NewTaskDataOrPanic(42)}})
+			_, err = imported.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", JobType: "other", Data: jobdb.NewTaskDataOrPanic(42)}})
 			require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
-			_, err = imported.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{JobType: "other", JobID: "specific", Data: jobdb.NewTaskDataOrPanic(42)}})
+			_, err = imported.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", JobType: "other", JobID: "specific", Data: jobdb.NewTaskDataOrPanic(42)}})
 			require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
 			secrets, err := imported.ResolveSecrets(ctx, []string{"allowed", "denied", "unknown"})
 			require.NoError(t, err)
@@ -210,12 +211,12 @@ func TestDelegationUsableUntilDeadline(t *testing.T) {
 				before := f.validity(t)
 				cap, err := ExportLease(l)
 				require.NoError(t, err)
-				_, err = f.client.ImportLease(context.Background(), cap)
+				_, err = f.client.ImportLease(celltest.Context(context.Background()), cap)
 				require.NoError(t, err)
 				require.Equal(t, int32(0), f.renews.Load(), "valid import needs no refresh")
-				require.NoError(t, l.KeepAlive(context.Background()))
+				require.NoError(t, l.KeepAlive(celltest.Context(context.Background())))
 				f.staleSnapshot(t, l)
-				_, err = l.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{JobType: "child", Data: jobdb.NewTaskDataOrPanic(1)}})
+				_, err = l.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(1)}})
 				require.NoError(t, err)
 				require.Equal(t, int32(1), f.renews.Load(), "only explicit keepalive; operations need no refresh")
 				require.Equal(t, before, f.validity(t))
@@ -236,7 +237,7 @@ func TestDelegationConcurrentSubmissionNeedsNoRefresh(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, err := l.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{JobType: "child", JobID: fmt.Sprint("child-", i), Data: jobdb.NewTaskDataOrPanic(i)}})
+			_, err := l.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", JobType: "child", JobID: fmt.Sprint("child-", i), Data: jobdb.NewTaskDataOrPanic(i)}})
 			errs <- err
 		}(i)
 	}
@@ -289,9 +290,9 @@ func TestDelegationIsolatedProcess(t *testing.T) {
 		require.NoError(t, err)
 		cap, err := DecodeLeaseCapability(handoff.Capability)
 		require.NoError(t, err)
-		lease, err := c.ImportLease(context.Background(), cap)
+		lease, err := c.ImportLease(celltest.Context(context.Background()), cap)
 		require.NoError(t, err)
-		ctx := context.Background()
+		ctx := celltest.Context(context.Background())
 		token := lease.(interface{ LeaseToken() string }).LeaseToken()
 		_, err = c.GetChapter(ctx, jobdb.ChapterRef{JobKey: lease.Job().JobKey, LeaseID: lease.LeaseID(), LeaseToken: token, Ordinal: 0})
 		require.NoError(t, err)
@@ -301,7 +302,7 @@ func TestDelegationIsolatedProcess(t *testing.T) {
 		require.NoError(t, c.PutChapter(ctx, jobdb.PutChapterRequest{LeaseID: lease.LeaseID(), LeaseToken: token, Ref: jobdb.ChapterRef{JobKey: lease.Job().JobKey, Ordinal: 1}, Chapter: delegationChapter(1)}))
 		narrow, err := c.CreateDelegation(ctx, lease, jobdb.CreateDelegationRequest{Permissions: jobdb.DelegationPermissions{Submit: delegationPolicy().Submit}})
 		require.NoError(t, err)
-		_, err = narrow.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{JobType: "child", Data: jobdb.NewTaskDataOrPanic("isolated")}})
+		_, err = narrow.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", JobType: "child", Data: jobdb.NewTaskDataOrPanic("isolated")}})
 		require.NoError(t, err)
 		require.NoError(t, narrow.KeepAlive(ctx))
 		return
@@ -311,7 +312,7 @@ func TestDelegationIsolatedProcess(t *testing.T) {
 	}))
 	handler, err := NewDelegationServerWithOptions(f.backend, ServerOptions{LeaseTokenSigningKey: f.signer.key})
 	require.NoError(t, err)
-	ingress := httptest.NewServer(handler)
+	ingress := httptest.NewServer(celltest.Handler(handler))
 	defer ingress.Close()
 	l := f.create(t, jobdb.CreateDelegationRequest{Permissions: delegationPolicy()})
 	f.staleSnapshot(t, l)
@@ -327,7 +328,7 @@ func TestDelegationIsolatedProcess(t *testing.T) {
 	require.NoError(t, err)
 	binary, err := os.Executable()
 	require.NoError(t, err)
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binary, "-test.run=^TestDelegationIsolatedProcess$")
 	cmd.Env = []string{"JOBDB_DELEGATION_CHILD=1"}
@@ -342,7 +343,7 @@ func TestDelegationIsolatedProcess(t *testing.T) {
 func TestDelegationDiesWithExpiredOrReplacedParent(t *testing.T) {
 	for _, kind := range []string{"toy", "sqlite"} {
 		t.Run(kind, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			f := newDelegationFixture(t, kind, nil)
 			l := f.create(t, jobdb.CreateDelegationRequest{Permissions: delegationPolicy()})
 			require.NoError(t, f.backend.(interface {
@@ -362,7 +363,7 @@ func TestDelegationDiesWithExpiredOrReplacedParent(t *testing.T) {
 
 func TestDelegationReadFiltersAndExactSubmissionIDs(t *testing.T) {
 	f := newDelegationFixture(t, "toy", nil)
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	for _, ordinal := range []int64{1, 2, 3} {
 		c := delegationChapter(ordinal)
 		require.NoError(t, f.client.PutChapter(ctx, jobdb.PutChapterRequest{LeaseID: f.owner.LeaseID(), LeaseToken: f.owner.(*remoteExecutionLease).LeaseToken(), Ref: jobdb.ChapterRef{JobKey: f.owner.Job().JobKey, Ordinal: ordinal}, Chapter: c}))
@@ -377,7 +378,7 @@ func TestDelegationReadFiltersAndExactSubmissionIDs(t *testing.T) {
 	require.Equal(t, int64(1), chapters[0].Ordinal)
 	require.Equal(t, int64(2), chapters[1].Ordinal)
 	for _, id := range []string{"", "wrong", "exact"} {
-		_, err := l.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{JobID: id, JobType: "child", Data: jobdb.NewTaskDataOrPanic(1)}})
+		_, err := l.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", JobID: id, JobType: "child", Data: jobdb.NewTaskDataOrPanic(1)}})
 		if id == "exact" {
 			require.NoError(t, err)
 		} else {
@@ -393,7 +394,7 @@ func TestDelegationReadFiltersAndExactSubmissionIDs(t *testing.T) {
 
 func TestDelegationFreshArtifactsAndNoSchemaRegistration(t *testing.T) {
 	f := newDelegationFixture(t, "toy", nil)
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	l := f.create(t, jobdb.CreateDelegationRequest{Permissions: delegationPolicy()})
 	upload := jobdb.ArtifactUpload{Name: "result", Size: 2, Open: func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("ok")), nil }}
 	req := jobdb.PutChapterRequest{LeaseID: l.LeaseID(), LeaseToken: l.LeaseToken(), Ref: jobdb.ChapterRef{JobKey: l.Job().JobKey, Ordinal: 1}, Chapter: delegationChapter(1), ArtifactUploads: []jobdb.ArtifactUpload{upload}}
@@ -401,7 +402,7 @@ func TestDelegationFreshArtifactsAndNoSchemaRegistration(t *testing.T) {
 	require.ErrorIs(t, f.client.PutChapter(ctx, req), jobdb.ErrLeasePermissionDenied)
 	req.ArtifactUploads[0].Name = "result"
 	require.NoError(t, f.client.PutChapter(ctx, req))
-	_, err := l.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{JobType: "child", Data: jobdb.NewTaskDataOrPanic(1), Schema: &jobdb.JobSchemaSelector{Schema: json.RawMessage(`{}`)}}})
+	_, err := l.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(1), Schema: &jobdb.JobSchemaSelector{Schema: json.RawMessage(`{}`)}}})
 	require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
 }
 
@@ -441,14 +442,14 @@ func TestDelegationTransportDoesNotReplayOtherFailuresOrFollowRedirects(t *testi
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
 			var calls atomic.Int32
 			var destinationCalls atomic.Int32
-			destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { destinationCalls.Add(1) }))
+			destination := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { destinationCalls.Add(1) })))
 			defer destination.Close()
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls.Add(1)
 				w.Header().Set("Location", destination.URL)
 				w.WriteHeader(status)
 				fmt.Fprint(w, `{"code":"some_other_failure"}`)
-			}))
+			})))
 			defer server.Close()
 			client, err := New(server.URL, server.Client())
 			require.NoError(t, err)
@@ -474,7 +475,7 @@ func TestDelegationDeadlineDuringOperationIsNotRetried(t *testing.T) {
 	l := f.create(t, jobdb.CreateDelegationRequest{Permissions: delegationPolicy()})
 	deadline := time.Now().UTC().Add(100 * time.Millisecond)
 	l.leaseToken = appendTestRestriction(t, l.LeaseToken(), delegationPolicy(), &deadline)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), time.Second)
 	defer cancel()
 	_, err := l.ResolveSecrets(ctx, []string{"allowed"})
 	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
@@ -489,7 +490,7 @@ func TestDelegationKeepAlivePreservesGrant(t *testing.T) {
 	before := f.validity(t)
 	for i := 0; i < 2; i++ {
 		f.staleSnapshot(t, l)
-		require.NoError(t, l.KeepAlive(context.Background()))
+		require.NoError(t, l.KeepAlive(celltest.Context(context.Background())))
 		require.Equal(t, original, l.LeaseToken())
 		require.Equal(t, before.ExpiresAt, l.LeaseExpiry())
 	}
@@ -507,13 +508,13 @@ func TestDelegationWorksAcrossReplicasWithSharedKey(t *testing.T) {
 		}
 		handler, err := NewServerWithOptions(f.backend, ServerOptions{LeaseTokenSigningKey: key})
 		require.NoError(t, err)
-		replica := httptest.NewServer(handler)
+		replica := httptest.NewServer(celltest.Handler(handler))
 		t.Cleanup(replica.Close)
 		client, err := New(replica.URL, replica.Client())
 		require.NoError(t, err)
 		cap, err := ExportLease(l)
 		require.NoError(t, err)
-		_, err = client.ImportLease(context.Background(), cap)
+		_, err = client.ImportLease(celltest.Context(context.Background()), cap)
 		if sameKey {
 			require.NoError(t, err)
 		} else {
@@ -528,7 +529,7 @@ func TestDelegationOnlyIngressRejectsMissingAndOwnerCredentials(t *testing.T) {
 	f.staleSnapshot(t, l)
 	handler, err := NewDelegationServerWithOptions(f.backend, ServerOptions{LeaseTokenSigningKey: f.signer.key})
 	require.NoError(t, err)
-	ingress := httptest.NewServer(handler)
+	ingress := httptest.NewServer(celltest.Handler(handler))
 	defer ingress.Close()
 	for _, token := range []string{"", f.owner.(*remoteExecutionLease).LeaseToken(), "invalid"} {
 		for _, path := range []string{"/v1/tenants/tenant/jobs", delegationBase(l), "/dev/v1/tenants/tenant/secrets/set"} {
@@ -545,9 +546,9 @@ func TestDelegationOnlyIngressRejectsMissingAndOwnerCredentials(t *testing.T) {
 	require.NoError(t, err)
 	cap, err := ExportLease(l)
 	require.NoError(t, err)
-	imported, err := client.ImportLease(context.Background(), cap)
+	imported, err := client.ImportLease(celltest.Context(context.Background()), cap)
 	require.NoError(t, err)
-	_, err = imported.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{JobType: "child", Data: jobdb.NewTaskDataOrPanic(1)}})
+	_, err = imported.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, err)
 }
 
@@ -560,7 +561,7 @@ func TestDelegationRenewalIsCappedAtHardDeadline(t *testing.T) {
 			before := f.validity(t)
 			require.Equal(t, deadline, child.LeaseExpiry())
 			f.staleSnapshot(t, child)
-			next, err := child.Renew(context.Background())
+			next, err := child.Renew(celltest.Context(context.Background()))
 			require.NoError(t, err)
 			require.Equal(t, deadline, next.LeaseExpiry())
 			require.Equal(t, &deadline, next.(*remoteExecutionLease).Delegation().NotAfter)

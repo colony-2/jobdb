@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -63,7 +65,7 @@ func TestInterruptedJobReplayAcrossRuntimes(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
 			rt := alternateRuntime(t, backend)
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 10*time.Second)
 			defer cancel()
 			release, exited := make(chan struct{}), make(chan struct{})
 			var once sync.Once
@@ -78,7 +80,7 @@ func TestInterruptedJobReplayAcrossRuntimes(t *testing.T) {
 			policy := jobdb.DefaultRunPolicy()
 			policy.Retry.MaximumAttempts = 2
 			policy.InvocationTimeout = jobdb.AsDuration(300 * time.Millisecond)
-			handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
+			handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 				TenantId: "tenant", JobType: job.Name(), Data: jobdb.NewTaskDataOrPanic(42), RunPolicy: policy,
 			}})
 			require.NoError(t, err)

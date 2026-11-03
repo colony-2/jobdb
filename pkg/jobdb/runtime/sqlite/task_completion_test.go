@@ -10,19 +10,20 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
 )
 
 func waitingTaskFixture(t *testing.T) (*Runtime, Config, jobdb.CompleteTaskIfWaitingRequest) {
 	t.Helper()
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	cfg := Config{DBPath: filepath.Join(t.TempDir(), "jobdb.db")}
 	r, err := NewFromConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = r.Close(ctx) })
-	h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
+	h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 		TenantId: "tenant", JobID: "job", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1),
 		ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"keep":true}`)},
 	}})
@@ -55,7 +56,7 @@ func TestTaskCompletionRecoversAfterRestart(t *testing.T) {
 			name = "after_chapter"
 		}
 		t.Run(name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			r, cfg, req := waitingTaskFixture(t)
 			trigger := `CREATE TRIGGER fail_completion BEFORE INSERT ON jobdb_chapter_chapters BEGIN SELECT RAISE(ABORT, 'injected failure'); END`
 			if afterChapter {
@@ -132,7 +133,7 @@ func TestTaskCompletionRecoversAfterRestart(t *testing.T) {
 func TestTaskCompletionChecksClaimBeforeAppend(t *testing.T) {
 	for _, cause := range []string{"expired", "replaced", "cancelled"} {
 		t.Run(cause, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			r, _, req := waitingTaskFixture(t)
 			row, err := r.loadJobRow(ctx, req.JobKey)
 			if err != nil {
@@ -169,7 +170,7 @@ func TestTaskCompletionChecksClaimBeforeAppend(t *testing.T) {
 }
 
 func TestTaskCompletionClaimRejectsChangedWaitAndUnavailableTask(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	r, _, req := waitingTaskFixture(t)
 	row, err := r.loadJobRow(ctx, req.JobKey)
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -39,9 +41,9 @@ func TestCatchHistorySuspendResume(t *testing.T) {
 			// Separate public engine only completes external work; inspection never uses it.
 			completion, err := wf.NewEngineBuilder().WithRuntime(recording).BuildEngine()
 			require.NoError(t, err)
-			waiting, err := completion.GetWaitingTask(context.Background(), key)
+			waiting, err := completion.GetWaitingTask(celltest.Context(context.Background()), key)
 			require.NoError(t, err)
-			require.NoError(t, waiting.Finish(context.Background(), jobdb.NewTaskDataOrPanic("answer")))
+			require.NoError(t, waiting.Finish(celltest.Context(context.Background()), jobdb.NewTaskDataOrPanic("answer")))
 			rules[0].Match = func(error) bool { panic("recorded predicate reevaluated") }
 			out, err = runExecutionTest(t, recording, key, w)
 			require.NoError(t, err)
@@ -77,7 +79,7 @@ func TestCatchHistoryRestart(t *testing.T) {
 			require.Equal(t, wf.JobRunCompleted, out.Status)
 			before := readCatches(t, inspection, source)
 			target := catchAt(t, before, "restart-target").Boundary.BoundaryID
-			restarted, err := recording.SubmitRestartJob(context.Background(), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: source, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target}}})
+			restarted, err := recording.SubmitRestartJob(celltest.Context(context.Background()), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: source, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target}}})
 			require.NoError(t, err)
 			out, err = runExecutionTest(t, recording, restarted.JobKey, w)
 			require.NoError(t, err)

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -26,9 +27,9 @@ func configurationBackend(t *testing.T, kind string) jobdb.WorkflowRuntime {
 	if kind == "toy" {
 		return toy.New()
 	}
-	r, err := sqlite.NewFromConfig(context.Background(), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+	r, err := sqlite.NewFromConfig(celltest.Context(context.Background()), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, r.Close(context.Background())) })
+	t.Cleanup(func() { require.NoError(t, r.Close(celltest.Context(context.Background()))) })
 	return r
 }
 func TestConfigurationConformance(t *testing.T) {
@@ -37,7 +38,7 @@ func TestConfigurationConformance(t *testing.T) {
 			t.Run(backend+"/"+transport, func(t *testing.T) {
 				rt := configurationBackend(t, backend)
 				if transport == "http" {
-					server := httptest.NewServer(remote.NewServer(rt))
+					server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
 					t.Cleanup(server.Close)
 					client, err := remote.New(server.URL, nil)
 					require.NoError(t, err)
@@ -50,7 +51,7 @@ func TestConfigurationConformance(t *testing.T) {
 }
 func TestConfigurationHTTPValidation(t *testing.T) {
 	rt := toy.New(toy.WithConfigurationLimits(jobdb.ConfigurationLimits{MaxRequestBytes: 256, MaxValueBytes: 64}))
-	server := httptest.NewServer(remote.NewServer(rt))
+	server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
 	defer server.Close()
 	post := func(path, body, tag string) (int, http.Header, string) {
 		req, err := http.NewRequest(http.MethodPost, server.URL+path, strings.NewReader(body))
@@ -83,7 +84,7 @@ func TestConfigurationHTTPValidation(t *testing.T) {
 	require.NotEmpty(t, headers.Get("ETag"))
 	status, _, _ = post(path, `{"name":"x","value":2}`, `"cfg-0"`)
 	require.Equal(t, 412, status)
-	snap, err := rt.GetTenantConfiguration(context.Background(), "a")
+	snap, err := rt.GetTenantConfiguration(celltest.Context(context.Background()), "a")
 	require.NoError(t, err)
 	require.Equal(t, "null", string(snap.Values["x"]))
 	// An opaque tenant named "leases" must not be mistaken for a lease route.
@@ -94,9 +95,9 @@ func TestConfigurationHTTPValidation(t *testing.T) {
 	// Missing token, forged token, another job, and another tenant all share lease-lost semantics.
 	client, err := remote.New(server.URL, nil)
 	require.NoError(t, err)
-	job, err := client.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "a", JobType: "job", Data: jobdb.NewTaskDataOrPanic(nil)}})
+	job, err := client.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "a", JobType: "job", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	require.NoError(t, err)
-	lease, err := client.GetJobLease(context.Background(), jobdb.GetJobLeaseRequest{JobKey: job.JobKey, WorkerID: "w", Routes: []jobdb.Route{{JobType: "job"}}, LeaseDuration: time.Minute})
+	lease, err := client.GetJobLease(celltest.Context(context.Background()), jobdb.GetJobLeaseRequest{JobKey: job.JobKey, WorkerID: "w", Routes: []jobdb.Route{{JobType: "job"}}, LeaseDuration: time.Minute})
 	require.NoError(t, err)
 	token := lease.(interface{ LeaseToken() string }).LeaseToken()
 	for _, test := range []struct{ tenant, job, token string }{{"a", job.JobKey.JobId, ""}, {"a", job.JobKey.JobId, "forged"}, {"b", job.JobKey.JobId, token}, {"a", "missing", token}} {
@@ -114,7 +115,7 @@ func TestConfigurationHTTPValidation(t *testing.T) {
 }
 func TestConfigurationRemoteNeverCachesAndSanitizesFailures(t *testing.T) {
 	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := calls.Add(1)
 		if n == 2 {
 			w.WriteHeader(503)
@@ -123,32 +124,32 @@ func TestConfigurationRemoteNeverCachesAndSanitizesFailures(t *testing.T) {
 		}
 		w.Header().Set("ETag", fmt.Sprintf(`"cfg-%d"`, n))
 		fmt.Fprintf(w, `{"revision":"cfg-%d","values":{"n":%d}}`, n, n)
-	}))
+	})))
 	defer server.Close()
 	client, err := remote.New(server.URL, nil)
 	require.NoError(t, err)
-	first, err := client.GetTenantConfiguration(context.Background(), "a")
+	first, err := client.GetTenantConfiguration(celltest.Context(context.Background()), "a")
 	require.NoError(t, err)
-	failed, err := client.GetTenantConfiguration(context.Background(), "a")
+	failed, err := client.GetTenantConfiguration(celltest.Context(context.Background()), "a")
 	require.ErrorIs(t, err, jobdb.ErrConfigurationUnavailable)
 	require.Empty(t, failed.Values)
 	require.NotContains(t, err.Error(), "private")
-	third, err := client.GetTenantConfiguration(context.Background(), "a")
+	third, err := client.GetTenantConfiguration(celltest.Context(context.Background()), "a")
 	require.NoError(t, err)
 	require.NotEqual(t, first.Revision, third.Revision)
 	require.EqualValues(t, 3, calls.Load())
 	for _, body := range []string{`{"revision":"cfg-1"}`, `{"revision":"cfg-1","values":null}`, `{"revision":"cfg-1","values":{},"extra":1}`, `{"revision":"cfg-1","values":{"n":1,"n":2}}`} {
-		bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Header().Set("ETag", `"cfg-1"`); fmt.Fprint(w, body) }))
+		bad := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Header().Set("ETag", `"cfg-1"`); fmt.Fprint(w, body) })))
 		c, e := remote.New(bad.URL, nil)
 		require.NoError(t, e)
-		_, e = c.GetTenantConfiguration(context.Background(), "a")
+		_, e = c.GetTenantConfiguration(celltest.Context(context.Background()), "a")
 		bad.Close()
 		require.ErrorIs(t, e, jobdb.ErrConfigurationFailed)
 	}
 }
 func TestConfigurationSQLitePersistsAndLimitsRecover(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "jobs.db")
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	r, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path})
 	require.NoError(t, err)
 	rev, err := r.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "a", Name: "x", Value: json.RawMessage(`"stored-value"`)})

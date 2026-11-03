@@ -7,11 +7,18 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
+
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 )
 
 type readTestScheduler struct{ runtimecore.Scheduler }
+
+func (readTestScheduler) GetJob(_ context.Context, key jobdb.JobKey) (runtimecore.StoredJob, error) {
+	return runtimecore.StoredJob{JobKey: key, Cell: jobdb.ResolvedCell{Cell: "test", CellID: "cell", CellRepo: "example.test/test"}}, nil
+}
+
 type readTestSchemas struct{ runtimecore.SchemaStore }
 
 type readTestChapters struct {
@@ -54,7 +61,7 @@ func TestRuntimeReadsChapterThroughPublicPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := runtime.GetChapter(context.Background(), jobdb.ChapterRef{JobKey: key, Ordinal: 0})
+	got, err := runtime.GetChapter(celltest.Context(context.Background()), jobdb.ChapterRef{JobKey: key, Ordinal: 0})
 	if err != nil || got.TaskType != want.TaskType || got.Ordinal != want.Ordinal {
 		t.Fatalf("get chapter = %+v, %v", got, err)
 	}
@@ -62,11 +69,11 @@ func TestRuntimeReadsChapterThroughPublicPort(t *testing.T) {
 	if !ok || string(start.Input.Data) != `{"item":1}` {
 		t.Fatalf("decoded chapter body = %#v", got.Body)
 	}
-	chapters, err := runtime.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+	chapters, err := runtime.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 	if err != nil || len(chapters) != 1 || chapters[0].TaskType != "collect" {
 		t.Fatalf("list chapters = %+v, %v", chapters, err)
 	}
-	if _, err := runtime.GetChapter(context.Background(), jobdb.ChapterRef{JobKey: key, Ordinal: 1}); !errors.Is(err, jobdb.ErrChapterNotFound) {
+	if _, err := runtime.GetChapter(celltest.Context(context.Background()), jobdb.ChapterRef{JobKey: key, Ordinal: 1}); !errors.Is(err, jobdb.ErrChapterNotFound) {
 		t.Fatalf("missing chapter = %v", err)
 	}
 }

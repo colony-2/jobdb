@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -66,7 +68,7 @@ func TestExecutionHandoffWaitsForOrchestrationButNotTask(t *testing.T) {
 					})
 				}}
 				key := submitExecutionTest(t, base, worker)
-				runnable, err := wf.GetJobForRun(context.Background(), rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: worker, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "sender", LeaseDuration: time.Minute})
+				runnable, err := wf.GetJobForRun(celltest.Context(context.Background()), rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: worker, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "sender", LeaseDuration: time.Minute})
 				require.NoError(t, err)
 				type result struct {
 					out wf.JobRunOutcome
@@ -132,12 +134,12 @@ func TestExecutionHandoffWaitsForOrchestrationButNotTask(t *testing.T) {
 					require.NotContains(t, string(data), "handoff-only")
 				}
 				// The handoff remains this invocation's receipt after the job changes again.
-				require.NoError(t, base.CancelJob(context.Background(), jobdb.CancelJobRequest{JobKey: key}))
+				require.NoError(t, base.CancelJob(celltest.Context(context.Background()), jobdb.CancelJobRequest{JobKey: key}))
 				again, err = runnable.Run(nil)
 				require.NoError(t, err)
 				require.Equal(t, wf.JobRunSuspended, again.Status)
 				require.NotNil(t, again.Handoff)
-				next, err := wf.GetJobForRun(context.Background(), base, wf.GetJobForRunRequest{JobKey: key, JobWorker: worker, WorkerID: "later"})
+				next, err := wf.GetJobForRun(celltest.Context(context.Background()), base, wf.GetJobForRunRequest{JobKey: key, JobWorker: worker, WorkerID: "later"})
 				require.NoError(t, err)
 				nextOut, err := next.Run(nil)
 				require.NoError(t, err)
@@ -166,13 +168,13 @@ func TestExecutionHandoffRecoveryAndReplay(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, out.Handoff)
 			// Inspecting a job without acquiring it is not confirmation of a new Yield.
-			lease, err := rt.GetJobLease(context.Background(), jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "replacement", Routes: []jobdb.Route{{JobType: worker.Name()}}, LeaseDuration: time.Minute})
+			lease, err := rt.GetJobLease(celltest.Context(context.Background()), jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "replacement", Routes: []jobdb.Route{{JobType: worker.Name()}}, LeaseDuration: time.Minute})
 			require.NoError(t, err)
 			require.NotNil(t, lease)
 			waiting, err := runExecutionTest(t, rt, key, worker, task)
 			require.NoError(t, err)
 			require.Nil(t, waiting.Handoff)
-			runnable, err := wf.GetJobForRunWithLease(context.Background(), rt, lease, wf.GetJobForRunRequest{JobKey: key, JobWorker: worker, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "replacement"})
+			runnable, err := wf.GetJobForRunWithLease(celltest.Context(context.Background()), rt, lease, wf.GetJobForRunRequest{JobKey: key, JobWorker: worker, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "replacement"})
 			require.NoError(t, err)
 			out, err = runnable.Run(nil)
 			require.NoError(t, err)
@@ -291,7 +293,7 @@ func TestExecutionHandoffLateAcknowledgementCannotChangeOutcome(t *testing.T) {
 					return nil, call(c.Context(), c.Yield)
 				}}
 				key := submitExecutionTest(t, base, worker)
-				ctx, cancel := context.WithCancel(context.Background())
+				ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 				defer cancel()
 				runnable, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: worker, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "cancelled", LeaseDuration: time.Minute})
 				require.NoError(t, err)
@@ -353,11 +355,11 @@ func TestJobWorkerYieldHandoffOutcome(t *testing.T) {
 					if taskLevel {
 						return c.DoTask(wf.TaskCall{Site: "task", Command: []byte("{}"), TaskType: "echo", ContractVersion: 1, Policy: jobdb.RunPolicy{}}, func(context.Context) (wf.TaskData, error) { return in, nil })
 					}
-					return nil, c.Yield(context.Background(), req)
+					return nil, c.Yield(celltest.Context(context.Background()), req)
 				}}
-				h, err := rt.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic("job")}})
+				h, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic("job")}})
 				require.NoError(t, err)
-				runnable, err := wf.GetJobForRun(context.Background(), rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: worker, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "job-worker", LeaseDuration: time.Minute})
+				runnable, err := wf.GetJobForRun(celltest.Context(context.Background()), rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: worker, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "job-worker", LeaseDuration: time.Minute})
 				require.NoError(t, err)
 				out, err := runnable.Run(nil)
 				require.NoError(t, err)
@@ -381,14 +383,14 @@ func TestExecutionHandoffSurvivesConcurrentJobChange(t *testing.T) {
 			rt := yieldFaultRuntime{WorkflowRuntime: base, afterCommit: func() error {
 				// Change the job after the scheduling commit but before acknowledgement
 				// reaches Yield. Run must still report its own acknowledged transition.
-				return base.CancelJob(context.Background(), jobdb.CancelJobRequest{JobKey: key})
+				return base.CancelJob(celltest.Context(context.Background()), jobdb.CancelJobRequest{JobKey: key})
 			}}
 			out, err := runExecutionTest(t, rt, key, worker)
 			require.NoError(t, err)
 			require.Equal(t, wf.JobRunSuspended, out.Status)
 			require.NotNil(t, out.Handoff)
 			require.Equal(t, "receiver", out.Handoff.NextRoute.JobType)
-			info, err := base.GetJob(context.Background(), key)
+			info, err := base.GetJob(celltest.Context(context.Background()), key)
 			require.NoError(t, err)
 			require.Equal(t, jobdb.JobStatusCancelled, info.Status)
 		})

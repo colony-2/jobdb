@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -51,14 +53,14 @@ func TestCatchHistoryStorageWriterCompatibility(t *testing.T) {
 					return wf.CatchResult{Disposition: wf.CatchHandled, Output: jobdb.NewTaskDataOrPanic("recovered")}, nil
 				}}}}, func(wf.ExecutionContext) (jobdb.JobData, error) { return nil, errors.New("original") })
 			}}
-			handle, err := recording.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "fixture", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("input")}})
+			handle, err := recording.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "fixture", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("input")}})
 			require.NoError(t, err)
-			run, err := wf.GetJobForRun(context.Background(), recording, wf.GetJobForRunRequest{JobKey: handle.JobKey, JobWorker: w, WorkerID: "fixture", LeaseDuration: time.Minute})
+			run, err := wf.GetJobForRun(celltest.Context(context.Background()), recording, wf.GetJobForRunRequest{JobKey: handle.JobKey, JobWorker: w, WorkerID: "fixture", LeaseDuration: time.Minute})
 			require.NoError(t, err)
 			outcome, err := run.Run(nil)
 			require.NoError(t, err)
 			require.Equal(t, wf.JobRunCompleted, outcome.Status)
-			chapters, err := inspection.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: handle.JobKey})
+			chapters, err := inspection.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: handle.JobKey})
 			require.NoError(t, err)
 			type physical struct {
 				Record   json.RawMessage

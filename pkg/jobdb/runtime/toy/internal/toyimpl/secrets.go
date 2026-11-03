@@ -43,6 +43,6 @@ func (r *Runtime) resolveSecrets(ctx context.Context, access secretsbroker.Acces
 		if len(record.metadata) > 0 && json.Unmarshal(record.metadata, &envelope) != nil {
 			return secretsbroker.Snapshot{}, jobdb.ErrSecretResolutionFailed
 		}
-		return secretsbroker.Snapshot{AppMetadata: envelope.App, LeaseExpiresAt: record.leaseExpiresAt}, nil
+		return secretsbroker.Snapshot{Cell: record.cell, AppMetadata: envelope.App, LeaseExpiresAt: record.leaseExpiresAt}, nil
 	})
 }

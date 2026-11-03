@@ -9,11 +9,13 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 )
 
 func TestRuntimeSubmitJobCreatesInitialChapter(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	embedded, err := StartEmbeddedRuntime(ctx)
 	if err != nil {
 		t.Fatalf("start runtime: %v", err)
@@ -21,7 +23,7 @@ func TestRuntimeSubmitJobCreatesInitialChapter(t *testing.T) {
 	defer embedded.Shutdown()
 
 	handle, err := embedded.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
-		Job: jobdb.SubmitJob{
+		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: "tenant",
 			JobType:  "job",
 			JobID:    "job-1",
@@ -45,21 +47,21 @@ func TestRuntimeSubmitJobCreatesInitialChapter(t *testing.T) {
 }
 
 func TestRuntimeThroughRemoteServerSubmitJob(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	embedded, err := StartEmbeddedRuntime(ctx)
 	if err != nil {
 		t.Fatalf("start runtime: %v", err)
 	}
 	defer embedded.Shutdown()
 
-	server := httptest.NewServer(remoteruntime.NewServer(embedded.Runtime))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(embedded.Runtime)))
 	defer server.Close()
 	remote, err := remoteruntime.New(server.URL, server.Client())
 	if err != nil {
 		t.Fatalf("remote runtime: %v", err)
 	}
 	_, err = remote.SubmitJob(ctx, jobdb.SubmitJobRequest{
-		Job: jobdb.SubmitJob{
+		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: "tenant",
 			JobType:  "job",
 			Data:     jobdb.NewTaskDataOrPanic(map[string]int{"n": 1}),
@@ -71,7 +73,7 @@ func TestRuntimeThroughRemoteServerSubmitJob(t *testing.T) {
 }
 
 func TestNewFromConfigProviderBlobStoreURIRequiresExplicitImport(t *testing.T) {
-	_, err := NewFromConfig(context.Background(), Config{
+	_, err := NewFromConfig(celltest.Context(context.Background()), Config{
 		DBPath:       filepath.Join(t.TempDir(), "jobdb.db"),
 		BlobStoreURI: "s3://jobdb-artifacts?region=us-east-1",
 	})

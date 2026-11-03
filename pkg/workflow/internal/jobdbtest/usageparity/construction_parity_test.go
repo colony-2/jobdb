@@ -37,7 +37,7 @@ func TestEngineAndRuntimeConstructionParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			compareAcrossModes(t, harness, []workflow.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) lifecycleObservation {
-				jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{
+				jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: subject.built.WorkerTenantID,
 					JobType:  jobdbtest.SequenceJobName,
 					JobID:    "construction-parity",
@@ -95,7 +95,7 @@ func TestGeneratedJobIDConstructionParityAcrossBuiltInRuntimes(t *testing.T) {
 		harness := harness
 		t.Run(harness.Name, func(t *testing.T) {
 			engineObs := observeViaMode(t, harness, engineMode, []workflow.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) generatedStartObservation {
-				jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{
+				jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: subject.built.WorkerTenantID,
 					JobType:  jobdbtest.SequenceJobName,
 					Data:     jobdbtest.NumberTaskData(2),
@@ -121,7 +121,7 @@ func TestGeneratedJobIDConstructionParityAcrossBuiltInRuntimes(t *testing.T) {
 				}
 			})
 			runtimeObs := observeViaMode(t, harness, runtimeMode, []workflow.WorkSet{ws}, func(t *testing.T, ctx context.Context, subject scenarioSubject) generatedStartObservation {
-				jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{
+				jobKey, err := subject.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: subject.built.WorkerTenantID,
 					JobType:  jobdbtest.SequenceJobName,
 					Data:     jobdbtest.NumberTaskData(2),

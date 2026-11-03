@@ -9,7 +9,10 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
+
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/colony-2/jobdb/pkg/workflow"
 )
@@ -23,7 +26,7 @@ func TestRemoteRuntimeSupportsExplicitRestartJobIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build engine: %v", err)
 	}
-	runCtx, cancelRun := context.WithCancel(context.Background())
+	runCtx, cancelRun := context.WithCancel(celltest.Context(context.Background()))
 	defer cancelRun()
 	done := make(chan struct{})
 	go func() {
@@ -35,7 +38,7 @@ func TestRemoteRuntimeSupportsExplicitRestartJobIDs(t *testing.T) {
 		<-done
 	}()
 
-	server := httptest.NewServer(remoteruntime.NewServer(underlying))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
 	defer server.Close()
 
 	runtime, err := remoteruntime.New(server.URL, server.Client())
@@ -43,10 +46,10 @@ func TestRemoteRuntimeSupportsExplicitRestartJobIDs(t *testing.T) {
 		t.Fatalf("new remote runtime: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 	defer cancel()
 
-	originalKeyHandle, err := engine.SubmitJob(ctx, jobdb.SubmitJob{
+	originalKeyHandle, err := engine.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 		TenantId: tenantID,
 		JobID:    "restart-source",
 		JobType:  remoteRestartSequenceJobName,
@@ -59,7 +62,7 @@ func TestRemoteRuntimeSupportsExplicitRestartJobIDs(t *testing.T) {
 	waitForRemoteRestartEngineStatus(t, ctx, engine, originalKey, jobdb.JobStatusCompleted)
 
 	handle, err := runtime.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{
-		Job: jobdb.SubmitRestartJob{
+		Job: jobdb.SubmitRestartJob{Cell: "test",
 			PriorJobKey:    originalKey,
 			LastStepToKeep: 0,
 			JobID:          "restart-copy",
@@ -74,7 +77,7 @@ func TestRemoteRuntimeSupportsExplicitRestartJobIDs(t *testing.T) {
 	}
 
 	matching, err := runtime.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{
-		Job: jobdb.SubmitRestartJob{
+		Job: jobdb.SubmitRestartJob{Cell: "test",
 			PriorJobKey:    originalKey,
 			LastStepToKeep: 0,
 			JobID:          "restart-copy",
@@ -89,7 +92,7 @@ func TestRemoteRuntimeSupportsExplicitRestartJobIDs(t *testing.T) {
 	}
 
 	_, err = runtime.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{
-		Job: jobdb.SubmitRestartJob{
+		Job: jobdb.SubmitRestartJob{Cell: "test",
 			PriorJobKey:    originalKey,
 			LastStepToKeep: 1,
 			JobID:          "restart-copy",

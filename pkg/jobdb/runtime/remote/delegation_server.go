@@ -69,6 +69,9 @@ func (s *proxyServer) parentValidity(ctx context.Context, p leaseTokenClaims) (j
 		}
 		return v, &delegationError{503, "delegation_unavailable"}
 	}
+	if p.Cell.CellID == "" || p.Cell.CellID != v.Cell.CellID || p.Cell.CellRepo != v.Cell.CellRepo {
+		return v, jobdb.ErrExecutionLeaseLost
+	}
 	if !v.ExpiresAt.After(time.Now()) {
 		return v, &delegationError{409, "execution_lease_lost"}
 	}
@@ -90,6 +93,7 @@ func (s *proxyServer) checkedDelegation(ctx context.Context, token string, key j
 	c.setExpiry(v.ExpiresAt)
 	c.Route = v.Route
 	c.GoalID = v.GoalID
+	c.Parent.Cell = v.Cell
 	return c, v, nil
 }
 
@@ -138,6 +142,8 @@ func (s *proxyServer) prepareDelegationRequest(w http.ResponseWriter, r *http.Re
 		allowed = len(policy.Secrets) > 0
 	case r.Method == http.MethodPost && suffix == "add_chapter":
 		allowed = policy.Write != nil
+	case r.Method == http.MethodPost && suffix == "cells/resolve":
+		allowed = policy.Submit != nil
 	case r.Method == http.MethodPost && suffix == "jobs":
 		allowed = policy.Submit != nil && policy.Submit.JobIDs.Any
 	case r.Method == http.MethodPut && len(p) == 10 && p[8] == "jobs":
@@ -159,6 +165,18 @@ func (s *proxyServer) prepareDelegationRequest(w http.ResponseWriter, r *http.Re
 		return reject(&delegationError{400, "invalid_delegation_request"})
 	}
 	r.Body = io.NopCloser(bytes.NewReader(raw))
+	if suffix == "cells/resolve" {
+		var body struct {
+			Cell string `json:"cell"`
+		}
+		if json.Unmarshal(raw, &body) != nil || jobdb.ValidateCellName(body.Cell) != nil {
+			return reject(&delegationError{400, "invalid_delegation_request"})
+		}
+		if policy.Submit.CellNames != nil && !namesAllow(*policy.Submit.CellNames, body.Cell) {
+			return reject(delegationDenied())
+		}
+		return true
+	}
 	if suffix == "add_chapter" {
 		var body runtimeapi.AddChapterRequest
 		if json.Unmarshal(raw, &body) != nil {
@@ -191,7 +209,7 @@ func (s *proxyServer) prepareDelegationRequest(w http.ResponseWriter, r *http.Re
 		if json.Unmarshal(raw, &body) != nil {
 			return reject(&delegationError{400, "invalid_delegation_request"})
 		}
-		if !namesAllow(policy.Submit.JobTypes, body.Job.JobType) || body.Job.Schema != nil && body.Job.Schema.Schema != nil {
+		if policy.Submit.CellNames != nil && !namesAllow(*policy.Submit.CellNames, body.Job.Cell) || !namesAllow(policy.Submit.JobTypes, body.Job.JobType) || body.Job.Schema != nil && body.Job.Schema.Schema != nil {
 			return reject(delegationDenied())
 		}
 	}
@@ -199,7 +217,7 @@ func (s *proxyServer) prepareDelegationRequest(w http.ResponseWriter, r *http.Re
 }
 
 func delegationSnapshot(c delegationClaims, token string) runtimeapi.ExecutionLease {
-	return runtimeapi.ExecutionLease{LeaseId: c.Parent.LeaseID, LeaseToken: token, Job: toAPIJobHandle(jobdb.JobHandle{JobKey: c.key(), GoalID: c.GoalID}),
+	return runtimeapi.ExecutionLease{LeaseId: c.Parent.LeaseID, LeaseToken: token, Job: toAPIJobHandle(jobdb.JobHandle{JobKey: c.key(), GoalID: c.GoalID, Cell: c.Parent.Cell.Cell, CellID: c.Parent.Cell.CellID, CellRepo: c.Parent.Cell.CellRepo}),
 		WorkerId: &c.Parent.WorkerID, ExpiresAt: &c.ExpiresAt, Route: runtimeapi.Route(c.Route),
 		ClientPayloadRevision: "0", ExecutionState: runtimeapi.ExecutionState{}, Delegation: &c.Grant}
 }
@@ -231,6 +249,7 @@ func (s *proxyServer) CreateLeaseDelegation(ctx context.Context, req runtimeapi.
 	c.setExpiry(v.ExpiresAt)
 	c.Route = v.Route
 	c.GoalID = v.GoalID
+	c.Parent.Cell = v.Cell
 	return runtimeapi.CreateLeaseDelegation200JSONResponse(delegationSnapshot(c, token)), nil
 }
 

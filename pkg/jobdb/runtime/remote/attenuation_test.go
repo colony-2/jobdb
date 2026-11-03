@@ -6,8 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"github.com/colony-2/jobdb/pkg/jobdb/internal/runtimeapi"
-	"gopkg.in/macaroon.v2"
 	"math"
 	"net/http"
 	"strings"
@@ -17,7 +15,10 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/runtimeapi"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/macaroon.v2"
 )
 
 // Models a malicious holder: add a correctly chained but potentially invalid
@@ -46,12 +47,12 @@ func TestAttenuationLocalDerivationAndHandoff(t *testing.T) {
 			require.NoError(t, err)
 			deadline := time.Now().UTC().Add(time.Minute)
 			policy := delegationPolicy()
-			child, err := offline.CreateDelegation(context.Background(), f.owner, jobdb.CreateDelegationRequest{Permissions: policy, NotAfter: &deadline})
+			child, err := offline.CreateDelegation(celltest.Context(context.Background()), f.owner, jobdb.CreateDelegationRequest{Permissions: policy, NotAfter: &deadline})
 			require.NoError(t, err)
 			policy.Read.Ordinals[0] = 999 // caller mutation must not alter returned metadata
 			require.Equal(t, []int64{0, 1}, child.(*remoteExecutionLease).Delegation().Permissions.Read.Ordinals)
 			narrow := jobdb.DelegationPermissions{Read: &jobdb.DelegationChapters{Ordinals: []int64{0}}, Secrets: []string{"allowed"}}
-			grandchild, err := offline.CreateDelegation(context.Background(), child, jobdb.CreateDelegationRequest{Permissions: narrow})
+			grandchild, err := offline.CreateDelegation(celltest.Context(context.Background()), child, jobdb.CreateDelegationRequest{Permissions: narrow})
 			require.NoError(t, err)
 			require.Equal(t, int32(0), requests.Load())
 			require.Equal(t, &deadline, grandchild.(*remoteExecutionLease).Delegation().NotAfter)
@@ -76,15 +77,15 @@ func TestAttenuationLocalDerivationAndHandoff(t *testing.T) {
 			require.NotContains(t, binary, root.Signature())
 			require.NotContains(t, binary, childMac.Signature())
 			before := f.validity(t)
-			imported, err := f.client.ImportLease(context.Background(), cap)
+			imported, err := f.client.ImportLease(celltest.Context(context.Background()), cap)
 			require.NoError(t, err)
-			_, err = f.client.GetChapter(context.Background(), jobdb.ChapterRef{JobKey: imported.Job().JobKey, LeaseID: imported.LeaseID(), LeaseToken: cap.wire.Token, Ordinal: 0})
+			_, err = f.client.GetChapter(celltest.Context(context.Background()), jobdb.ChapterRef{JobKey: imported.Job().JobKey, LeaseID: imported.LeaseID(), LeaseToken: cap.wire.Token, Ordinal: 0})
 			require.NoError(t, err)
-			_, err = imported.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{JobType: "child", Data: jobdb.NewTaskDataOrPanic(1)}})
+			_, err = imported.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(1)}})
 			require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
-			require.NoError(t, imported.KeepAlive(context.Background()))
+			require.NoError(t, imported.KeepAlive(celltest.Context(context.Background())))
 			require.Equal(t, before, f.validity(t))
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 			cancel()
 			_, err = offline.CreateDelegation(ctx, child, jobdb.CreateDelegationRequest{})
 			require.ErrorIs(t, err, context.Canceled)
@@ -121,7 +122,7 @@ func TestAttenuationRejectsWideningLocallyAndOnServer(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			req := jobdb.CreateDelegationRequest{Permissions: parent.Delegation().Permissions}
 			tc.mutate(&req)
-			_, err := f.client.CreateDelegation(context.Background(), parent, req)
+			_, err := f.client.CreateDelegation(celltest.Context(context.Background()), parent, req)
 			require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
 			forged := appendTestRestriction(t, parent.LeaseToken(), req.Permissions, req.NotAfter)
 			_, err = f.signer.parseDelegation(forged)
@@ -132,9 +133,9 @@ func TestAttenuationRejectsWideningLocallyAndOnServer(t *testing.T) {
 	}
 	// The SDK must not restore omitted actions, even through empty selectors.
 	empty := f.create(t, jobdb.CreateDelegationRequest{})
-	_, err := f.client.CreateDelegation(context.Background(), empty, jobdb.CreateDelegationRequest{Permissions: delegationPolicy()})
+	_, err := f.client.CreateDelegation(celltest.Context(context.Background()), empty, jobdb.CreateDelegationRequest{Permissions: delegationPolicy()})
 	require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
-	require.NoError(t, empty.KeepAlive(context.Background()))
+	require.NoError(t, empty.KeepAlive(celltest.Context(context.Background())))
 }
 
 func TestAttenuationDeadlineInheritanceAndParentRotation(t *testing.T) {
@@ -142,22 +143,22 @@ func TestAttenuationDeadlineInheritanceAndParentRotation(t *testing.T) {
 	owner := f.owner.(*remoteExecutionLease)
 	// An old owner access credential cannot renew the parent, but its root grant
 	// remains usable while the backend lease lives (including for local issuance).
-	expired, err := f.signer.mintWithPrincipal(owner.jobKey, owner.leaseID, owner.workerID, owner.schemaHash, time.Now().Add(-time.Second), time.Minute, nil)
+	expired, err := f.signer.mintWithPrincipal(owner.jobKey, owner.leaseID, owner.workerID, owner.schemaHash, time.Now().Add(-time.Second), time.Minute, nil, owner.cell)
 	require.NoError(t, err)
 	old := &remoteExecutionLease{goalID: owner.goalID, runtime: f.client, jobKey: owner.jobKey, leaseID: owner.leaseID, workerID: owner.workerID, leaseToken: expired, expiresAt: time.Now().Add(-time.Minute), route: owner.route}
-	require.ErrorIs(t, old.KeepAlive(context.Background()), jobdb.ErrExecutionLeaseLost)
+	require.ErrorIs(t, old.KeepAlive(celltest.Context(context.Background())), jobdb.ErrExecutionLeaseLost)
 	deadline := time.Now().UTC().Add(10 * time.Second)
-	child, err := f.client.CreateDelegation(context.Background(), old, jobdb.CreateDelegationRequest{Permissions: delegationPolicy(), NotAfter: &deadline})
+	child, err := f.client.CreateDelegation(celltest.Context(context.Background()), old, jobdb.CreateDelegationRequest{Permissions: delegationPolicy(), NotAfter: &deadline})
 	require.NoError(t, err)
 	require.True(t, child.LeaseExpiry().Before(time.Now()), "local snapshot may be stale")
 	cap, err := ExportLease(child)
 	require.NoError(t, err)
-	require.NoError(t, owner.KeepAlive(context.Background()))
-	imported, err := f.client.ImportLease(context.Background(), cap)
+	require.NoError(t, owner.KeepAlive(celltest.Context(context.Background())))
+	imported, err := f.client.ImportLease(celltest.Context(context.Background()), cap)
 	require.NoError(t, err)
 	require.Equal(t, deadline, imported.LeaseExpiry())
 	earlier := deadline.Add(-time.Second)
-	grandchild, err := f.client.CreateDelegation(context.Background(), imported, jobdb.CreateDelegationRequest{Permissions: delegationPolicy(), NotAfter: &earlier})
+	grandchild, err := f.client.CreateDelegation(celltest.Context(context.Background()), imported, jobdb.CreateDelegationRequest{Permissions: delegationPolicy(), NotAfter: &earlier})
 	require.NoError(t, err)
 	_, _, claims, err := decodeGrant(grandchild.(*remoteExecutionLease).LeaseToken(), false)
 	require.NoError(t, err)
@@ -170,8 +171,8 @@ func TestAttenuationDeadlineInheritanceAndParentRotation(t *testing.T) {
 		require.Equal(t, 403, status)
 		require.Contains(t, string(raw), "delegation_deadline_reached")
 	}
-	require.NoError(t, f.backend.CancelJob(context.Background(), jobdb.CancelJobRequest{JobKey: owner.jobKey}))
-	require.ErrorIs(t, grandchild.KeepAlive(context.Background()), jobdb.ErrExecutionLeaseLost)
+	require.NoError(t, f.backend.CancelJob(celltest.Context(context.Background()), jobdb.CancelJobRequest{JobKey: owner.jobKey}))
+	require.ErrorIs(t, grandchild.KeepAlive(celltest.Context(context.Background())), jobdb.ErrExecutionLeaseLost)
 }
 
 func TestAttenuationIntervalSubsets(t *testing.T) {
@@ -228,7 +229,7 @@ func TestAttenuationRejectsMalformedAndSplicedProofs(t *testing.T) {
 			require.Error(t, err)
 		}
 	}
-	sibling, err := f.client.CreateDelegation(context.Background(), child, jobdb.CreateDelegationRequest{Permissions: jobdb.DelegationPermissions{Secrets: []string{"allowed"}}})
+	sibling, err := f.client.CreateDelegation(celltest.Context(context.Background()), child, jobdb.CreateDelegationRequest{Permissions: jobdb.DelegationPermissions{Secrets: []string{"allowed"}}})
 	require.NoError(t, err)
 	siblingMac, _, _, err := decodeGrant(sibling.(*remoteExecutionLease).LeaseToken(), false)
 	require.NoError(t, err)
@@ -255,11 +256,11 @@ func TestAttenuationLimitsAndAudience(t *testing.T) {
 	f := newDelegationFixture(t, "toy", nil)
 	var lease jobdb.ExecutionLease = f.owner
 	for i := 0; i < maxDelegationDepth; i++ {
-		next, err := f.client.CreateDelegation(context.Background(), lease, jobdb.CreateDelegationRequest{})
+		next, err := f.client.CreateDelegation(celltest.Context(context.Background()), lease, jobdb.CreateDelegationRequest{})
 		require.NoError(t, err)
 		lease = next
 	}
-	_, err := f.client.CreateDelegation(context.Background(), lease, jobdb.CreateDelegationRequest{})
+	_, err := f.client.CreateDelegation(celltest.Context(context.Background()), lease, jobdb.CreateDelegationRequest{})
 	require.ErrorContains(t, err, "depth")
 	over := appendTestRestriction(t, lease.(*remoteExecutionLease).LeaseToken(), jobdb.DelegationPermissions{}, nil)
 	_, err = f.signer.parseDelegation(over)
@@ -270,7 +271,7 @@ func TestAttenuationLimitsAndAudience(t *testing.T) {
 	for i := range huge {
 		huge[i] = strings.Repeat("s", 1000)
 	}
-	_, err = f.client.CreateDelegation(context.Background(), f.owner, jobdb.CreateDelegationRequest{Permissions: jobdb.DelegationPermissions{Secrets: huge}})
+	_, err = f.client.CreateDelegation(celltest.Context(context.Background()), f.owner, jobdb.CreateDelegationRequest{Permissions: jobdb.DelegationPermissions{Secrets: huge}})
 	require.ErrorContains(t, err, "size limit")
 	child := f.create(t, jobdb.CreateDelegationRequest{Permissions: delegationPolicy()})
 	other := &leaseTokenSigner{key: f.signer.key, audience: "other-service"}
@@ -314,7 +315,7 @@ func TestAttenuationRESTCreationUsesSameGrant(t *testing.T) {
 	require.Equal(t, delegationPolicy(), c.Grant.Permissions)
 	handle, err := f.client.executionLeaseFromAPI(snapshot)
 	require.NoError(t, err)
-	_, err = f.client.CreateDelegation(context.Background(), handle, jobdb.CreateDelegationRequest{Permissions: jobdb.DelegationPermissions{Secrets: []string{"allowed"}}})
+	_, err = f.client.CreateDelegation(celltest.Context(context.Background()), handle, jobdb.CreateDelegationRequest{Permissions: jobdb.DelegationPermissions{Secrets: []string{"allowed"}}})
 	require.NoError(t, err)
 }
 
@@ -327,15 +328,15 @@ func TestAttenuationConcurrentDerivationAndOwnerRenewal(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			if i%4 == 0 {
-				errs <- f.owner.KeepAlive(context.Background())
+				errs <- f.owner.KeepAlive(celltest.Context(context.Background()))
 				return
 			}
-			child, err := f.client.CreateDelegation(context.Background(), f.owner, jobdb.CreateDelegationRequest{Permissions: delegationPolicy()})
+			child, err := f.client.CreateDelegation(celltest.Context(context.Background()), f.owner, jobdb.CreateDelegationRequest{Permissions: delegationPolicy()})
 			if err == nil {
 				cap, e := ExportLease(child)
 				err = e
 				if err == nil {
-					_, err = f.client.ImportLease(context.Background(), cap)
+					_, err = f.client.ImportLease(celltest.Context(context.Background()), cap)
 				}
 			}
 			errs <- err
@@ -384,7 +385,7 @@ func TestAttenuationChainCannotBeStrippedOrReordered(t *testing.T) {
 
 func TestAttenuationWireVector(t *testing.T) {
 	signer := &leaseTokenSigner{key: bytes.Repeat([]byte{7}, 32), audience: "vector-service"}
-	root := grantRoot{Version: 1, Purpose: grantPurpose, Audience: signer.audienceID(), KeyID: signer.grantKeyID(), ID: "root-vector", Parent: grantParent{TenantID: "tenant", JobID: "job", LeaseID: "lease", WorkerID: "worker"}, Ceiling: grantCeiling}
+	root := grantRoot{Version: 1, Purpose: grantPurpose, Audience: signer.audienceID(), KeyID: signer.grantKeyID(), ID: "root-vector", Parent: grantParent{Cell: jobdb.ResolvedCell{Cell: "test", CellID: "cell", CellRepo: "example.test/test"}, TenantID: "tenant", JobID: "job", LeaseID: "lease", WorkerID: "worker"}, Ceiling: grantCeiling}
 	raw, err := json.Marshal(root)
 	require.NoError(t, err)
 	m, err := macaroon.New(signer.grantKey(), raw, "", macaroon.V2)
@@ -396,7 +397,7 @@ func TestAttenuationWireVector(t *testing.T) {
 	require.NoError(t, m.AddFirstPartyCaveat(caveat))
 	token, err := encodeGrant(m)
 	require.NoError(t, err)
-	const expected = "jdb-m1.AgL2AXsidmVyc2lvbiI6MSwicHVycG9zZSI6ImpvYmRiLmRlbGVnYXRpb24uZ3JhbnQudjEiLCJhdWRpZW5jZSI6InZlY3Rvci1zZXJ2aWNlIiwia2V5SWQiOiJkMDg0MTEzNmFiZjQ2OGZmIiwiaWQiOiJyb290LXZlY3RvciIsInBhcmVudCI6eyJ0ZW5hbnRJZCI6InRlbmFudCIsImpvYklkIjoiam9iIiwibGVhc2VJZCI6ImxlYXNlIiwid29ya2VySWQiOiJ3b3JrZXIifSwiY2VpbGluZyI6ImpvYmRiLnJlc291cmNlLWFjdGlvbnMudjEifQACgQF7ImtpbmQiOiJyZXN0cmljdCIsInZlcnNpb24iOjEsImlkIjoic3RlcC12ZWN0b3IiLCJwZXJtaXNzaW9ucyI6eyJzZWNyZXRzLnJlc29sdmUiOlsic2VjcmV0Il19LCJub3RBZnRlciI6IjIwMzAtMDEtMDJUMDM6MDQ6MDVaIn0AAAYgj03yUfHnqbYb_uh4Xmv9cblihruHG30O3amXYDTmPsA"
+	const expected = "jdb-m2.AgK8AnsidmVyc2lvbiI6MSwicHVycG9zZSI6ImpvYmRiLmRlbGVnYXRpb24uZ3JhbnQudjIiLCJhdWRpZW5jZSI6InZlY3Rvci1zZXJ2aWNlIiwia2V5SWQiOiI2ZWQ1NzQ5ZjBiYjUxMDQ4IiwiaWQiOiJyb290LXZlY3RvciIsInBhcmVudCI6eyJjZWxsIjp7ImNlbGwiOiJ0ZXN0IiwiY2VsbElkIjoiY2VsbCIsImNlbGxSZXBvIjoiZXhhbXBsZS50ZXN0L3Rlc3QifSwidGVuYW50SWQiOiJ0ZW5hbnQiLCJqb2JJZCI6ImpvYiIsImxlYXNlSWQiOiJsZWFzZSIsIndvcmtlcklkIjoid29ya2VyIn0sImNlaWxpbmciOiJqb2JkYi5yZXNvdXJjZS1hY3Rpb25zLnYyIn0AAoEBeyJraW5kIjoicmVzdHJpY3QiLCJ2ZXJzaW9uIjoxLCJpZCI6InN0ZXAtdmVjdG9yIiwicGVybWlzc2lvbnMiOnsic2VjcmV0cy5yZXNvbHZlIjpbInNlY3JldCJdfSwibm90QWZ0ZXIiOiIyMDMwLTAxLTAyVDAzOjA0OjA1WiJ9AAAGIOcG1Ha_AWGUdTFq4YrdbQVG2kDQ9aenxTRbJPKix1I7"
 	require.Equal(t, expected, token)
 	c, err := signer.parseDelegation(expected)
 	require.NoError(t, err)
@@ -405,7 +406,7 @@ func TestAttenuationWireVector(t *testing.T) {
 
 func FuzzAttenuationParsing(f *testing.F) {
 	signer := &leaseTokenSigner{key: bytes.Repeat([]byte{7}, 32)}
-	root, err := signer.newGrant(leaseTokenClaims{TenantID: "t", JobID: "j", LeaseID: "l", WorkerID: "w"})
+	root, err := signer.newGrant(leaseTokenClaims{Cell: jobdb.ResolvedCell{Cell: "test", CellID: "cell", CellRepo: "example.test/test"}, TenantID: "t", JobID: "j", LeaseID: "l", WorkerID: "w"})
 	if err != nil {
 		f.Fatal(err)
 	}

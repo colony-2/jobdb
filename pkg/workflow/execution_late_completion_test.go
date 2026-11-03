@@ -11,6 +11,8 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -21,7 +23,7 @@ func TestExecutionExpiredWaitCompletionAcrossRuntimes(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		for _, mode := range []string{"reply-first", "timeout-claim-first", "cancelled", "stale-generation"} {
 			t.Run(backend+"/"+mode, func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				rt := alternateRuntime(t, backend)
 				key := submitExecutionTest(t, rt, wf.ExecutionWorker{JobType: "late-reply"})
 				route := jobdb.Route{JobType: "late-reply"}
@@ -102,10 +104,10 @@ func TestExecutionLateCompletionAndTimeoutReplay(t *testing.T) {
 				time.Sleep(2 * time.Minute)
 				engine, err := wf.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 				require.NoError(t, err)
-				pending, err := engine.GetWaitingTask(context.Background(), key)
+				pending, err := engine.GetWaitingTask(celltest.Context(context.Background()), key)
 				require.NoError(t, err)
 				if replyFirst {
-					require.NoError(t, pending.Finish(context.Background(), jobdb.NewTaskDataOrPanic("late-answer")))
+					require.NoError(t, pending.Finish(celltest.Context(context.Background()), jobdb.NewTaskDataOrPanic("late-answer")))
 				}
 				out, err = runExecutionTest(t, rt, key, w)
 				require.NoError(t, err)
@@ -120,7 +122,7 @@ func TestExecutionLateCompletionAndTimeoutReplay(t *testing.T) {
 					require.Equal(t, wf.JobRunFailed, out.Status)
 					var timeout jobdb.TimeoutError
 					require.ErrorAs(t, out.JobError, &timeout)
-					require.Error(t, pending.Finish(context.Background(), jobdb.NewTaskDataOrPanic("after-timeout")))
+					require.Error(t, pending.Finish(celltest.Context(context.Background()), jobdb.NewTaskDataOrPanic("after-timeout")))
 					_, err = replayExecutionTest(t, rt, key, w)
 					require.ErrorAs(t, err, &timeout)
 				}

@@ -22,18 +22,19 @@ const (
 )
 
 type leaseTokenClaims struct {
-	Audience             string  `json:"audience"`
-	Grant                string  `json:"grant,omitempty"`
-	Principal            *string `json:"principal,omitempty"`
-	TenantID             string  `json:"tenant_id"`
-	JobID                string  `json:"job_id"`
-	LeaseID              string  `json:"lease_id"`
-	WorkerID             string  `json:"worker_id,omitempty"`
-	SchemaHash           string  `json:"schema_hash,omitempty"`
-	LeaseDurationSeconds int64   `json:"lease_duration_seconds"`
-	IssuedAt             int64   `json:"iat"`
-	ExpiresAt            int64   `json:"exp"`
-	ExpiresAtNS          int64   `json:"exp_ns,omitempty"`
+	Cell                 jobdb.ResolvedCell `json:"cell"`
+	Audience             string             `json:"audience"`
+	Grant                string             `json:"grant,omitempty"`
+	Principal            *string            `json:"principal,omitempty"`
+	TenantID             string             `json:"tenant_id"`
+	JobID                string             `json:"job_id"`
+	LeaseID              string             `json:"lease_id"`
+	WorkerID             string             `json:"worker_id,omitempty"`
+	SchemaHash           string             `json:"schema_hash,omitempty"`
+	LeaseDurationSeconds int64              `json:"lease_duration_seconds"`
+	IssuedAt             int64              `json:"iat"`
+	ExpiresAt            int64              `json:"exp"`
+	ExpiresAtNS          int64              `json:"exp_ns,omitempty"`
 }
 
 type leaseTokenSigner struct {
@@ -60,18 +61,11 @@ func (s *leaseTokenSigner) mintForLease(lease jobdb.ExecutionLease, ttl time.Dur
 	if lease == nil {
 		return "", fmt.Errorf("lease is required")
 	}
-	return s.mintForLeaseExpiry(lease.Job().JobKey, lease.LeaseID(), leaseWorkerID(lease), leaseSchemaHash(lease), leaseExpiry(lease), ttl)
+	h := lease.Job()
+	return s.mintWithPrincipal(h.JobKey, lease.LeaseID(), leaseWorkerID(lease), leaseSchemaHash(lease), leaseExpiry(lease), ttl, nil, jobdb.ResolvedCell{Cell: h.Cell, CellID: h.CellID, CellRepo: h.CellRepo})
 }
 
-func (s *leaseTokenSigner) mint(jobKey jobdb.JobKey, leaseID string, workerID string, ttl time.Duration) (string, error) {
-	return s.mintForLeaseExpiry(jobKey, leaseID, workerID, "", time.Time{}, ttl)
-}
-
-func (s *leaseTokenSigner) mintForLeaseExpiry(jobKey jobdb.JobKey, leaseID string, workerID string, schemaHash string, leaseExpiresAt time.Time, ttl time.Duration) (string, error) {
-	return s.mintWithPrincipal(jobKey, leaseID, workerID, schemaHash, leaseExpiresAt, ttl, nil)
-}
-
-func (s *leaseTokenSigner) mintWithPrincipal(jobKey jobdb.JobKey, leaseID string, workerID string, schemaHash string, leaseExpiresAt time.Time, ttl time.Duration, principal *string) (string, error) {
+func (s *leaseTokenSigner) mintWithPrincipal(jobKey jobdb.JobKey, leaseID string, workerID string, schemaHash string, leaseExpiresAt time.Time, ttl time.Duration, principal *string, cell jobdb.ResolvedCell) (string, error) {
 	if s == nil || len(s.key) == 0 {
 		return "", fmt.Errorf("lease token signer is required")
 	}
@@ -97,6 +91,10 @@ func (s *leaseTokenSigner) mintWithPrincipal(jobKey jobdb.JobKey, leaseID string
 		IssuedAt:             now.Unix(),
 		ExpiresAt:            tokenExpiresAt.Unix(),
 		ExpiresAtNS:          tokenExpiresAt.UnixNano(),
+	}
+	claims.Cell = cell
+	if cell.CellID == "" || cell.CellRepo == "" || jobdb.ValidateCellName(cell.Cell) != nil {
+		return "", jobdb.ErrExecutionLeaseLost
 	}
 	grant, err := s.newGrant(claims)
 	if err != nil {
@@ -280,7 +278,7 @@ func decodeOwner(token string) (leaseTokenClaims, error) {
 		return c, jobdb.ErrExecutionLeaseLost
 	}
 	raw, err := decodeTokenBase64(parts[1])
-	if err != nil || decodeCanonical(raw, &c) != nil || c.TenantID == "" || c.JobID == "" || c.LeaseID == "" || c.ExpiresAt == 0 || c.Audience == "" || c.Grant == "" {
+	if err != nil || decodeCanonical(raw, &c) != nil || c.Cell.CellID == "" || c.Cell.CellRepo == "" || jobdb.ValidateCellName(c.Cell.Cell) != nil || c.TenantID == "" || c.JobID == "" || c.LeaseID == "" || c.ExpiresAt == 0 || c.Audience == "" || c.Grant == "" {
 		return leaseTokenClaims{}, jobdb.ErrExecutionLeaseLost
 	}
 	return c, nil

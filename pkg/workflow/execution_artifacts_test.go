@@ -13,13 +13,15 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
 
 func readExecutionArtifact(t *testing.T, rt jobdb.WorkflowRuntime, tenant string, key jobdb.ArtifactKey) string {
 	t.Helper()
-	artifact, err := rt.OpenArtifact(context.Background(), jobdb.ArtifactRef{JobKey: jobdb.JobKey{TenantId: tenant, JobId: key.JobId}, Ordinal: key.TaskOrdinal, Name: key.Name})
+	artifact, err := rt.OpenArtifact(celltest.Context(context.Background()), jobdb.ArtifactRef{JobKey: jobdb.JobKey{TenantId: tenant, JobId: key.JobId}, Ordinal: key.TaskOrdinal, Name: key.Name})
 	require.NoError(t, err)
 	r, err := artifact.Open()
 	require.NoError(t, err)
@@ -86,14 +88,14 @@ func TestExecutionProducerArtifactReferences(t *testing.T) {
 					}
 				}
 				if mode == "local-wait" {
-					run, err := wf.GetJobForRun(context.Background(), base, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "waiting", LeaseDuration: time.Second, AwaitThreshold: time.Millisecond})
+					run, err := wf.GetJobForRun(celltest.Context(context.Background()), base, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "waiting", LeaseDuration: time.Second, AwaitThreshold: time.Millisecond})
 					require.NoError(t, err)
 					out, err := run.Run(nil)
 					require.NoError(t, err)
 					require.Equal(t, wf.JobRunSuspended, out.Status)
 				}
 				if mode == "recover" {
-					ctx, cancel := context.WithCancel(context.Background())
+					ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 					defer cancel()
 					fault := &executionFaultRuntime{WorkflowRuntime: base, cancel: cancel, fail: func(r jobdb.ExecutionRecord) bool { return r.Kind == "result" && strings.Contains(r.ID, "task:") }}
 					run, err := wf.GetJobForRun(ctx, fault, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "crashed", LeaseDuration: 100 * time.Millisecond})
@@ -110,7 +112,7 @@ func TestExecutionProducerArtifactReferences(t *testing.T) {
 					return out.Status == wf.JobRunCompleted || out.Status == wf.JobRunFailed
 				}, 3*time.Second, 25*time.Millisecond)
 				require.Equal(t, wf.JobRunCompleted, out.Status)
-				info, err := base.GetJob(context.Background(), key)
+				info, err := base.GetJob(celltest.Context(context.Background()), key)
 				require.NoError(t, err)
 				var live struct {
 					Reference jobdb.ArtifactKey `json:"reference"`
@@ -208,7 +210,7 @@ func TestExecutionFailureDiagnostics(t *testing.T) {
 				engine, err := wf.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("tenant").PlusWorkers(w).BuildEngine()
 				require.NoError(t, err)
 				observer := &executionArtifactObserver{}
-				value, err := engine.ReplayJobRun(context.Background(), wf.ReplayRunRequest{JobKey: key, Observer: observer})
+				value, err := engine.ReplayJobRun(celltest.Context(context.Background()), wf.ReplayRunRequest{JobKey: key, Observer: observer})
 				if retry {
 					require.NoError(t, err)
 				} else {
@@ -225,7 +227,7 @@ func TestExecutionFailureDiagnostics(t *testing.T) {
 				artifacts, err := first.Output.GetArtifacts()
 				require.NoError(t, err)
 				require.Len(t, artifacts, 1)
-				data, err := artifacts[0].Bytes(context.Background())
+				data, err := artifacts[0].Bytes(celltest.Context(context.Background()))
 				require.NoError(t, err)
 				require.Equal(t, "sanitized stderr", string(data))
 				wantRuns := int32(1)
@@ -270,7 +272,7 @@ func TestExecutionTaskInvocationIdentity(t *testing.T) {
 				if retryOwner == "job" {
 					policy.Retry.MaximumAttempts = 2
 				}
-				h, err := rt.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("input"), RunPolicy: policy}})
+				h, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("input"), RunPolicy: policy}})
 				require.NoError(t, err)
 				out, err := runExecutionTest(t, rt, h.JobKey, w, task)
 				require.NoError(t, err)

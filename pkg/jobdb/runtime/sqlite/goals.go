@@ -253,8 +253,16 @@ func (r *Runtime) GetDependencyWait(ctx context.Context, key jobdb.DependencyWai
 	return (goalstate.Engine{Store: store, Now: now}).Evaluate(wait)
 }
 func (r *Runtime) goalHandle(ctx context.Context, key jobdb.JobKey) (jobdb.JobHandle, error) {
-	j, err := (goalStore{ctxOrBackground(ctx), r.db}).Job(key)
-	return jobdb.JobHandle{JobKey: key, GoalID: j.GoalID}, err
+	j, err := r.loadJobRow(ctxOrBackground(ctx), key)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	var name string
+	if err = r.db.QueryRowContext(ctxOrBackground(ctx), "SELECT name FROM jobdb_cells WHERE tenant_id=? AND cell_id=?", key.TenantId, j.cell.CellID).Scan(&name); err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	j.cell.Cell = name
+	return j.cell.Handle(key, j.goalID), nil
 }
 
 func structuredWaitReady(ctx context.Context, q queryer, row jobRow, now time.Time) (bool, error) {
@@ -280,19 +288,51 @@ func structuredWaitReady(ctx context.Context, q queryer, row jobRow, now time.Ti
 func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (out goalstate.Prepared, err error) {
 	ctx = ctxOrBackground(ctx)
 	err = r.withTx(ctx, func(tx *sql.Tx) error {
-		query := `SELECT job_id,goal_id,descriptor FROM jobdb_goal_preparations WHERE tenant_id=? AND job_id=?`
+		if req.RequestID != "" {
+			var id string
+			err := tx.QueryRowContext(ctx, "SELECT job_id FROM jobdb_goal_preparations WHERE tenant_id=? AND request_id=?", req.Key.TenantId, req.RequestID).Scan(&id)
+			if err == nil {
+				if req.Key.JobId != "" && req.Key.JobId != id {
+					return jobdb.NewExistingJobMismatchError("destination differs")
+				}
+				req.Key.JobId = id
+			} else if err != sql.ErrNoRows {
+				return err
+			}
+		}
+		target, e := r.prepareCell(ctx, tx, &req)
+		if e != nil {
+			return e
+		}
+		req.Target = target
+		query := `SELECT job_id,goal_id,descriptor,cell_target FROM jobdb_goal_preparations WHERE tenant_id=? AND job_id=?`
 		args := []any{req.Key.TenantId, req.Key.JobId}
 		if req.RequestID != "" {
-			query = `SELECT job_id,goal_id,descriptor FROM jobdb_goal_preparations WHERE tenant_id=? AND request_id=?`
+			query = `SELECT job_id,goal_id,descriptor,cell_target FROM jobdb_goal_preparations WHERE tenant_id=? AND request_id=?`
 			args = []any{req.Key.TenantId, req.RequestID}
 		}
 		var id, goalID, descriptor string
-		e := tx.QueryRowContext(ctx, query, args...).Scan(&id, &goalID, &descriptor)
+		var priorCell []byte
+		e = tx.QueryRowContext(ctx, query, args...).Scan(&id, &goalID, &descriptor, &priorCell)
 		if e == nil {
+			var old goalstate.Preparation
+			if e = json.Unmarshal(priorCell, &old); e != nil {
+				return e
+			}
+			if old.Target.CellRepo != target.CellRepo || old.Target.Cell != target.Cell && old.Target.CellID != target.CellID {
+				return jobdb.NewExistingJobMismatchError("cell differs")
+			}
+			var n int
+			if e = tx.QueryRowContext(ctx, "SELECT count(*) FROM jobdb_cells WHERE tenant_id=? AND cell_id=?", req.Key.TenantId, target.CellID).Scan(&n); e != nil {
+				return e
+			}
+			if n == 0 {
+				target.CellID = old.Target.CellID
+			}
 			if descriptor != req.Descriptor || (req.Key.JobId != "" && id != req.Key.JobId) {
 				return goalstate.PreparationMismatch(descriptor, req.Descriptor)
 			}
-			out = goalstate.Prepared{Key: jobdb.JobKey{TenantId: req.Key.TenantId, JobId: id}, GoalID: goalID}
+			out = goalstate.Prepared{Target: target, Key: jobdb.JobKey{TenantId: req.Key.TenantId, JobId: id}, GoalID: goalID}
 			var count int
 			if e = tx.QueryRowContext(ctx, `SELECT count(*) FROM jobdb_jobs WHERE tenant_id=? AND job_id=?`, out.Key.TenantId, id).Scan(&count); e != nil {
 				return e
@@ -319,17 +359,6 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (ou
 				return e
 			}
 		}
-		// Jobs predating reservations (migration and scheduled occurrences) still
-		// pass through the established history-equivalence reconciliation.
-		if existing, lookupErr := (goalStore{ctx, tx}).Job(req.Key); lookupErr == nil {
-			if len(req.Dependencies) > 0 || req.ShareGoal {
-				return jobdb.NewExistingJobMismatchError("existing job has no matching goal preparation")
-			}
-			out = goalstate.Prepared{Key: req.Key, GoalID: existing.GoalID}
-			return nil
-		} else if !errors.Is(lookupErr, jobdb.ErrJobNotFound) {
-			return lookupErr
-		}
 		goalID = ksuid.New().String()
 		if req.ShareGoal {
 			j, e := (goalStore{ctx, tx}).Job(jobdb.JobKey{TenantId: req.Key.TenantId, JobId: req.PriorJobID})
@@ -353,23 +382,21 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (ou
 		if req.RequestID != "" {
 			requestID = req.RequestID
 		}
-		_, e = tx.ExecContext(ctx, `INSERT INTO jobdb_goal_preparations(tenant_id,job_id,request_id,goal_id,share_goal,descriptor,dependencies) VALUES(?,?,?,?,?,?,?)`, req.Key.TenantId, req.Key.JobId, requestID, goalID, req.ShareGoal, req.Descriptor, deps)
+		_, e = tx.ExecContext(ctx, `INSERT INTO jobdb_goal_preparations(tenant_id,job_id,request_id,goal_id,share_goal,descriptor,cell_target,dependencies) VALUES(?,?,?,?,?,?,?,?)`, req.Key.TenantId, req.Key.JobId, requestID, goalID, req.ShareGoal, req.Descriptor, cellPreparationJSON(req), deps)
 		if e != nil {
 			return e
 		}
-		out = goalstate.Prepared{Key: req.Key, GoalID: goalID}
+		out = goalstate.Prepared{Target: target, Key: req.Key, GoalID: goalID}
 		return nil
 	})
 	return
 }
-func publishGoal(ctx context.Context, tx *sql.Tx, key jobdb.JobKey, now time.Time) (string, []jobdb.Dependency, error) {
+func publishGoal(ctx context.Context, tx *sql.Tx, key jobdb.JobKey, target jobdb.ResolvedCell, now time.Time) (string, []jobdb.Dependency, error) {
 	var goalID string
 	var shared bool
 	var raw []byte
 	err := tx.QueryRowContext(ctx, `SELECT goal_id,share_goal,dependencies FROM jobdb_goal_preparations WHERE tenant_id=? AND job_id=?`, key.TenantId, key.JobId).Scan(&goalID, &shared, &raw)
-	if err == sql.ErrNoRows {
-		goalID = ksuid.New().String()
-	} else if err != nil {
+	if err != nil {
 		return "", nil, err
 	}
 	var deps []jobdb.Dependency
@@ -389,7 +416,7 @@ func publishGoal(ctx context.Context, tx *sql.Tx, key jobdb.JobKey, now time.Tim
 			return "", nil, jobdb.ErrGoalConflict
 		}
 	} else {
-		if err = s.SaveGoal(jobdb.GoalInfo{GoalKey: gk, State: jobdb.GoalOpen, Revision: 1, CreatedAt: now, UpdatedAt: now}); err != nil {
+		if err = s.SaveGoal(jobdb.GoalInfo{Cell: target.Cell, CellID: target.CellID, CellRepo: target.CellRepo, GoalKey: gk, State: jobdb.GoalOpen, Revision: 1, CreatedAt: now, UpdatedAt: now}); err != nil {
 			return "", nil, err
 		}
 	}
@@ -453,4 +480,13 @@ func goalListPredicate(req jobdb.ListJobsRequest) (string, []any) {
 		}
 	}
 	return where, args
+}
+
+func cellPreparationJSON(req goalstate.Preparation) []byte { raw, _ := json.Marshal(req); return raw }
+
+func (r *Runtime) DiscardJobPreparation(ctx context.Context, key jobdb.JobKey) error {
+	return r.withTx(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `DELETE FROM jobdb_goal_preparations WHERE tenant_id=? AND job_id=? AND NOT EXISTS(SELECT 1 FROM jobdb_jobs j WHERE j.tenant_id=? AND j.job_id=?)`, key.TenantId, key.JobId, key.TenantId, key.JobId)
+		return err
+	})
 }

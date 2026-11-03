@@ -102,6 +102,9 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		},
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			if writeCellError(w, err) {
+				return
+			}
 			if writeDelegationError(w, err) {
 				return
 			}
@@ -115,7 +118,7 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 			}
 			if errors.Is(err, jobdb.ErrExistingJobMismatch) {
 				writeAPIError(w, http.StatusConflict, runtimeapi.ErrorResponse{
-					Code:    runtimeapi.ExistingJobMismatch,
+					Code:    runtimeapi.ErrorCodeExistingJobMismatch,
 					Message: err.Error(),
 				})
 				return
@@ -157,6 +160,9 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 	handler := runtimeapi.HandlerFromMux(strict, router)
 	devHandler := server.devSecretHandler()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !prepareCellRequest(w, r) {
+			return
+		}
 		if !server.prepareDelegationRequest(w, r) {
 			return
 		}
@@ -229,7 +235,7 @@ func (s *proxyServer) PollWork(ctx context.Context, request runtimeapi.PollWorkR
 	if request.Body == nil {
 		return nil, badRequest("poll work body is required")
 	}
-	req := jobdb.PollWorkRequest{
+	req := jobdb.PollWorkRequest{CellNames: cloneStringSlice(request.Body.CellNames),
 		TenantId:      request.Body.TenantId,
 		WorkerID:      request.Body.WorkerId,
 		Routes:        routesFromAPI(request.Body.Routes),
@@ -307,7 +313,7 @@ func submitJobRequestFromAPI(body runtimeapi.SubmitJobRequest, tenantID string, 
 		return jobdb.SubmitJobRequest{}, err
 	}
 	return jobdb.SubmitJobRequest{
-		Job: jobdb.SubmitJob{Dependencies: dependenciesFromAPI(body.Job.Dependencies),
+		Job: jobdb.SubmitJob{Cell: body.Job.Cell, CellRepo: stringValue(body.Job.CellRepo), Dependencies: dependenciesFromAPI(body.Job.Dependencies),
 			ClientPayloadUpdate: body.Job.ClientPayloadUpdate,
 			AvailableAt:         cloneTime(body.Job.AvailableAt),
 			TenantId:            tenantID,
@@ -332,7 +338,7 @@ func (s *proxyServer) ListJobs(ctx context.Context, request runtimeapi.ListJobsR
 	if err != nil {
 		return nil, badRequest(err.Error())
 	}
-	req := jobdb.ListJobsRequest{GoalIDs: cloneStringSlice(request.Body.GoalIds),
+	req := jobdb.ListJobsRequest{CellNames: cloneStringSlice(request.Body.CellNames), GoalIDs: cloneStringSlice(request.Body.GoalIds),
 		IncludeHidden:  boolValue(request.Body.IncludeHidden),
 		TenantIds:      []string{request.TenantId},
 		MetadataFilter: metadataFilter,
@@ -411,7 +417,7 @@ func (s *proxyServer) RegisterJobSchema(ctx context.Context, request runtimeapi.
 	})
 	if errors.Is(err, jobdb.ErrConflict) {
 		return runtimeapi.RegisterJobSchema409JSONResponse{
-			Code:    runtimeapi.Conflict,
+			Code:    runtimeapi.ErrorCodeConflict,
 			Message: err.Error(),
 		}, nil
 	}
@@ -676,7 +682,7 @@ func (s *proxyServer) PutRestartJob(ctx context.Context, request runtimeapi.PutR
 }
 
 func submitRestartJobRequestFromAPI(body runtimeapi.SubmitRestartJobRequest, tenantID string, jobID string) (jobdb.SubmitRestartJobRequest, error) {
-	job := jobdb.SubmitRestartJob{ShareGoal: boolValue(body.Job.ShareGoal), Dependencies: dependenciesFromAPI(body.Job.Dependencies),
+	job := jobdb.SubmitRestartJob{Cell: body.Job.Cell, CellRepo: stringValue(body.Job.CellRepo), ShareGoal: boolValue(body.Job.ShareGoal), Dependencies: dependenciesFromAPI(body.Job.Dependencies),
 		ClientPayloadUpdate: body.Job.ClientPayloadUpdate,
 		PriorJobKey:         fromAPIJobKey(body.Job.PriorJobKey),
 		LastStepToKeep:      body.Job.LastStepToKeep,
@@ -972,7 +978,7 @@ func (s *proxyServer) KeepAliveLease(ctx context.Context, request runtimeapi.Kee
 			return nil, err
 		}
 		if claims.Principal != nil {
-			snapshot.LeaseToken, err = s.tokens.mintWithPrincipal(jobKey, request.LeaseId, claims.WorkerID, claims.SchemaHash, lease.LeaseExpiry(), leaseDuration, claims.Principal)
+			snapshot.LeaseToken, err = s.tokens.mintWithPrincipal(jobKey, request.LeaseId, claims.WorkerID, claims.SchemaHash, lease.LeaseExpiry(), leaseDuration, claims.Principal, claims.Cell)
 			if err != nil {
 				return nil, err
 			}
@@ -991,7 +997,7 @@ func (s *proxyServer) KeepAliveLease(ctx context.Context, request runtimeapi.Kee
 			return nil, err
 		}
 	}
-	token, err := s.tokens.mintWithPrincipal(jobKey, request.LeaseId, claims.WorkerID, claims.SchemaHash, leaseExpiresAt, leaseDuration, claims.Principal)
+	token, err := s.tokens.mintWithPrincipal(jobKey, request.LeaseId, claims.WorkerID, claims.SchemaHash, leaseExpiresAt, leaseDuration, claims.Principal, claims.Cell)
 	if err != nil {
 		return nil, err
 	}
@@ -1307,7 +1313,10 @@ func cloneStringSlice(values *[]string) []string {
 	if values == nil {
 		return nil
 	}
-	return append([]string(nil), (*values)...)
+	if *values == nil {
+		return nil
+	}
+	return append([]string{}, (*values)...)
 }
 
 func writePayloadSizeError(w http.ResponseWriter, err error) bool {

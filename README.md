@@ -7,6 +7,25 @@ backends.
 Use the server when you want a standalone runtime process that workers and other
 clients can talk to over the remote runtime protocol.
 
+## Named cells and the hard break
+
+Jobs require a cell name. A cell has a stable generated ID, a unique tenant-local
+name, a Git repository, description, and arbitrary JSON metadata. Ordinary
+names can change; old names remain aliases. Repo and metadata updates use PATCH
+with an ETag. Cells are retired, never deleted.
+
+This release requires fresh execution storage and coordinated client upgrades.
+Bootstrap the special, permanently named root cell against the **JobDB API URL**:
+
+```bash
+jobdb cell create-root --tenant acme --repo github.com/acme/root --url http://localhost:9047
+```
+
+A live root job lease can submit to any cell in its tenant. The first submission
+to a new cell must include `cellRepo`; later submissions can use its name alone.
+Job IDs remain tenant-wide. See the [cell specification](docs/SPEC-Tenant-Cells.md)
+for the HTTP contract, authorization hooks, and separate c2j/Cortex/pgjobdb plans.
+
 ## Installation
 
 Install the CLI with npm:

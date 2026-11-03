@@ -13,18 +13,20 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
+
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSecretsCLIEndToEnd(t *testing.T) {
 	dir := t.TempDir()
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	r, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(dir, "jobs.db")})
 	require.NoError(t, err)
 	defer r.Close(ctx)
-	server := httptest.NewServer(remote.NewServer(r))
+	server := httptest.NewServer(celltest.Handler(remote.NewServer(r)))
 	defer server.Close()
 	run := func(stdin string, args ...string) string {
 		t.Helper()
@@ -38,7 +40,7 @@ func TestSecretsCLIEndToEnd(t *testing.T) {
 		require.NotContains(t, output.String(), "unique-secret-content")
 		return output.String()
 	}
-	h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "a", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
+	h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "a", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, err)
 	l, err := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "w", Routes: []jobdb.Route{{JobType: "job"}}, LeaseDuration: time.Minute})
 	require.NoError(t, err)
@@ -66,10 +68,10 @@ func TestSecretsCLIEndToEnd(t *testing.T) {
 }
 
 func TestSecretsCLIConfigurationAndSafeFailures(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		fmt.Fprint(w, "do-not-leak-provider-response")
-	}))
+	})))
 	defer server.Close()
 	cmd := NewRootCmd()
 	var output bytes.Buffer
@@ -86,10 +88,10 @@ func TestSecretsCLIConfigurationAndSafeFailures(t *testing.T) {
 // Invalid local input must explain what to fix without reading secret values
 // into diagnostics or making an HTTP request.
 func TestSecretsCLILocalValidationDiagnostics(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("invalid local input reached the server")
 		w.WriteHeader(http.StatusInternalServerError)
-	}))
+	})))
 	defer server.Close()
 	invalidUTF8 := "do-not-leak-secret" + string([]byte{255})
 	for _, tc := range []struct {

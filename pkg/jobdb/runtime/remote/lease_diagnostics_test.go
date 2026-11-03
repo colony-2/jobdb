@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/runtimeapi"
 	"github.com/stretchr/testify/require"
 )
@@ -58,7 +59,7 @@ func diagnosticLease(t *testing.T, target string, transport http.RoundTripper) *
 func callDiagnosticLease(ctx context.Context, l *remoteExecutionLease, operation string) error {
 	switch operation {
 	case "import":
-		_, err := l.runtime.ImportLease(ctx, LeaseCapability{wire: leaseCapabilityWire{Version: 1, TenantID: "tenant", JobID: "job", LeaseID: "lease", Token: diagnosticSecret}})
+		_, err := l.runtime.ImportLease(ctx, LeaseCapability{wire: leaseCapabilityWire{Version: 2, TenantID: "tenant", JobID: "job", LeaseID: "lease", Token: diagnosticSecret}})
 		return err
 	case "renew":
 		_, err := l.Renew(ctx)
@@ -123,7 +124,7 @@ func TestLeaseDiagnosticsTransportFailures(t *testing.T) {
 					require.Equal(t, diagnosticSecret, r.Header.Get("X-JobDB-Lease-Token"))
 					return nil, fmt.Errorf("nested %s: %w", diagnosticSecret, tc.cause)
 				}))
-				err := callDiagnosticLease(context.Background(), lease, operation)
+				err := callDiagnosticLease(celltest.Context(context.Background()), lease, operation)
 				d := assertSafeLeaseDiagnostic(t, err)
 				require.ErrorIs(t, err, tc.cause)
 				require.False(t, errors.Is(err, jobdb.ErrExecutionLeaseLost))
@@ -145,7 +146,7 @@ func TestLeaseDiagnosticsTransportFailures(t *testing.T) {
 
 func validDiagnosticSnapshot() runtimeapi.ExecutionLease {
 	expiry, worker := time.Now().Add(time.Hour), "worker"
-	return runtimeapi.ExecutionLease{Job: runtimeapi.JobHandle{GoalId: "goal", JobKey: runtimeapi.JobKey{TenantId: "tenant", JobId: "job"}}, LeaseId: "lease", LeaseToken: "replacement", WorkerId: &worker, ExpiresAt: &expiry, ClientPayloadRevision: "0"}
+	return runtimeapi.ExecutionLease{Job: runtimeapi.JobHandle{Cell: "test", CellId: "cell-test", CellRepo: "example.test/test", GoalId: "goal", JobKey: runtimeapi.JobKey{TenantId: "tenant", JobId: "job"}}, LeaseId: "lease", LeaseToken: "replacement", WorkerId: &worker, ExpiresAt: &expiry, ClientPayloadRevision: "0"}
 }
 
 func TestLeaseDiagnosticsResponses(t *testing.T) {
@@ -177,7 +178,7 @@ func TestLeaseDiagnosticsResponses(t *testing.T) {
 					}
 					return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{tc.contentType}}, Body: body, Request: r}, nil
 				}))
-				err := callDiagnosticLease(context.Background(), lease, operation)
+				err := callDiagnosticLease(celltest.Context(context.Background()), lease, operation)
 				d := assertSafeLeaseDiagnostic(t, err)
 				require.Equal(t, 200, d.StatusCode)
 				require.True(t, d.ResponseReceived)
@@ -211,7 +212,7 @@ func TestLeaseDiagnosticsRejectionDoesNotDependOnBody(t *testing.T) {
 				lease := diagnosticLease(t, "https://jobdb.example", diagnosticTransport(func(*http.Request) (*http.Response, error) {
 					return &http.Response{StatusCode: status, Header: make(http.Header), Body: body}, nil
 				}))
-				err := callDiagnosticLease(context.Background(), lease, operation)
+				err := callDiagnosticLease(celltest.Context(context.Background()), lease, operation)
 				d := assertSafeLeaseDiagnostic(t, err)
 				require.Equal(t, status, d.StatusCode)
 				require.True(t, d.ResponseReceived)
@@ -255,7 +256,7 @@ func TestLeaseDiagnosticsSnapshotFailures(t *testing.T) {
 				lease := diagnosticLease(t, "https://jobdb.example", diagnosticTransport(func(*http.Request) (*http.Response, error) {
 					return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(string(raw)))}, nil
 				}))
-				err = callDiagnosticLease(context.Background(), lease, operation)
+				err = callDiagnosticLease(celltest.Context(context.Background()), lease, operation)
 				d := assertSafeLeaseDiagnostic(t, err)
 				require.Equal(t, LeasePhaseSnapshot, d.Phase)
 				require.Equal(t, LeaseFailureSnapshot, d.Category)
@@ -283,7 +284,7 @@ func TestLeaseDiagnosticsWorkerBinding(t *testing.T) {
 			lease := diagnosticLease(t, "https://jobdb.example", diagnosticTransport(func(*http.Request) (*http.Response, error) {
 				return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(string(raw)))}, nil
 			}))
-			err = callDiagnosticLease(context.Background(), lease, operation)
+			err = callDiagnosticLease(celltest.Context(context.Background()), lease, operation)
 			d := assertSafeLeaseDiagnostic(t, err)
 			require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
 			require.Equal(t, LeasePhaseSnapshot, d.Phase)
@@ -305,7 +306,7 @@ func TestLeaseDiagnosticsEncodedDestinationAndHeaders(t *testing.T) {
 				r.Header.Set("Authorization", "Bearer authorization-secret")
 				return nil
 			})
-			_, err := lease.Renew(context.Background())
+			_, err := lease.Renew(celltest.Context(context.Background()))
 			d := assertSafeLeaseDiagnostic(t, err)
 			require.Equal(t, tc.destination, d.Destination)
 			raw, marshalErr := json.Marshal(d)
@@ -335,7 +336,7 @@ func TestLeaseDiagnosticsRequestAndRedirectFailures(t *testing.T) {
 			t.Fatal("invalid request reached transport")
 			return nil, nil
 		}))
-		_, err := lease.Renew(context.Background())
+		_, err := lease.Renew(celltest.Context(context.Background()))
 		d := assertSafeLeaseDiagnostic(t, err)
 		require.Equal(t, LeasePhaseRequest, d.Phase)
 		require.Empty(t, d.Destination)
@@ -347,7 +348,7 @@ func TestLeaseDiagnosticsRequestAndRedirectFailures(t *testing.T) {
 			return &http.Response{StatusCode: 307, Header: http.Header{"Location": []string{"https://user:url-password@other.example/path-secret?token=query-secret#fragment-secret"}}, Body: io.NopCloser(strings.NewReader(diagnosticSecret)), Request: r}, nil
 		}))
 		lease.runtime.delegations.original.CheckRedirect = func(*http.Request, []*http.Request) error { return cause }
-		_, err := lease.Renew(context.Background())
+		_, err := lease.Renew(celltest.Context(context.Background()))
 		d := assertSafeLeaseDiagnostic(t, err)
 		require.ErrorIs(t, err, cause)
 		require.Equal(t, LeasePhaseExchange, d.Phase)
@@ -360,14 +361,14 @@ func TestLeaseDiagnosticsRequestAndRedirectFailures(t *testing.T) {
 
 func TestLeaseDiagnosticsRealHTTPFailures(t *testing.T) {
 	t.Run("tls_verification", func(t *testing.T) {
-		server := httptest.NewUnstartedServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("untrusted TLS reached handler") }))
+		server := httptest.NewUnstartedServer(celltest.Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("untrusted TLS reached handler") })))
 		server.Config.ErrorLog = log.New(io.Discard, "", 0)
 		server.StartTLS()
 		defer server.Close()
 		transport := &http.Transport{Proxy: nil}
 		defer transport.CloseIdleConnections()
 		lease := diagnosticLease(t, server.URL, transport)
-		_, err := lease.Renew(context.Background())
+		_, err := lease.Renew(celltest.Context(context.Background()))
 		d := assertSafeLeaseDiagnostic(t, err)
 		require.Equal(t, LeaseFailureTLS, d.Category)
 		var verification *tls.CertificateVerificationError
@@ -378,7 +379,7 @@ func TestLeaseDiagnosticsRealHTTPFailures(t *testing.T) {
 			t.Run(phase+"/"+stop, func(t *testing.T) {
 				entered := make(chan struct{})
 				reading := make(chan struct{})
-				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					if phase == "body" {
 						w.Header().Set("Content-Type", "application/json")
 						w.WriteHeader(200)
@@ -386,7 +387,7 @@ func TestLeaseDiagnosticsRealHTTPFailures(t *testing.T) {
 					}
 					close(entered)
 					<-r.Context().Done()
-				}))
+				})))
 				defer server.Close()
 				lease := diagnosticLease(t, server.URL, diagnosticTransport(func(r *http.Request) (*http.Response, error) {
 					resp, err := server.Client().Transport.RoundTrip(r)
@@ -398,9 +399,9 @@ func TestLeaseDiagnosticsRealHTTPFailures(t *testing.T) {
 				var ctx context.Context
 				var cancel context.CancelFunc
 				if stop == "deadline" {
-					ctx, cancel = context.WithTimeout(context.Background(), time.Second)
+					ctx, cancel = context.WithTimeout(celltest.Context(context.Background()), time.Second)
 				} else {
-					ctx, cancel = context.WithCancel(context.Background())
+					ctx, cancel = context.WithCancel(celltest.Context(context.Background()))
 				}
 				defer cancel()
 				result := make(chan error, 1)
@@ -460,7 +461,7 @@ func TestLeaseDiagnosticsLegacyAndSuccessfulResponses(t *testing.T) {
 			lease := diagnosticLease(t, "https://jobdb.example", diagnosticTransport(func(*http.Request) (*http.Response, error) {
 				return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json; charset=utf-8"}}, Body: io.NopCloser(strings.NewReader(string(raw)))}, nil
 			}))
-			next, err := lease.Renew(context.Background())
+			next, err := lease.Renew(celltest.Context(context.Background()))
 			if full {
 				require.NoError(t, err)
 				require.Equal(t, "replacement", next.(*remoteExecutionLease).LeaseToken())
@@ -471,7 +472,7 @@ func TestLeaseDiagnosticsLegacyAndSuccessfulResponses(t *testing.T) {
 				require.Equal(t, LeasePhaseSnapshot, d.Phase)
 				require.Equal(t, 200, d.StatusCode)
 			}
-			require.NoError(t, lease.KeepAlive(context.Background()))
+			require.NoError(t, lease.KeepAlive(celltest.Context(context.Background())))
 			require.Equal(t, "replacement", lease.LeaseToken())
 		})
 	}

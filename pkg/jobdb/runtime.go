@@ -10,6 +10,7 @@ import (
 // WorkflowRuntime is the backend-agnostic facade used to isolate jobdb from
 // concrete persistence, artifact storage, and lease-management backends.
 type WorkflowRuntime interface {
+	CellRuntime
 	GoalRuntime
 	// GetConfiguration reads current tenant configuration using verified lease claims.
 	GetConfiguration(context.Context, GetConfigurationRequest) (ConfigurationSnapshot, error)
@@ -53,13 +54,17 @@ type WorkflowRuntime interface {
 
 // JobHandle identifies a job owned by a runtime implementation.
 type JobHandle struct {
-	GoalID string
-	JobKey JobKey
+	Cell     string
+	CellID   string
+	CellRepo string
+	GoalID   string
+	JobKey   JobKey
 }
 
 // ExecutionLease represents a leased unit of work returned by PollWork or
 // GetJobLease.
 type ExecutionLease interface {
+	ResolveCell(context.Context, string) (ResolvedCell, error)
 	// GetConfiguration reads a fresh tenant snapshot using this live lease.
 	GetConfiguration(context.Context) (ConfigurationSnapshot, error)
 
@@ -100,6 +105,7 @@ type CancelJobRequest struct {
 }
 
 type PollWorkRequest struct {
+	CellNames      []string
 	TenantId       string
 	WorkerID       string
 	Routes         []Route

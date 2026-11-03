@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,11 +15,11 @@ func runCompletionSummaries(t *testing.T, harnesses []Harness) {
 		t.Run(h.Name, func(t *testing.T) {
 			f := buildFixture(t, h)
 			defer f.Shutdown(t)
-			r, ctx := f.Runtime, context.Background()
+			r, ctx := f.Runtime, celltest.Context(context.Background())
 			tenant := f.WorkerTenantID
 			submit := func(id string) jobdb.JobKey {
 				t.Helper()
-				handle, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
+				handle, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: tenant, JobID: id, JobType: "completion", Data: NumberTaskData(1),
 				}})
 				require.NoError(t, err)
@@ -122,10 +123,10 @@ func runCompletionSummaries(t *testing.T, harnesses []Harness) {
 			}
 			require.Len(t, seen, 5)
 			if h.Capabilities.Schedules {
-				info, err := r.UpsertSchedule(ctx, jobdb.UpsertScheduleRequest{
+				info, err := celltest.Schedule(ctx, r, jobdb.UpsertScheduleRequest{
 					TenantId: tenant, ScheduleId: "completion-schedule", RequestTime: time.Now().Add(-2 * time.Hour),
 					Trigger: jobdb.ScheduleTrigger{Kind: jobdb.ScheduleTriggerInterval, Interval: time.Hour},
-					Target:  jobdb.ScheduleTarget{JobType: "completion", Data: NumberTaskData(1)},
+					Target:  jobdb.ScheduleTarget{Cell: "test", CellRepo: "example.test/test", JobType: "completion", Data: NumberTaskData(1)},
 				})
 				require.NoError(t, err)
 				require.NotNil(t, info.NextJobKey)

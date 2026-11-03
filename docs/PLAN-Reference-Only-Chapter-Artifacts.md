@@ -1,5 +1,8 @@
 # Plan: binary protobuf chapters, reference-only artifacts, and bounded size
 
+Historical document: its old-data migration instructions are superseded by the
+[named-cell fresh-store cutover](SPEC-Tenant-Cells.md#hard-break-release-policy).
+
 Status: implemented in the working tree. Existing databases require an offline
 cutover; the incident database was tested using copies, not rewritten in place.
 See the [operator migration guide](MIGRATION-Binary-Chapters.md),

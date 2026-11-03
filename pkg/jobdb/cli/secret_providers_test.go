@@ -17,9 +17,12 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
+
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
+
 	secretplugin "github.com/colony-2/jobdb/pkg/jobdb/secrets/plugin"
 	"github.com/stretchr/testify/require"
 )
@@ -110,7 +113,7 @@ func TestCLIComposesSQLiteAndPluginAndKeepsLocalAdministration(t *testing.T) {
 			original := serveHTTPFunc
 			defer func() { serveHTTPFunc = original }()
 			serveHTTPFunc = func(ctx context.Context, _ string, handler http.Handler, cleanup func(context.Context) error) error {
-				s := httptest.NewServer(handler)
+				s := httptest.NewServer(celltest.Handler(handler))
 				defer s.Close()
 				admin := func(op string, payload string) {
 					resp, err := s.Client().Post(s.URL+"/dev/v1/tenants/tenant/secrets/"+op, "application/json", bytes.NewBufferString(payload))
@@ -121,7 +124,7 @@ func TestCLIComposesSQLiteAndPluginAndKeepsLocalAdministration(t *testing.T) {
 				admin("set", `{"name":"token","value":"local"}`)
 				runtime, err := remote.New(s.URL, s.Client())
 				require.NoError(t, err)
-				job, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: "test", Data: jobdb.NewTaskDataOrPanic(1)}})
+				job, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "test", Data: jobdb.NewTaskDataOrPanic(1)}})
 				require.NoError(t, err)
 				lease, err := runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: job.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "test"}}, LeaseDuration: time.Minute})
 				require.NoError(t, err)
@@ -152,7 +155,7 @@ func TestCLIComposesSQLiteAndPluginAndKeepsLocalAdministration(t *testing.T) {
 			}
 			cmd := newRootCmd()
 			cmd.SetArgs(args)
-			require.NoError(t, cmd.ExecuteContext(context.Background()))
+			require.NoError(t, cmd.ExecuteContext(celltest.Context(context.Background())))
 			output := logs.String()
 			require.Contains(t, output, "provider=local type=sqlite priority=1 development_admin=true")
 			require.Contains(t, output, "provider=external type=plugin priority=2 development_admin=false")
@@ -172,7 +175,7 @@ func TestProviderFailedStartupOutputIsLogged(t *testing.T) {
 	logs := captureProviderLogs(t)
 	t.Setenv("JOBDB_TEST_PROVIDER_OUTPUT", "fail")
 	path := writeProviderFile(t, t.TempDir(), providerFile{Version: 1, Providers: []providerEntry{cliPlugin(t)}})
-	_, err := openSecretProviders(context.Background(), path)
+	_, err := openSecretProviders(celltest.Context(context.Background()), path)
 	require.ErrorIs(t, err, jobdb.ErrSecretsUnavailable)
 	require.NotContains(t, err.Error(), "provider startup")
 	output := logs.String()
@@ -191,7 +194,7 @@ func TestDefaultProviderStartupIsLogged(t *testing.T) {
 			serveHTTPFunc = func(context.Context, string, http.Handler, func(context.Context) error) error { return nil }
 			cmd := newRootCmd()
 			cmd.SetArgs([]string{mode, "--db", filepath.Join(t.TempDir(), "jobs.db")})
-			require.NoError(t, cmd.ExecuteContext(context.Background()))
+			require.NoError(t, cmd.ExecuteContext(celltest.Context(context.Background())))
 			if mode == "sqlite" {
 				require.Contains(t, logs.String(), "provider=sqlite type=sqlite automatic=true development_admin=true")
 			} else {
@@ -204,7 +207,7 @@ func TestDefaultProviderStartupIsLogged(t *testing.T) {
 func TestConfiguredCollectionDoesNotExposeImplicitAdmin(t *testing.T) {
 	logs := captureProviderLogs(t)
 	path := writeProviderFile(t, t.TempDir(), providerFile{Version: 1, Providers: []providerEntry{{ID: "local", Type: "sqlite", Path: "local.db"}}})
-	c, err := openSecretProviders(context.Background(), path)
+	c, err := openSecretProviders(celltest.Context(context.Background()), path)
 	require.NoError(t, err)
 	defer c.close()
 	require.Contains(t, logs.String(), "development_admin=false")
@@ -216,13 +219,13 @@ func TestConfiguredCollectionDoesNotExposeImplicitAdmin(t *testing.T) {
 		if backend == "toy" {
 			runtime = toy.New(toy.WithSecretProvider(c.provider))
 		} else {
-			r, err := sqliteruntime.NewFromConfig(context.Background(), sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), SecretProvider: c.provider})
+			r, err := sqliteruntime.NewFromConfig(celltest.Context(context.Background()), sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), SecretProvider: c.provider})
 			require.NoError(t, err)
-			defer r.Close(context.Background())
+			defer r.Close(celltest.Context(context.Background()))
 			runtime = r
 			want = 503
 		}
-		s := httptest.NewServer(remote.NewServer(c.wrap(runtime)))
+		s := httptest.NewServer(celltest.Handler(remote.NewServer(c.wrap(runtime))))
 		resp, err := s.Client().Post(s.URL+"/dev/v1/tenants/tenant/secrets/set", "application/json", bytes.NewBufferString(`{"name":"token","value":"value"}`))
 		require.NoError(t, err)
 		require.Equal(t, want, resp.StatusCode)
@@ -247,7 +250,7 @@ func TestProviderConfigValidatedBeforeOpeningStores(t *testing.T) {
 			case "bad-plugin":
 				cfg.Providers = append(cfg.Providers, providerEntry{ID: "plugin", Type: "plugin", Command: "relative"})
 			}
-			_, err := openSecretProviders(context.Background(), writeProviderFile(t, dir, cfg))
+			_, err := openSecretProviders(celltest.Context(context.Background()), writeProviderFile(t, dir, cfg))
 			require.Error(t, err)
 			_, err = os.Stat(filepath.Join(dir, "must-not-open.db"))
 			require.True(t, os.IsNotExist(err))
@@ -270,7 +273,7 @@ func TestProviderStartupAndListenerFailuresReapChildren(t *testing.T) {
 			}
 			path := writeProviderFile(t, dir, cfg)
 			if kind == "startup" {
-				_, err := openSecretProviders(context.Background(), path)
+				_, err := openSecretProviders(celltest.Context(context.Background()), path)
 				require.Error(t, err)
 			} else {
 				listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -278,7 +281,7 @@ func TestProviderStartupAndListenerFailuresReapChildren(t *testing.T) {
 				defer listener.Close()
 				cmd := newRootCmd()
 				cmd.SetArgs([]string{"--db", filepath.Join(dir, "jobs.db"), "--listen", listener.Addr().String(), "--secret-providers-file", path})
-				require.Error(t, cmd.ExecuteContext(context.Background()))
+				require.Error(t, cmd.ExecuteContext(celltest.Context(context.Background())))
 			}
 			raw, err := os.ReadFile(marker)
 			require.NoError(t, err)
@@ -298,7 +301,7 @@ func TestServeHTTPDrainsRequestsBeforeProviderCleanup(t *testing.T) {
 	require.NoError(t, err)
 	address := reserved.Addr().String()
 	require.NoError(t, reserved.Close())
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	defer cancel()
 	entered, release, cleaned := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	defer func() {

@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +36,7 @@ func catchGap(a wf.CatchAttempt, field, reason string) bool {
 }
 func readCatches(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey) wf.CatchHistory {
 	t.Helper()
-	h, err := wf.ReadCatchHistory(context.Background(), rt, jobdb.GetJobRunRequest{JobKey: key})
+	h, err := wf.ReadCatchHistory(celltest.Context(context.Background()), rt, jobdb.GetJobRunRequest{JobKey: key})
 	require.NoError(t, err)
 	return h
 }
@@ -94,7 +96,7 @@ func TestCatchHistoryDispositions(t *testing.T) {
 				key := submitExecutionTest(t, recording, w)
 				// Invalid disposition is an engine error; its buffered selection may remain
 				// invisible. All other executions have an authoritative final outcome.
-				run, err := wf.GetJobForRun(context.Background(), recording, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "cases", LeaseDuration: time.Minute})
+				run, err := wf.GetJobForRun(celltest.Context(context.Background()), recording, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "cases", LeaseDuration: time.Minute})
 				require.NoError(t, err)
 				out, runErr := run.Run(nil)
 				require.NoError(t, runErr)
@@ -102,18 +104,18 @@ func TestCatchHistoryDispositions(t *testing.T) {
 					require.Equal(t, wf.JobRunFailed, out.Status)
 					require.Contains(t, out.JobError.Error(), "invalid catch disposition")
 				}
-				before, err := inspection.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+				before, err := inspection.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 				require.NoError(t, err)
 				beforeBytes, err := json.Marshal(before)
 				require.NoError(t, err)
 				defer func() {
-					final, err := inspection.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+					final, err := inspection.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 					require.NoError(t, err)
 					finalBytes, err := json.Marshal(final)
 					require.NoError(t, err)
 					require.Equal(t, beforeBytes, finalBytes, "all inspection and returned-buffer mutations must preserve stored records, metadata and chapter envelopes")
 				}()
-				summary, err := inspection.GetJob(context.Background(), key)
+				summary, err := inspection.GetJob(celltest.Context(context.Background()), key)
 				require.NoError(t, err)
 				calls, executions := callbacks.Load(), runs.Load()
 				// Inspection machinery has no engine or callback registration.
@@ -203,16 +205,16 @@ func TestCatchHistoryDispositions(t *testing.T) {
 				call.Catch[0].Match = func(error) bool { panic("inspection predicate") }
 				call.Catch[0].Handle = func(wf.ExecutionContext, error) (wf.CatchResult, error) { panic("inspection handler") }
 				for flags := 0; flags < 16; flags++ {
-					other, err := wf.ReadCatchHistory(context.Background(), inspection, jobdb.GetJobRunRequest{JobKey: key, IncludeInputs: flags&1 != 0, IncludeOutputs: flags&2 != 0, IncludeArtifacts: flags&4 != 0, IncludeAttemptInputs: flags&8 != 0})
+					other, err := wf.ReadCatchHistory(celltest.Context(context.Background()), inspection, jobdb.GetJobRunRequest{JobKey: key, IncludeInputs: flags&1 != 0, IncludeOutputs: flags&2 != 0, IncludeArtifacts: flags&4 != 0, IncludeAttemptInputs: flags&8 != 0})
 					require.NoError(t, err)
 					require.Equal(t, h, other)
 				}
 				require.Equal(t, calls, callbacks.Load())
 				require.Equal(t, executions, runs.Load())
-				after, err := inspection.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+				after, err := inspection.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 				require.NoError(t, err)
 				require.Equal(t, before, after)
-				summaryAfter, err := inspection.GetJob(context.Background(), key)
+				summaryAfter, err := inspection.GetJob(celltest.Context(context.Background()), key)
 				require.NoError(t, err)
 				require.Equal(t, summary, summaryAfter)
 				// Returned buffers, including pointers within artifact descriptors, are owned.
@@ -290,7 +292,7 @@ func TestCatchHistoryCompactIdentity(t *testing.T) {
 			require.Equal(t, h, readCatches(t, inspection, key))
 			require.Equal(t, before, callbacks.Load())
 			// Fixture expected facts are independent of opaque identity encoding.
-			info, err := jobdb.GetJobRun(context.Background(), inspection, jobdb.GetJobRunRequest{JobKey: key})
+			info, err := jobdb.GetJobRun(celltest.Context(context.Background()), inspection, jobdb.GetJobRunRequest{JobKey: key})
 			require.NoError(t, err)
 			ord := map[int64]int{}
 			for _, e := range info.Execution {
@@ -313,7 +315,7 @@ func TestCatchHistoryOrdinaryRetryAndRootAncestry(t *testing.T) {
 				return c.DoTask(call, func(context.Context) (jobdb.TaskData, error) { return in, nil })
 			}}
 			task := executionTestTask{"echo", func(wf.TaskContext, jobdb.TaskData) (jobdb.TaskData, error) { return nil, errors.New("retry me") }}
-			handle, err := recording.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("job"), RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 2, InitialInterval: jobdb.Duration(time.Millisecond)}}}})
+			handle, err := recording.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("job"), RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 2, InitialInterval: jobdb.Duration(time.Millisecond)}}}})
 			require.NoError(t, err)
 			out, err := runExecutionTest(t, recording, handle.JobKey, w, task)
 			require.NoError(t, err)

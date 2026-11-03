@@ -9,7 +9,9 @@ import (
 	"testing"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +29,7 @@ func catchFixtureRuntime(t *testing.T, records []jobdb.ExecutionRecord) (jobdb.W
 	rt := toy.New()
 	w := wf.ExecutionWorker{JobType: "fixture"}
 	key := submitExecutionTest(t, rt, w)
-	start, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+	start, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 	require.NoError(t, err)
 	for _, rec := range records {
 		raw, err := json.Marshal(rec)
@@ -59,7 +61,7 @@ func TestCatchHistoryFixtures(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(raw, &compact))
 	// Reuse the same seeded JobKey and compare independently read physical forms.
-	prefix, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+	prefix, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 	require.NoError(t, err)
 	prefix = prefix[:1]
 	for _, ch := range compact {
@@ -253,7 +255,7 @@ func TestCatchHistoryCorruptHistory(t *testing.T) {
 			case "missing-chapter":
 				frozen.chapters = append(frozen.chapters[:2], frozen.chapters[3:]...)
 			}
-			_, err := wf.ReadCatchHistory(context.Background(), frozen, jobdb.GetJobRunRequest{JobKey: key})
+			_, err := wf.ReadCatchHistory(celltest.Context(context.Background()), frozen, jobdb.GetJobRunRequest{JobKey: key})
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "catch history")
 		})
@@ -278,7 +280,7 @@ func TestCatchHistoryMissingSelectionWithNestedHandler(t *testing.T) {
 			out, err := runExecutionTest(t, recording, key, w)
 			require.NoError(t, err)
 			require.Equal(t, wf.JobRunCompleted, out.Status)
-			info, err := jobdb.GetJobRun(context.Background(), inspection, jobdb.GetJobRunRequest{JobKey: key})
+			info, err := jobdb.GetJobRun(celltest.Context(context.Background()), inspection, jobdb.GetJobRunRequest{JobKey: key})
 			require.NoError(t, err)
 			var records []jobdb.ExecutionRecord
 			// An explicit evidence-gap fixture: retain declarations and every independently
@@ -313,7 +315,7 @@ func TestCatchHistoryMissingWholeJobAttempt(t *testing.T) {
 		}
 	}
 	rt, key := catchFixtureRuntime(t, records)
-	_, err := wf.ReadCatchHistory(context.Background(), rt, jobdb.GetJobRunRequest{JobKey: key})
+	_, err := wf.ReadCatchHistory(celltest.Context(context.Background()), rt, jobdb.GetJobRunRequest{JobKey: key})
 	require.ErrorContains(t, err, "missing recorded whole-job attempt")
 	require.ErrorContains(t, err, "attempt:99")
 }

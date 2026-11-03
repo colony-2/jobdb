@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -27,24 +29,24 @@ func TestCatchHistoryRuntimeErrors(t *testing.T) {
 		t.Run(backend, func(t *testing.T) {
 			recording, inspection := catchHistoryRuntimes(t, backend)
 			count := &catchCountingRuntime{WorkflowRuntime: inspection}
-			_, err := wf.ReadCatchHistory(context.Background(), count, jobdb.GetJobRunRequest{})
+			_, err := wf.ReadCatchHistory(celltest.Context(context.Background()), count, jobdb.GetJobRunRequest{})
 			require.Error(t, err)
 			require.Zero(t, count.reads.Load())
-			_, err = wf.ReadCatchHistory(context.Background(), nil, jobdb.GetJobRunRequest{JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "valid"}})
+			_, err = wf.ReadCatchHistory(celltest.Context(context.Background()), nil, jobdb.GetJobRunRequest{JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "valid"}})
 			require.ErrorContains(t, err, "nil runtime")
 			key := submitExecutionTest(t, recording, wf.ExecutionWorker{JobType: "read-errors"})
-			_, err = wf.ReadCatchHistory(context.Background(), inspection, jobdb.GetJobRunRequest{JobKey: jobdb.JobKey{TenantId: "other-tenant", JobId: key.JobId}})
+			_, err = wf.ReadCatchHistory(celltest.Context(context.Background()), inspection, jobdb.GetJobRunRequest{JobKey: jobdb.JobKey{TenantId: "other-tenant", JobId: key.JobId}})
 			require.ErrorIs(t, err, jobdb.ErrJobNotFound)
-			_, err = wf.ReadCatchHistory(context.Background(), inspection, jobdb.GetJobRunRequest{JobKey: jobdb.JobKey{TenantId: key.TenantId, JobId: "missing"}})
+			_, err = wf.ReadCatchHistory(celltest.Context(context.Background()), inspection, jobdb.GetJobRunRequest{JobKey: jobdb.JobKey{TenantId: key.TenantId, JobId: "missing"}})
 			require.ErrorIs(t, err, jobdb.ErrJobNotFound)
 			sentinel := errors.New("read failed")
-			_, err = wf.ReadCatchHistory(context.Background(), catchFrozenRuntime{WorkflowRuntime: inspection, err: sentinel}, jobdb.GetJobRunRequest{JobKey: key})
+			_, err = wf.ReadCatchHistory(celltest.Context(context.Background()), catchFrozenRuntime{WorkflowRuntime: inspection, err: sentinel}, jobdb.GetJobRunRequest{JobKey: key})
 			require.ErrorIs(t, err, sentinel)
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 			cancel()
 			_, err = wf.ReadCatchHistory(ctx, inspection, jobdb.GetJobRunRequest{JobKey: key})
 			require.Error(t, err)
-			h, err := wf.ReadCatchHistory(nil, count, jobdb.GetJobRunRequest{JobKey: key})
+			h, err := wf.ReadCatchHistory(celltest.Context(context.Background()), count, jobdb.GetJobRunRequest{JobKey: key})
 			require.NoError(t, err)
 			require.Empty(t, h.Attempts)
 			require.EqualValues(t, 1, count.reads.Load())
@@ -70,7 +72,7 @@ func TestCatchHistoryTypedFailure(t *testing.T) {
 			var got jobdb.AppErrorPayload
 			require.NoError(t, json.Unmarshal(a.Original.Data, &got))
 			require.Equal(t, payload, got)
-			info, err := jobdb.GetJobRun(context.Background(), inspection, jobdb.GetJobRunRequest{JobKey: key})
+			info, err := jobdb.GetJobRun(celltest.Context(context.Background()), inspection, jobdb.GetJobRunRequest{JobKey: key})
 			require.NoError(t, err)
 			for _, e := range info.Execution {
 				if e.Record.Kind == "result" && e.Record.ID == a.Boundary.AttemptID {

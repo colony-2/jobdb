@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -48,9 +49,9 @@ func TestTimedOutAttemptCannotWriteIntoRetry(t *testing.T) {
 			// Orchestration unwinds before retry; expired calls still fail even
 			// though the task worker remains blocked through the next attempt.
 			_, taskErr := ctx.DoTask(TaskCall{Site: "task", Command: []byte("{}"), TaskType: task.Name(), ContractVersion: 1, Policy: RunPolicy{}}, func(context.Context) (TaskData, error) { return in, nil })
-			_, submitErr := ctx.SubmitJob(context.Background(), SubmitJob{})
-			_, restartErr := ctx.SubmitRestartJob(context.Background(), SubmitRestartJobRequest{Job: SubmitRestartJob{}})
-			yieldErr := ctx.Yield(context.Background(), YieldRequest{Reschedule: RescheduleExecutionRequest{}})
+			_, submitErr := ctx.SubmitJob(celltest.Context(context.Background()), SubmitJob{Cell: "test", CellRepo: "example.test/test"})
+			_, restartErr := ctx.SubmitRestartJob(celltest.Context(context.Background()), SubmitRestartJobRequest{Job: SubmitRestartJob{Cell: "test"}})
+			yieldErr := ctx.Yield(celltest.Context(context.Background()), YieldRequest{Reschedule: RescheduleExecutionRequest{}})
 			jobExited <- []error{taskErr, submitErr, restartErr, yieldErr}
 		}
 		return out, err
@@ -59,7 +60,7 @@ func TestTimedOutAttemptCannotWriteIntoRetry(t *testing.T) {
 	policy := RunPolicy{Retry: RetryPolicy{MaximumAttempts: 2}, InvocationTimeout: AsDuration(100 * time.Millisecond)}
 	seedJobStartForTest(t, rt, key, job.Name(), NewTaskDataOrPanic(42), policy)
 	lease := &fakeExecutionLease{runtime: rt, job: JobHandle{JobKey: key}, route: Route{JobType: job.Name()}}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 5*time.Second)
 	defer cancel()
 	_, err := newWorkerRunner(rt, ws, lease, workerRunnerOptions{}).DoJob(ctx)
 	require.NoError(t, err)
@@ -111,7 +112,7 @@ func TestReplayAfterActualJobTimerCancelsOrchestration(t *testing.T) {
 	policy := RunPolicy{Retry: RetryPolicy{MaximumAttempts: 1}, InvocationTimeout: AsDuration(100 * time.Millisecond)}
 	seedJobStartForTest(t, rt, key, job.Name(), NewTaskDataOrPanic(42), policy)
 	lease := &fakeExecutionLease{runtime: rt, job: JobHandle{JobKey: key}, route: Route{JobType: job.Name()}}
-	_, original := newWorkerRunner(rt, ws, lease, workerRunnerOptions{}).DoJob(context.Background())
+	_, original := newWorkerRunner(rt, ws, lease, workerRunnerOptions{}).DoJob(celltest.Context(context.Background()))
 	<-exited
 	var timeout TimeoutError
 	require.ErrorAs(t, original, &timeout)
@@ -126,7 +127,7 @@ func TestReplayAfterActualJobTimerCancelsOrchestration(t *testing.T) {
 	}
 	ws.JobWorker = job
 	observer := &replayObserverRecorder{}
-	_, err := newWorkerRunner(rt, ws, nil, workerRunnerOptions{JobKey: key, Replay: true, Observer: observer}).DoJob(context.Background())
+	_, err := newWorkerRunner(rt, ws, nil, workerRunnerOptions{JobKey: key, Replay: true, Observer: observer}).DoJob(celltest.Context(context.Background()))
 	require.EqualError(t, err, original.Error())
 	require.Len(t, observer.taskEnds, 1)
 	require.Len(t, observer.jobEnds, 1)

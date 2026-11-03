@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +29,7 @@ func TestExecutionPreCompactHistoryRejected(t *testing.T) {
 				var calls atomic.Int32
 				w := wf.ExecutionWorker{JobType: "old-fixture", Execute: func(wf.ExecutionContext, jobdb.JobData) (jobdb.JobData, error) { calls.Add(1); return nil, nil }}
 				key := submitExecutionTest(t, rt, w)
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "fixture", Routes: []jobdb.Route{{JobType: w.Name()}}, LeaseDuration: time.Minute})
 				require.NoError(t, err)
 				token := ""

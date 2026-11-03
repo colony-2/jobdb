@@ -8,6 +8,12 @@ Use this package when you are writing workflow code. Use
 [pkg/jobdb](../jobdb/README.md) when you need the lower-level runtime API or
 runtime implementations.
 
+The named-cell release requires a fresh execution store. Submit requests need
+`Cell`; creating an ordinary cell with its first job also needs `CellRepo` and
+creation authority. Embedded runtimes take trusted policy through
+`jobdb.WithCellAuthority`; HTTP embeddings supply it in authenticated middleware.
+See [named cells](../../docs/SPEC-Tenant-Cells.md) for root bootstrap and policy scope.
+
 ## Core Concepts
 
 - A `JobWorker` is the top-level workflow. It orchestrates task calls, waits,
@@ -75,7 +81,10 @@ func (TransformTask) Run(ctx workflow.TaskContext, input jobdb.TaskData) (jobdb.
 }
 
 func main() {
-    ctx := context.Background()
+    ctx := jobdb.WithCellAuthority(context.Background(), jobdb.CellAuthority{
+        Principal: "example-admin", TenantID: "*",
+        Permissions: map[string]bool{"cells.create": true, "jobs.submit": true, "jobs.list": true, "jobs.acquire": true},
+    })
 
     runtime, err := remoteruntime.New("http://127.0.0.1:9047", nil)
     if err != nil {
@@ -95,6 +104,7 @@ func main() {
 
     input := jobdb.NewTaskDataOrPanic(map[string]any{"value": 42})
     handle, err := engine.SubmitJob(ctx, jobdb.SubmitJob{
+        Cell: "example", CellRepo: "github.com/example/workflows",
         TenantId: "tenant-a",
         JobType:  "data_processing",
         Data:     input,

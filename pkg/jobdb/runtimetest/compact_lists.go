@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 	"github.com/stretchr/testify/require"
 )
@@ -20,13 +21,13 @@ func RunCompactListConformance(t *testing.T, harnesses ...Harness) {
 		t.Run(h.Name, func(t *testing.T) {
 			f := buildFixture(t, h)
 			defer f.Shutdown(t)
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			r := f.Runtime
 			t.Run("stored_fields", func(t *testing.T) { runStoredListFields(t, r, f.WorkerTenantID) })
 			metadata := json.RawMessage(`{"label":"visible","nested":{"array":[1,true,"value"]},"large":9007199254740993}`)
 			policy := jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 7, BackoffCoefficient: 1}}
 			submit := func(id string) jobdb.JobHandle {
-				handle, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
+				handle, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: f.WorkerTenantID, JobID: id, JobType: "compact", Data: NumberTaskData(1),
 					Metadata: metadata, RunPolicy: policy,
 					ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"detail":"payload"}`)},
@@ -100,14 +101,14 @@ func RunCompactListConformance(t *testing.T, harnesses ...Harness) {
 // Exercise the same stored projection through embedded and HTTP backends. Exact
 // byte comparisons (rather than JSONEq's floating-point maps) detect lost numbers.
 func runStoredListFields(t *testing.T, r jobdb.WorkflowRuntime, tenant string) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	policy := jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 7, BackoffCoefficient: 1}}
-	parent, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: tenant, JobID: "stored-parent", JobType: "stored-parent", Data: NumberTaskData(1)}})
+	parent, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: tenant, JobID: "stored-parent", JobType: "stored-parent", Data: NumberTaskData(1)}})
 	require.NoError(t, err)
 	parentLease, err := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: parent.JobKey, WorkerID: "setup", Routes: []jobdb.Route{{JobType: "stored-parent"}}})
 	require.NoError(t, err)
 	require.NotNil(t, parentLease)
-	prereq, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: tenant, JobID: "stored-prereq", JobType: "stored-prereq", Data: NumberTaskData(1)}})
+	prereq, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: tenant, JobID: "stored-prereq", JobType: "stored-prereq", Data: NumberTaskData(1)}})
 	require.NoError(t, err)
 	task := &jobdb.TaskWait{InputOrdinal: 0, OutputOrdinal: 1, InputHash: "sha256:stored-input", ResumeJobType: "resume"}
 	payloads := []json.RawMessage{
@@ -118,7 +119,7 @@ func runStoredListFields(t *testing.T, r jobdb.WorkflowRuntime, tenant string) {
 	}
 	for i, payload := range payloads {
 		t.Run(fmt.Sprint(i), func(t *testing.T) {
-			h, err := parentLease.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
+			h, err := parentLease.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 				TenantId: tenant, JobID: fmt.Sprintf("stored-%d", i), JobType: "stored-fields", Data: NumberTaskData(1),
 				RunPolicy:           policy,
 				ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: payload},

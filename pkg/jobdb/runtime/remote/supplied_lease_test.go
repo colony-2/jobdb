@@ -12,19 +12,21 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/stretchr/testify/require"
 )
 
 func TestLeaseCapabilityBindingAndRedaction(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	backend := toy.New()
-	server := httptest.NewServer(NewServer(backend))
+	server := httptest.NewServer(celltest.Handler(NewServer(backend)))
 	defer server.Close()
 	client, err := New(server.URL, server.Client())
 	require.NoError(t, err)
-	handle, err := client.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
+	handle, err := client.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, err)
 	lease, err := client.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: handle.JobKey, WorkerID: "owner", Routes: []jobdb.Route{{JobType: "job"}}, LeaseDuration: time.Minute})
 	require.NoError(t, err)
@@ -52,7 +54,7 @@ func TestLeaseCapabilityBindingAndRedaction(t *testing.T) {
 			case "lease":
 				edited.wire.LeaseID = "other"
 			case "version":
-				edited.wire.Version = 2
+				edited.wire.Version = 1
 			}
 			_, err := client.ImportLease(ctx, edited)
 			require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
@@ -74,8 +76,8 @@ func TestLeaseCapabilityBindingAndRedaction(t *testing.T) {
 func TestImportFailsClosedOnOldOrFailingServer(t *testing.T) {
 	for _, status := range []int{http.StatusOK, http.StatusServiceUnavailable} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
-			cap := LeaseCapability{wire: leaseCapabilityWire{Version: 1, TenantID: "tenant", JobID: "job", LeaseID: "lease", Token: "sensitive-bearer"}}
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			cap := LeaseCapability{wire: leaseCapabilityWire{Version: 2, TenantID: "tenant", JobID: "job", LeaseID: "lease", Token: "sensitive-bearer"}}
+			server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				require.True(t, strings.HasSuffix(r.URL.Path, "/keepalive"))
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(status)
@@ -84,11 +86,11 @@ func TestImportFailsClosedOnOldOrFailingServer(t *testing.T) {
 				} else {
 					fmt.Fprint(w, cap.wire.Token)
 				}
-			}))
+			})))
 			defer server.Close()
 			client, err := New(server.URL, server.Client())
 			require.NoError(t, err)
-			_, err = client.ImportLease(context.Background(), cap)
+			_, err = client.ImportLease(celltest.Context(context.Background()), cap)
 			require.Error(t, err)
 			require.NotContains(t, fmt.Sprint(err), cap.wire.Token)
 			if status == http.StatusOK {
@@ -105,7 +107,7 @@ func TestImportFailsClosedOnOldOrFailingServer(t *testing.T) {
 func TestUnexpiredCapabilityCannotAppendAfterCancellation(t *testing.T) {
 	for _, kind := range []string{"toy", "sqlite"} {
 		t.Run(kind, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			var backend jobdb.WorkflowRuntime = toy.New()
 			if kind == "sqlite" {
 				embedded, err := sqliteruntime.StartEmbeddedRuntime(ctx)
@@ -113,11 +115,11 @@ func TestUnexpiredCapabilityCannotAppendAfterCancellation(t *testing.T) {
 				t.Cleanup(embedded.Shutdown)
 				backend = embedded.Runtime
 			}
-			server := httptest.NewServer(NewServer(backend))
+			server := httptest.NewServer(celltest.Handler(NewServer(backend)))
 			defer server.Close()
 			client, err := New(server.URL, server.Client())
 			require.NoError(t, err)
-			handle, err := client.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
+			handle, err := client.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
 			require.NoError(t, err)
 			lease, err := client.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: handle.JobKey, WorkerID: "owner", Routes: []jobdb.Route{{JobType: "job"}}, LeaseDuration: time.Minute})
 			require.NoError(t, err)

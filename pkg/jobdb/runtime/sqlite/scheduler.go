@@ -14,13 +14,14 @@ import (
 )
 
 const jobColumns = `
-tenant_id, job_id, goal_id, dependency_wait_id, job_type, route_job_type, route_task_type, payload, client_payload, client_payload_revision, initial_payload_digest, metadata, parent_job_id, wait_for,
+tenant_id, job_id, cell_id, cell_name, cell_repo, goal_id, dependency_wait_id, job_type, route_job_type, route_task_type, payload, client_payload, client_payload_revision, initial_payload_digest, metadata, parent_job_id, wait_for,
 available_at_ns, wait_deadline_ns, created_at_ns, updated_at_ns, archived_at_ns,
 cancel_requested, completion_status, completion_detail,
 consecutive_expirations, lease_id, lease_worker_id, lease_expires_at_ns, alternate_job_type, alternate_task_type, alternate_at_ns
 `
 
 type jobRow struct {
+	cell                  jobdb.ResolvedCell
 	goalID                string
 	dependencyWaitID      string
 	clientPayload         json.RawMessage
@@ -61,6 +62,7 @@ func scanJobRow(scanner interface{ Scan(dest ...any) error }) (jobRow, error) {
 	if err := scanner.Scan(
 		&row.tenantID,
 		&row.jobID,
+		&row.cell.CellID, &row.cell.Cell, &row.cell.CellRepo,
 		&row.goalID, &row.dependencyWaitID,
 		&row.jobType,
 		&row.nextRoute.JobType, &row.nextRoute.TaskType,
@@ -143,7 +145,11 @@ func (r *Runtime) insertJobRecord(ctx context.Context, jobKey jobdb.JobKey, jobT
 		if count > 0 {
 			return jobdb.ErrConflict
 		}
-		goalID, deps, err := publishGoal(ctx, tx, jobKey, now)
+		target, err := r.publishCell(ctx, tx, jobKey)
+		if err != nil {
+			return err
+		}
+		goalID, deps, err := publishGoal(ctx, tx, jobKey, target, now)
 		if err != nil {
 			return err
 		}
@@ -153,11 +159,11 @@ func (r *Runtime) insertJobRecord(ctx context.Context, jobKey jobdb.JobKey, jobT
 		}
 		_, err = tx.ExecContext(ctx, `
 INSERT INTO jobdb_jobs (
-	tenant_id, job_id, goal_id, dependency_wait_id, job_type, route_job_type, route_task_type, payload, client_payload, client_payload_revision, initial_payload_digest, metadata, parent_job_id, wait_for,
+	tenant_id, job_id, cell_id, cell_name, cell_repo, goal_id, dependency_wait_id, job_type, route_job_type, route_task_type, payload, client_payload, client_payload_revision, initial_payload_digest, metadata, parent_job_id, wait_for,
 	available_at_ns, created_at_ns, updated_at_ns
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			jobKey.TenantId,
-			jobKey.JobId, goalID, waitID,
+			jobKey.JobId, target.CellID, target.Cell, target.CellRepo, goalID, waitID,
 			jobType,
 			jobType, "",
 			payloadBytes, nullableJSON(initial), revision, digest,
@@ -326,6 +332,7 @@ func statusFromRow(ctx context.Context, tx queryer, row jobRow, now time.Time) (
 }
 
 type queryer interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 

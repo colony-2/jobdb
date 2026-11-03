@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/leaseauth"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/runtimeapi"
 )
@@ -127,11 +128,11 @@ func TestAddChapterWithLeasePassesValidatedClaimsToRuntime(t *testing.T) {
 			Output: jobdb.ApplicationOutputBytes{Data: []byte(`{"ok":true}`)},
 		}},
 	}
-	body, err := runtimeChapterToAddRequest(context.Background(), chapter, nil)
+	body, err := runtimeChapterToAddRequest(celltest.Context(context.Background()), chapter, nil)
 	if err != nil {
 		t.Fatalf("build add chapter body: %v", err)
 	}
-	resp, err := server.AddChapterWithLease(context.Background(), runtimeapi.AddChapterWithLeaseRequestObject{
+	resp, err := server.AddChapterWithLease(celltest.Context(context.Background()), runtimeapi.AddChapterWithLeaseRequestObject{
 		TenantId: jobKey.TenantId,
 		JobId:    jobKey.JobId,
 		LeaseId:  leaseID,
@@ -159,6 +160,7 @@ func TestAddChapterWithLeasePassesValidatedClaimsToRuntime(t *testing.T) {
 }
 
 type testExecutionLease struct {
+	jobdb.ExecutionLease
 	jobKey      jobdb.JobKey
 	leaseID     string
 	workerID    string
@@ -170,7 +172,7 @@ type testExecutionLease struct {
 
 func (l *testExecutionLease) LeaseID() string { return l.leaseID }
 func (l *testExecutionLease) Job() jobdb.JobHandle {
-	return jobdb.JobHandle{JobKey: l.jobKey, GoalID: "goal"}
+	return jobdb.JobHandle{JobKey: l.jobKey, GoalID: "goal", Cell: "test", CellID: "cell", CellRepo: "example.test/test"}
 }
 func (l *testExecutionLease) Route() jobdb.Route { return l.route }
 func (l *testExecutionLease) ClientPayload() json.RawMessage {
@@ -195,6 +197,7 @@ func (l *testExecutionLease) LeaseExpiry() time.Time  { return l.expiresAt }
 func (l *testExecutionLease) LeaseSchemaHash() string { return l.schemaHash }
 
 type claimsCapturingRuntime struct {
+	jobdb.CellRuntime
 	jobdb.ConfigurationAdmin
 	req       jobdb.PutChapterRequest
 	claims    leaseauth.Claims
@@ -331,4 +334,12 @@ func (r *claimsCapturingRuntime) ListGoals(context.Context, jobdb.ListGoalsReque
 }
 func (r *claimsCapturingRuntime) ListDependencyWaits(context.Context, jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error) {
 	return jobdb.ListDependencyWaitsResponse{}, nil
+}
+
+func (s *leaseTokenSigner) mint(jobKey jobdb.JobKey, leaseID string, workerID string, ttl time.Duration) (string, error) {
+	return s.mintForLeaseExpiry(jobKey, leaseID, workerID, "", time.Time{}, ttl)
+}
+
+func (s *leaseTokenSigner) mintForLeaseExpiry(jobKey jobdb.JobKey, leaseID string, workerID string, schemaHash string, leaseExpiresAt time.Time, ttl time.Duration) (string, error) {
+	return s.mintWithPrincipal(jobKey, leaseID, workerID, schemaHash, leaseExpiresAt, ttl, nil, jobdb.ResolvedCell{Cell: "test", CellID: "cell", CellRepo: "example.test/test"})
 }

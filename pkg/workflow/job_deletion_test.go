@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -20,11 +22,11 @@ import (
 func TestJobDeletionFiltersAndLeases(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			rt := alternateRuntime(t, backend)
 			admin := rt.(jobdb.JobDeletionRuntime)
 			submit := func(tenant, id, metadata string) jobdb.JobKey {
-				h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: tenant, JobID: id, JobType: "cleanup", Data: jobdb.NewTaskDataOrPanic("input"), Metadata: json.RawMessage(metadata)}})
+				h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: tenant, JobID: id, JobType: "cleanup", Data: jobdb.NewTaskDataOrPanic("input"), Metadata: json.RawMessage(metadata)}})
 				require.NoError(t, err)
 				return h.JobKey
 			}
@@ -62,7 +64,7 @@ func TestJobDeletionFiltersAndLeases(t *testing.T) {
 			require.Error(t, lease.KeepAlive(ctx))
 			require.Error(t, lease.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "cleanup"}}))
 			require.Error(t, lease.Complete(ctx, jobdb.CompleteExecutionRequest{Status: "success"}))
-			_, err = lease.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{JobType: "cleanup", Data: jobdb.NewTaskDataOrPanic(nil)}})
+			_, err = lease.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", JobType: "cleanup", Data: jobdb.NewTaskDataOrPanic(nil)}})
 			require.Error(t, err, "revoked lease cannot submit children")
 			info, err := rt.GetJob(ctx, key)
 			require.NoError(t, err, "direct reads must survive deletion")
@@ -104,11 +106,11 @@ func TestJobDeletionFiltersAndLeases(t *testing.T) {
 func TestJobDeletionBeyondListingPage(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			rt := alternateRuntime(t, backend)
 			admin := rt.(jobdb.JobDeletionRuntime)
 			for i := 0; i < jobdb.MaxListJobsPageSize+3; i++ {
-				_, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: fmt.Sprint(i), JobType: "job", Data: jobdb.NewTaskDataOrPanic(nil)}})
+				_, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: fmt.Sprint(i), JobType: "job", Data: jobdb.NewTaskDataOrPanic(nil)}})
 				require.NoError(t, err)
 			}
 			result, err := admin.DeleteJobs(ctx, jobdb.DeleteJobsRequest{TenantID: "tenant", JobIDs: []string{"0", "0", "missing", "1"}})
@@ -127,12 +129,12 @@ func TestJobDeletionBeyondListingPage(t *testing.T) {
 func TestJobDeletionHidesScheduleRuns(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			rt := alternateRuntime(t, backend)
 			schedule := jobdb.ScheduleKey{TenantId: "tenant", ScheduleId: "cleanup"}
-			_, err := rt.UpsertSchedule(ctx, jobdb.UpsertScheduleRequest{TenantId: schedule.TenantId, ScheduleId: schedule.ScheduleId,
+			_, err := celltest.Schedule(ctx, rt, jobdb.UpsertScheduleRequest{TenantId: schedule.TenantId, ScheduleId: schedule.ScheduleId,
 				Trigger: jobdb.ScheduleTrigger{Kind: jobdb.ScheduleTriggerInterval, Interval: time.Hour},
-				Target:  jobdb.ScheduleTarget{JobType: "job", Data: jobdb.NewTaskDataOrPanic(nil)}, Paused: true})
+				Target:  jobdb.ScheduleTarget{Cell: "test", CellRepo: "example.test/test", JobType: "job", Data: jobdb.NewTaskDataOrPanic(nil)}, Paused: true})
 			require.NoError(t, err)
 			h, err := rt.TriggerSchedule(ctx, jobdb.TriggerScheduleRequest{ScheduleKey: schedule, RequestID: "manual"})
 			require.NoError(t, err)
@@ -154,7 +156,7 @@ func TestJobDeletionHidesScheduleRuns(t *testing.T) {
 func TestJobDeletionPreservesThinCloneReplayAndArtifacts(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			rt := alternateRuntime(t, backend)
 			admin := rt.(jobdb.JobDeletionRuntime)
 			contents := strings.Repeat("shared artifact\n", 200)
@@ -183,7 +185,7 @@ func TestJobDeletionPreservesThinCloneReplayAndArtifacts(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, wf.JobRunCompleted, out.Status)
 			clone := func(source jobdb.JobKey) jobdb.JobKey {
-				h, err := rt.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: source, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: executionRestartTarget(t, rt, source, "restart")}}})
+				h, err := rt.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: source, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: executionRestartTarget(t, rt, source, "restart")}}})
 				require.NoError(t, err)
 				return h.JobKey
 			}

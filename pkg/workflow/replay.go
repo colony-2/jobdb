@@ -233,3 +233,19 @@ func (r replayReadOnlyRuntime) ListGoals(ctx context.Context, req jobdb.ListGoal
 func (r replayReadOnlyRuntime) ListDependencyWaits(ctx context.Context, req jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error) {
 	return r.runtime.ListDependencyWaits(ctx, req)
 }
+
+func (r replayReadOnlyRuntime) CreateCell(context.Context, jobdb.CreateCellRequest) (jobdb.Cell, error) {
+	return jobdb.Cell{}, replayMutationError("create cell")
+}
+func (r replayReadOnlyRuntime) UpdateCell(context.Context, jobdb.UpdateCellRequest) (jobdb.Cell, error) {
+	return jobdb.Cell{}, replayMutationError("update cell")
+}
+func (r replayReadOnlyRuntime) RetireCell(context.Context, jobdb.RetireCellRequest) (jobdb.Cell, error) {
+	return jobdb.Cell{}, replayMutationError("retire cell")
+}
+func (r replayReadOnlyRuntime) GetCell(ctx context.Context, key jobdb.CellKey) (jobdb.Cell, error) {
+	return r.runtime.GetCell(ctx, key)
+}
+func (r replayReadOnlyRuntime) ListCells(ctx context.Context, req jobdb.ListCellsRequest) (jobdb.ListCellsResponse, error) {
+	return r.runtime.ListCells(ctx, req)
+}

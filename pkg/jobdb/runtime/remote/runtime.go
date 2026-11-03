@@ -96,7 +96,7 @@ func submitJobRequestToAPI(ctx context.Context, req jobdb.SubmitJobRequest) (run
 		return runtimeapi.SubmitJobRequest{}, err
 	}
 	return runtimeapi.SubmitJobRequest{
-		Job: runtimeapi.SubmitJob{Dependencies: dependenciesToAPI(req.Job.Dependencies),
+		Job: runtimeapi.SubmitJob{Cell: req.Job.Cell, CellRepo: stringPtrOrNil(req.Job.CellRepo), Dependencies: dependenciesToAPI(req.Job.Dependencies),
 			ClientPayloadUpdate: req.Job.ClientPayloadUpdate,
 			AvailableAt:         cloneTime(req.Job.AvailableAt),
 			Data:                data,
@@ -142,7 +142,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 func submitRestartJobRequestToAPI(ctx context.Context, req jobdb.SubmitRestartJobRequest) (runtimeapi.SubmitRestartJobRequest, error) {
 	body := runtimeapi.SubmitRestartJobRequest{
 		RequestId: stringPtrOrNil(req.RequestID),
-		Job: runtimeapi.SubmitRestartJob{ShareGoal: &req.Job.ShareGoal, Dependencies: dependenciesToAPI(req.Job.Dependencies),
+		Job: runtimeapi.SubmitRestartJob{Cell: req.Job.Cell, CellRepo: stringPtrOrNil(req.Job.CellRepo), ShareGoal: &req.Job.ShareGoal, Dependencies: dependenciesToAPI(req.Job.Dependencies),
 			ClientPayloadUpdate: req.Job.ClientPayloadUpdate,
 			LastStepToKeep:      req.Job.LastStepToKeep,
 			PriorJobKey:         toAPIJobKey(req.Job.PriorJobKey),
@@ -210,7 +210,7 @@ func (r *Runtime) pollWorkOnce(ctx context.Context, req jobdb.PollWorkRequest) (
 	if err != nil {
 		return nil, err
 	}
-	body := runtimeapi.PollWorkRequest{
+	body := runtimeapi.PollWorkRequest{CellNames: optionalCellNames(req.CellNames),
 		TenantId:       req.TenantId,
 		WorkerId:       req.WorkerID,
 		Routes:         routesToAPI(req.Routes),
@@ -311,7 +311,7 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 	if err != nil {
 		return jobdb.ListJobsResponse{}, err
 	}
-	body := runtimeapi.ListJobsRequest{GoalIds: &req.GoalIDs,
+	body := runtimeapi.ListJobsRequest{CellNames: optionalCellNames(req.CellNames), GoalIds: &req.GoalIDs,
 		IncludeHidden:      &req.IncludeHidden,
 		CreatedAfter:       req.CreatedAfter,
 		CreatedBefore:      req.CreatedBefore,
@@ -732,6 +732,7 @@ func (r *Runtime) OpenArtifact(ctx context.Context, ref jobdb.ArtifactRef) (jobd
 }
 
 type remoteExecutionLease struct {
+	cell           jobdb.ResolvedCell
 	delegation     *jobdb.DelegationInfo
 	workerID       string
 	expiresAt      time.Time
@@ -750,7 +751,7 @@ type remoteExecutionLease struct {
 
 func (l *remoteExecutionLease) LeaseID() string { return l.leaseID }
 func (l *remoteExecutionLease) Job() jobdb.JobHandle {
-	return jobdb.JobHandle{JobKey: l.jobKey, GoalID: l.goalID}
+	return l.cell.Handle(l.jobKey, l.goalID)
 }
 func (l *remoteExecutionLease) Route() jobdb.Route { return l.route }
 func (l *remoteExecutionLease) LeaseSchemaHash() string {
@@ -988,6 +989,7 @@ func (r *Runtime) executionLeaseFromAPI(lease runtimeapi.ExecutionLease) (jobdb.
 		return nil, err
 	}
 	return &remoteExecutionLease{
+		cell:       jobdb.ResolvedCell{Cell: lease.Job.Cell, CellID: lease.Job.CellId, CellRepo: lease.Job.CellRepo},
 		delegation: lease.Delegation,
 		runtime:    r,
 		leaseID:    lease.LeaseId,
@@ -1028,7 +1030,22 @@ func toAPIPrerequisites(prereqs []jobdb.JobPrerequisite) *[]runtimeapi.JobPrereq
 	return &out
 }
 
+func cellResponseError(status int, body []byte) error {
+	var cellError struct{ Code string }
+	if json.Unmarshal(body, &cellError) == nil {
+		switch cellError.Code {
+		case "invalid_request", "forbidden", "not_found", "cell_repo_required", "cell_repo_mismatch", "cell_conflict", "cell_retired", "root_cell_required", "root_cell_protected", "cell_busy", "request_conflict", "precondition_failed", "precondition_required", "invalid_page_token":
+			return &jobdb.CellError{Code: cellError.Code, Status: status}
+		}
+	}
+	return nil
+}
+
 func responseError(operation string, status int, body []byte, sentinel error) error {
+
+	if err := cellResponseError(status, body); err != nil {
+		return err
+	}
 	if err := payloadSizeResponseError(body); err != nil {
 		return err
 	}
@@ -1052,7 +1069,7 @@ func responseError(operation string, status int, body []byte, sentinel error) er
 		}
 	case http.StatusConflict:
 		var conflict runtimeapi.ErrorResponse
-		if json.Unmarshal(body, &conflict) == nil && conflict.Code == runtimeapi.ExistingJobMismatch {
+		if json.Unmarshal(body, &conflict) == nil && conflict.Code == runtimeapi.ErrorCodeExistingJobMismatch {
 			return jobdb.NewExistingJobMismatchError(conflict.Message)
 		}
 		if strings.Contains(message, jobdb.ErrConflict.Error()) {
@@ -1082,6 +1099,9 @@ func responseError(operation string, status int, body []byte, sentinel error) er
 }
 
 func responseErrorWithConflict(operation string, status int, body []byte, notFoundSentinel error, conflictSentinel error) error {
+	if err := cellResponseError(status, body); err != nil {
+		return err
+	}
 	if err := payloadSizeResponseError(body); err != nil {
 		return err
 	}
@@ -1128,6 +1148,9 @@ func responseErrorWithConflict(operation string, status int, body []byte, notFou
 }
 
 func explicitJobCreateError(operation string, status int, body []byte, conflict *runtimeapi.ErrorResponse) error {
+	if err := cellResponseError(status, body); err != nil {
+		return err
+	}
 	if err := payloadSizeResponseError(body); err != nil {
 		return err
 	}
@@ -1159,7 +1182,7 @@ func explicitJobCreateError(operation string, status int, body []byte, conflict 
 		if err := archivedSchemaError(message); err != nil {
 			return err
 		}
-		if conflict != nil && conflict.Code == runtimeapi.ExistingJobMismatch {
+		if conflict != nil && conflict.Code == runtimeapi.ErrorCodeExistingJobMismatch {
 			return jobdb.NewExistingJobMismatchError(message)
 		}
 		return fmt.Errorf("%w: %s", jobdb.ErrConflict, message)
@@ -1270,4 +1293,11 @@ func payloadSizeResponseError(body []byte) error {
 		return v.Details
 	}
 	return nil
+}
+
+func optionalCellNames(names []string) *[]string {
+	if names == nil {
+		return nil
+	}
+	return &names
 }

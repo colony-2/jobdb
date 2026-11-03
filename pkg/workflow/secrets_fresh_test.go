@@ -9,11 +9,12 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/stretchr/testify/require"
 )
 
 func TestFreshSecretsReplaceOnlyRequestedCacheEntries(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	var requests [][]string
 	omit := map[string]bool{"denied": true}
 	failure := false
@@ -72,7 +73,7 @@ func TestFreshSecretsReplaceOnlyRequestedCacheEntries(t *testing.T) {
 func TestFreshSecretsRejectLateOrInvalidResultsWithoutUpdatingCache(t *testing.T) {
 	for _, kind := range []string{"cancel", "handoff", "expired", "replay", "closed"} {
 		t.Run(kind, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 			defer cancel()
 			runner := &workerRunner{ctx: ctx}
 			calls := 0
@@ -93,7 +94,7 @@ func TestFreshSecretsRejectLateOrInvalidResultsWithoutUpdatingCache(t *testing.T
 				}
 				return SecretResolveResult{Secrets: map[string]SecretValue{"token": value}}, nil
 			}}
-			_, err := runner.ResolveSecrets(context.Background(), []string{"token"})
+			_, err := runner.ResolveSecrets(celltest.Context(context.Background()), []string{"token"})
 			require.NoError(t, err)
 			if kind == "replay" {
 				runner.replay = true
@@ -101,7 +102,7 @@ func TestFreshSecretsRejectLateOrInvalidResultsWithoutUpdatingCache(t *testing.T
 			if kind == "closed" {
 				cancel()
 			}
-			result, err := runner.ResolveSecretsFresh(context.Background(), []string{"token"})
+			result, err := runner.ResolveSecretsFresh(celltest.Context(context.Background()), []string{"token"})
 			require.Error(t, err)
 			require.Empty(t, result.Secrets)
 			require.Equal(t, "1", runner.secretCache.value["token"].Value)
@@ -110,9 +111,9 @@ func TestFreshSecretsRejectLateOrInvalidResultsWithoutUpdatingCache(t *testing.T
 			}
 		})
 	}
-	_, err := (TaskContext{}).ResolveSecretsFresh(context.Background(), []string{"token"})
+	_, err := (TaskContext{}).ResolveSecretsFresh(celltest.Context(context.Background()), []string{"token"})
 	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
-	_, ok := SecretResolverFromContext(context.Background())
+	_, ok := SecretResolverFromContext(celltest.Context(context.Background()))
 	require.False(t, ok)
 }
 
@@ -127,7 +128,7 @@ func TestConcurrentFreshSecretReadsAreNotCoalesced(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := runner.ResolveSecretsFresh(context.Background(), []string{"token"})
+			_, err := runner.ResolveSecretsFresh(celltest.Context(context.Background()), []string{"token"})
 			errs <- err
 		}()
 	}
@@ -137,7 +138,7 @@ func TestConcurrentFreshSecretReadsAreNotCoalesced(t *testing.T) {
 		require.NoError(t, err)
 	}
 	require.Equal(t, int32(8), calls.Load())
-	result, err := runner.ResolveSecrets(context.Background(), []string{"token"})
+	result, err := runner.ResolveSecrets(celltest.Context(context.Background()), []string{"token"})
 	require.NoError(t, err)
 	require.Equal(t, "8", result.Secrets["token"].Value)
 }

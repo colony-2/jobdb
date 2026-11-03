@@ -33,6 +33,7 @@ func FromRequest(ctx context.Context, req jobdb.ResolveSecretsRequest) (Access, 
 
 // Snapshot is supplied by authoritative backend validation.
 type Snapshot struct {
+	Cell           jobdb.ResolvedCell
 	AppMetadata    json.RawMessage
 	LeaseExpiresAt time.Time
 }
@@ -98,7 +99,7 @@ func Resolve(ctx context.Context, provider jobdb.SecretProvider, limits jobdb.Se
 	result, providerErr := provider.ResolveSecrets(callCtx, jobdb.SecretResolveRequest{
 		TenantID: access.JobKey.TenantId, JobID: access.JobKey.JobId, Principal: principal,
 		AppMetadata: append(json.RawMessage(nil), initial.AppMetadata...), Names: append([]string(nil), names...),
-		Lease: jobdb.SecretLeaseContext{LeaseID: access.LeaseID, WorkerID: access.WorkerID,
+		Lease: jobdb.SecretLeaseContext{Cell: initial.Cell, LeaseID: access.LeaseID, WorkerID: access.WorkerID,
 			LeaseExpiresAt: initial.LeaseExpiresAt, AuthorizedNotAfter: initialDeadline},
 	})
 	current, err := check()

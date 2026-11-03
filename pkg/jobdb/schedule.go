@@ -61,6 +61,9 @@ type ScheduleTrigger struct {
 }
 
 type ScheduleTarget struct {
+	Cell                string               `json:"cell"`
+	CellID              string               `json:"cellId"`
+	CellRepo            string               `json:"cellRepo"`
 	ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
 	JobType             string               `json:"jobType"`
 	Data                JobData              `json:"-"`
@@ -110,6 +113,7 @@ type TriggerScheduleRequest struct {
 }
 
 type ScheduleInfo struct {
+	PauseReason    string
 	TenantId       string
 	ScheduleId     string
 	ScheduleKey    ScheduleKey
@@ -270,7 +274,7 @@ func ScheduleSpecHash(trigger ScheduleTrigger, target ScheduleTarget, overlap Sc
 		FailurePolicy ScheduleFailurePolicy `json:"failurePolicy"`
 	}{
 		Trigger: trigger,
-		Target: scheduleHashTarget{
+		Target: scheduleHashTarget{Cell: target.Cell, CellRepo: target.CellRepo,
 			ClientPayloadDigest: initialDigest,
 			JobType:             target.JobType,
 			Data:                rawData,
@@ -290,6 +294,8 @@ func ScheduleSpecHash(trigger ScheduleTrigger, target ScheduleTarget, overlap Sc
 }
 
 type scheduleHashTarget struct {
+	Cell                string                 `json:"cell"`
+	CellRepo            string                 `json:"cellRepo"`
 	ClientPayloadDigest string                 `json:"clientPayloadDigest"`
 	JobType             string                 `json:"jobType"`
 	Data                json.RawMessage        `json:"data,omitempty"`

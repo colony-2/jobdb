@@ -12,6 +12,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/crashconcern"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/cellstate"
 	sqlitedriver "modernc.org/sqlite"
 )
 
@@ -98,6 +99,54 @@ func (r *Runtime) listCompactJobs(ctx context.Context, req jobdb.ListJobsRequest
 		}
 	}
 	in("tenant_id", req.TenantIds)
+	for _, tenant := range req.TenantIds {
+		if e := jobdb.AuthorizeCell(ctx, tenant, "", "jobs.list"); e != nil {
+			return jobdb.ListJobsResponse{}, e
+		}
+	}
+	authority, _ := jobdb.CellAuthorityFromContext(ctx)
+	selectedCellIDs := []string(nil)
+	if req.CellNames != nil {
+		allowedCells := []string{}
+		for _, tenant := range req.TenantIds {
+			state, e := loadCells(ctx, r.db, tenant)
+			if e != nil {
+				return jobdb.ListJobsResponse{}, e
+			}
+			ids, e := state.Select(ctx, tenant, req.CellNames, "jobs.list")
+			if e != nil {
+				return jobdb.ListJobsResponse{}, e
+			}
+			for id := range ids {
+				allowedCells = append(allowedCells, id)
+			}
+		}
+		selectedCellIDs = allowedCells
+		if len(allowedCells) == 0 {
+			where = append(where, "0")
+		} else {
+			in("cell_id", allowedCells)
+		}
+	} else if authority.Cells != nil {
+		ids := []string{}
+		for id, allowed := range authority.Cells {
+			if allowed {
+				ids = append(ids, id)
+			}
+		}
+		if len(ids) == 0 {
+			where = append(where, "0")
+		} else {
+			in("cell_id", ids)
+		}
+	}
+
+	binding := cellstate.JobQueryBinding(ctx, req, selectedCellIDs)
+	req.PageToken, err = cellstate.UnwrapJobCursor(req.PageToken, binding)
+	if err != nil {
+		return jobdb.ListJobsResponse{}, err
+	}
+
 	if !req.IncludeHidden {
 		where = append(where, "hidden_at_ns IS NULL")
 	}
@@ -206,7 +255,7 @@ func (r *Runtime) listCompactJobs(ctx context.Context, req jobdb.ListJobsRequest
  FROM jobdb_jobs j CROSS JOIN observation o LEFT JOIN jobdb_dependency_waits w
  ON w.tenant_id=j.tenant_id AND w.job_id=j.job_id AND w.wait_id=j.dependency_wait_id
 )
-SELECT tenant_id,job_id,goal_id,job_type,route_job_type,route_task_type,
+SELECT tenant_id,job_id,cell_id,(SELECT name FROM jobdb_cells c WHERE c.tenant_id=p.tenant_id AND c.cell_id=p.cell_id),cell_repo,goal_id,job_type,route_job_type,route_task_type,
  client_payload_revision,client_payload,payload,wait_for,metadata,list_parent,available_at_ns,created_at_ns,archived_at_ns,
  cancel_requested,completion_status,completion_detail,lease_expires_at_ns,list_status,
  CASE WHEN pending_wait THEN dependency_wait_id ELSE '' END,
@@ -226,7 +275,7 @@ FROM projected p WHERE ` + strings.Join(where, " AND ") + ` ORDER BY created_at_
 		var archivedAt, leaseExpires sql.NullInt64
 		var completion, completionDetail, deadline sql.NullString
 		var waitID string
-		if err = rows.Scan(&s.JobKey.TenantId, &s.JobKey.JobId, &s.GoalID, &s.JobType, &route.JobType, &route.TaskType,
+		if err = rows.Scan(&s.JobKey.TenantId, &s.JobKey.JobId, &s.CellID, &s.Cell, &s.CellRepo, &s.GoalID, &s.JobType, &route.JobType, &route.TaskType,
 			&s.ClientPayloadRevision, &clientPayload, &payload, &waitFor, &metadata, &s.ParentJobID, &available, &created, &archivedAt, &s.CancelRequested, &completion, &completionDetail, &leaseExpires, &s.Status, &waitID, &deadline); err != nil {
 			return jobdb.ListJobsResponse{}, err
 		}
@@ -264,6 +313,7 @@ FROM projected p WHERE ` + strings.Join(where, " AND ") + ` ORDER BY created_at_
 		out.Jobs = out.Jobs[:pageSize]
 		last := out.Jobs[pageSize-1]
 		out.NextPageToken, err = jobdb.EncodeListJobsPageToken(last.CreatedAt, last.JobKey)
+		out.NextPageToken = cellstate.WrapJobCursor(out.NextPageToken, binding)
 		if err != nil {
 			return jobdb.ListJobsResponse{}, err
 		}

@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -58,7 +60,7 @@ func TestCatchHistoryFrontier(t *testing.T) {
 				return c.DoTask(call, func(context.Context) (jobdb.TaskData, error) { return in, nil })
 			}}
 			key := submitExecutionTest(t, recording, w)
-			run, err := wf.GetJobForRun(context.Background(), recording, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "frontier", LeaseDuration: time.Minute})
+			run, err := wf.GetJobForRun(celltest.Context(context.Background()), recording, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "frontier", LeaseDuration: time.Minute})
 			require.NoError(t, err)
 			done := make(chan error, 1)
 			go func() { _, err := run.Run(nil); done <- err }()
@@ -88,7 +90,7 @@ func TestCatchHistoryFrontier(t *testing.T) {
 			case <-time.After(10 * time.Second):
 				t.Fatal("nested gate missing")
 			}
-			prefix, err := inspection.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+			prefix, err := inspection.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 			require.NoError(t, err)
 			pending := readCatches(t, inspection, key)
 			b := catchAt(t, pending, "frontier")
@@ -104,7 +106,7 @@ func TestCatchHistoryFrontier(t *testing.T) {
 			inspected := make(chan error, 1)
 			go func() {
 				for i := 0; i < 20; i++ {
-					h, err := wf.ReadCatchHistory(context.Background(), inspection, jobdb.GetJobRunRequest{JobKey: key})
+					h, err := wf.ReadCatchHistory(celltest.Context(context.Background()), inspection, jobdb.GetJobRunRequest{JobKey: key})
 					if err != nil {
 						inspected <- err
 						return

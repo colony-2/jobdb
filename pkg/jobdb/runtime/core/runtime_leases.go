@@ -46,7 +46,7 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 	}
 	for len(out) < limit && attemptBudget > 0 {
 		attemptBudget--
-		snapshots, err := r.scheduler.AcquireWork(ctx, WorkRequest{
+		snapshots, err := r.scheduler.AcquireWork(ctx, WorkRequest{CellNames: req.CellNames,
 			TenantId: req.TenantId, WorkerID: workerID, Selector: selector,
 			Limit: limit - len(out), LeaseDuration: req.LeaseDuration,
 			MetadataEquals: req.MetadataEquals, Now: r.now(),
@@ -144,7 +144,7 @@ func (r *Runtime) wrapLease(snapshot LeaseSnapshot) (*executionLease, error) {
 func (l *executionLease) LeaseID() string { return l.snapshot.Identity.LeaseID }
 
 func (l *executionLease) Job() jobdb.JobHandle {
-	return jobdb.JobHandle{JobKey: l.snapshot.Identity.JobKey, GoalID: l.snapshot.GoalID}
+	return l.snapshot.Cell.Handle(l.snapshot.Identity.JobKey, l.snapshot.GoalID)
 }
 
 func (l *executionLease) Route() jobdb.Route {
@@ -308,7 +308,7 @@ func (l *executionLease) SubmitJob(ctx context.Context, req jobdb.SubmitJobReque
 		return jobdb.JobHandle{}, err
 	}
 	req.Job.TenantId = l.snapshot.Identity.JobKey.TenantId
-	return l.runtime.submitJobWithParent(ctx, req, l.snapshot.Identity.JobKey.JobId)
+	return l.runtime.submitJobWithParent(l.cellContext(ctx), req, l.snapshot.Identity.JobKey.JobId)
 }
 
 func (l *executionLease) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
@@ -319,7 +319,7 @@ func (l *executionLease) SubmitRestartJob(ctx context.Context, req jobdb.SubmitR
 		return jobdb.JobHandle{}, fmt.Errorf("prior job tenantId must match parent tenantId")
 	}
 	req.Job.PriorJobKey.TenantId = l.snapshot.Identity.JobKey.TenantId
-	return l.runtime.submitRestartJobWithParent(ctx, req, l.snapshot.Identity.JobKey.JobId)
+	return l.runtime.submitRestartJobWithParent(l.cellContext(ctx), req, l.snapshot.Identity.JobKey.JobId)
 }
 
 func (l *executionLease) requireCurrent(ctx context.Context) error {
