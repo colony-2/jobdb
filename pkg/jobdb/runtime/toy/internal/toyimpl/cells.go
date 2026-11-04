@@ -82,7 +82,8 @@ func (r *Runtime) RetireCell(ctx context.Context, req jobdb.RetireCellRequest) (
 			}
 		}
 		for key, p := range e.preparedGoals {
-			if key.TenantId == req.TenantID && p.Request.Target.CellID == id && e.jobRecords[key] == nil {
+			named, found := e.cellsLocked(req.TenantID).ByName(p.Request.Target.Cell)
+			if key.TenantId == req.TenantID && (p.Request.Target.CellID == id || found && named.ID == id) && e.jobRecords[key] == nil {
 				return true, nil
 			}
 		}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -123,6 +124,36 @@ func TestCellSelectorsRestrictDiscoveryAndAcquisition(t *testing.T) {
 			for _, l := range leases {
 				require.Equal(t, allowed.CellID, l.Job().CellID)
 			}
+		})
+	}
+}
+
+func TestPendingCellReservationPreventsRetirementAfterRegistration(t *testing.T) {
+	type preparedRuntime interface {
+		jobdb.WorkflowRuntime
+		PrepareJob(context.Context, runtimecore.JobPreparation) (runtimecore.PreparedJob, error)
+		DiscardJobPreparation(context.Context, jobdb.JobKey) error
+	}
+	ctx := celltest.Context(context.Background())
+	sqliteRuntime, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: t.TempDir() + "/cells.db"})
+	require.NoError(t, err)
+	defer sqliteRuntime.Close(ctx)
+	for name, rt := range map[string]preparedRuntime{"toy": toy.New(), "sqlite": sqliteRuntime} {
+		t.Run(name, func(t *testing.T) {
+			prep, err := rt.PrepareJob(ctx, runtimecore.JobPreparation{Key: jobdb.JobKey{TenantId: "t", JobId: "pending"}, Cell: "work", CellRepo: "example.test/work", Descriptor: "pending"})
+			require.NoError(t, err)
+			c, err := rt.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "t", Name: "work", Repo: "example.test/work"})
+			require.NoError(t, err)
+			require.NotEqual(t, prep.Target.CellID, c.ID)
+			renamed := "renamed"
+			c, err = rt.UpdateCell(ctx, jobdb.UpdateCellRequest{CellKey: jobdb.CellKey{TenantID: "t", CellID: c.ID}, IfMatch: fmt.Sprintf("%q", c.Revision), Name: &renamed})
+			require.NoError(t, err)
+			req := jobdb.RetireCellRequest{CellKey: jobdb.CellKey{TenantID: "t", CellID: c.ID}, IfMatch: fmt.Sprintf("%q", c.Revision)}
+			_, err = rt.RetireCell(ctx, req)
+			require.ErrorIs(t, err, jobdb.ErrCellBusy)
+			require.NoError(t, rt.DiscardJobPreparation(ctx, prep.Key))
+			_, err = rt.RetireCell(ctx, req)
+			require.NoError(t, err)
 		})
 	}
 }

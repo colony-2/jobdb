@@ -129,7 +129,7 @@ func (r *Runtime) RetireCell(ctx context.Context, req jobdb.RetireCellRequest) (
 				return n > 0, e
 			}
 			// Preparations, open goals, and active schedules also prevent retirement.
-			e = tx.QueryRowContext(ctx, `SELECT count(*) FROM jobdb_goal_preparations p WHERE tenant_id=? AND json_extract(cell_target,'$.Target.cellId')=? AND NOT EXISTS(SELECT 1 FROM jobdb_jobs j WHERE j.tenant_id=p.tenant_id AND j.job_id=p.job_id)`, req.TenantID, id).Scan(&n)
+			e = tx.QueryRowContext(ctx, `SELECT count(*) FROM jobdb_goal_preparations p WHERE p.tenant_id=? AND (json_extract(cell_target,'$.Target.cellId')=? OR EXISTS(SELECT 1 FROM jobdb_cell_names n WHERE n.tenant_id=p.tenant_id AND n.name=json_extract(p.cell_target,'$.Target.cell') AND n.cell_id=?)) AND NOT EXISTS(SELECT 1 FROM jobdb_jobs j WHERE j.tenant_id=p.tenant_id AND j.job_id=p.job_id)`, req.TenantID, id, id).Scan(&n)
 			if e != nil || n > 0 {
 				return n > 0, e
 			}
