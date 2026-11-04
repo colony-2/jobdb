@@ -18,7 +18,7 @@ func TestCrashConcernPersistenceAndReset(t *testing.T) {
 	r, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = r.Close(ctx) })
-	h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "job", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
+	h, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "job", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, err)
 	claim := func() jobdb.ExecutionLease {
 		lease, err := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "job"}}})

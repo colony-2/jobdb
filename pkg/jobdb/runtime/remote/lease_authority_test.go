@@ -34,7 +34,7 @@ func TestLeaseHandleExpiryAfterIndependentRenewal(t *testing.T) {
 						}
 						return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{req.Names[0]: {Value: "value"}}}, nil
 					}))
-					job, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
+					job, err := celltest.Submit(runtime, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
 					require.NoError(t, err)
 					issued, err := runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: job.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "job"}}, LeaseDuration: 500 * time.Millisecond})
 					require.NoError(t, err)
@@ -80,7 +80,7 @@ func TestLeaseHandleExpiryAfterIndependentRenewal(t *testing.T) {
 					require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
 					require.ErrorIs(t, old.KeepAlive(ctx), jobdb.ErrExecutionLeaseLost)
 					require.Error(t, old.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "job"}}))
-					_, err = old.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(1)}})
+					_, err = celltest.Submit(old, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(1)}})
 					require.Error(t, err)
 					_, err = old.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: job.JobKey}})
 					require.Error(t, err)

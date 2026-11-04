@@ -205,7 +205,7 @@ func runWorkflowRuntimeLifecycle(t *testing.T, harnesses []Harness) {
 			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 			defer cancel()
 
-			handle, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+			handle, err := celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{
 				Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: built.WorkerTenantID,
 					JobType:  SequenceJobName,
@@ -291,7 +291,7 @@ func runSchemaRegistry(t *testing.T, harnesses []Harness) {
 				t.Fatalf("active schemas = %+v, want %s", active.Schemas, registered.SchemaHash)
 			}
 
-			handle, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+			handle, err := celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{
 				Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: tenantID,
 					JobID:    "schema-runtime-submit",
@@ -332,7 +332,7 @@ func runSchemaRegistry(t *testing.T, harnesses []Harness) {
 			if len(all.Schemas) != 1 || all.Schemas[0].State != jobdb.JobSchemaStateArchived {
 				t.Fatalf("all schemas = %+v, want archived schema", all.Schemas)
 			}
-			_, err = built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+			_, err = celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{
 				Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: tenantID,
 					JobID:    "schema-archived-submit",
@@ -534,7 +534,7 @@ func assertExecutionLeaseSubmitJobTracksParent(t *testing.T, built *builtFixture
 	defer cancel()
 
 	const parentType = "parent-tracking-parent"
-	parent, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+	parent, err := celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{
 		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: built.WorkerTenantID,
 			JobID:    "parent-tracking-root",
@@ -576,7 +576,7 @@ func assertExecutionLeaseSubmitJobTracksParent(t *testing.T, built *builtFixture
 	}
 
 	const restartSourceType = "parent-tracking-restart-source"
-	restartSource, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+	restartSource, err := celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{
 		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: built.WorkerTenantID,
 			JobID:    "parent-tracking-restart-source",
@@ -685,7 +685,7 @@ func runChapterAndArtifactRoundTrip(t *testing.T, harnesses []Harness) {
 			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 			defer cancel()
 
-			handle, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+			handle, err := celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{
 				Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: built.WorkerTenantID,
 					JobType:  "manual-storage",
@@ -789,7 +789,7 @@ func runListChaptersRange(t *testing.T, harnesses []Harness) {
 			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 			defer cancel()
 
-			handle, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+			handle, err := celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{
 				Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: built.WorkerTenantID,
 					JobType:  SequenceJobName,
@@ -850,7 +850,7 @@ func runLeaseOperations(t *testing.T, harnesses []Harness) {
 			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 			defer cancel()
 
-			handle, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+			handle, err := celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{
 				Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: built.WorkerTenantID,
 					JobType:  "lease-job",
@@ -953,7 +953,7 @@ func runConflictBehavior(t *testing.T, harnesses []Harness) {
 				ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 				defer cancel()
 
-				handle, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+				handle, err := celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{
 					Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 						TenantId: built.WorkerTenantID,
 						JobType:  "manual-storage",
@@ -1091,18 +1091,18 @@ func runExplicitJobIDIdempotency(t *testing.T, harnesses []Harness) {
 				},
 				RequestTime: time.Now().UTC(),
 			}
-			handle, err := built.Runtime.SubmitJob(ctx, submitReq)
+			handle, err := celltest.Submit(built.Runtime, ctx, submitReq)
 			if err != nil {
 				t.Fatalf("submit explicit job id: %v", err)
 			}
-			matching, err := built.Runtime.SubmitJob(ctx, submitReq)
+			matching, err := celltest.Submit(built.Runtime, ctx, submitReq)
 			if err != nil {
 				t.Fatalf("repeat submit explicit job id: %v", err)
 			}
 			if matching.JobKey != handle.JobKey {
 				t.Fatalf("unexpected matching handle %+v", matching.JobKey)
 			}
-			_, err = built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+			_, err = celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{
 				Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: submitReq.Job.TenantId,
 					JobID:    submitReq.Job.JobID,
@@ -1181,11 +1181,11 @@ func runExplicitJobIDDuplicateSubmitStatePreserving(t *testing.T, harnesses []Ha
 					},
 					RequestTime: time.Now().UTC(),
 				}
-				handle, err := built.Runtime.SubmitJob(ctx, req)
+				handle, err := celltest.Submit(built.Runtime, ctx, req)
 				if err != nil {
 					t.Fatalf("submit ready explicit job id: %v", err)
 				}
-				matching, err := built.Runtime.SubmitJob(ctx, req)
+				matching, err := celltest.Submit(built.Runtime, ctx, req)
 				if err != nil {
 					t.Fatalf("repeat ready explicit job id: %v", err)
 				}
@@ -1235,7 +1235,7 @@ func runExplicitJobIDDuplicateSubmitStatePreserving(t *testing.T, harnesses []Ha
 					},
 					RequestTime: time.Now().UTC(),
 				}
-				handle, err := built.Runtime.SubmitJob(ctx, req)
+				handle, err := celltest.Submit(built.Runtime, ctx, req)
 				if err != nil {
 					t.Fatalf("submit active explicit job id: %v", err)
 				}
@@ -1246,7 +1246,7 @@ func runExplicitJobIDDuplicateSubmitStatePreserving(t *testing.T, harnesses []Ha
 				}
 				WaitForRuntimeStatus(t, ctx, built.Runtime, handle.JobKey, jobdb.JobStatusActive)
 
-				matching, err := built.Runtime.SubmitJob(ctx, req)
+				matching, err := celltest.Submit(built.Runtime, ctx, req)
 				if err != nil {
 					t.Fatalf("repeat active explicit job id: %v", err)
 				}
@@ -1291,13 +1291,13 @@ func runExplicitJobIDDuplicateSubmitStatePreserving(t *testing.T, harnesses []Ha
 					},
 					RequestTime: time.Now().UTC(),
 				}
-				handle, err := built.Runtime.SubmitJob(ctx, req)
+				handle, err := celltest.Submit(built.Runtime, ctx, req)
 				if err != nil {
 					t.Fatalf("submit terminal explicit job id: %v", err)
 				}
 				WaitForRuntimeStatus(t, ctx, built.Runtime, handle.JobKey, jobdb.JobStatusCompleted)
 
-				matching, err := built.Runtime.SubmitJob(ctx, req)
+				matching, err := celltest.Submit(built.Runtime, ctx, req)
 				if err != nil {
 					t.Fatalf("repeat terminal explicit job id: %v", err)
 				}
@@ -1407,7 +1407,7 @@ func runExplicitJobIDConflictClasses(t *testing.T, harnesses []Harness) {
 						),
 					}
 					for _, depID := range []string{"dep-a", "dep-b"} {
-						if _, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+						if _, err := celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{
 							Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 								TenantId: base.TenantId,
 								JobID:    depID,
@@ -1419,14 +1419,14 @@ func runExplicitJobIDConflictClasses(t *testing.T, harnesses []Harness) {
 							t.Fatalf("seed prerequisite %s: %v", depID, err)
 						}
 					}
-					if _, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+					if _, err := celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{
 						Job:         base,
 						RequestTime: time.Now().UTC(),
 					}); err != nil {
 						t.Fatalf("submit base explicit job id: %v", err)
 					}
 
-					_, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+					_, err := celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{
 						Job:         tc.mutate(base),
 						RequestTime: time.Now().UTC(),
 					})
@@ -1471,11 +1471,11 @@ func runExplicitJobIDTenantScoped(t *testing.T, harnesses []Harness) {
 				RequestTime: time.Now().UTC(),
 			}
 
-			handleA, err := built.Runtime.SubmitJob(ctx, reqA)
+			handleA, err := celltest.Submit(built.Runtime, ctx, reqA)
 			if err != nil {
 				t.Fatalf("submit tenant A explicit job id: %v", err)
 			}
-			handleB, err := built.Runtime.SubmitJob(ctx, reqB)
+			handleB, err := celltest.Submit(built.Runtime, ctx, reqB)
 			if err != nil {
 				t.Fatalf("submit tenant B explicit job id: %v", err)
 			}
@@ -1483,7 +1483,7 @@ func runExplicitJobIDTenantScoped(t *testing.T, harnesses []Harness) {
 				t.Fatalf("expected tenant-scoped job keys, got %+v and %+v", handleA.JobKey, handleB.JobKey)
 			}
 
-			repeatA, err := built.Runtime.SubmitJob(ctx, reqA)
+			repeatA, err := celltest.Submit(built.Runtime, ctx, reqA)
 			if err != nil {
 				t.Fatalf("repeat tenant A explicit job id: %v", err)
 			}
@@ -1528,7 +1528,7 @@ func runPollWorkMetadataFiltering(t *testing.T, harnesses []Harness) {
 			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 			defer cancel()
 
-			matching, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+			matching, err := celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{
 				Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: built.WorkerTenantID,
 					JobID:    "metadata-blue-" + harness.Name,
@@ -1541,7 +1541,7 @@ func runPollWorkMetadataFiltering(t *testing.T, harnesses []Harness) {
 			if err != nil {
 				t.Fatalf("submit matching job: %v", err)
 			}
-			if _, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+			if _, err := celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{
 				Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: built.WorkerTenantID,
 					JobID:    "metadata-green-" + harness.Name,
@@ -1606,7 +1606,7 @@ func runGetJobLease(t *testing.T, harnesses []Harness) {
 			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 			defer cancel()
 
-			handle, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+			handle, err := celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{
 				Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: built.WorkerTenantID,
 					JobID:    "targeted-job-" + harness.Name,
@@ -1679,7 +1679,7 @@ func runGetJobForRun(t *testing.T, harnesses []Harness) {
 				built := buildFixture(t, harness)
 				defer built.Shutdown(t)
 
-				handle, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+				handle, err := celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{
 					Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 						TenantId: built.WorkerTenantID,
 						JobID:    "run-job-complete-" + harness.Name,
@@ -1752,7 +1752,7 @@ func runGetJobForRun(t *testing.T, harnesses []Harness) {
 				built := buildFixture(t, harness)
 				defer built.Shutdown(t)
 
-				handle, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+				handle, err := celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{
 					Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 						TenantId: built.WorkerTenantID,
 						JobID:    "run-job-fail-" + harness.Name,
@@ -1796,7 +1796,7 @@ func runGetJobForRun(t *testing.T, harnesses []Harness) {
 				built := buildFixture(t, harness)
 				defer built.Shutdown(t)
 
-				handle, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+				handle, err := celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{
 					Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 						TenantId: built.WorkerTenantID,
 						JobID:    "run-job-suspended-" + harness.Name,
@@ -1844,7 +1844,7 @@ func runGetJobForRun(t *testing.T, harnesses []Harness) {
 				built := buildFixture(t, harness)
 				defer built.Shutdown(t)
 
-				handle, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+				handle, err := celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{
 					Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 						TenantId: built.WorkerTenantID,
 						JobID:    "run-job-active-" + harness.Name,

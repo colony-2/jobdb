@@ -45,7 +45,7 @@ func goalRuntimes(t *testing.T, run func(*testing.T, jobdb.WorkflowRuntime)) {
 }
 func goalSubmit(t *testing.T, r jobdb.WorkflowRuntime, id string, deps ...jobdb.Dependency) jobdb.JobHandle {
 	t.Helper()
-	handle, err := r.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: id, JobType: "work", Data: jobdb.NewTaskDataOrPanic("input"), Dependencies: deps}})
+	handle, err := celltest.Submit(r, celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: id, JobType: "work", Data: jobdb.NewTaskDataOrPanic("input"), Dependencies: deps}})
 	require.NoError(t, err)
 	require.NotEmpty(t, handle.GoalID)
 	require.NotEqual(t, handle.JobKey.JobId, handle.GoalID)
@@ -304,7 +304,7 @@ func TestDependencyTimeoutCancellationAndValidation(t *testing.T) {
 		_, err = r.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", JobID: "closed-restart", PriorJobKey: a.JobKey, ShareGoal: true}})
 		require.ErrorIs(t, err, jobdb.ErrGoalConflict)
 		invalid := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "invalid", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil), Dependencies: []jobdb.Dependency{{Target: jobdb.DependencyTarget{JobID: "a", GoalID: a.GoalID}, Condition: jobdb.JobPrereqSuccess}}}}
-		_, err = r.SubmitJob(ctx, invalid)
+		_, err = celltest.Submit(r, ctx, invalid)
 		require.ErrorIs(t, err, jobdb.ErrInvalidDependency)
 	})
 }

@@ -52,6 +52,8 @@ func TestCellTransactionsAcrossSQLiteConnections(t *testing.T) {
 	defer second.Close(ctx)
 	root, err := first.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "t", Name: "root", Repo: "github.com/org/root"})
 	require.NoError(t, err)
+	_, err = first.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "t", Name: "same", Repo: "github.com/org/same"})
+	require.NoError(t, err)
 	const n = 8
 	handles := make([]jobdb.JobHandle, n)
 	errs := make([]error, n)
@@ -96,6 +98,8 @@ func TestCellSelectorsRestrictDiscoveryAndAcquisition(t *testing.T) {
 			}
 			var allowed jobdb.JobHandle
 			for _, name := range []string{"allowed", "hidden"} {
+				_, err := rt.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "t", Name: name, Repo: "github.com/org/" + name})
+				require.NoError(t, err)
 				for i := range 2 {
 					h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "t", Cell: name, CellRepo: "github.com/org/" + name, JobType: "job", Data: jobdb.NewTaskDataOrPanic(i)}})
 					require.NoError(t, err)
@@ -128,7 +132,7 @@ func TestCellSelectorsRestrictDiscoveryAndAcquisition(t *testing.T) {
 	}
 }
 
-func TestPendingCellReservationPreventsRetirementAfterRegistration(t *testing.T) {
+func TestPendingPreparationPreventsRetirementAfterRename(t *testing.T) {
 	type preparedRuntime interface {
 		jobdb.WorkflowRuntime
 		PrepareJob(context.Context, runtimecore.JobPreparation) (runtimecore.PreparedJob, error)
@@ -140,11 +144,11 @@ func TestPendingCellReservationPreventsRetirementAfterRegistration(t *testing.T)
 	defer sqliteRuntime.Close(ctx)
 	for name, rt := range map[string]preparedRuntime{"toy": toy.New(), "sqlite": sqliteRuntime} {
 		t.Run(name, func(t *testing.T) {
-			prep, err := rt.PrepareJob(ctx, runtimecore.JobPreparation{Key: jobdb.JobKey{TenantId: "t", JobId: "pending"}, Cell: "work", CellRepo: "example.test/work", Descriptor: "pending"})
-			require.NoError(t, err)
 			c, err := rt.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "t", Name: "work", Repo: "example.test/work"})
 			require.NoError(t, err)
-			require.NotEqual(t, prep.Target.CellID, c.ID)
+			prep, err := rt.PrepareJob(ctx, runtimecore.JobPreparation{Key: jobdb.JobKey{TenantId: "t", JobId: "pending"}, Cell: "work", CellRepo: "example.test/work", Descriptor: "pending"})
+			require.NoError(t, err)
+			require.Equal(t, prep.Target.CellID, c.ID)
 			renamed := "renamed"
 			c, err = rt.UpdateCell(ctx, jobdb.UpdateCellRequest{CellKey: jobdb.CellKey{TenantID: "t", CellID: c.ID}, IfMatch: fmt.Sprintf("%q", c.Revision), Name: &renamed})
 			require.NoError(t, err)

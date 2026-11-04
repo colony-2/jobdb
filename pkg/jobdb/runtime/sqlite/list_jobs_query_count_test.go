@@ -63,7 +63,7 @@ func TestStoredListFieldsUseOneQueryPerPage(t *testing.T) {
 	waitFor, err := encodeWaitFor([]string{"unresolved-b", "unresolved-a"})
 	require.NoError(t, err)
 	for i := 0; i < 201; i++ {
-		_, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: fmt.Sprintf("job-%03d", i), JobType: "work", Data: jobdb.NewTaskDataOrPanic(1)}})
+		_, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: fmt.Sprintf("job-%03d", i), JobType: "work", Data: jobdb.NewTaskDataOrPanic(1)}})
 		require.NoError(t, err)
 	}
 	// Inject stored snapshots without task chapters. Both branches must copy them.

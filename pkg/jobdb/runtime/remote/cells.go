@@ -89,7 +89,7 @@ func (s *proxyServer) GetCell(ctx context.Context, q runtimeapi.GetCellRequestOb
 	return cellResponse{body: c, err: e, revision: c.Revision}, nil
 }
 func (s *proxyServer) ListCells(ctx context.Context, q runtimeapi.ListCellsRequestObject) (runtimeapi.ListCellsResponseObject, error) {
-	r := jobdb.ListCellsRequest{TenantID: q.TenantId, IsRoot: q.Params.IsRoot}
+	r := jobdb.ListCellsRequest{TenantID: q.TenantId}
 	if q.Params.Name != nil {
 		r.Name = *q.Params.Name
 	}
@@ -170,7 +170,7 @@ func (r *Runtime) GetCell(ctx context.Context, q jobdb.CellKey) (jobdb.Cell, err
 	return decodeCellResponse[jobdb.Cell](r.raw.GetCell(ctx, q.TenantID, q.CellID))
 }
 func (r *Runtime) ListCells(ctx context.Context, q jobdb.ListCellsRequest) (jobdb.ListCellsResponse, error) {
-	params := runtimeapi.ListCellsParams{IsRoot: q.IsRoot}
+	params := runtimeapi.ListCellsParams{}
 	if q.Name != "" {
 		params.Name = &q.Name
 	}

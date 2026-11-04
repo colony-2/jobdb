@@ -18,7 +18,7 @@ func TestGoalsCommands(t *testing.T) {
 	rt := toy.New()
 	ctx := celltest.Context(context.Background())
 	submit := func() jobdb.JobHandle {
-		h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
+		h, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 		require.NoError(t, err)
 		return h
 	}

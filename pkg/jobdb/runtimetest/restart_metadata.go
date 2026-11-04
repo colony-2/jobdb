@@ -29,7 +29,7 @@ func runRestartClonesMetadata(t *testing.T, harnesses []Harness) {
 					ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 					defer cancel()
 					r := built.Runtime
-					parent, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
+					parent, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 						TenantId: built.WorkerTenantID, JobType: "metadata-parent", Data: NumberTaskData(0),
 						Metadata: json.RawMessage(`{"parentOnly":true}`),
 					}})

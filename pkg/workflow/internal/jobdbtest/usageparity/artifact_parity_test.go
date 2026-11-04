@@ -111,7 +111,7 @@ func TestRuntimeArtifactRoundTripParityAcrossBuiltInRuntimes(t *testing.T) {
 			defer cancel()
 
 			jobKey, lease := startManualStorageJob(t, ctx, func(ctx context.Context, start jobdb.SubmitJob) (jobdb.JobKey, error) {
-				handle, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+				handle, err := celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{
 					Job:         start,
 					RequestTime: time.Now().UTC(),
 				})

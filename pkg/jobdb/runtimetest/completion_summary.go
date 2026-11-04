@@ -19,7 +19,7 @@ func runCompletionSummaries(t *testing.T, harnesses []Harness) {
 			tenant := f.WorkerTenantID
 			submit := func(id string) jobdb.JobKey {
 				t.Helper()
-				handle, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
+				handle, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: tenant, JobID: id, JobType: "completion", Data: NumberTaskData(1),
 				}})
 				require.NoError(t, err)

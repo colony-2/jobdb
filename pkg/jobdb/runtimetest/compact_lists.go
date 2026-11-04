@@ -27,7 +27,7 @@ func RunCompactListConformance(t *testing.T, harnesses ...Harness) {
 			metadata := json.RawMessage(`{"label":"visible","nested":{"array":[1,true,"value"]},"large":9007199254740993}`)
 			policy := jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 7, BackoffCoefficient: 1}}
 			submit := func(id string) jobdb.JobHandle {
-				handle, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
+				handle, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: f.WorkerTenantID, JobID: id, JobType: "compact", Data: NumberTaskData(1),
 					Metadata: metadata, RunPolicy: policy,
 					ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"detail":"payload"}`)},
@@ -103,12 +103,12 @@ func RunCompactListConformance(t *testing.T, harnesses ...Harness) {
 func runStoredListFields(t *testing.T, r jobdb.WorkflowRuntime, tenant string) {
 	ctx := celltest.Context(context.Background())
 	policy := jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 7, BackoffCoefficient: 1}}
-	parent, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: tenant, JobID: "stored-parent", JobType: "stored-parent", Data: NumberTaskData(1)}})
+	parent, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: tenant, JobID: "stored-parent", JobType: "stored-parent", Data: NumberTaskData(1)}})
 	require.NoError(t, err)
 	parentLease, err := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: parent.JobKey, WorkerID: "setup", Routes: []jobdb.Route{{JobType: "stored-parent"}}})
 	require.NoError(t, err)
 	require.NotNil(t, parentLease)
-	prereq, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: tenant, JobID: "stored-prereq", JobType: "stored-prereq", Data: NumberTaskData(1)}})
+	prereq, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: tenant, JobID: "stored-prereq", JobType: "stored-prereq", Data: NumberTaskData(1)}})
 	require.NoError(t, err)
 	task := &jobdb.TaskWait{InputOrdinal: 0, OutputOrdinal: 1, InputHash: "sha256:stored-input", ResumeJobType: "resume"}
 	payloads := []json.RawMessage{

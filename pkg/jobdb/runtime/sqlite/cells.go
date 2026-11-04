@@ -15,68 +15,119 @@ import (
 
 func loadCells(ctx context.Context, q queryer, tenant string) (*cellstate.State, error) {
 	s := cellstate.New()
-	rows, e := q.QueryContext(ctx, "SELECT payload FROM jobdb_cells WHERE tenant_id=?", tenant)
-	if e != nil {
-		return nil, e
+	rows, err := q.QueryContext(ctx, `SELECT cell_id,name,repo,description,metadata,state,revision,created_at_ns,updated_at_ns,retired_at_ns FROM jobdb_cells WHERE tenant_id=?`, tenant)
+	if err != nil {
+		return nil, err
 	}
 	for rows.Next() {
-		var raw []byte
-		var c jobdb.Cell
-		if e = rows.Scan(&raw); e != nil {
-			rows.Close()
-			return nil, e
+		c := jobdb.Cell{TenantID: tenant, Aliases: []string{}}
+		var metadata []byte
+		var created, updated int64
+		var retired sql.NullInt64
+		if err = rows.Scan(&c.ID, &c.Name, &c.Repo, &c.Description, &metadata, &c.State, &c.Revision, &created, &updated, &retired); err == nil {
+			err = json.Unmarshal(metadata, &c.Metadata)
 		}
-		if e = json.Unmarshal(raw, &c); e != nil {
+		if err != nil {
 			rows.Close()
-			return nil, e
+			return nil, err
+		}
+		c.CreatedAt = timeFromNS(created)
+		c.UpdatedAt = timeFromNS(updated)
+		if retired.Valid {
+			t := timeFromNS(retired.Int64)
+			c.RetiredAt = &t
 		}
 		s.Cells[c.ID] = c
 	}
-	e = rows.Err()
+	err = rows.Err()
 	rows.Close()
-	if e != nil {
-		return nil, e
+	if err != nil {
+		return nil, err
 	}
-	var raw []byte
-	e = q.QueryRowContext(ctx, "SELECT payload FROM jobdb_cell_requests WHERE tenant_id=?", tenant).Scan(&raw)
-	if e == nil {
-		var meta cellCatalogMetadata
-		e = json.Unmarshal(raw, &meta)
-		s.Creations = meta.Creations
-		s.CursorKey = meta.CursorKey
+	rows, err = q.QueryContext(ctx, `SELECT cell_id,name FROM jobdb_cell_names WHERE tenant_id=? ORDER BY name`, tenant)
+	if err != nil {
+		return nil, err
 	}
-	if e != nil && e != sql.ErrNoRows {
-		return nil, e
+	for rows.Next() {
+		var id, name string
+		if err = rows.Scan(&id, &name); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		c := s.Cells[id]
+		if c.Name != name {
+			c.Aliases = append(c.Aliases, name)
+			s.Cells[id] = c
+		}
 	}
-	return s, nil
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	err = q.QueryRowContext(ctx, `SELECT cursor_key FROM jobdb_cell_catalog WHERE tenant_id=?`, tenant).Scan(&s.CursorKey)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+	rows, err = q.QueryContext(ctx, `SELECT principal,request_id,descriptor,cell_id,name,repo,description,metadata,revision,created_at_ns FROM jobdb_cell_requests WHERE tenant_id=? ORDER BY principal,request_id`, tenant)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var r cellstate.Creation
+		var raw []byte
+		var created int64
+		c := &r.Result
+		c.TenantID = tenant
+		c.State = jobdb.CellActive
+		c.Aliases = []string{}
+		if err = rows.Scan(&r.Principal, &r.RequestID, &r.Descriptor, &c.ID, &c.Name, &c.Repo, &c.Description, &raw, &c.Revision, &created); err == nil {
+			err = json.Unmarshal(raw, &c.Metadata)
+		}
+		if err != nil {
+			return nil, err
+		}
+		c.CreatedAt = timeFromNS(created)
+		c.UpdatedAt = c.CreatedAt
+		s.Creations = append(s.Creations, r)
+	}
+	return s, rows.Err()
 }
 func saveCells(ctx context.Context, tx *sql.Tx, tenant string, before, after *cellstate.State) error {
 	for id, c := range after.Cells {
 		if reflect.DeepEqual(before.Cells[id], c) {
 			continue
 		}
-		raw, e := json.Marshal(c)
-		if e != nil {
-			return e
+		raw, err := json.Marshal(c.Metadata)
+		if err != nil {
+			return err
 		}
-		_, e = tx.ExecContext(ctx, `INSERT INTO jobdb_cells(tenant_id,cell_id,name,repo,payload) VALUES(?,?,?,?,?) ON CONFLICT(tenant_id,cell_id) DO UPDATE SET name=excluded.name,repo=excluded.repo,payload=excluded.payload`, tenant, id, c.Name, c.Repo, raw)
-		if e != nil {
-			return e
+		var retired any
+		if c.RetiredAt != nil {
+			retired = timeToNS(*c.RetiredAt)
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO jobdb_cells(tenant_id,cell_id,name,repo,description,metadata,state,revision,created_at_ns,updated_at_ns,retired_at_ns) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(tenant_id,cell_id) DO UPDATE SET name=excluded.name,repo=excluded.repo,description=excluded.description,metadata=excluded.metadata,state=excluded.state,revision=excluded.revision,updated_at_ns=excluded.updated_at_ns,retired_at_ns=excluded.retired_at_ns`, tenant, id, c.Name, c.Repo, c.Description, raw, c.State, c.Revision, timeToNS(c.CreatedAt), timeToNS(c.UpdatedAt), retired)
+		if err != nil {
+			return err
 		}
 		for _, name := range append([]string{c.Name}, c.Aliases...) {
-			if _, e = tx.ExecContext(ctx, `INSERT INTO jobdb_cell_names(tenant_id,name,cell_id) VALUES(?,?,?) ON CONFLICT(tenant_id,name) DO NOTHING`, tenant, name, id); e != nil {
-				return e
+			if _, err = tx.ExecContext(ctx, `INSERT INTO jobdb_cell_names VALUES(?,?,?) ON CONFLICT(tenant_id,name) DO NOTHING`, tenant, name, id); err != nil {
+				return err
 			}
 		}
 	}
-	{
-		raw, e := json.Marshal(cellCatalogMetadata{Creations: after.Creations, CursorKey: after.CursorKey})
-		if e != nil {
-			return e
+	if _, err := tx.ExecContext(ctx, `INSERT INTO jobdb_cell_catalog VALUES(?,?) ON CONFLICT(tenant_id) DO NOTHING`, tenant, after.CursorKey); err != nil {
+		return err
+	}
+	for _, r := range after.Creations {
+		c := r.Result
+		raw, err := json.Marshal(c.Metadata)
+		if err != nil {
+			return err
 		}
-		_, e = tx.ExecContext(ctx, `INSERT INTO jobdb_cell_requests(tenant_id,payload) VALUES(?,?) ON CONFLICT(tenant_id) DO UPDATE SET payload=excluded.payload`, tenant, raw)
-		if e != nil {
-			return e
+		if _, err = tx.ExecContext(ctx, `INSERT INTO jobdb_cell_requests(tenant_id,principal,request_id,descriptor,cell_id,name,repo,description,metadata,revision,created_at_ns) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(tenant_id,principal,request_id) DO NOTHING`, tenant, r.Principal, r.RequestID, r.Descriptor, c.ID, c.Name, c.Repo, c.Description, raw, c.Revision, timeToNS(c.CreatedAt)); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -113,7 +164,7 @@ func (r *Runtime) UpdateCell(ctx context.Context, req jobdb.UpdateCellRequest) (
 		old := s.Cells[req.CellID]
 		out, e = s.Update(ctx, req)
 		if e == nil && old.Repo != out.Repo {
-			_, e = tx.ExecContext(ctx, `UPDATE jobdb_schedules SET state='PAUSED',pause_reason='cell_repo_mismatch' WHERE tenant_id=? AND state='ACTIVE' AND json_extract(target_json,'$.cellId')=?`, req.TenantID, req.CellID)
+			_, e = tx.ExecContext(ctx, `UPDATE jobdb_schedules SET state='PAUSED',pause_reason='cell_repo_mismatch' WHERE tenant_id=? AND state='ACTIVE' AND cell_id=?`, req.TenantID, req.CellID)
 		}
 		return e
 	})
@@ -129,15 +180,15 @@ func (r *Runtime) RetireCell(ctx context.Context, req jobdb.RetireCellRequest) (
 				return n > 0, e
 			}
 			// Preparations, open goals, and active schedules also prevent retirement.
-			e = tx.QueryRowContext(ctx, `SELECT count(*) FROM jobdb_goal_preparations p WHERE p.tenant_id=? AND (json_extract(cell_target,'$.Target.cellId')=? OR EXISTS(SELECT 1 FROM jobdb_cell_names n WHERE n.tenant_id=p.tenant_id AND n.name=json_extract(p.cell_target,'$.Target.cell') AND n.cell_id=?)) AND NOT EXISTS(SELECT 1 FROM jobdb_jobs j WHERE j.tenant_id=p.tenant_id AND j.job_id=p.job_id)`, req.TenantID, id, id).Scan(&n)
+			e = tx.QueryRowContext(ctx, `SELECT count(*) FROM jobdb_goal_preparations p WHERE p.tenant_id=? AND p.cell_id=? AND NOT EXISTS(SELECT 1 FROM jobdb_jobs j WHERE j.tenant_id=p.tenant_id AND j.job_id=p.job_id)`, req.TenantID, id).Scan(&n)
 			if e != nil || n > 0 {
 				return n > 0, e
 			}
-			e = tx.QueryRowContext(ctx, `SELECT count(*) FROM jobdb_goals g WHERE g.tenant_id=? AND g.state='OPEN' AND json_extract(g.payload,'$.cellId')=?`, req.TenantID, id).Scan(&n)
+			e = tx.QueryRowContext(ctx, `SELECT count(*) FROM jobdb_goals g WHERE g.tenant_id=? AND g.state='OPEN' AND g.cell_id=?`, req.TenantID, id).Scan(&n)
 			if e != nil || n > 0 {
 				return n > 0, e
 			}
-			e = tx.QueryRowContext(ctx, `SELECT count(*) FROM jobdb_schedules WHERE tenant_id=? AND state='ACTIVE' AND json_extract(target_json,'$.cellId')=?`, req.TenantID, id).Scan(&n)
+			e = tx.QueryRowContext(ctx, `SELECT count(*) FROM jobdb_schedules WHERE tenant_id=? AND state='ACTIVE' AND cell_id=?`, req.TenantID, id).Scan(&n)
 			return n > 0, e
 		})
 		return e
@@ -215,36 +266,19 @@ func (r *Runtime) prepareCell(ctx context.Context, tx *sql.Tx, req *goalstate.Pr
 	return s.Resolve(ctx, req.Key.TenantId, req.Cell, req.CellRepo, parent, existing, confirmation)
 }
 func (r *Runtime) publishCell(ctx context.Context, tx *sql.Tx, key jobdb.JobKey) (jobdb.ResolvedCell, error) {
-	var raw []byte
-	if e := tx.QueryRowContext(ctx, `SELECT cell_target FROM jobdb_goal_preparations WHERE tenant_id=? AND job_id=?`, key.TenantId, key.JobId).Scan(&raw); e != nil {
-		return jobdb.ResolvedCell{}, e
-	}
-	var req goalstate.Preparation
-	if e := json.Unmarshal(raw, &req); e != nil {
+	req := goalstate.Preparation{Key: key}
+	if e := tx.QueryRowContext(ctx, `SELECT requested_cell,requested_repo,cell_id,cell_name,cell_repo,parent_job_id,prior_job_id FROM jobdb_goal_preparations WHERE tenant_id=? AND job_id=?`, key.TenantId, key.JobId).Scan(&req.Cell, &req.CellRepo, &req.Target.CellID, &req.Target.Cell, &req.Target.CellRepo, &req.ParentJobID, &req.PriorJobID); e != nil {
 		return jobdb.ResolvedCell{}, e
 	}
 	target, e := r.prepareCell(ctx, tx, &req)
 	if e != nil {
 		return target, e
 	}
+	if target.CellID != req.Target.CellID {
+		return target, jobdb.NewExistingJobMismatchError("cell identity differs")
+	}
 	if target.CellRepo != req.Target.CellRepo {
 		return target, jobdb.ErrCellRepoMismatch
-	}
-	s, e := loadCells(ctx, tx, key.TenantId)
-	if e != nil {
-		return target, e
-	}
-	before := cellstate.Clone(*s)
-	if _, ok := s.ByName(target.Cell); !ok {
-		target.CellID = req.Target.CellID
-	}
-	if req.PriorJobID == "" {
-		if e = s.Publish(target, key.TenantId); e != nil {
-			return target, e
-		}
-	}
-	if e = saveCells(ctx, tx, key.TenantId, &before, s); e != nil {
-		return target, e
 	}
 	return target, nil
 }
@@ -267,7 +301,19 @@ func (l *executionLease) ResolveCell(ctx context.Context, name string) (jobdb.Re
 	return l.runtime.ResolveCellWithLeaseByID(ctx, l.jobKey, l.leaseID, l.workerID, name)
 }
 
-type cellCatalogMetadata struct {
-	Creations []cellstate.Creation
-	CursorKey []byte
+// withoutCellJSON retains the legacy non-cell snapshot format. Cell identity is
+// stored only in relational columns, never duplicated in these JSON objects.
+func withoutCellJSON(value any) ([]byte, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err = json.Unmarshal(raw, &fields); err != nil {
+		return nil, err
+	}
+	delete(fields, "cell")
+	delete(fields, "cellId")
+	delete(fields, "cellRepo")
+	return json.Marshal(fields)
 }

@@ -75,11 +75,8 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (go
 		}
 	}
 	if old, ok := e.preparedGoals[key]; ok {
-		if old.Request.Target.CellRepo != target.CellRepo || old.Request.Target.Cell != target.Cell && old.Request.Target.CellID != target.CellID {
+		if old.Request.Target.CellRepo != target.CellRepo || old.Request.Target.CellID != target.CellID {
 			return goalstate.Prepared{}, jobdb.NewExistingJobMismatchError("cell differs")
-		}
-		if _, found := e.cellsLocked(key.TenantId).Cells[target.CellID]; !found {
-			target.CellID = old.Request.Target.CellID
 		}
 		if old.Request.Descriptor != req.Descriptor || old.Request.RequestID != req.RequestID {
 			return goalstate.Prepared{}, goalstate.PreparationMismatch(old.Request.Descriptor, req.Descriptor)

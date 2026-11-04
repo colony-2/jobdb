@@ -357,7 +357,7 @@ func TestJobWorkerYieldHandoffOutcome(t *testing.T) {
 					}
 					return nil, c.Yield(celltest.Context(context.Background()), req)
 				}}
-				h, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic("job")}})
+				h, err := celltest.Submit(rt, celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic("job")}})
 				require.NoError(t, err)
 				runnable, err := wf.GetJobForRun(celltest.Context(context.Background()), rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: worker, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "job-worker", LeaseDuration: time.Minute})
 				require.NoError(t, err)

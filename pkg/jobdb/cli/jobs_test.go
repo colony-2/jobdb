@@ -20,7 +20,7 @@ import (
 func TestJobsDeleteCLI(t *testing.T) {
 	ctx := celltest.Context(context.Background())
 	rt := toy.New()
-	h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "c2", JobID: "selected", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(nil), Metadata: json.RawMessage(`{"recipe":"build","env":"dev"}`)}})
+	h, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "c2", JobID: "selected", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(nil), Metadata: json.RawMessage(`{"recipe":"build","env":"dev"}`)}})
 	require.NoError(t, err)
 	t.Setenv("JOBDB_BEARER_TOKEN", "admin-token")
 	handler := remote.NewServer(rt)

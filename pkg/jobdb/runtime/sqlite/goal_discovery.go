@@ -95,14 +95,14 @@ func (r *Runtime) ListGoals(ctx context.Context, req jobdb.ListGoalsRequest) (jo
 		where = append(where, "EXISTS (SELECT 1 FROM jobdb_jobs j WHERE "+strings.Join(sub, " AND ")+")")
 	}
 	args = append(args, size+1)
-	rows, err := tx.QueryContext(ctx, "SELECT g.payload FROM jobdb_goals g WHERE "+strings.Join(where, " AND ")+" ORDER BY g.goal_id LIMIT ?", args...)
+	rows, err := tx.QueryContext(ctx, "SELECT g.payload,g.cell_id,g.cell_name,g.cell_repo FROM jobdb_goals g WHERE "+strings.Join(where, " AND ")+" ORDER BY g.goal_id LIMIT ?", args...)
 	if err != nil {
 		return out, err
 	}
 	for rows.Next() {
 		var raw []byte
 		var g jobdb.GoalInfo
-		if err = rows.Scan(&raw); err != nil {
+		if err = rows.Scan(&raw, &g.CellID, &g.Cell, &g.CellRepo); err != nil {
 			rows.Close()
 			return out, err
 		}

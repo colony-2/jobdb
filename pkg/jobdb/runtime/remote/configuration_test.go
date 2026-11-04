@@ -95,7 +95,7 @@ func TestConfigurationHTTPValidation(t *testing.T) {
 	// Missing token, forged token, another job, and another tenant all share lease-lost semantics.
 	client, err := remote.New(server.URL, nil)
 	require.NoError(t, err)
-	job, err := client.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "a", JobType: "job", Data: jobdb.NewTaskDataOrPanic(nil)}})
+	job, err := celltest.Submit(client, celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "a", JobType: "job", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	require.NoError(t, err)
 	lease, err := client.GetJobLease(celltest.Context(context.Background()), jobdb.GetJobLeaseRequest{JobKey: job.JobKey, WorkerID: "w", Routes: []jobdb.Route{{JobType: "job"}}, LeaseDuration: time.Minute})
 	require.NoError(t, err)

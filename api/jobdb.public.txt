@@ -84,7 +84,6 @@ type Cell struct
   field Description string `json:"description"`
   field Metadata map[string]encoding/json.RawMessage `json:"metadata"`
   field State CellState `json:"state"`
-  field IsRoot bool `json:"isRoot"`
   field Aliases []string `json:"aliases"`
   field Revision string `json:"revision"`
   field CreatedAt time.Time `json:"createdAt"`
@@ -318,7 +317,6 @@ var ErrCellNotFound *CellError
 var ErrCellPrecondition *CellError
 var ErrCellPreconditionRequired *CellError
 var ErrCellRepoMismatch *CellError
-var ErrCellRepoRequired *CellError
 var ErrCellRequestConflict *CellError
 var ErrCellRetired *CellError
 var ErrChapterApplicationPayloadTooLarge error
@@ -357,8 +355,6 @@ var ErrLeasePermissionDenied error
 var ErrLeaseRenewalUnsupported error
 var ErrMissingInputHash error
 var ErrNoSecretProvider error
-var ErrRootCellProtected *CellError
-var ErrRootCellRequired *CellError
 var ErrSecretRequestTooLarge error
 var ErrSecretResolutionFailed error
 var ErrSecretsUnavailable error
@@ -713,7 +709,6 @@ type ListCellsRequest struct
   field Name string
   field State string
   field PageToken string
-  field IsRoot *bool
   field PageSize int
 type ListCellsResponse struct
   field Cells []Cell `json:"cells"`
@@ -2452,7 +2447,6 @@ method State.ByName func(name string) (github.com/colony-2/jobdb/pkg/jobdb.Cell,
 method State.Create func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CreateCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method State.Get func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.CellKey) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method State.List func(ctx context.Context, r github.com/colony-2/jobdb/pkg/jobdb.ListCellsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListCellsResponse, error)
-method State.Publish func(target github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, tenant string) error
 method State.Resolve func(ctx context.Context, tenant string, name string, repo string, parent *github.com/colony-2/jobdb/pkg/jobdb.Cell, existing *github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, confirmation bool) (github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, error)
 method State.Retire func(ctx context.Context, r github.com/colony-2/jobdb/pkg/jobdb.RetireCellRequest, busy func(string) (bool, error)) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method State.Select func(ctx context.Context, tenant string, names []string, permission string) (map[string]bool, error)

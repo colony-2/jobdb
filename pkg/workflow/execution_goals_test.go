@@ -86,7 +86,7 @@ func TestExecutionGoalFailureAdmissionAndReplay(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/submission=%v", backend, submission), func(t *testing.T) {
 				ctx := celltest.Context(context.Background())
 				rt := alternateRuntime(t, backend)
-				a, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "producer", Data: jobdb.NewTaskDataOrPanic(nil)}})
+				a, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "producer", Data: jobdb.NewTaskDataOrPanic(nil)}})
 				require.NoError(t, err)
 				goal := jobdb.GoalKey{TenantId: "tenant", GoalID: a.GoalID}
 				var calls atomic.Int32
@@ -99,7 +99,7 @@ func TestExecutionGoalFailureAdmissionAndReplay(t *testing.T) {
 				if submission {
 					request.Job.Dependencies = []jobdb.Dependency{{Target: jobdb.DependencyTarget{GoalID: goal.GoalID}, Condition: jobdb.JobPrereqSuccess}}
 				}
-				h, err := rt.SubmitJob(ctx, request)
+				h, err := celltest.Submit(rt, ctx, request)
 				require.NoError(t, err)
 				if !submission {
 					out, err := runExecutionTest(t, rt, h.JobKey, consumer)
@@ -155,7 +155,7 @@ func TestExecutionRestartGoalAdmission(t *testing.T) {
 				}
 			}
 			require.NotEmpty(t, target)
-			upstream, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "upstream", Data: jobdb.NewTaskDataOrPanic(nil)}})
+			upstream, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "upstream", Data: jobdb.NewTaskDataOrPanic(nil)}})
 			require.NoError(t, err)
 			restart, err := rt.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: source, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target}, Dependencies: []jobdb.Dependency{{Target: jobdb.DependencyTarget{GoalID: upstream.GoalID}, Condition: jobdb.JobPrereqSuccess}}}})
 			require.NoError(t, err)

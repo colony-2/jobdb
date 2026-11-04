@@ -27,7 +27,6 @@ type Cell struct {
 	Description string                     `json:"description"`
 	Metadata    map[string]json.RawMessage `json:"metadata"`
 	State       CellState                  `json:"state"`
-	IsRoot      bool                       `json:"isRoot"`
 	Aliases     []string                   `json:"aliases"`
 	Revision    string                     `json:"revision"`
 	CreatedAt   time.Time                  `json:"createdAt"`
@@ -60,7 +59,6 @@ type RetireCellRequest struct {
 }
 type ListCellsRequest struct {
 	TenantID, Name, State, PageToken string
-	IsRoot                           *bool
 	PageSize                         int
 }
 type ListCellsResponse struct {
@@ -99,7 +97,7 @@ type CellAuthority struct {
 	TenantID    string
 	Permissions map[string]bool
 	Cells       map[string]bool
-	// LeaseSubmitCells explicitly permits non-root leases to submit to these existing cell IDs.
+	// LeaseSubmitCells explicitly permits leases to submit to these existing cell IDs.
 	LeaseSubmitCells map[string]bool
 }
 type cellAuthorityKey struct{}
@@ -153,14 +151,11 @@ func (e *CellError) Error() string { return e.Code }
 
 var (
 	ErrInvalidCell              = &CellError{"invalid_request", 400}
-	ErrCellRepoRequired         = &CellError{"cell_repo_required", 400}
 	ErrCellForbidden            = &CellError{"forbidden", 403}
 	ErrCellNotFound             = &CellError{"not_found", 404}
 	ErrCellConflict             = &CellError{"cell_conflict", 409}
 	ErrCellRepoMismatch         = &CellError{"cell_repo_mismatch", 409}
 	ErrCellRetired              = &CellError{"cell_retired", 409}
-	ErrRootCellRequired         = &CellError{"root_cell_required", 409}
-	ErrRootCellProtected        = &CellError{"root_cell_protected", 409}
 	ErrCellBusy                 = &CellError{"cell_busy", 409}
 	ErrCellRequestConflict      = &CellError{"request_conflict", 409}
 	ErrCellPrecondition         = &CellError{"precondition_failed", 412}

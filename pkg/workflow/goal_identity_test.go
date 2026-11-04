@@ -31,9 +31,9 @@ func TestExecutionGoalIdentityAndBlockingWait(t *testing.T) {
 				return c.DoTask(invocation("identity"), func(context.Context) (jobdb.TaskData, error) { return in, nil })
 			}}
 			var err error
-			want, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic(nil)}})
+			want, err = celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic(nil)}})
 			require.NoError(t, err)
-			other, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "other", Data: jobdb.NewTaskDataOrPanic(nil)}})
+			other, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "other", Data: jobdb.NewTaskDataOrPanic(nil)}})
 			require.NoError(t, err)
 			_, err = rt.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: jobdb.GoalKey{TenantId: "tenant", GoalID: other.GoalID}, JobID: want.JobKey.JobId})
 			require.NoError(t, err)
@@ -48,7 +48,7 @@ func TestExecutionGoalIdentityAndBlockingWait(t *testing.T) {
 			require.Equal(t, want.GoalID, detail.Job.GoalID)
 			require.Equal(t, []string{other.GoalID}, detail.Job.OtherGoalIDs)
 
-			upstream, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "upstream", Data: jobdb.NewTaskDataOrPanic(nil)}})
+			upstream, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "upstream", Data: jobdb.NewTaskDataOrPanic(nil)}})
 			require.NoError(t, err)
 			waiter := wf.ExecutionWorker{JobType: "waiter", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
 				_, err := c.AwaitGoals(upstream.GoalID)

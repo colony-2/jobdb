@@ -19,7 +19,7 @@ func newCellCmd() *cobra.Command {
 	root := &cobra.Command{Use: "cell", Short: "Manage tenant cells", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
 	root.PersistentFlags().StringVarP(&tenant, "tenant", "t", "", "tenant ID (required)")
 	root.PersistentFlags().StringVarP(&baseURL, "url", "u", "http://127.0.0.1:9047", "JobDB API server base URL")
-	create := &cobra.Command{Use: "create", Short: "Create a tenant cell", Args: cobra.NoArgs, Long: "Create a named cell using cells.create authority. Creating root also requires cells.bootstrapRoot authority. Set JOBDB_BEARER_TOKEN for deployment authentication. Repeating with the same repository reports the existing cell; this command never changes its properties.", RunE: func(cmd *cobra.Command, _ []string) error {
+	create := &cobra.Command{Use: "create", Short: "Create a tenant cell", Args: cobra.NoArgs, Long: "Create a named cell using cells.create authority. Set JOBDB_BEARER_TOKEN for deployment authentication. Repeating with the same repository reports the existing cell; this command never changes its properties.", RunE: func(cmd *cobra.Command, _ []string) error {
 		if tenant == "" {
 			return fmt.Errorf("--tenant is required")
 		}
@@ -73,7 +73,7 @@ func newCellCmd() *cobra.Command {
 // middleware instead of installing this local-development policy.
 func localCellAdministration(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := jobdb.WithCellAuthority(r.Context(), jobdb.CellAuthority{Principal: "local-administrator", TenantID: "*", Permissions: map[string]bool{"cells.create": true, "cells.bootstrapRoot": true, "cells.get": true, "cells.list": true, "cells.update": true, "cells.retire": true, "jobs.submit": true, "jobs.get": true, "jobs.list": true, "jobs.acquire": true}})
+		ctx := jobdb.WithCellAuthority(r.Context(), jobdb.CellAuthority{Principal: "local-administrator", TenantID: "*", Permissions: map[string]bool{"cells.create": true, "cells.get": true, "cells.list": true, "cells.update": true, "cells.retire": true, "jobs.submit": true, "jobs.get": true, "jobs.list": true, "jobs.acquire": true}})
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

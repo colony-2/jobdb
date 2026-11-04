@@ -80,7 +80,7 @@ func TestInterruptedJobReplayAcrossRuntimes(t *testing.T) {
 			policy := jobdb.DefaultRunPolicy()
 			policy.Retry.MaximumAttempts = 2
 			policy.InvocationTimeout = jobdb.AsDuration(300 * time.Millisecond)
-			handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
+			handle, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 				TenantId: "tenant", JobType: job.Name(), Data: jobdb.NewTaskDataOrPanic(42), RunPolicy: policy,
 			}})
 			require.NoError(t, err)

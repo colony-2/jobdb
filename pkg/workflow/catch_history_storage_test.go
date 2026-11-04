@@ -53,7 +53,7 @@ func TestCatchHistoryStorageWriterCompatibility(t *testing.T) {
 					return wf.CatchResult{Disposition: wf.CatchHandled, Output: jobdb.NewTaskDataOrPanic("recovered")}, nil
 				}}}}, func(wf.ExecutionContext) (jobdb.JobData, error) { return nil, errors.New("original") })
 			}}
-			handle, err := recording.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "fixture", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("input")}})
+			handle, err := celltest.Submit(recording, celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "fixture", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("input")}})
 			require.NoError(t, err)
 			run, err := wf.GetJobForRun(celltest.Context(context.Background()), recording, wf.GetJobForRunRequest{JobKey: handle.JobKey, JobWorker: w, WorkerID: "fixture", LeaseDuration: time.Minute})
 			require.NoError(t, err)

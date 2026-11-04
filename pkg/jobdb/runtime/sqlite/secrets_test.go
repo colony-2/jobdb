@@ -30,7 +30,7 @@ func secretLeaseFixture(t *testing.T) (*Runtime, jobdb.ExecutionLease) {
 	embedded, err := StartEmbeddedRuntime(ctx)
 	require.NoError(t, err)
 	t.Cleanup(embedded.Shutdown)
-	h, err := embedded.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "job", JobType: "job", Metadata: json.RawMessage(`{"team":"build"}`), Data: jobdb.NewTaskDataOrPanic(1)}})
+	h, err := celltest.Submit(embedded.Runtime, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "job", JobType: "job", Metadata: json.RawMessage(`{"team":"build"}`), Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, err)
 	l, err := embedded.Runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "job"}}, LeaseDuration: time.Minute})
 	require.NoError(t, err)

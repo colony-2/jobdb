@@ -99,7 +99,7 @@ func TestTaskDelegationExecutionBudgets(t *testing.T) {
 					})
 				})
 			}}
-			h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: w.Name(), RunPolicy: jobPolicy, Data: jobdb.NewTaskDataOrPanic("input")}})
+			h, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: w.Name(), RunPolicy: jobPolicy, Data: jobdb.NewTaskDataOrPanic("input")}})
 			require.NoError(t, err)
 			run := func(tasks []wf.TaskWorker, observer wf.ReplayObserver) wf.JobRunOutcome {
 				r, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: w, TaskWorkers: tasks, WorkerID: "delegate", LeaseDuration: time.Hour})

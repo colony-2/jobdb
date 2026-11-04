@@ -34,7 +34,7 @@ func secretsSQLite(t *testing.T) *sqliteruntime.Runtime {
 func secretsRemoteLease(t *testing.T, c *Runtime, tenant string) jobdb.ExecutionLease {
 	t.Helper()
 	ctx := celltest.Context(context.Background())
-	h, err := c.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: tenant, JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
+	h, err := celltest.Submit(c, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: tenant, JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, err)
 	l, err := c.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "job"}}, LeaseDuration: time.Minute})
 	require.NoError(t, err)

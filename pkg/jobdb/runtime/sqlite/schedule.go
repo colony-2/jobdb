@@ -59,7 +59,7 @@ type storedScheduleArtifact struct {
 }
 
 const scheduleColumns = `
-tenant_id, schedule_id, pause_reason, state, generation, spec_hash, trigger_json, target_json,
+tenant_id, schedule_id, pause_reason, state, generation, spec_hash, trigger_json, target_json, cell_id, cell_name, cell_repo,
 target_job_type, overlap_policy, failure_policy_json, next_fire_at_ns,
 next_job_id, created_at_ns, updated_at_ns
 `
@@ -145,7 +145,7 @@ func (r *Runtime) UpsertSchedule(ctx context.Context, req jobdb.UpsertScheduleRe
 		if err != nil {
 			return err
 		}
-		targetJSON, err := json.Marshal(target)
+		targetJSON, err := withoutCellJSON(target)
 		if err != nil {
 			return err
 		}
@@ -156,21 +156,21 @@ func (r *Runtime) UpsertSchedule(ctx context.Context, req jobdb.UpsertScheduleRe
 		if found {
 			_, err = tx.ExecContext(ctx, `
 UPDATE jobdb_schedules
-SET pause_reason='', state = ?, generation = ?, spec_hash = ?, trigger_json = ?, target_json = ?,
+SET pause_reason='', state = ?, generation = ?, spec_hash = ?, trigger_json = ?, target_json = ?, cell_id = ?, cell_name = ?, cell_repo = ?,
 	target_job_type = ?, overlap_policy = ?, failure_policy_json = ?,
 	next_fire_at_ns = ?, next_job_id = ?, updated_at_ns = ?
 WHERE tenant_id = ? AND schedule_id = ?`,
-				state, generation, specHash, triggerJSON, targetJSON,
+				state, generation, specHash, triggerJSON, targetJSON, target.CellID, target.Cell, target.CellRepo,
 				target.JobType, jobdb.NormalizeScheduleOverlapPolicy(req.OverlapPolicy), failureJSON,
 				nullIntArg(nextNS), nullStringArg(nextJobID), timeToNS(now), req.TenantId, req.ScheduleId)
 		} else {
 			_, err = tx.ExecContext(ctx, `
 INSERT INTO jobdb_schedules (
-	tenant_id, schedule_id, state, generation, spec_hash, trigger_json, target_json,
+	tenant_id, schedule_id, state, generation, spec_hash, trigger_json, target_json, cell_id, cell_name, cell_repo,
 	target_job_type, overlap_policy, failure_policy_json, next_fire_at_ns,
 	next_job_id, created_at_ns, updated_at_ns
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				req.TenantId, req.ScheduleId, state, generation, specHash, triggerJSON, targetJSON,
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				req.TenantId, req.ScheduleId, state, generation, specHash, triggerJSON, targetJSON, target.CellID, target.Cell, target.CellRepo,
 				target.JobType, jobdb.NormalizeScheduleOverlapPolicy(req.OverlapPolicy), failureJSON,
 				nullIntArg(nextNS), nullStringArg(nextJobID), timeToNS(createdAt), timeToNS(now))
 		}
@@ -670,7 +670,7 @@ func scanScheduleRow(scanner interface{ Scan(dest ...any) error }) (scheduleRow,
 		&row.generation,
 		&row.specHash,
 		&triggerJSON,
-		&targetJSON,
+		&targetJSON, &row.target.CellID, &row.target.Cell, &row.target.CellRepo,
 		&row.targetJobType,
 		&overlap,
 		&failureJSON,

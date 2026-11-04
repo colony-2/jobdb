@@ -22,7 +22,7 @@ func RunClientPayloadConformance(t *testing.T, harnesses ...Harness) {
 			ctx := celltest.Context(context.Background())
 			initial := json.RawMessage(`{"n":9007199254740993,"nested":{"keep":1,"remove":2},"run_policy":"client-owned"}`)
 			request := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: f.WorkerTenantID, JobID: "payload-job", JobType: "payloadjob", Data: NumberTaskData(1), RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 3}}, ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: initial}}}
-			handle, err := r.SubmitJob(ctx, request)
+			handle, err := celltest.Submit(r, ctx, request)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -80,12 +80,12 @@ func RunClientPayloadConformance(t *testing.T, harnesses ...Harness) {
 			}
 			patched := `{"n":9007199254740993,"nested":{"keep":1},"cursor":"next","run_policy":"client-owned"}`
 			check(patched, 2)
-			if _, err := r.SubmitJob(ctx, request); err != nil {
+			if _, err := celltest.Submit(r, ctx, request); err != nil {
 				t.Fatalf("identical retry: %v", err)
 			}
 			check(patched, 2)
 			request.Job.ClientPayloadUpdate = &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`null`)}
-			if _, err := r.SubmitJob(ctx, request); !errors.Is(err, jobdb.ErrExistingJobMismatch) {
+			if _, err := celltest.Submit(r, ctx, request); !errors.Is(err, jobdb.ErrExistingJobMismatch) {
 				t.Fatalf("changed initial payload: %v", err)
 			}
 			l = leaseFor(jobdb.Route{JobType: "payloadjob"})
@@ -118,7 +118,7 @@ func RunClientPayloadConformance(t *testing.T, harnesses ...Harness) {
 			}
 			check("", 4)
 			request.Job.ClientPayloadUpdate = &jobdb.ClientPayloadUpdate{Mode: "reset", Value: initial}
-			if _, err := r.SubmitJob(ctx, request); err != nil {
+			if _, err := celltest.Submit(r, ctx, request); err != nil {
 				t.Fatalf("archived submission retry: %v", err)
 			}
 			restart := jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: handle.JobKey, JobID: "restart-payload", LastStepToKeep: 1, ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"restart":true}`)}}}

@@ -22,7 +22,7 @@ func TestRuntimeSubmitJobCreatesInitialChapter(t *testing.T) {
 	}
 	defer embedded.Shutdown()
 
-	handle, err := embedded.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+	handle, err := celltest.Submit(embedded.Runtime, ctx, jobdb.SubmitJobRequest{
 		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: "tenant",
 			JobType:  "job",
@@ -60,7 +60,7 @@ func TestRuntimeThroughRemoteServerSubmitJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("remote runtime: %v", err)
 	}
-	_, err = remote.SubmitJob(ctx, jobdb.SubmitJobRequest{
+	_, err = celltest.Submit(remote, ctx, jobdb.SubmitJobRequest{
 		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: "tenant",
 			JobType:  "job",

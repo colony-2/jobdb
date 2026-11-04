@@ -272,7 +272,7 @@ func TestExecutionTaskInvocationIdentity(t *testing.T) {
 				if retryOwner == "job" {
 					policy.Retry.MaximumAttempts = 2
 				}
-				h, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("input"), RunPolicy: policy}})
+				h, err := celltest.Submit(rt, celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("input"), RunPolicy: policy}})
 				require.NoError(t, err)
 				out, err := runExecutionTest(t, rt, h.JobKey, w, task)
 				require.NoError(t, err)

@@ -16,7 +16,7 @@ func TestGoalDiscovery(t *testing.T) {
 	goalRuntimes(t, func(t *testing.T, r jobdb.WorkflowRuntime) {
 		ctx := celltest.Context(context.Background())
 		a := goalSubmit(t, r, "a")
-		b, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "b", JobType: "special", Data: jobdb.NewTaskDataOrPanic(nil), Metadata: json.RawMessage(`{"repo":"repo-b"}`)}})
+		b, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "b", JobType: "special", Data: jobdb.NewTaskDataOrPanic(nil), Metadata: json.RawMessage(`{"repo":"repo-b"}`)}})
 		require.NoError(t, err)
 		c := goalSubmit(t, r, "c")
 		_, err = r.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: goalKey(a), JobID: b.JobKey.JobId})

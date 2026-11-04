@@ -23,7 +23,7 @@ func waitingTaskFixture(t *testing.T) (*Runtime, Config, jobdb.CompleteTaskIfWai
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = r.Close(ctx) })
-	h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
+	h, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 		TenantId: "tenant", JobID: "job", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1),
 		ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"keep":true}`)},
 	}})

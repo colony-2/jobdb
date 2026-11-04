@@ -3,7 +3,6 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -19,13 +18,13 @@ func TestGoalDiscoveryFreshSchemaAndReadOnlyProjection(t *testing.T) {
 	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "cells.db"))
 	require.NoError(t, err)
 	defer db.Close()
-	_, err = db.ExecContext(ctx, schemaSQL+goalSchemaSQL+"PRAGMA user_version=10;")
+	_, err = db.ExecContext(ctx, schemaSQL+goalSchemaSQL+"PRAGMA user_version=11;")
 	require.NoError(t, err)
 	at := time.Date(2026, 10, 1, 12, 0, 0, 123456789, time.UTC)
-	g := jobdb.GoalInfo{GoalKey: jobdb.GoalKey{TenantId: "tenant", GoalID: "goal"}, State: jobdb.GoalOpen, Revision: 1, CreatedAt: at, UpdatedAt: at}
-	raw, err := json.Marshal(g)
+	g := jobdb.GoalInfo{CellID: "cell-test", Cell: "test", CellRepo: "example.test/test", GoalKey: jobdb.GoalKey{TenantId: "tenant", GoalID: "goal"}, State: jobdb.GoalOpen, Revision: 1, CreatedAt: at, UpdatedAt: at}
+	raw, err := withoutCellJSON(g)
 	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, "INSERT INTO jobdb_goals(tenant_id,goal_id,payload,state,created_at_ns,updated_at_ns) VALUES(?,?,?,?,?,?)", "tenant", "goal", raw, g.State, at.UnixNano(), at.UnixNano())
+	_, err = db.ExecContext(ctx, "INSERT INTO jobdb_goals(tenant_id,goal_id,payload,state,created_at_ns,updated_at_ns,cell_id,cell_name,cell_repo) VALUES(?,?,?,?,?,?,?,?,?)", "tenant", "goal", raw, g.State, at.UnixNano(), at.UnixNano(), g.CellID, g.Cell, g.CellRepo)
 	require.NoError(t, err)
 	for _, id := range []string{"producer", "consumer"} {
 		_, err = db.ExecContext(ctx, `INSERT INTO jobdb_jobs(cell_id,cell_name,cell_repo,tenant_id,job_id,goal_id,job_type,route_job_type,initial_payload_digest,available_at_ns,created_at_ns,updated_at_ns) VALUES('cell-test','test','example.test/test','tenant',?,'goal','work','work','',1,1,1)`, id)

@@ -40,7 +40,7 @@ func TestExecutionTimeoutPolicyPersistence(t *testing.T) {
 						return s.DoTask(call, func(context.Context) (jobdb.TaskData, error) { return in, nil })
 					})
 				}}
-				h, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic("input"), RunPolicy: policy}})
+				h, err := celltest.Submit(rt, celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic("input"), RunPolicy: policy}})
 				require.NoError(t, err)
 				info, err := rt.GetJob(celltest.Context(context.Background()), h.JobKey)
 				require.NoError(t, err)
@@ -135,7 +135,7 @@ func TestDefaultPoliciesPermitLongRunningWork(t *testing.T) {
 							return c.DoTask(call, func(context.Context) (jobdb.TaskData, error) { return in, nil })
 						}}
 					}
-					h, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic("finished"), RunPolicy: policy}})
+					h, err := celltest.Submit(rt, celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic("finished"), RunPolicy: policy}})
 					require.NoError(t, err)
 					run, err := wf.GetJobForRun(celltest.Context(context.Background()), rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: worker, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "long-running-test", LeaseDuration: 24 * time.Hour})
 					require.NoError(t, err)

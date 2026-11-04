@@ -17,7 +17,7 @@ func TestJoinDeadlineSurvivesReopen(t *testing.T) {
 	rt, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	submit := func(id string) jobdb.JobKey {
-		h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: id, JobType: "job", Data: jobdb.NewTaskDataOrPanic(id)}})
+		h, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: id, JobType: "job", Data: jobdb.NewTaskDataOrPanic(id)}})
 		require.NoError(t, err)
 		return h.JobKey
 	}

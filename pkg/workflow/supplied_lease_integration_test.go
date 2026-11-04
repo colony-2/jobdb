@@ -113,7 +113,7 @@ func newSuppliedFixture(t *testing.T) *suppliedFixture {
 	require.NoError(t, err)
 	f.receiver, err = remote.New(server.URL, &http.Client{Transport: receiverTransport{base: server.Client().Transport}})
 	require.NoError(t, err)
-	handle, err := f.dispatcher.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "supplied", Data: jobdb.NewTaskDataOrPanic(7, jobdb.NewArtifactFromBytes("input.txt", []byte("artifact"))), ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"cursor":1}`)}}})
+	handle, err := celltest.Submit(f.dispatcher, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "supplied", Data: jobdb.NewTaskDataOrPanic(7, jobdb.NewArtifactFromBytes("input.txt", []byte("artifact"))), ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"cursor":1}`)}}})
 	require.NoError(t, err)
 	f.key = handle.JobKey
 	f.lease, err = f.dispatcher.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: f.key, WorkerID: "dispatcher", Routes: []jobdb.Route{{JobType: "supplied"}}, LeaseDuration: time.Second})
@@ -362,7 +362,7 @@ func TestSuppliedLeaseDamagedRenewalResponseStopsExecution(t *testing.T) {
 func TestSuppliedInMemoryLease(t *testing.T) {
 	backend := toy.New()
 	ctx := celltest.Context(context.Background())
-	handle, err := backend.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "supplied", Data: jobdb.NewTaskDataOrPanic(3)}})
+	handle, err := celltest.Submit(backend, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "supplied", Data: jobdb.NewTaskDataOrPanic(3)}})
 	require.NoError(t, err)
 	lease, err := backend.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: handle.JobKey, WorkerID: "owner", Routes: []jobdb.Route{{JobType: "supplied"}}, LeaseDuration: 100 * time.Millisecond})
 	require.NoError(t, err)

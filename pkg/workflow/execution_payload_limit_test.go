@@ -107,12 +107,12 @@ func TestConfiguredApplicationLimitRejectsWithoutPublishing(t *testing.T) {
 			}
 			key := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 			req := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: key.TenantId, JobID: key.JobId, JobType: "test", Data: jobdb.NewTaskDataOrPanic(strings.Repeat("x", 63))}}
-			_, err := rt.SubmitJob(ctx, req)
+			_, err := celltest.Submit(rt, ctx, req)
 			require.ErrorIs(t, err, jobdb.ErrChapterApplicationPayloadTooLarge)
 			_, err = rt.GetJob(ctx, key)
 			require.ErrorIs(t, err, jobdb.ErrJobNotFound)
 			req.Job.Data = jobdb.NewTaskDataOrPanic(strings.Repeat("x", 62))
-			_, err = rt.SubmitJob(ctx, req)
+			_, err = celltest.Submit(rt, ctx, req)
 			require.NoError(t, err)
 			leases, err := rt.PollWork(ctx, jobdb.PollWorkRequest{TenantId: "tenant", WorkerID: "test", Routes: []jobdb.Route{{JobType: "test"}}, Limit: 1})
 			require.NoError(t, err)

@@ -93,7 +93,7 @@ func buildFixture(t testing.TB, harness Harness, workers ...workflow.WorkSet) *b
 		workerTenantID = "tenant-worker-" + safeHarnessName(harness.Name)
 	}
 
-	builder := workflow.NewEngineBuilder().WithRuntime(fixture.Runtime)
+	builder := workflow.NewEngineBuilder().WithRuntime(celltest.WithCells(fixture.Runtime))
 	if len(workers) > 0 {
 		builder.WithWorkerTenantId(workerTenantID)
 	}

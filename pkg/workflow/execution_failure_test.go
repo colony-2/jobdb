@@ -86,7 +86,7 @@ func TestExecutionPrerequisiteAdmission(t *testing.T) {
 				require.NoError(t, err)
 				var calls atomic.Int32
 				w := wf.ExecutionWorker{JobType: "dependent", Execute: func(_ wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) { calls.Add(1); return in, nil }}
-				h, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("job"), Prerequisites: []jobdb.JobPrerequisite{{JobID: key.JobId, Condition: jobdb.JobPrereqSuccess}}}})
+				h, err := celltest.Submit(rt, celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("job"), Prerequisites: []jobdb.JobPrerequisite{{JobID: key.JobId, Condition: jobdb.JobPrereqSuccess}}}})
 				require.NoError(t, err)
 				out, err := runExecutionTest(t, rt, h.JobKey, w)
 				require.NoError(t, err)

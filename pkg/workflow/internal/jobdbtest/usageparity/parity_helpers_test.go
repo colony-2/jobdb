@@ -74,7 +74,7 @@ type runtimeSurface struct {
 }
 
 func (s runtimeSurface) SubmitJob(ctx context.Context, start jobdb.SubmitJob) (jobdb.JobKey, error) {
-	handle, err := s.runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+	handle, err := celltest.Submit(s.runtime, ctx, jobdb.SubmitJobRequest{
 		Job:         start,
 		RequestTime: time.Now().UTC(),
 	})

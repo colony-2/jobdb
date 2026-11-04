@@ -26,7 +26,7 @@ func RunAvailableRoutesConformance(t *testing.T, harnesses ...Harness) {
 					taskRoute := jobdb.Route{JobType: jobRoute.JobType, TaskType: "input:collect_user_input"}
 					altRoute := jobdb.Route{JobType: jobRoute.JobType, TaskType: "fallback:input"}
 					submit := func(id string) jobdb.JobKey {
-						handle, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: f.WorkerTenantID, JobID: id, JobType: jobRoute.JobType, Data: NumberTaskData(1), Metadata: []byte(`{"team":"blue"}`)}})
+						handle, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: f.WorkerTenantID, JobID: id, JobType: jobRoute.JobType, Data: NumberTaskData(1), Metadata: []byte(`{"team":"blue"}`)}})
 						require.NoError(t, err)
 						return handle.JobKey
 					}
@@ -171,7 +171,7 @@ func RunAvailableRoutesConformance(t *testing.T, harnesses ...Harness) {
 				r := f.Runtime
 				wanted := jobdb.Route{JobType: "wanted"}
 				for i, jt := range []string{"skip", "wanted", "skip", "wanted", "skip"} {
-					_, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: f.WorkerTenantID, JobType: jt, Data: NumberTaskData(i)}})
+					_, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: f.WorkerTenantID, JobType: jt, Data: NumberTaskData(i)}})
 					require.NoError(t, err)
 				}
 				req := jobdb.ListJobsRequest{TenantIds: []string{f.WorkerTenantID}, AvailableRoutes: []jobdb.Route{wanted}, PageSize: 1}

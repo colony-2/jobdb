@@ -109,7 +109,7 @@ func TestReplayReadOnlyRuntimeRejectsMutations(t *testing.T) {
 		{
 			name: "SubmitJob",
 			call: func() error {
-				_, err := replayRuntime.SubmitJob(ctx, SubmitJobRequest{})
+				_, err := celltest.Submit(replayRuntime, ctx, SubmitJobRequest{})
 				return err
 			},
 		},

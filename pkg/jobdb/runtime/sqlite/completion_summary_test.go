@@ -27,7 +27,7 @@ func TestCompletionSummaryExistingRowsWithoutHistory(t *testing.T) {
 		{"missing", "", ""},
 	}
 	for _, tc := range cases {
-		h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: tc.id, JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
+		h, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: tc.id, JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
 		require.NoError(t, err)
 		// Populate only pre-existing scheduler columns. No final chapter is
 		// needed to expose a stored outcome, including one from an older writer.

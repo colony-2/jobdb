@@ -19,9 +19,9 @@ func TestCompactListDoesNotReadDetailsOrGoalDiagnostics(t *testing.T) {
 	r, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "list.db")})
 	require.NoError(t, err)
 	defer r.Close(ctx)
-	producer, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "producer", JobType: "work", Data: jobdb.NewTaskDataOrPanic(1)}})
+	producer, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "producer", JobType: "work", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, err)
-	consumer, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "consumer", JobType: "work", Data: jobdb.NewTaskDataOrPanic(1), Dependencies: []jobdb.Dependency{{Target: jobdb.DependencyTarget{GoalID: producer.GoalID}, Condition: jobdb.JobPrereqSuccess}}}})
+	consumer, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "consumer", JobType: "work", Data: jobdb.NewTaskDataOrPanic(1), Dependencies: []jobdb.Dependency{{Target: jobdb.DependencyTarget{GoalID: producer.GoalID}, Condition: jobdb.JobPrereqSuccess}}}})
 	require.NoError(t, err)
 	waitKey := jobdb.DependencyWaitKey{JobKey: consumer.JobKey, WaitID: "submission"}
 	_, err = r.GetDependencyWait(ctx, waitKey)
@@ -69,7 +69,7 @@ func TestCompactListWaitStateAndDeadlineWithoutEvaluation(t *testing.T) {
 		{"timed-out", jobdb.DependencyTimedOut, nil, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: tc.name, JobType: "work", Data: jobdb.NewTaskDataOrPanic(1)}})
+			h, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: tc.name, JobType: "work", Data: jobdb.NewTaskDataOrPanic(1)}})
 			require.NoError(t, err)
 			// Malformed dependency detail is deliberate: listing only needs state/deadline.
 			raw, err := json.Marshal(map[string]any{"state": tc.state, "deadline": tc.deadline, "dependencies": "not a dependency array"})
@@ -103,7 +103,7 @@ func TestCompactListFiltersAndCursorTies(t *testing.T) {
 	var expected []string
 	for _, tenant := range []string{"a", "a-tenant", "a/tenant"} {
 		for _, id := range []string{"a", "z"} {
-			h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: tenant, JobID: id, JobType: "work", Data: jobdb.NewTaskDataOrPanic(1), Metadata: json.RawMessage(`{"nested":{"a":[1,true]},"key\"quoted":"v"}`)}})
+			h, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: tenant, JobID: id, JobType: "work", Data: jobdb.NewTaskDataOrPanic(1), Metadata: json.RawMessage(`{"nested":{"a":[1,true]},"key\"quoted":"v"}`)}})
 			require.NoError(t, err)
 			expected = append(expected, h.JobKey.String())
 		}

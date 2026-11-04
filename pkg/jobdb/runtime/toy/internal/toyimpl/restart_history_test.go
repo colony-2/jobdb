@@ -14,7 +14,7 @@ import (
 func TestRestartDoesNotRevalidateInheritedChapters(t *testing.T) {
 	ctx := celltest.Context(context.Background())
 	rt := New(WithMaxChapterApplicationPayloadBytes(2 * 1024 * 1024))
-	source, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "legacy", JobType: "legacy", Data: jobdb.NewTaskDataOrPanic(strings.Repeat("x", 300000))}})
+	source, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "legacy", JobType: "legacy", Data: jobdb.NewTaskDataOrPanic(strings.Repeat("x", 300000))}})
 	require.NoError(t, err)
 	leases, err := rt.PollWork(ctx, jobdb.PollWorkRequest{TenantId: "tenant", WorkerID: "writer", Routes: []jobdb.Route{{JobType: "legacy"}}, Limit: 1})
 	require.NoError(t, err)

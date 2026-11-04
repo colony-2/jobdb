@@ -68,7 +68,7 @@ func TestSecretProvidersIndependentOfJobStorage(t *testing.T) {
 						require.NoError(t, err)
 						runtime = client
 					}
-					job, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "job", Metadata: json.RawMessage(`{"team":"build"}`), Data: jobdb.NewTaskDataOrPanic(1)}})
+					job, err := celltest.Submit(runtime, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "job", Metadata: json.RawMessage(`{"team":"build"}`), Data: jobdb.NewTaskDataOrPanic(1)}})
 					require.NoError(t, err)
 					lease, err := runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: job.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "job"}}, LeaseDuration: time.Minute})
 					require.NoError(t, err)
@@ -157,7 +157,7 @@ func TestLeaseBoundProviderContextAcrossTransports(t *testing.T) {
 					runtime, err = New(server.URL, server.Client())
 					require.NoError(t, err)
 				}
-				job, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "job", Metadata: json.RawMessage(`{"lease":{"LeaseID":"forged","AuthorizedNotAfter":"2099-01-01T00:00:00Z"}}`), Data: jobdb.NewTaskDataOrPanic(1)}})
+				job, err := celltest.Submit(runtime, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "job", Metadata: json.RawMessage(`{"lease":{"LeaseID":"forged","AuthorizedNotAfter":"2099-01-01T00:00:00Z"}}`), Data: jobdb.NewTaskDataOrPanic(1)}})
 				require.NoError(t, err)
 				lease, err := runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: job.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "job"}}, LeaseDuration: time.Minute})
 				require.NoError(t, err)

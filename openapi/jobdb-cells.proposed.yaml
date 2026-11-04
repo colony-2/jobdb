@@ -2,57 +2,8 @@ openapi: 3.1.0
 info:
   title: JobDB Cell API proposal
   version: 0.6.0-proposed
-  summary: Named cell registry and root-authorized implicit registration during job submission
-  description: 'Proposed, not implemented. See docs/SPEC-Tenant-Cells.md. JobDB owns the
-
-    name-to-repository registry. c2j submits required job.cell names and supplies
-
-    job.cellRepo when a cell is missing. JobDB resolves names to generated IDs;
-
-    job IDs remain tenant-wide. Root owner leases may submit into any cell in the
-
-    same tenant and implicitly register missing cells with a supplied repository.
-
-    Delegation attenuation still applies. There is no separate creation lease
-
-    capability or ensure operation.
-
-
-    This draft defines cell management and revised ordinary/leased submissions.
-
-    Unchanged job payloads reference jobdb-runtime.yaml. Related runtime surfaces
-
-    must adopt cell ownership as described in the design before implementation.
-
-    Cells retire rather than delete. Repository locators require no combined Git
-
-    server, provider ID lookup, or network call at registration time.
-
-    x-jobdb-authorization documents required enforcement, not an authorizer.
-
-    Cell management responses use Cache-Control: no-store.
-
-
-    Hard-break release: fresh execution storage; discard all pre-change jobs,
-
-    history/artifacts, goals, schedules, reservations, lease/delegation state, and
-
-    cursors. No metadata backfill, old-job replay, compatibility decoder, dual API,
-
-    or mixed-version runtime is supported. Required fields apply immediately.
-
-    Rename aliases and retained retired-cell history concern only new-format cells
-
-    and jobs created after this cutover. Replace old implementations outright.
-
-
-    Project adoption plans: docs/GUIDE-C2J-CELLS.md, docs/GUIDE-CORTEX-CELLS.md,
-
-    docs/GUIDE-PGJOBDB-CELLS.md, and docs/GUIDE-RECIPES-CELLS.md. This proposal slice
-
-    must be merged with the full runtime contract before shipping; it is not a
-
-    parallel API for compatibility.'
+  summary: Explicit tenant cell registry
+  description: 'Cells are explicitly registered with immutable IDs, unique mutable names, repository locators, and arbitrary metadata. Submission never creates a cell. root is an ordinary name. Jobs have tenant-wide IDs.'
 servers:
 - url: https://jobdb-runtime.example.com
 tags:
@@ -73,31 +24,13 @@ paths:
       - cells
       operationId: listCells
       summary: List visible cells in a tenant
-      description: 'Requires tenant access and cells.list; include only cells visible under cells.get.
-
-        Filter name matches the current name or a permanent alias, yielding zero or one
-
-        visible result. state defaults to ACTIVE; ALL includes retired records. Apply
-
-        all filters and visibility before pagination. isRoot queries the server binding.
-
-
-        Sort by immutable ID, with no unfiltered counts. Use cells: [] for empty results
-
-        and omit nextPageToken at the end. Tokens bind tenant, principal, and repeated
-
-        filters; recheck authorization each page. Traversal is live, not a snapshot.
-
-        Read/name lookup never creates a cell. c2j can submit directly by name without
-
-        a preceding lookup; the runtime performs authoritative resolution.'
+      description: "Requires tenant access and cells.list; include only cells visible under cells.get.\nFilter name matches the current name or a permanent alias, yielding zero or one\nvisible result. state defaults to ACTIVE; ALL includes retired records. Apply\nall filters and visibility before pagination. \n\nSort by immutable ID, with no unfiltered counts. Use cells: [] for empty results\nand omit nextPageToken at the end. Tokens bind tenant, principal, and repeated\nfilters; recheck authorization each page. Traversal is live, not a snapshot.\nRead/name lookup never creates a cell. c2j can submit directly by name without\na preceding lookup; the runtime performs authoritative resolution."
       x-jobdb-authorization:
         permission: cells.list
         resource: tenant
         itemPermission: cells.get
       parameters:
       - $ref: '#/components/parameters/NameFilter'
-      - $ref: '#/components/parameters/IsRootFilter'
       - $ref: '#/components/parameters/StateFilter'
       - $ref: '#/components/parameters/PageSize'
       - $ref: '#/components/parameters/PageToken'
@@ -119,7 +52,6 @@ paths:
                   metadata:
                     team: payments
                     environment: prod
-                  isRoot: false
                   revision: r1
                   updatedAt: '2026-11-03T20:00:00Z'
                   id: cell_019d03e9-066b-76b3-9b46-47d306b0aa1f
@@ -142,45 +74,10 @@ paths:
       - cells
       operationId: createCell
       summary: Create a cell with a generated immutable ID
-      description: 'Requires tenant cells.create. Register a name and canonical repository locator;
-
-        no Git API/network verification or repository creation occurs. Name/aliases and
-
-        canonical repo must be unique within the tenant across active and retired cells.
-
-        Conflicts return 409 cell_conflict with no mutation. Atomically generate the ID,
-
-        initialize ACTIVE state, and persist properties. Creating name root additionally
-
-        requires trusted cells.bootstrapRoot authority and atomically records rootCellId.
-
-        Clients cannot supply isRoot or select the ID.
-
-
-        Optional requestId is scoped to tenant and authenticated principal. Persist
-
-        normalized creation properties and original result for the cell lifetime.
-
-        Matching replay rechecks authority and retirement (409 cell_retired), then returns
-
-        the original snapshot/ETag, possibly stale. Different properties return 409
-
-        request_conflict. Omitted description/metadata normalize to empty string/{}.
-
-        Without requestId, POST is not idempotent. Root job-submission leases do not
-
-        by themselves authorize this administrative endpoint.
-
-
-        The jobdb cell create-root command uses this endpoint with fixed name root.
-
-        It never renames or repoints an existing root. CLI retries may confirm a matching
-
-        existing root through authorized lookup; this does not change POST idempotency.'
+      description: 'Requires tenant cells.create. Explicitly register a unique name and canonical repository locator; no Git network operation occurs. Generate an immutable ID, initialize ACTIVE state, and persist description and arbitrary metadata. Name, aliases, and current repository are unique across active and retired cells. Optional requestId is scoped to tenant and principal; identical replay returns the original snapshot after authorization and retirement checks. Different properties return request_conflict. Without requestId, POST is not idempotent. The jobdb cell create command calls this endpoint. All names follow the same rules.'
       x-jobdb-authorization:
         permission: cells.create
         resource: tenant
-        rootBootstrapPermission: cells.bootstrapRoot
       requestBody:
         required: true
         content:
@@ -279,15 +176,6 @@ paths:
 
         to the cell''s own alias is allowed; remove the new current name from aliases.
 
-        The reserved root name cannot be claimed by another cell or changed on root
-
-        (409 root_cell_protected). Supplying name root on root is an allowed no-op.
-
-        Root repo/description/metadata can be updated by an authorized administrator.
-
-        Root ID and designation are immutable; root cannot retire.
-
-
         Normalize repo using the registration contract and enforce unique current repo
 
         within the tenant, including retired cells. Repointing releases the former repo
@@ -303,7 +191,7 @@ paths:
         Schedules retain expected repo and pause on mismatch until explicitly updated.
 
 
-        Atomically validate all properties, revision, root protection, and uniqueness;
+        Atomically validate all properties, revision and uniqueness;
 
         any failure rejects the entire PATCH. A no-op, including an equivalent normalized
 
@@ -357,32 +245,7 @@ paths:
       - cells
       operationId: retireCell
       summary: Retire an idle cell while retaining its identity and history
-      description: 'Requires cells.get and cells.retire, and current strong If-Match (missing 428,
-
-        stale 412, malformed 400). Root cannot retire (409 root_cell_protected).
-
-        Atomically require no nonterminal jobs (including hidden/waiting/retrying), live
-
-        leases, active schedules, open goals, or pending submission reservations;
-
-        otherwise 409 cell_busy, without cancelling or draining work.
-
-
-        Serialize against submission/registration, scheduling, and acquisition. Set
-
-        RETIRED state and server retiredAt/updatedAt and advance revision. Preserve ID,
-
-        name/aliases, repo, metadata, jobs, and artifacts. Authorized reads continue.
-
-        All new work, acquisitions, schedule changes, and cell updates are denied.
-
-        Existing-job idempotent confirmation may return the already committed job after
-
-        current authorization checks; it creates no new work. There is no delete or
-
-        automatic resurrection. A repeat with current ETag returns the retired record;
-
-        an old ETag returns 412. Retirement has no Git archive/delete side effect.'
+      description: "Requires cells.get and cells.retire, and current strong If-Match (missing 428,\nstale 412, malformed 400). \nAtomically require no nonterminal jobs (including hidden/waiting/retrying), live\nleases, active schedules, open goals, or pending submission reservations;\notherwise 409 cell_busy, without cancelling or draining work.\n\nSerialize against submission/registration, scheduling, and acquisition. Set\nRETIRED state and server retiredAt/updatedAt and advance revision. Preserve ID,\nname/aliases, repo, metadata, jobs, and artifacts. Authorized reads continue.\nAll new work, acquisitions, schedule changes, and cell updates are denied.\nExisting-job idempotent confirmation may return the already committed job after\ncurrent authorization checks; it creates no new work. There is no delete or\nautomatic resurrection. A repeat with current ETag returns the retired record;\nan old ETag returns 412. Retirement has no Git archive/delete side effect."
       x-jobdb-authorization:
         permissions:
         - cells.get
@@ -415,24 +278,7 @@ paths:
       - jobs
       operationId: submitJob
       summary: Submit job
-      description: "Require job.cell on every submission. Authorize target scope before disclosing\nregistry\
-        \ state. Resolve current names and permanent aliases to stored cell IDs.\nFor an active target,\
-        \ omitted cellRepo uses the stored repo; supplied repo must\nnormalize to it (409 cell_repo_mismatch\
-        \ otherwise). For a missing ordinary name,\nrequire cellRepo (400 cell_repo_required) and registration\
-        \ authority, then\natomically create the cell and submit the job. A repo already bound to another\n\
-        cell conflicts; never infer a rename. Missing root requires trusted bootstrap\n(409 root_cell_required).\
-        \ Retired targets reject new work (409 cell_retired).\n\nValidate the complete job before publication.\
-        \ Cell, job, initial chapter, goal,\nand idempotency ownership must publish atomically. Invalid\
-        \ data or loss of parent\nlease before commit leaves neither a job nor a new cell. Concurrent\
-        \ matching\nname/repo submissions converge on one cell; conflicting repos return 409.\nNo Git\
-        \ API/network calls or repository creation occur. Return current canonical\ncell name, generated\
-        \ ID, and the job's submitted repo snapshot in the job handle.\n        Capture the repo atomically\
-        \ with publication and serialize against repo PATCH;\n        existing jobs retain their snapshots\
-        \ after a registry repo edit.\n\nAdministrative submit authority applies to the target. Missing-cell\
-        \ registration\nalso requires tenant cells.create. Submitting into root requires administrative\n\
-        root execution authority; registering a cell never grants Git access.\n\nThe server generates\
-        \ the job ID. POST retains its non-idempotent job semantics; use explicit-ID PUT for retry-safe\
-        \ submission."
+      description: "Cell name is required and must resolve to an explicitly created, active cell in the tenant. Optional cellRepo asserts the repository mapping; it never creates a cell. Missing cells return not_found. Leases default to their own cell; trusted policy may grant submission to other existing cells. Delegation restrictions always apply. Cell names, including root, grant no special authority. Job IDs remain unique across the tenant. Existing jobs and restarts retain their repository snapshots."
       parameters:
       - $ref: '#/components/parameters/TenantId'
       requestBody:
@@ -477,38 +323,14 @@ paths:
       x-jobdb-authorization:
         permission: jobs.submit
         target: resolved cell
-        missingCellCreation: root parent lease or administrative cells.create
+        missingCellCreation: never; explicit CreateCell required
   /v1/tenants/{tenantId}/jobs/{jobId}:
     put:
       tags:
       - jobs
       operationId: putJob
       summary: Submit job with explicit job ID
-      description: "Require job.cell on every submission. Authorize target scope before disclosing\nregistry\
-        \ state. Resolve current names and permanent aliases to stored cell IDs.\nFor an active target,\
-        \ omitted cellRepo uses the stored repo; supplied repo must\nnormalize to it (409 cell_repo_mismatch\
-        \ otherwise). For a missing ordinary name,\nrequire cellRepo (400 cell_repo_required) and registration\
-        \ authority, then\natomically create the cell and submit the job. A repo already bound to another\n\
-        cell conflicts; never infer a rename. Missing root requires trusted bootstrap\n(409 root_cell_required).\
-        \ Retired targets reject new work (409 cell_retired).\n\nValidate the complete job before publication.\
-        \ Cell, job, initial chapter, goal,\nand idempotency ownership must publish atomically. Invalid\
-        \ data or loss of parent\nlease before commit leaves neither a job nor a new cell. Concurrent\
-        \ matching\nname/repo submissions converge on one cell; conflicting repos return 409.\nNo Git\
-        \ API/network calls or repository creation occur. Return current canonical\ncell name, generated\
-        \ ID, and the job's submitted repo snapshot in the job handle.\n        Capture the repo atomically\
-        \ with publication and serialize against repo PATCH;\n        existing jobs retain their snapshots\
-        \ after a registry repo edit.\n\nAdministrative submit authority applies to the target. Missing-cell\
-        \ registration\nalso requires tenant cells.create. Submitting into root requires administrative\n\
-        root execution authority; registering a cell never grants Git access.\n\nFor explicit job IDs,\
-        \ first inspect the existing tenant-wide job key. Store and\ncompare original submission/parent\
-        \ data with resolved cell identity. Identical\nretries recheck current authority and confirm the\
-        \ existing job without re-routing\nor creating a cell. A current name or alias of the same stored\
-        \ ID is equivalent;\nomitted repo and explicit matching snapshot repo are equivalent. Compare\
-        \ against\n        the stored job snapshot before current registry repo resolution, including\
-        \ after\n        repo PATCH. Changed identity, repo,\nparent, or ordinary job data returns 409\
-        \ existing_job_mismatch. A committed job\nin a retired cell may be confirmed under current read/confirmation\
-        \ authority;\nlease callers also need a valid parent lease and sufficient submission scope.\n\
-        Existing durable-state recovery must preserve stored cell ownership."
+      description: "Cell name is required and must resolve to an explicitly created, active cell in the tenant. Optional cellRepo asserts the repository mapping; it never creates a cell. Missing cells return not_found. Leases default to their own cell; trusted policy may grant submission to other existing cells. Delegation restrictions always apply. Cell names, including root, grant no special authority. Job IDs remain unique across the tenant. Existing jobs and restarts retain their repository snapshots."
       parameters:
       - $ref: '#/components/parameters/TenantId'
       - $ref: '#/components/parameters/JobId'
@@ -554,36 +376,14 @@ paths:
       x-jobdb-authorization:
         permission: jobs.submit
         target: resolved cell
-        missingCellCreation: root parent lease or administrative cells.create
+        missingCellCreation: never; explicit CreateCell required
   /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/jobs:
     post:
       tags:
       - leases
       operationId: submitJobWithLease
       summary: Submit child job with lease
-      description: "Require job.cell on every submission. Authorize target scope before disclosing\nregistry\
-        \ state. Resolve current names and permanent aliases to stored cell IDs.\nFor an active target,\
-        \ omitted cellRepo uses the stored repo; supplied repo must\nnormalize to it (409 cell_repo_mismatch\
-        \ otherwise). For a missing ordinary name,\nrequire cellRepo (400 cell_repo_required) and registration\
-        \ authority, then\natomically create the cell and submit the job. A repo already bound to another\n\
-        cell conflicts; never infer a rename. Missing root requires trusted bootstrap\n(409 root_cell_required).\
-        \ Retired targets reject new work (409 cell_retired).\n\nValidate the complete job before publication.\
-        \ Cell, job, initial chapter, goal,\nand idempotency ownership must publish atomically. Invalid\
-        \ data or loss of parent\nlease before commit leaves neither a job nor a new cell. Concurrent\
-        \ matching\nname/repo submissions converge on one cell; conflicting repos return 409.\nNo Git\
-        \ API/network calls or repository creation occur. Return current canonical\ncell name, generated\
-        \ ID, and the job's submitted repo snapshot in the job handle.\n        Capture the repo atomically\
-        \ with publication and serialize against repo PATCH;\n        existing jobs retain their snapshots\
-        \ after a registry repo edit.\n\nValidate signed token/path binding, tenant, liveness, deadline,\
-        \ and attenuation.\nLoad the parent cell from stored ownership. A root owner lease grants jobs.submit\n\
-        to any cell name in this tenant and implicit registration when repo is supplied;\nthere is no\
-        \ separate cells.create lease permission. A delegated root lease still\nneeds jobs.submit and\
-        \ must satisfy every job-type/job-ID/cellNames restriction.\nNon-root leases default to their\
-        \ own cell; explicit target grants may authorize\nother existing cells but cannot implicitly register\
-        \ missing cells. A child later\nacquired in a non-root cell gets ordinary cell authority, not\
-        \ inherited root\npower. Job metadata/context cannot establish root authority.\n\nThe server generates\
-        \ the job ID. POST retains its non-idempotent job semantics; use explicit-ID PUT for retry-safe\
-        \ submission."
+      description: "Cell name is required and must resolve to an explicitly created, active cell in the tenant. Optional cellRepo asserts the repository mapping; it never creates a cell. Missing cells return not_found. Leases default to their own cell; trusted policy may grant submission to other existing cells. Delegation restrictions always apply. Cell names, including root, grant no special authority. Job IDs remain unique across the tenant. Existing jobs and restarts retain their repository snapshots."
       parameters:
       - $ref: '#/components/parameters/TenantId'
       - $ref: '#/components/parameters/ParentJobId'
@@ -633,43 +433,14 @@ paths:
       x-jobdb-authorization:
         permission: jobs.submit
         target: resolved cell
-        missingCellCreation: root parent lease or administrative cells.create
+        missingCellCreation: never; explicit CreateCell required
   /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/jobs/{childJobId}:
     put:
       tags:
       - leases
       operationId: putJobWithLease
       summary: Submit child job with explicit job ID and lease
-      description: "Require job.cell on every submission. Authorize target scope before disclosing\nregistry\
-        \ state. Resolve current names and permanent aliases to stored cell IDs.\nFor an active target,\
-        \ omitted cellRepo uses the stored repo; supplied repo must\nnormalize to it (409 cell_repo_mismatch\
-        \ otherwise). For a missing ordinary name,\nrequire cellRepo (400 cell_repo_required) and registration\
-        \ authority, then\natomically create the cell and submit the job. A repo already bound to another\n\
-        cell conflicts; never infer a rename. Missing root requires trusted bootstrap\n(409 root_cell_required).\
-        \ Retired targets reject new work (409 cell_retired).\n\nValidate the complete job before publication.\
-        \ Cell, job, initial chapter, goal,\nand idempotency ownership must publish atomically. Invalid\
-        \ data or loss of parent\nlease before commit leaves neither a job nor a new cell. Concurrent\
-        \ matching\nname/repo submissions converge on one cell; conflicting repos return 409.\nNo Git\
-        \ API/network calls or repository creation occur. Return current canonical\ncell name, generated\
-        \ ID, and the job's submitted repo snapshot in the job handle.\n        Capture the repo atomically\
-        \ with publication and serialize against repo PATCH;\n        existing jobs retain their snapshots\
-        \ after a registry repo edit.\n\nValidate signed token/path binding, tenant, liveness, deadline,\
-        \ and attenuation.\nLoad the parent cell from stored ownership. A root owner lease grants jobs.submit\n\
-        to any cell name in this tenant and implicit registration when repo is supplied;\nthere is no\
-        \ separate cells.create lease permission. A delegated root lease still\nneeds jobs.submit and\
-        \ must satisfy every job-type/job-ID/cellNames restriction.\nNon-root leases default to their\
-        \ own cell; explicit target grants may authorize\nother existing cells but cannot implicitly register\
-        \ missing cells. A child later\nacquired in a non-root cell gets ordinary cell authority, not\
-        \ inherited root\npower. Job metadata/context cannot establish root authority.\n\nFor explicit\
-        \ job IDs, first inspect the existing tenant-wide job key. Store and\ncompare original submission/parent\
-        \ data with resolved cell identity. Identical\nretries recheck current authority and confirm the\
-        \ existing job without re-routing\nor creating a cell. A current name or alias of the same stored\
-        \ ID is equivalent;\nomitted repo and explicit matching snapshot repo are equivalent. Compare\
-        \ against\n        the stored job snapshot before current registry repo resolution, including\
-        \ after\n        repo PATCH. Changed identity, repo,\nparent, or ordinary job data returns 409\
-        \ existing_job_mismatch. A committed job\nin a retired cell may be confirmed under current read/confirmation\
-        \ authority;\nlease callers also need a valid parent lease and sufficient submission scope.\n\
-        Existing durable-state recovery must preserve stored cell ownership."
+      description: "Cell name is required and must resolve to an explicitly created, active cell in the tenant. Optional cellRepo asserts the repository mapping; it never creates a cell. Missing cells return not_found. Leases default to their own cell; trusted policy may grant submission to other existing cells. Delegation restrictions always apply. Cell names, including root, grant no special authority. Job IDs remain unique across the tenant. Existing jobs and restarts retain their repository snapshots."
       parameters:
       - $ref: '#/components/parameters/TenantId'
       - $ref: '#/components/parameters/ParentJobId'
@@ -720,7 +491,7 @@ paths:
       x-jobdb-authorization:
         permission: jobs.submit
         target: resolved cell
-        missingCellCreation: root parent lease or administrative cells.create
+        missingCellCreation: never; explicit CreateCell required
   /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells/resolve:
     parameters:
     - $ref: '#/components/parameters/TenantId'
@@ -806,10 +577,7 @@ components:
       type: apiKey
       in: header
       name: X-JobDB-Lease-Token
-      description: Signed live parent lease, bound to URL identity. Root owner leases grant submission
-        to any tenant cell including implicit registration. Non-root ceilings and delegation attenuation
-        remain enforced. The release rejects pre-change lease/delegation formats; only the new ownership-bound
-        profile is accepted.
+      description: Cell name is required and must resolve to an explicitly created, active cell in the tenant. Optional cellRepo asserts the repository mapping; it never creates a cell. Missing cells return not_found. Leases default to their own cell; trusted policy may grant submission to other existing cells. Delegation restrictions always apply. Cell names, including root, grant no special authority. Job IDs remain unique across the tenant. Existing jobs and restarts retain their repository snapshots.
   headers:
     NoStore:
       required: true
@@ -817,8 +585,7 @@ components:
         type: string
         const: no-store
     CellETag:
-      description: Strong ETag containing the quoted opaque revision. Creation replay returns the original
-        revision, possibly stale.
+      description: Strong ETag containing the quoted opaque revision. Creation replay returns the original revision, possibly stale.
       required: true
       schema:
         type: string
@@ -861,18 +628,11 @@ components:
         not an authorization grant. Invalid, expired, or mismatched tokens return
 
         400 invalid_page_token. Current authorization is rechecked on every page.'
-    IsRootFilter:
-      name: isRoot
-      in: query
-      description: Filter on the stored rootCellId binding, independently of display name.
-      schema:
-        type: boolean
     IfMatch:
       name: If-Match
       in: header
       required: false
-      description: 'Exactly one strong ETag from a cell response. Missing: 428; stale: 412; weak, wildcard,
-        or list: 400.'
+      description: 'Exactly one strong ETag from a cell response. Missing: 428; stale: 412; weak, wildcard, or list: 400.'
       schema:
         type: string
         minLength: 3
@@ -905,8 +665,7 @@ components:
     NameFilter:
       name: name
       in: query
-      description: Exact current name or permanent alias. Resolves at most one visible cell. Use state=ALL
-        for retired lookup.
+      description: Exact current name or permanent alias. Resolves at most one visible cell. Use state=ALL for retired lookup.
       schema:
         $ref: '#/components/schemas/CellName'
     JobId:
@@ -926,8 +685,7 @@ components:
       type: string
       minLength: 1
       maxLength: 128
-      description: Opaque server-generated stable identity. JobDB resolves names to this ID and stores
-        it on owned resources. c2j may use names for submission and ignore the ID until needed.
+      description: Opaque server-generated stable identity. JobDB resolves names to this ID and stores it on owned resources. c2j may use names for submission and ignore the ID until needed.
       examples:
       - cell_019d03e9-066b-76b3-9b46-47d306b0aa1f
     CreateCellRequest:
@@ -936,9 +694,7 @@ components:
       required:
       - name
       - repo
-      description: Administrative registration; name and repo required. description and metadata default
-        to empty values. The server assigns ID/root designation. Root bootstrap additionally requires
-        cells.bootstrapRoot authority.
+      description: Explicit cell registration requires cells.create, a tenant-unique name, and a canonical repository locator. Description and metadata default to empty values. The server assigns the immutable ID. root is an ordinary name.
       properties:
         description:
           type: string
@@ -949,8 +705,7 @@ components:
           type: string
           minLength: 1
           maxLength: 128
-          description: Optional idempotency identifier, scoped to tenant and authenticated principal.
-            Retained for the cell lifetime; not its cellId.
+          description: Optional idempotency identifier, scoped to tenant and authenticated principal. Retained for the cell lifetime; not its cellId.
         name:
           $ref: '#/components/schemas/CellName'
         repo:
@@ -964,7 +719,6 @@ components:
       - name
       - description
       - metadata
-      - isRoot
       - revision
       - createdAt
       - updatedAt
@@ -985,11 +739,6 @@ components:
           readOnly: true
         metadata:
           $ref: '#/components/schemas/CellMetadata'
-        isRoot:
-          type: boolean
-          readOnly: true
-          description: Server-owned root designation; exactly one per tenant. Its name is permanently
-            root; root bootstrap is administrative.
         revision:
           type: string
           minLength: 1
@@ -1014,17 +763,14 @@ components:
           $ref: '#/components/schemas/CellName'
         repo:
           $ref: '#/components/schemas/CellRepo'
-          description: Current registered repository locator; editable through authorized PATCH. Existing
-            jobs keep their submission snapshots.
+          description: Current registered repository locator; editable through authorized PATCH. Existing jobs keep their submission snapshots.
         aliases:
           type: array
           uniqueItems: true
           items:
             $ref: '#/components/schemas/CellName'
           readOnly: true
-          description: Permanent former names from renames of cells created after the hard break, resolving
-            to this ID. Excludes current name. No imported legacy aliases; no removal/reassignment through
-            this API.
+          description: Permanent former names from renames of cells created after the hard break, resolving to this ID. Excludes current name. No imported legacy aliases; no removal/reassignment through this API.
       allOf:
       - if:
           properties:
@@ -1068,12 +814,9 @@ components:
           - forbidden
           - not_found
           - cell_conflict
-          - cell_repo_required
           - cell_repo_mismatch
           - cell_retired
           - cell_busy
-          - root_cell_protected
-          - root_cell_required
           - request_conflict
           - existing_job_mismatch
           - precondition_failed
@@ -1105,8 +848,7 @@ components:
         maxLength: 128
       additionalProperties:
         $ref: '#/components/schemas/JsonValue'
-      description: Application properties, at most 16 KiB encoded as compact UTF-8 JSON (enforced by server).
-        No authorization semantics. PATCH replaces the whole object.
+      description: Application properties, at most 16 KiB encoded as compact UTF-8 JSON (enforced by server). No authorization semantics. PATCH replaces the whole object.
       examples:
       - team: payments
         environment: prod
@@ -1124,8 +866,7 @@ components:
           $ref: '#/components/schemas/CellName'
         repo:
           $ref: '#/components/schemas/CellRepo'
-      description: Mutable properties of an active cell. Omitted fields are preserved; supplied metadata
-        replaces the map. Root name must remain root. All changes commit atomically with If-Match.
+      description: Mutable properties of an active cell. Omitted fields are preserved; supplied metadata replaces the map. All names, including root, follow the same rename rules. All changes commit atomically with If-Match.
     CellState:
       type: string
       enum:
@@ -1140,8 +881,7 @@ components:
         enum:
         - .
         - ..
-      description: Tenant-unique case-sensitive name. Current names and permanent former-name aliases
-        share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+      description: Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. root is an ordinary name with no special privileges.
       examples:
       - root
       - payments
@@ -1206,15 +946,8 @@ components:
           $ref: '#/components/schemas/CellName'
         cellRepo:
           $ref: '#/components/schemas/CellRepo'
-      description: 'cell is required, including self/lease-scoped submissions. It names the target
+      description: Cell is required and names an existing cell or alias. cellRepo is an optional repository assertion. Unknown cells return not_found even when a repo is supplied. Submission never creates cells or modifies cell metadata.
 
-        cell or a reserved alias. cellRepo is optional for an existing cell but required
-
-        at runtime when the name is absent. An explicit repo on an existing cell must
-
-        normalize to its registered repo. Cell creation initializes empty cell metadata;
-
-        this job metadata is never cell metadata or ownership authority.'
     SubmitJobRequest:
       type: object
       required:
@@ -1248,15 +981,10 @@ components:
           $ref: '#/components/schemas/CellId'
         cellRepo:
           $ref: '#/components/schemas/CellRepo'
-          description: Repo snapshot captured on job submission; may differ from the cell's current registry
-            repo.
-      description: Existing job handle plus current canonical cell name, stable cell ID, and the job's
-        immutable submitted repo snapshot. The submitted name is persisted separately for history/idempotency.
-        Registry repo edits do not rewrite this snapshot.
+          description: Repo snapshot captured on job submission; may differ from the cell's current registry repo.
+      description: Existing job handle plus current canonical cell name, stable cell ID, and the job's immutable submitted repo snapshot. The submitted name is persisted separately for history/idempotency. Registry repo edits do not rewrite this snapshot.
     CellNameSelector:
-      description: Optional attenuation of target-cell scope. Omission inherits the parent ceiling. any:true
-        never expands a non-root ceiling. Names include current names or reserved aliases; an empty names
-        list denies all targets.
+      description: Optional attenuation of target-cell scope. Omission inherits the parent ceiling. any:true never expands the parent ceiling. Names include current names or reserved aliases; an empty names list denies all targets.
       oneOf:
       - type: object
         additionalProperties: false
@@ -1290,10 +1018,7 @@ components:
           $ref: ./jobdb-runtime.yaml#/components/schemas/DelegationNames
         cellNames:
           $ref: '#/components/schemas/CellNameSelector'
-      description: Proposed jobs.submit delegation shape. Root owner ceiling spans every tenant cell and
-        permits registration through submission; ordinary ceiling is its own cell unless explicitly broadened.
-        Missing jobs.submit denies submission. Existing jobTypes/jobIds and all ancestor restrictions
-        still apply; omitted cellNames inherits target scope.
+      description: Proposed jobs.submit delegation shape. A lease defaults to its own cell unless trusted policy grants additional existing targets. No lease creates cells. Missing jobs.submit denies submission. Existing jobTypes/jobIds and all ancestor restrictions still apply; omitted cellNames inherits target scope.
     ResolveCellRequest:
       type: object
       additionalProperties: false
@@ -1316,12 +1041,10 @@ components:
           $ref: '#/components/schemas/CellId'
         cellRepo:
           $ref: '#/components/schemas/CellRepo'
-      description: Minimal active target information for loading a recipe/submitting a job. It grants
-        no history, metadata, or secret access.
+      description: Minimal active target information for loading a recipe/submitting a job. It grants no history, metadata, or secret access.
   responses:
     CellResult:
-      description: Cell record and ETag. Matching create-request replay returns the original snapshot
-        only while the cell remains active; use GET for current state.
+      description: Cell record and ETag. Matching create-request replay returns the original snapshot only while the cell remains active; use GET for current state.
       headers:
         Cache-Control:
           $ref: '#/components/headers/NoStore'
@@ -1355,9 +1078,7 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     Forbidden:
-      description: forbidden for denied administration/target/creation authority; lease_permission_denied
-        for an attenuated or non-root lease lacking the required target submission scope. Inaccessible
-        existing targets are concealed as 404 where applicable.
+      description: forbidden for denied administration/target/creation authority; lease_permission_denied for an attenuated or lease lacking the required target submission scope. Inaccessible existing targets are concealed as 404 where applicable.
       headers:
         Cache-Control:
           $ref: '#/components/headers/NoStore'
@@ -1387,9 +1108,7 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     Conflict:
-      description: cell_conflict for a reserved name/alias/repo; request_conflict for requestId reuse;
-        cell_retired for active-only mutation/replay; root_cell_protected for attempted root rename. No
-        partial change.
+      description: cell_conflict for a reserved name/alias/repo; request_conflict for requestId reuse; cell_retired for active-only mutation/replay. No partial change.
       headers:
         Cache-Control:
           $ref: '#/components/headers/NoStore'
@@ -1416,8 +1135,7 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     RetirementConflict:
-      description: cell_busy for unfinished work/live leases/active schedules/open goals/pending reservations,
-        or root_cell_protected. No state change.
+      description: cell_busy for unfinished work/live leases/active schedules/open goals/pending reservations. No state change.
       headers:
         Cache-Control:
           $ref: '#/components/headers/NoStore'
@@ -1426,24 +1144,19 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     SubmissionBadRequest:
-      description: invalid_request for invalid input or missing cell name; cell_repo_required when target
-        cell does not exist and cellRepo is absent.
+      description: invalid_request for invalid input or missing cell name; not_found when the named cell has not been explicitly created.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     SubmissionConflict:
-      description: cell_repo_mismatch for an existing-cell repo assertion mismatch; cell_conflict for
-        reserved name/alias/repo; cell_retired for new work in a retired cell; root_cell_required for
-        missing root; existing_job_mismatch for changed explicit-ID job; execution_lease_lost for expired/replaced
-        parent lease.
+      description: cell_repo_mismatch for an existing-cell repo assertion mismatch; cell_conflict for reserved name/alias/repo; cell_retired for new work in a retired cell; existing_job_mismatch for changed explicit-ID job; execution_lease_lost for expired/replaced parent lease.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     ResolveConflict:
-      description: cell_retired for an authorized retired target, or execution_lease_lost when the parent
-        is no longer live. No mutation.
+      description: cell_retired for an authorized retired target, or execution_lease_lost when the parent is no longer live. No mutation.
       content:
         application/json:
           schema:

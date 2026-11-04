@@ -85,7 +85,7 @@ func TestRemoteRuntimeLeaseAndMetadataRoundTrip(t *testing.T) {
 			defer cancel()
 
 			tenantID := "tenant-" + tc.name
-			handle, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+			handle, err := celltest.Submit(runtime, ctx, jobdb.SubmitJobRequest{
 				Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: tenantID,
 					JobType:  "lease-job",
@@ -262,7 +262,7 @@ func TestRemoteRuntimeChapterAndArtifactRoundTrip(t *testing.T) {
 			defer cancel()
 
 			tenantID := "tenant-artifact-" + tc.name
-			handle, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+			handle, err := celltest.Submit(runtime, ctx, jobdb.SubmitJobRequest{
 				Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: tenantID,
 					JobType:  "artifact-job",
@@ -376,7 +376,7 @@ func TestRemoteRuntimeSupportsExplicitJobIDs(t *testing.T) {
 		t.Fatalf("new remote runtime: %v", err)
 	}
 
-	handle, err := runtime.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{
+	handle, err := celltest.Submit(runtime, celltest.Context(context.Background()), jobdb.SubmitJobRequest{
 		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: "tenant-custom-id",
 			JobID:    "custom-job-id",
@@ -392,7 +392,7 @@ func TestRemoteRuntimeSupportsExplicitJobIDs(t *testing.T) {
 		t.Fatalf("unexpected job key %+v", handle.JobKey)
 	}
 
-	matching, err := runtime.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{
+	matching, err := celltest.Submit(runtime, celltest.Context(context.Background()), jobdb.SubmitJobRequest{
 		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: "tenant-custom-id",
 			JobID:    "custom-job-id",
@@ -408,7 +408,7 @@ func TestRemoteRuntimeSupportsExplicitJobIDs(t *testing.T) {
 		t.Fatalf("unexpected matching handle %+v", matching.JobKey)
 	}
 
-	_, err = runtime.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{
+	_, err = celltest.Submit(runtime, celltest.Context(context.Background()), jobdb.SubmitJobRequest{
 		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: "tenant-custom-id",
 			JobID:    "custom-job-id",
@@ -504,7 +504,7 @@ func TestRemoteRuntimeSchemaRegistryRoundTrip(t *testing.T) {
 		{name: "inline", selector: &jobdb.JobSchemaSelector{Schema: schema}},
 	} {
 		t.Run("submit archived schema by "+tc.name, func(t *testing.T) {
-			_, err = runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+			_, err = celltest.Submit(runtime, ctx, jobdb.SubmitJobRequest{
 				Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: "tenant-schema-remote",
 					JobType:  "archived-schema-job-" + tc.name,
@@ -563,7 +563,7 @@ func TestRemoteRuntimeSchemaValidationErrors(t *testing.T) {
 	tenantID := "tenant-schema-validation-remote"
 	schema := remoteChapterValidationSchemaForTest()
 
-	_, err = runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+	_, err = celltest.Submit(runtime, ctx, jobdb.SubmitJobRequest{
 		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: tenantID,
 			JobType:  "schema-job",
@@ -575,7 +575,7 @@ func TestRemoteRuntimeSchemaValidationErrors(t *testing.T) {
 		t.Fatalf("submit invalid schema job error = %v, want ErrJobSchemaValidation", err)
 	}
 
-	handle, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+	handle, err := celltest.Submit(runtime, ctx, jobdb.SubmitJobRequest{
 		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: tenantID,
 			JobType:  "schema-job",

@@ -275,7 +275,7 @@ type CellId = string
 // CellMetadata Application properties, at most 16 KiB encoded as compact UTF-8 JSON (enforced by server). No authorization semantics. PATCH replaces the whole object.
 type CellMetadata map[string]JsonValue
 
-// CellName Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+// CellName Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. root is an ordinary name with no special privileges.
 type CellName = string
 
 // CellRepo Credential-free repository locator. Accept recognized host/owner/repo, HTTPS,
@@ -366,14 +366,14 @@ type ConfigurationSnapshot struct {
 	Values   map[string]ApplicationPayload `json:"values"`
 }
 
-// CreateCellRequest Administrative registration; name and repo required. description and metadata default to empty values. The server assigns ID/root designation. Root bootstrap additionally requires cells.bootstrapRoot authority.
+// CreateCellRequest Explicit cell registration requires cells.create, a tenant-unique name, and a canonical repository locator. Description and metadata default to empty values. The server assigns the immutable ID. root is an ordinary name.
 type CreateCellRequest struct {
 	Description *string `json:"description,omitempty"`
 
 	// Metadata Application properties, at most 16 KiB encoded as compact UTF-8 JSON (enforced by server). No authorization semantics. PATCH replaces the whole object.
 	Metadata *CellMetadata `json:"metadata,omitempty"`
 
-	// Name Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+	// Name Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. root is an ordinary name with no special privileges.
 	Name CellName `json:"name"`
 
 	// Repo Credential-free repository locator. Accept recognized host/owner/repo, HTTPS,
@@ -603,7 +603,7 @@ type JobDependencyFailureCode string
 
 // JobHandle defines model for JobHandle.
 type JobHandle struct {
-	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. root is an ordinary name with no special privileges.
 	Cell CellName `json:"cell"`
 
 	// CellId Opaque server-generated stable identity. JobDB resolves names to this ID and stores it on owned resources. c2j may use names for submission and ignore the ID until needed.
@@ -627,7 +627,7 @@ type JobHandle struct {
 type JobInfo struct {
 	BlockingWait *DependencyWaitInfo `json:"blockingWait,omitempty"`
 
-	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. root is an ordinary name with no special privileges.
 	Cell CellName `json:"cell"`
 
 	// CellId Opaque server-generated stable identity. JobDB resolves names to this ID and stores it on owned resources. c2j may use names for submission and ignore the ID until needed.
@@ -741,7 +741,7 @@ type JobSummary struct {
 	BlockingWaitSummary *DependencyWaitSummary `json:"blockingWaitSummary,omitempty"`
 	CancelRequested     bool                   `json:"cancelRequested"`
 
-	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. root is an ordinary name with no special privileges.
 	Cell CellName `json:"cell"`
 
 	// CellId Opaque server-generated stable identity. JobDB resolves names to this ID and stores it on owned resources. c2j may use names for submission and ignore the ID until needed.
@@ -1031,7 +1031,7 @@ type RescheduleExecutionRequest struct {
 
 // ResolveCellRequest defines model for ResolveCellRequest.
 type ResolveCellRequest struct {
-	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. root is an ordinary name with no special privileges.
 	Cell CellName `json:"cell"`
 }
 
@@ -1042,7 +1042,7 @@ type ResolveSecretsBody struct {
 
 // ResolvedCell Minimal active target information for loading a recipe/submitting a job. It grants no history, metadata, or secret access.
 type ResolvedCell struct {
-	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. root is an ordinary name with no special privileges.
 	Cell CellName `json:"cell"`
 
 	// CellId Opaque server-generated stable identity. JobDB resolves names to this ID and stores it on owned resources. c2j may use names for submission and ignore the ID until needed.
@@ -1156,7 +1156,7 @@ type ScheduleState string
 
 // ScheduleTarget defines model for ScheduleTarget.
 type ScheduleTarget struct {
-	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. root is an ordinary name with no special privileges.
 	Cell CellName `json:"cell"`
 
 	// CellId Opaque server-generated stable identity. JobDB resolves names to this ID and stores it on owned resources. c2j may use names for submission and ignore the ID until needed.
@@ -1246,7 +1246,7 @@ type StoredTaskData struct {
 type SubmitJob struct {
 	AvailableAt *time.Time `json:"availableAt,omitempty"`
 
-	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. root is an ordinary name with no special privileges.
 	Cell CellName `json:"cell"`
 
 	// CellRepo Credential-free repository locator. Accept recognized host/owner/repo, HTTPS,
@@ -1278,7 +1278,7 @@ type SubmitJobRequest struct {
 
 // SubmitRestartJob defines model for SubmitRestartJob.
 type SubmitRestartJob struct {
-	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. root is an ordinary name with no special privileges.
 	Cell CellName `json:"cell"`
 
 	// CellRepo Credential-free repository locator. Accept recognized host/owner/repo, HTTPS,
@@ -1414,14 +1414,14 @@ type TriggerScheduleRequest struct {
 	WorkerId    *string    `json:"workerId,omitempty"`
 }
 
-// UpdateCellRequest Mutable properties of an active cell. Omitted fields are preserved; supplied metadata replaces the map. Root name must remain root. All changes commit atomically with If-Match.
+// UpdateCellRequest Mutable properties of an active cell. Omitted fields are preserved; supplied metadata replaces the map. All names, including root, follow the same rename rules. All changes commit atomically with If-Match.
 type UpdateCellRequest struct {
 	Description *string `json:"description,omitempty"`
 
 	// Metadata Application properties, at most 16 KiB encoded as compact UTF-8 JSON (enforced by server). No authorization semantics. PATCH replaces the whole object.
 	Metadata *CellMetadata `json:"metadata,omitempty"`
 
-	// Name Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+	// Name Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. root is an ordinary name with no special privileges.
 	Name *CellName `json:"name,omitempty"`
 
 	// Repo Credential-free repository locator. Accept recognized host/owner/repo, HTTPS,
@@ -1460,9 +1460,6 @@ type EndOrdinal = int64
 // IfMatch defines model for IfMatch.
 type IfMatch = string
 
-// IsRootFilter defines model for IsRootFilter.
-type IsRootFilter = bool
-
 // JobId defines model for JobId.
 type JobId = string
 
@@ -1472,7 +1469,7 @@ type LeaseId = string
 // LeaseTokenHeader defines model for LeaseTokenHeader.
 type LeaseTokenHeader = string
 
-// NameFilter Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. Exact lowercase root is reserved for trusted bootstrap.
+// NameFilter Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. root is an ordinary name with no special privileges.
 type NameFilter = CellName
 
 // Ordinal defines model for Ordinal.
@@ -1536,9 +1533,6 @@ type Unauthorized = ErrorResponse
 type ListCellsParams struct {
 	// Name Exact current name or permanent alias. Resolves at most one visible cell. Use state=ALL for retired lookup.
 	Name *NameFilter `form:"name,omitempty" json:"name,omitempty"`
-
-	// IsRoot Filter on the stored rootCellId binding, independently of display name.
-	IsRoot *IsRootFilter `form:"isRoot,omitempty" json:"isRoot,omitempty"`
 
 	// State Lifecycle filter. ALL includes retired cells for history and name lookup.
 	State *ListCellsParamsState `form:"state,omitempty" json:"state,omitempty"`
@@ -3801,22 +3795,6 @@ func NewListCellsRequest(server string, tenantId TenantId, params *ListCellsPara
 		if params.Name != nil {
 
 			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "name", runtime.ParamLocationQuery, *params.Name); err != nil {
-				return nil, err
-			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
-				return nil, err
-			} else {
-				for k, v := range parsed {
-					for _, v2 := range v {
-						queryValues.Add(k, v2)
-					}
-				}
-			}
-
-		}
-
-		if params.IsRoot != nil {
-
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "isRoot", runtime.ParamLocationQuery, *params.IsRoot); err != nil {
 				return nil, err
 			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
 				return nil, err
@@ -11809,14 +11787,6 @@ func (siw *ServerInterfaceWrapper) ListCells(w http.ResponseWriter, r *http.Requ
 	err = runtime.BindQueryParameter("form", true, false, "name", r.URL.Query(), &params.Name)
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
-		return
-	}
-
-	// ------------- Optional query parameter "isRoot" -------------
-
-	err = runtime.BindQueryParameter("form", true, false, "isRoot", r.URL.Query(), &params.IsRoot)
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "isRoot", Err: err})
 		return
 	}
 

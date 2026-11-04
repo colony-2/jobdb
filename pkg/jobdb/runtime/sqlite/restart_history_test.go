@@ -29,7 +29,7 @@ func TestRestartLinksLegacyHistoryWithoutRevalidation(t *testing.T) {
 			local, err := New(db, WithMaxChapterApplicationPayloadBytes(2*1024*1024))
 			require.NoError(t, err)
 			defer local.Close(ctx)
-			source, err := local.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "source", JobType: "legacy", Data: jobdb.NewTaskDataOrPanic(nil)}})
+			source, err := celltest.Submit(local, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "source", JobType: "legacy", Data: jobdb.NewTaskDataOrPanic(nil)}})
 			require.NoError(t, err)
 			leases, err := local.PollWork(ctx, jobdb.PollWorkRequest{TenantId: "tenant", WorkerID: "writer", Routes: []jobdb.Route{{JobType: "legacy"}}, Limit: 1})
 			require.NoError(t, err)

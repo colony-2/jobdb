@@ -17,7 +17,7 @@ import (
 func TestDeleteJobsHTTPValidation(t *testing.T) {
 	ctx := celltest.Context(context.Background())
 	rt := toy.New()
-	_, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "job", JobType: "job", Data: jobdb.NewTaskDataOrPanic(nil)}})
+	_, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "job", JobType: "job", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	require.NoError(t, err)
 	server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
 	defer server.Close()

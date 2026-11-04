@@ -31,7 +31,6 @@ func TestCellHTTPPatchValidation(t *testing.T) {
 		{"null metadata", `{"metadata":null}`, fmt.Sprintf("%q", c.Revision), 400},
 		{"unknown field", `{"unknown":1}`, fmt.Sprintf("%q", c.Revision), 400},
 		{"empty patch", `{}`, fmt.Sprintf("%q", c.Revision), 400},
-		{"atomic root rename", `{"name":"renamed","repo":"github.com/org/other"}`, fmt.Sprintf("%q", c.Revision), 409},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPatch, path, strings.NewReader(tc.body))
@@ -68,7 +67,7 @@ func TestCellHTTPRequiresAuthority(t *testing.T) {
 	}
 }
 
-func TestRootCellDelegationCeilings(t *testing.T) {
+func TestCellDelegationCeilings(t *testing.T) {
 	backend := toy.New()
 	server := httptest.NewServer(celltest.Handler(NewServer(backend)))
 	defer server.Close()
@@ -82,7 +81,7 @@ func TestRootCellDelegationCeilings(t *testing.T) {
 	owner, err := client.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "job"}}})
 	require.NoError(t, err)
 	require.Equal(t, root.ID, owner.Job().CellID)
-	policy := jobdb.DelegationPermissions{Submit: &jobdb.DelegationSubmitPermission{JobTypes: jobdb.DelegationNames{Any: true}, JobIDs: jobdb.DelegationNames{Any: true}, CellNames: &jobdb.DelegationNames{Names: []string{"allowed"}}}}
+	policy := jobdb.DelegationPermissions{Submit: &jobdb.DelegationSubmitPermission{JobTypes: jobdb.DelegationNames{Any: true}, JobIDs: jobdb.DelegationNames{Any: true}, CellNames: &jobdb.DelegationNames{Names: []string{"root"}}}}
 	delegated, err := client.CreateDelegation(ctx, owner, jobdb.CreateDelegationRequest{Permissions: policy})
 	require.NoError(t, err)
 	inherited := jobdb.DelegationPermissions{Submit: &jobdb.DelegationSubmitPermission{JobTypes: jobdb.DelegationNames{Any: true}, JobIDs: jobdb.DelegationNames{Any: true}}}
@@ -96,10 +95,10 @@ func TestRootCellDelegationCeilings(t *testing.T) {
 	}
 	_, err = child.SubmitJob(ctx, submit("denied"))
 	require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
-	created, err := child.SubmitJob(ctx, submit("allowed"))
+	created, err := child.SubmitJob(ctx, submit("root"))
 	require.NoError(t, err)
-	require.NotEqual(t, root.ID, created.CellID)
-	_, err = child.ResolveCell(ctx, "root")
+	require.Equal(t, root.ID, created.CellID)
+	_, err = child.ResolveCell(ctx, "denied")
 	require.Error(t, err)
 	require.NoError(t, client.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: h.JobKey}))
 	_, err = owner.SubmitJob(ctx, submit("lost-lease"))

@@ -124,7 +124,7 @@ func TestCLIComposesSQLiteAndPluginAndKeepsLocalAdministration(t *testing.T) {
 				admin("set", `{"name":"token","value":"local"}`)
 				runtime, err := remote.New(s.URL, s.Client())
 				require.NoError(t, err)
-				job, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "test", Data: jobdb.NewTaskDataOrPanic(1)}})
+				job, err := celltest.Submit(runtime, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "test", Data: jobdb.NewTaskDataOrPanic(1)}})
 				require.NoError(t, err)
 				lease, err := runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: job.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "test"}}, LeaseDuration: time.Minute})
 				require.NoError(t, err)

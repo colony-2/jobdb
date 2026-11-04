@@ -112,7 +112,7 @@ func TestFreshSecretsBootstrapTasksAndRenewal(t *testing.T) {
 						})
 					}}
 				}
-				job, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: worker.Name(), Data: NewTaskDataOrPanic(1)}})
+				job, err := celltest.Submit(runtime, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: worker.Name(), Data: NewTaskDataOrPanic(1)}})
 				require.NoError(t, err)
 				runnable, err := GetJobForRun(ctx, runtime, GetJobForRunRequest{JobKey: job.JobKey, JobWorker: worker, TaskWorkers: []TaskWorker{task}, LeaseDuration: 900 * time.Millisecond,
 					BeforeRun: func(runCtx context.Context, lease ExecutionLease) error {
@@ -182,7 +182,7 @@ func TestBootstrapSecretResolverFollowsAttemptCacheReset(t *testing.T) {
 			if callback {
 				worker = ExecutionWorker{JobType: "cache-job", Execute: func(ec ExecutionContext, _ JobData) (JobData, error) { return body(ec) }}
 			}
-			job, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: worker.Name(), Data: NewTaskDataOrPanic(1), RunPolicy: RunPolicy{Retry: RetryPolicy{MaximumAttempts: 2, BackoffCoefficient: 1}}}})
+			job, err := celltest.Submit(runtime, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: worker.Name(), Data: NewTaskDataOrPanic(1), RunPolicy: RunPolicy{Retry: RetryPolicy{MaximumAttempts: 2, BackoffCoefficient: 1}}}})
 			require.NoError(t, err)
 			runnable, err := GetJobForRun(ctx, runtime, GetJobForRunRequest{JobKey: job.JobKey, JobWorker: worker, BeforeRun: func(ctx context.Context, _ ExecutionLease) error {
 				bootstrap, _ = SecretResolverFromContext(ctx)

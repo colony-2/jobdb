@@ -82,8 +82,7 @@ func (r *Runtime) RetireCell(ctx context.Context, req jobdb.RetireCellRequest) (
 			}
 		}
 		for key, p := range e.preparedGoals {
-			named, found := e.cellsLocked(req.TenantID).ByName(p.Request.Target.Cell)
-			if key.TenantId == req.TenantID && (p.Request.Target.CellID == id || found && named.ID == id) && e.jobRecords[key] == nil {
+			if key.TenantId == req.TenantID && p.Request.Target.CellID == id && e.jobRecords[key] == nil {
 				return true, nil
 			}
 		}
@@ -164,18 +163,13 @@ func (e *ToyEngine) publishCellLocked(ctx context.Context, key jobdb.JobKey) (jo
 	if err != nil {
 		return target, nil, err
 	}
+	if target.CellID != p.Request.Target.CellID {
+		return target, nil, jobdb.NewExistingJobMismatchError("cell identity differs")
+	}
 	if target.CellRepo != p.Request.Target.CellRepo {
 		return target, nil, jobdb.ErrCellRepoMismatch
 	}
 	state := cellstate.Clone(*e.cellsLocked(key.TenantId))
-	if _, ok := state.ByName(target.Cell); !ok {
-		target.CellID = p.Request.Target.CellID
-	}
-	if p.Request.PriorJobID == "" {
-		if err = state.Publish(target, key.TenantId); err != nil {
-			return target, nil, err
-		}
-	}
 	return target, &state, nil
 }
 func (r *Runtime) ResolveCellWithLeaseByID(ctx context.Context, key jobdb.JobKey, leaseID, workerID, name string) (jobdb.ResolvedCell, error) {

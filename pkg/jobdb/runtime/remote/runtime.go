@@ -1034,7 +1034,7 @@ func cellResponseError(status int, body []byte) error {
 	var cellError struct{ Code string }
 	if json.Unmarshal(body, &cellError) == nil {
 		switch cellError.Code {
-		case "invalid_request", "forbidden", "not_found", "cell_repo_required", "cell_repo_mismatch", "cell_conflict", "cell_retired", "root_cell_required", "root_cell_protected", "cell_busy", "request_conflict", "precondition_failed", "precondition_required", "invalid_page_token":
+		case "invalid_request", "forbidden", "not_found", "cell_repo_mismatch", "cell_conflict", "cell_retired", "cell_busy", "request_conflict", "precondition_failed", "precondition_required", "invalid_page_token":
 			return &jobdb.CellError{Code: cellError.Code, Status: status}
 		}
 	}

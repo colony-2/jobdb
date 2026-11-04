@@ -17,7 +17,7 @@ func TestDeletionPersistsAndRollsBackAtomically(t *testing.T) {
 	rt, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	for _, id := range []string{"a", "b"} {
-		_, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: id, JobType: "job", Data: jobdb.NewTaskDataOrPanic(nil)}})
+		_, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: id, JobType: "job", Data: jobdb.NewTaskDataOrPanic(nil)}})
 		require.NoError(t, err)
 	}
 	lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "a"}, Routes: []jobdb.Route{{JobType: "job"}}, WorkerID: "holder", LeaseDuration: time.Hour})

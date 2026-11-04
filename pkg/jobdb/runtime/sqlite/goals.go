@@ -44,7 +44,7 @@ func (s goalStore) Job(key jobdb.JobKey) (goalstate.Job, error) {
 func (s goalStore) Goal(key jobdb.GoalKey) (jobdb.GoalInfo, error) {
 	var raw []byte
 	var g jobdb.GoalInfo
-	err := s.q.QueryRowContext(s.ctx, `SELECT payload FROM jobdb_goals WHERE tenant_id=? AND goal_id=?`, key.TenantId, key.GoalID).Scan(&raw)
+	err := s.q.QueryRowContext(s.ctx, `SELECT payload,cell_id,cell_name,cell_repo FROM jobdb_goals WHERE tenant_id=? AND goal_id=?`, key.TenantId, key.GoalID).Scan(&raw, &g.CellID, &g.Cell, &g.CellRepo)
 	if err == sql.ErrNoRows {
 		return g, jobdb.ErrGoalNotFound
 	}
@@ -55,11 +55,11 @@ func (s goalStore) Goal(key jobdb.GoalKey) (jobdb.GoalInfo, error) {
 	return g, err
 }
 func (s goalStore) SaveGoal(g jobdb.GoalInfo) error {
-	raw, err := json.Marshal(g)
+	raw, err := withoutCellJSON(g)
 	if err != nil {
 		return err
 	}
-	_, err = s.q.ExecContext(s.ctx, `INSERT INTO jobdb_goals(tenant_id,goal_id,payload,state,created_at_ns,updated_at_ns) VALUES(?,?,?,?,?,?) ON CONFLICT(tenant_id,goal_id) DO UPDATE SET payload=excluded.payload,state=excluded.state,updated_at_ns=excluded.updated_at_ns`, g.GoalKey.TenantId, g.GoalKey.GoalID, raw, g.State, g.CreatedAt.UnixNano(), g.UpdatedAt.UnixNano())
+	_, err = s.q.ExecContext(s.ctx, `INSERT INTO jobdb_goals(tenant_id,goal_id,payload,state,created_at_ns,updated_at_ns,cell_id,cell_name,cell_repo) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(tenant_id,goal_id) DO UPDATE SET payload=excluded.payload,state=excluded.state,updated_at_ns=excluded.updated_at_ns`, g.GoalKey.TenantId, g.GoalKey.GoalID, raw, g.State, g.CreatedAt.UnixNano(), g.UpdatedAt.UnixNano(), g.CellID, g.Cell, g.CellRepo)
 	return err
 }
 func (s goalStore) Candidates(key jobdb.GoalKey) ([]goalstate.Job, error) {
@@ -305,29 +305,18 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (ou
 			return e
 		}
 		req.Target = target
-		query := `SELECT job_id,goal_id,descriptor,cell_target FROM jobdb_goal_preparations WHERE tenant_id=? AND job_id=?`
+		query := `SELECT job_id,goal_id,descriptor,cell_id,cell_name,cell_repo FROM jobdb_goal_preparations WHERE tenant_id=? AND job_id=?`
 		args := []any{req.Key.TenantId, req.Key.JobId}
 		if req.RequestID != "" {
-			query = `SELECT job_id,goal_id,descriptor,cell_target FROM jobdb_goal_preparations WHERE tenant_id=? AND request_id=?`
+			query = `SELECT job_id,goal_id,descriptor,cell_id,cell_name,cell_repo FROM jobdb_goal_preparations WHERE tenant_id=? AND request_id=?`
 			args = []any{req.Key.TenantId, req.RequestID}
 		}
 		var id, goalID, descriptor string
-		var priorCell []byte
-		e = tx.QueryRowContext(ctx, query, args...).Scan(&id, &goalID, &descriptor, &priorCell)
+		var old jobdb.ResolvedCell
+		e = tx.QueryRowContext(ctx, query, args...).Scan(&id, &goalID, &descriptor, &old.CellID, &old.Cell, &old.CellRepo)
 		if e == nil {
-			var old goalstate.Preparation
-			if e = json.Unmarshal(priorCell, &old); e != nil {
-				return e
-			}
-			if old.Target.CellRepo != target.CellRepo || old.Target.Cell != target.Cell && old.Target.CellID != target.CellID {
+			if old.CellRepo != target.CellRepo || old.CellID != target.CellID {
 				return jobdb.NewExistingJobMismatchError("cell differs")
-			}
-			var n int
-			if e = tx.QueryRowContext(ctx, "SELECT count(*) FROM jobdb_cells WHERE tenant_id=? AND cell_id=?", req.Key.TenantId, target.CellID).Scan(&n); e != nil {
-				return e
-			}
-			if n == 0 {
-				target.CellID = old.Target.CellID
 			}
 			if descriptor != req.Descriptor || (req.Key.JobId != "" && id != req.Key.JobId) {
 				return goalstate.PreparationMismatch(descriptor, req.Descriptor)
@@ -382,7 +371,7 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (ou
 		if req.RequestID != "" {
 			requestID = req.RequestID
 		}
-		_, e = tx.ExecContext(ctx, `INSERT INTO jobdb_goal_preparations(tenant_id,job_id,request_id,goal_id,share_goal,descriptor,cell_target,dependencies) VALUES(?,?,?,?,?,?,?,?)`, req.Key.TenantId, req.Key.JobId, requestID, goalID, req.ShareGoal, req.Descriptor, cellPreparationJSON(req), deps)
+		_, e = tx.ExecContext(ctx, `INSERT INTO jobdb_goal_preparations(tenant_id,job_id,request_id,goal_id,share_goal,descriptor,requested_cell,requested_repo,cell_id,cell_name,cell_repo,parent_job_id,prior_job_id,dependencies) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, req.Key.TenantId, req.Key.JobId, requestID, goalID, req.ShareGoal, req.Descriptor, req.Cell, req.CellRepo, target.CellID, target.Cell, target.CellRepo, req.ParentJobID, req.PriorJobID, deps)
 		if e != nil {
 			return e
 		}
@@ -481,8 +470,6 @@ func goalListPredicate(req jobdb.ListJobsRequest) (string, []any) {
 	}
 	return where, args
 }
-
-func cellPreparationJSON(req goalstate.Preparation) []byte { raw, _ := json.Marshal(req); return raw }
 
 func (r *Runtime) DiscardJobPreparation(ctx context.Context, key jobdb.JobKey) error {
 	return r.withTx(ctx, func(tx *sql.Tx) error {

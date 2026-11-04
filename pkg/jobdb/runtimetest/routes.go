@@ -117,7 +117,7 @@ func RunRouteConformance(t *testing.T, harnesses ...Harness) {
 						t.Fatalf("polled invalid route %+v", invalid)
 					}
 					if invalid.JobType != "job" {
-						if _, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: built.WorkerTenantID, JobType: invalid.JobType, Data: NumberTaskData(1)}}); err == nil {
+						if _, err := celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: built.WorkerTenantID, JobType: invalid.JobType, Data: NumberTaskData(1)}}); err == nil {
 							t.Fatalf("submitted invalid job type %q", invalid.JobType)
 						}
 					}
@@ -126,7 +126,7 @@ func RunRouteConformance(t *testing.T, harnesses ...Harness) {
 				keys := make([]jobdb.JobKey, len(routes))
 				wait := &jobdb.TaskWait{InputOrdinal: 0, OutputOrdinal: 1, InputHash: "route-input", ResumeJobType: "resume:job"}
 				for i, route := range routes {
-					h, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: built.WorkerTenantID, JobType: route.JobType, Data: NumberTaskData(i)}})
+					h, err := celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: built.WorkerTenantID, JobType: route.JobType, Data: NumberTaskData(i)}})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -180,7 +180,7 @@ func RunRouteConformance(t *testing.T, harnesses ...Harness) {
 					completeLeaseForTest(t, ctx, lease, 2)
 				}
 				for _, taskType := range []string{"", "fallback:task"} {
-					h, err := built.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: built.WorkerTenantID, JobType: "alternate:job", Data: NumberTaskData(1)}})
+					h, err := celltest.Submit(built.Runtime, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: built.WorkerTenantID, JobType: "alternate:job", Data: NumberTaskData(1)}})
 					if err != nil {
 						t.Fatal(err)
 					}

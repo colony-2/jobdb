@@ -315,7 +315,7 @@ func TestCatchHistoryOrdinaryRetryAndRootAncestry(t *testing.T) {
 				return c.DoTask(call, func(context.Context) (jobdb.TaskData, error) { return in, nil })
 			}}
 			task := executionTestTask{"echo", func(wf.TaskContext, jobdb.TaskData) (jobdb.TaskData, error) { return nil, errors.New("retry me") }}
-			handle, err := recording.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("job"), RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 2, InitialInterval: jobdb.Duration(time.Millisecond)}}}})
+			handle, err := celltest.Submit(recording, celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("job"), RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 2, InitialInterval: jobdb.Duration(time.Millisecond)}}}})
 			require.NoError(t, err)
 			out, err := runExecutionTest(t, recording, handle.JobKey, w, task)
 			require.NoError(t, err)

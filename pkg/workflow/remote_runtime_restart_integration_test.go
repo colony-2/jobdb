@@ -49,6 +49,10 @@ func TestRemoteRuntimeSupportsExplicitRestartJobIDs(t *testing.T) {
 	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 	defer cancel()
 
+	_, err = runtime.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: tenantID, Name: "test", Repo: "example.test/test"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	originalKeyHandle, err := engine.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 		TenantId: tenantID,
 		JobID:    "restart-source",

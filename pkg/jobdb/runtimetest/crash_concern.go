@@ -23,7 +23,7 @@ func runCrashConcern(t *testing.T, harnesses []Harness) {
 			r := f.Runtime
 			route := jobdb.Route{JobType: "crash-concern"}
 			submit := func(id string) jobdb.JobKey {
-				handle, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
+				handle, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: f.WorkerTenantID, JobID: id, JobType: route.JobType, Data: NumberTaskData(1),
 				}})
 				require.NoError(t, err)

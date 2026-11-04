@@ -373,7 +373,7 @@ func newExternalRemoteHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltR
 
 func buildHarness(t *testing.T, name string, runtime jobdb.WorkflowRuntime, startLoop bool, shutdown func(), workers ...workflow.WorkSet) *BuiltRuntimeHarness {
 	t.Helper()
-	builder := workflow.NewEngineBuilder().WithRuntime(runtime)
+	builder := workflow.NewEngineBuilder().WithRuntime(celltest.WithCells(runtime))
 	workerTenantID := "tenant-worker-" + name
 	if len(workers) > 0 {
 		builder.WithWorkerTenantId(workerTenantID)

@@ -87,7 +87,7 @@ func TestSubmitJobSchemaAssociation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compute schema hash: %v", err)
 	}
-	_, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{
+	_, err = celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{
 		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: tenantID,
 			JobType:  "invalid-schema-job",
@@ -98,7 +98,7 @@ func TestSubmitJobSchemaAssociation(t *testing.T) {
 	if !errors.Is(err, jobdb.ErrJobSchemaValidation) {
 		t.Fatalf("submit invalid schema job error = %v, want ErrJobSchemaValidation", err)
 	}
-	handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{
+	handle, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{
 		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: tenantID,
 			JobType:  "schema-job",
@@ -216,7 +216,7 @@ func TestSubmitJobSchemaAssociation(t *testing.T) {
 		{name: "inline", selector: &jobdb.JobSchemaSelector{Schema: schema}},
 	} {
 		t.Run("submit archived schema by "+tc.name, func(t *testing.T) {
-			_, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{
+			_, err = celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{
 				Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 					TenantId: tenantID,
 					JobType:  "archived-schema-job-" + tc.name,
@@ -233,7 +233,7 @@ func TestSubmitJobSchemaAssociation(t *testing.T) {
 		})
 	}
 
-	plain, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{
+	plain, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{
 		Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test",
 			TenantId: tenantID,
 			JobType:  "plain-job",

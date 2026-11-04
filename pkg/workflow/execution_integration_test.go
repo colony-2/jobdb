@@ -41,7 +41,7 @@ func runExecutionTest(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, 
 }
 func submitExecutionTest(t *testing.T, rt jobdb.WorkflowRuntime, w wf.ExecutionWorker) jobdb.JobKey {
 	t.Helper()
-	h, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("job")}})
+	h, err := celltest.Submit(rt, celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("job")}})
 	require.NoError(t, err)
 	return h.JobKey
 }
@@ -1088,7 +1088,7 @@ func TestExecutionCacheLifetime(t *testing.T) {
 			return in, nil
 		})
 	}}
-	h, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("job"), RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 2}}}})
+	h, err := celltest.Submit(rt, celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic("job"), RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 2}}}})
 	require.NoError(t, err)
 	out, err := runExecutionTest(t, rt, h.JobKey, w, task)
 	require.NoError(t, err)

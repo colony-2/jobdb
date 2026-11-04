@@ -36,7 +36,7 @@ func TestGoalDurabilityAndIndependentWriters(t *testing.T) {
 	require.NoError(t, err)
 	defer r2.Close(ctx)
 	submit := func(id string) jobdb.JobHandle {
-		h, err := r1.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: id, JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
+		h, err := celltest.Submit(r1, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: id, JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 		require.NoError(t, err)
 		return h
 	}
@@ -88,6 +88,8 @@ func TestGoalReservationSurvivesReopenBeforePublication(t *testing.T) {
 	req := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "new", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}}
 	prep, err := goalstate.SubmitPreparation(ctx, req, "")
 	require.NoError(t, err)
+	_, err = r.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "tenant", Name: "test", Repo: "example.test/test"})
+	require.NoError(t, err)
 	first, err := r.PrepareJob(ctx, prep)
 	require.NoError(t, err)
 	_, err = r.GetGoal(ctx, jobdb.GoalKey{TenantId: "tenant", GoalID: first.GoalID})
@@ -96,10 +98,10 @@ func TestGoalReservationSurvivesReopenBeforePublication(t *testing.T) {
 	r, err = NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	defer r.Close(ctx)
-	h, err := r.SubmitJob(ctx, req)
+	h, err := celltest.Submit(r, ctx, req)
 	require.NoError(t, err)
 	require.Equal(t, first.GoalID, h.GoalID)
-	retry, err := r.SubmitJob(ctx, req)
+	retry, err := celltest.Submit(r, ctx, req)
 	require.NoError(t, err)
 	require.Equal(t, h, retry)
 }

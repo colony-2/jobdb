@@ -40,7 +40,7 @@ func TestSecretsCLIEndToEnd(t *testing.T) {
 		require.NotContains(t, output.String(), "unique-secret-content")
 		return output.String()
 	}
-	h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "a", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
+	h, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "a", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, err)
 	l, err := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "w", Routes: []jobdb.Route{{JobType: "job"}}, LeaseDuration: time.Minute})
 	require.NoError(t, err)

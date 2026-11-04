@@ -119,7 +119,7 @@ func TestConfigurationContextsAreCachedAndInvocationBound(t *testing.T) {
 					task := &configurationReadingTask{admin: admin}
 					job := &configurationReadingJob{admin: admin, read: readJob}
 					ws := mustWorkSetForRunnerTest(t, job, task)
-					handle, err := rt.SubmitJob(ctx, SubmitJobRequest{Job: SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: job.Name(), Data: NewTaskDataOrPanic("input")}})
+					handle, err := celltest.Submit(rt, ctx, SubmitJobRequest{Job: SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: job.Name(), Data: NewTaskDataOrPanic("input")}})
 					require.NoError(t, err)
 					lease, err := rt.GetJobLease(ctx, GetJobLeaseRequest{JobKey: handle.JobKey, WorkerID: "worker", Routes: []Route{{JobType: job.Name()}}, LeaseDuration: time.Minute})
 					require.NoError(t, err)
@@ -277,7 +277,7 @@ func TestTaskConfigurationContextExpiresWhileJobLeaseRemainsLive(t *testing.T) {
 	task := &expiredConfigurationTask{captured: make(chan TaskContext, 1), release: make(chan struct{})}
 	job := &catchesConfigurationTaskTimeout{task: task}
 	ws := mustWorkSetForRunnerTest(t, job, task)
-	handle, err := runtime.SubmitJob(ctx, SubmitJobRequest{Job: SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: job.Name(), Data: NewTaskDataOrPanic("input")}})
+	handle, err := celltest.Submit(runtime, ctx, SubmitJobRequest{Job: SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: job.Name(), Data: NewTaskDataOrPanic("input")}})
 	require.NoError(t, err)
 	lease, err := runtime.GetJobLease(ctx, GetJobLeaseRequest{JobKey: handle.JobKey, WorkerID: "worker", Routes: []Route{{JobType: job.Name()}}, LeaseDuration: time.Minute})
 	require.NoError(t, err)

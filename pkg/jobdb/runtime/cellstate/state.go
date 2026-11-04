@@ -81,11 +81,6 @@ func (s *State) Create(ctx context.Context, req jobdb.CreateCellRequest) (jobdb.
 	if e := jobdb.AuthorizeCell(ctx, req.TenantID, "", "cells.create"); e != nil {
 		return jobdb.Cell{}, e
 	}
-	if req.Name == "root" {
-		if e := jobdb.AuthorizeCell(ctx, req.TenantID, "", "cells.bootstrapRoot"); e != nil {
-			return jobdb.Cell{}, e
-		}
-	}
 	if e := jobdb.ValidateCellName(req.Name); e != nil {
 		return jobdb.Cell{}, e
 	}
@@ -106,7 +101,7 @@ func (s *State) Create(ctx context.Context, req jobdb.CreateCellRequest) (jobdb.
 	}
 	authority, _ := jobdb.CellAuthorityFromContext(ctx)
 	raw, _ := json.Marshal(req)
-	descriptor := string(raw)
+	descriptor := fmt.Sprintf("%x", sha256.Sum256(raw))
 	if req.RequestID != "" {
 		for _, r := range s.Creations {
 			if r.Principal == authority.Principal && r.RequestID == req.RequestID {
@@ -121,7 +116,7 @@ func (s *State) Create(ctx context.Context, req jobdb.CreateCellRequest) (jobdb.
 		}
 	}
 	now := time.Now().UTC()
-	c := jobdb.Cell{TenantID: req.TenantID, ID: ksuid.New().String(), Name: req.Name, Repo: repo, Description: req.Description, Metadata: Clone(req.Metadata), State: jobdb.CellActive, IsRoot: req.Name == "root", Aliases: []string{}, Revision: ksuid.New().String(), CreatedAt: now, UpdatedAt: now}
+	c := jobdb.Cell{TenantID: req.TenantID, ID: ksuid.New().String(), Name: req.Name, Repo: repo, Description: req.Description, Metadata: Clone(req.Metadata), State: jobdb.CellActive, Aliases: []string{}, Revision: ksuid.New().String(), CreatedAt: now, UpdatedAt: now}
 	if e = s.unique(c); e != nil {
 		return jobdb.Cell{}, e
 	}
@@ -162,9 +157,6 @@ func (s *State) Update(ctx context.Context, r jobdb.UpdateCellRequest) (jobdb.Ce
 	if r.Name != nil {
 		if e = jobdb.ValidateCellName(*r.Name); e != nil {
 			return jobdb.Cell{}, e
-		}
-		if c.IsRoot && *r.Name != "root" || !c.IsRoot && *r.Name == "root" {
-			return jobdb.Cell{}, jobdb.ErrRootCellProtected
 		}
 		if *r.Name != c.Name {
 			aliases := []string{c.Name}
@@ -221,9 +213,6 @@ func (s *State) Retire(ctx context.Context, r jobdb.RetireCellRequest, busy func
 	if e = jobdb.CheckCellRevision(r.IfMatch, c.Revision); e != nil {
 		return jobdb.Cell{}, e
 	}
-	if c.IsRoot {
-		return jobdb.Cell{}, jobdb.ErrRootCellProtected
-	}
 	if c.State == jobdb.CellRetired {
 		return c, nil
 	}
@@ -244,8 +233,8 @@ func (s *State) Retire(ctx context.Context, r jobdb.RetireCellRequest, busy func
 }
 
 type cursor struct {
-	Tenant, Principal, Name, State, Root, After string
-	ExpiresAt                                   int64
+	Tenant, Principal, Name, State, After string
+	ExpiresAt                             int64
 }
 
 func (s *State) List(ctx context.Context, r jobdb.ListCellsRequest) (jobdb.ListCellsResponse, error) {
@@ -271,10 +260,7 @@ func (s *State) List(ctx context.Context, r jobdb.ListCellsRequest) (jobdb.ListC
 		return out, jobdb.ErrInvalidCell
 	}
 	a, _ := jobdb.CellAuthorityFromContext(ctx)
-	want := cursor{Tenant: r.TenantID, Principal: a.Principal, Name: r.Name, State: r.State, Root: fmt.Sprint(r.IsRoot), ExpiresAt: time.Now().Add(24 * time.Hour).Unix()}
-	if r.IsRoot != nil {
-		want.Root = fmt.Sprint(*r.IsRoot)
-	}
+	want := cursor{Tenant: r.TenantID, Principal: a.Principal, Name: r.Name, State: r.State, ExpiresAt: time.Now().Add(24 * time.Hour).Unix()}
 	if r.PageToken != "" {
 		parts := strings.Split(r.PageToken, ".")
 		if len(parts) != 2 {
@@ -310,7 +296,7 @@ func (s *State) List(ctx context.Context, r jobdb.ListCellsRequest) (jobdb.ListC
 	sort.Strings(ids)
 	for _, id := range ids {
 		c := s.Cells[id]
-		if id <= want.After || a.Cells != nil && !a.Cells[id] || r.State != "ALL" && string(c.State) != r.State || r.IsRoot != nil && c.IsRoot != *r.IsRoot {
+		if id <= want.After || a.Cells != nil && !a.Cells[id] || r.State != "ALL" && string(c.State) != r.State {
 			continue
 		}
 		if r.Name != "" {
@@ -352,7 +338,7 @@ func (s *State) Resolve(ctx context.Context, tenant, name, repo string, parent *
 		}
 	}
 	c, ok := s.ByName(name)
-	if parent != nil && !parent.IsRoot && (!ok || c.ID != parent.ID) {
+	if parent != nil && (!ok || c.ID != parent.ID) {
 		a, trusted := jobdb.CellAuthorityFromContext(ctx)
 		if !ok || !trusted || !a.LeaseSubmitCells[c.ID] || jobdb.AuthorizeCell(ctx, tenant, c.ID, "jobs.submit") != nil {
 			return jobdb.ResolvedCell{}, jobdb.ErrCellNotFound
@@ -383,48 +369,7 @@ func (s *State) Resolve(ctx context.Context, tenant, name, repo string, parent *
 		}
 		return c.Resolved(), nil
 	}
-	if name == "root" {
-		return jobdb.ResolvedCell{}, jobdb.ErrRootCellRequired
-	}
-	if parent == nil {
-		if e := jobdb.AuthorizeCell(ctx, tenant, "", "cells.create"); e != nil {
-			return jobdb.ResolvedCell{}, e
-		}
-	} else if !parent.IsRoot {
-		return jobdb.ResolvedCell{}, jobdb.ErrCellForbidden
-	}
-	if repo == "" {
-		return jobdb.ResolvedCell{}, jobdb.ErrCellRepoRequired
-	}
-	for _, c := range s.Cells {
-		if c.Repo == repo {
-			return jobdb.ResolvedCell{}, jobdb.ErrCellConflict
-		}
-	}
-	return jobdb.ResolvedCell{Cell: name, CellID: ksuid.New().String(), CellRepo: repo}, nil
-}
-
-// Publish runs only after all job validations succeed, in its commit transaction.
-func (s *State) Publish(target jobdb.ResolvedCell, tenant string) error {
-	if c, ok := s.ByName(target.Cell); ok {
-		if c.ID != target.CellID || c.Repo != target.CellRepo {
-			return jobdb.ErrCellRepoMismatch
-		}
-		if c.State != jobdb.CellActive {
-			return jobdb.ErrCellRetired
-		}
-		return nil
-	}
-	now := time.Now().UTC()
-	c := jobdb.Cell{TenantID: tenant, ID: target.CellID, Name: target.Cell, Repo: target.CellRepo, Metadata: map[string]json.RawMessage{}, Aliases: []string{}, State: jobdb.CellActive, Revision: ksuid.New().String(), CreatedAt: now, UpdatedAt: now}
-	if c.Name == "root" {
-		return jobdb.ErrRootCellRequired
-	}
-	if e := s.unique(c); e != nil {
-		return e
-	}
-	s.Cells[c.ID] = c
-	return nil
+	return jobdb.ResolvedCell{}, jobdb.ErrCellNotFound
 }
 
 // Select resolves requested names to immutable IDs before pagination/acquisition.

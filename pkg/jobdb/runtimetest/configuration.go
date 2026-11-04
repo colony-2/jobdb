@@ -24,7 +24,7 @@ func RunConfigurationConformance(t *testing.T, rt jobdb.WorkflowRuntime) {
 	require.NotNil(t, empty.Values)
 	revision, err := admin.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "configuration-tenant", Name: "a/b.c", Value: json.RawMessage(`{"large":9007199254740993123456789,"nested":[null,false,0,""]}`)})
 	require.NoError(t, err)
-	job, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "configuration-tenant", JobType: "config-job", Data: jobdb.NewTaskDataOrPanic("input")}})
+	job, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "configuration-tenant", JobType: "config-job", Data: jobdb.NewTaskDataOrPanic("input")}})
 	require.NoError(t, err)
 	lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: job.JobKey, WorkerID: "config-worker", Routes: []jobdb.Route{{JobType: "config-job"}}, LeaseDuration: time.Minute})
 	require.NoError(t, err)

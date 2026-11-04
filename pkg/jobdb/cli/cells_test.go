@@ -31,7 +31,7 @@ func TestCreateCellCommand(t *testing.T) {
 	}
 	first, err := run("git@github.com:org/root.git")
 	require.NoError(t, err)
-	require.True(t, first.IsRoot)
+	require.Equal(t, "root", first.Name)
 	again, err := run("https://github.com/org/root")
 	require.NoError(t, err)
 	require.Equal(t, first, again)
@@ -65,7 +65,6 @@ func TestCreateOrdinaryCellCommand(t *testing.T) {
 	var cell jobdb.Cell
 	require.NoError(t, json.Unmarshal(output.Bytes(), &cell))
 	require.Equal(t, "project", cell.Name)
-	require.False(t, cell.IsRoot)
 }
 
 func TestCellCreateRequiresNameAndRemovesRootOnlyCommand(t *testing.T) {
