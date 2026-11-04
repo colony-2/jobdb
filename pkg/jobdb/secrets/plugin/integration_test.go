@@ -50,7 +50,7 @@ func TestPluginCollectionThroughRuntimeAndWorkflow(t *testing.T) {
 					runtime, err = remote.New(s.URL, s.Client())
 					require.NoError(t, err)
 				}
-				job, err := celltest.Submit(runtime, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "test", Metadata: json.RawMessage(`{"lease":{"AuthorizedNotAfter":"2099-01-01T00:00:00Z"}}`), Data: jobdb.NewTaskDataOrPanic(1)}})
+				job, err := celltest.Submit(runtime, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "test", Metadata: json.RawMessage(`{"lease":{"AuthorizedNotAfter":"2099-01-01T00:00:00Z","Cell":{"cellId":"forged","cell":"forged","cellRepo":"example.test/forged"}}}`), Data: jobdb.NewTaskDataOrPanic(1)}})
 				require.NoError(t, err)
 				lease, err := runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: job.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "test"}}, LeaseDuration: time.Minute})
 				require.NoError(t, err)
@@ -64,6 +64,8 @@ func TestPluginCollectionThroughRuntimeAndWorkflow(t *testing.T) {
 				require.NoError(t, json.Unmarshal([]byte(r.Secrets["echo"].Value), &echoed))
 				require.Equal(t, lease.LeaseID(), echoed.Lease.LeaseID)
 				require.Equal(t, "worker", echoed.Lease.WorkerID)
+				require.NotEmpty(t, job.CellID)
+				require.Equal(t, jobdb.ResolvedCell{CellID: job.CellID, Cell: "test", CellRepo: "example.test/test"}, echoed.Lease.Cell)
 				require.Nil(t, echoed.Principal)
 				old := lease.(jobdb.RenewableExecutionLease)
 				require.Equal(t, old.LeaseExpiry(), echoed.Lease.AuthorizedNotAfter)

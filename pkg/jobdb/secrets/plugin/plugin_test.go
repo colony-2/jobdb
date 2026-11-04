@@ -103,6 +103,7 @@ func TestPluginLeaseRoundTripAndSafeFailures(t *testing.T) {
 	now := time.Now().UTC()
 	capExpiry := now.Add(time.Minute)
 	req := jobdb.SecretResolveRequest{TenantID: "tenant", JobID: "job", Principal: &principal, AppMetadata: []byte(`{ "lease": "untrusted", "team": 7 }`), Names: []string{"echo", "token"}, Lease: jobdb.SecretLeaseContext{LeaseID: "lease", WorkerID: "worker", LeaseExpiresAt: now.Add(time.Hour), AuthorizedNotAfter: capExpiry}}
+	req.Lease.Cell = jobdb.ResolvedCell{CellID: "cell-id", Cell: "example", CellRepo: "github.com/acme/example"}
 	r, err := p.ResolveSecrets(context.Background(), req)
 	require.NoError(t, err)
 	var echoed jobdb.SecretResolveRequest

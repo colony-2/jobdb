@@ -25,8 +25,12 @@ func readTime(t *timestamppb.Timestamp) (time.Time, error) {
 	return t.AsTime(), nil
 }
 func encodeRequest(r jobdb.SecretResolveRequest) *pb.ResolveRequest {
-	return &pb.ResolveRequest{TenantId: r.TenantID, JobId: r.JobID, Principal: r.Principal, AppMetadataJson: r.AppMetadata, Names: r.Names,
+	wire := &pb.ResolveRequest{TenantId: r.TenantID, JobId: r.JobID, Principal: r.Principal, AppMetadataJson: r.AppMetadata, Names: r.Names,
 		Lease: &pb.LeaseContext{LeaseId: r.Lease.LeaseID, WorkerId: r.Lease.WorkerID, LeaseExpiresAt: timestamp(r.Lease.LeaseExpiresAt), AuthorizedNotAfter: timestamp(r.Lease.AuthorizedNotAfter)}}
+	if c := r.Lease.Cell; c != (jobdb.ResolvedCell{}) {
+		wire.Lease.Cell = &pb.CellContext{CellId: c.CellID, Name: c.Cell, Repo: c.CellRepo}
+	}
+	return wire
 }
 func decodeRequest(r *pb.ResolveRequest) (jobdb.SecretResolveRequest, error) {
 	if r == nil {
@@ -34,6 +38,9 @@ func decodeRequest(r *pb.ResolveRequest) (jobdb.SecretResolveRequest, error) {
 	}
 	v := jobdb.SecretResolveRequest{TenantID: r.TenantId, JobID: r.JobId, Principal: r.Principal, AppMetadata: r.AppMetadataJson, Names: r.Names}
 	if l := r.Lease; l != nil {
+		if c := l.Cell; c != nil {
+			v.Lease.Cell = jobdb.ResolvedCell{CellID: c.CellId, Cell: c.Name, CellRepo: c.Repo}
+		}
 		v.Lease.LeaseID = l.LeaseId
 		v.Lease.WorkerID = l.WorkerId
 		var err error

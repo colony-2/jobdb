@@ -92,8 +92,10 @@ type LeaseContext struct {
 	WorkerId           string                 `protobuf:"bytes,2,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
 	LeaseExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=lease_expires_at,json=leaseExpiresAt,proto3" json:"lease_expires_at,omitempty"`
 	AuthorizedNotAfter *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=authorized_not_after,json=authorizedNotAfter,proto3" json:"authorized_not_after,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Job cell context supplied by the broker; absent on older hosts.
+	Cell          *CellContext `protobuf:"bytes,5,opt,name=cell,proto3" json:"cell,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LeaseContext) Reset() {
@@ -154,6 +156,73 @@ func (x *LeaseContext) GetAuthorizedNotAfter() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *LeaseContext) GetCell() *CellContext {
+	if x != nil {
+		return x.Cell
+	}
+	return nil
+}
+
+type CellContext struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CellId        string                 `protobuf:"bytes,1,opt,name=cell_id,json=cellId,proto3" json:"cell_id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Repo          string                 `protobuf:"bytes,3,opt,name=repo,proto3" json:"repo,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CellContext) Reset() {
+	*x = CellContext{}
+	mi := &file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CellContext) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CellContext) ProtoMessage() {}
+
+func (x *CellContext) ProtoReflect() protoreflect.Message {
+	mi := &file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CellContext.ProtoReflect.Descriptor instead.
+func (*CellContext) Descriptor() ([]byte, []int) {
+	return file_jobdb_secrets_plugin_v1_provider_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *CellContext) GetCellId() string {
+	if x != nil {
+		return x.CellId
+	}
+	return ""
+}
+
+func (x *CellContext) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CellContext) GetRepo() string {
+	if x != nil {
+		return x.Repo
+	}
+	return ""
+}
+
 type ResolveRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	TenantId        string                 `protobuf:"bytes,1,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
@@ -168,7 +237,7 @@ type ResolveRequest struct {
 
 func (x *ResolveRequest) Reset() {
 	*x = ResolveRequest{}
-	mi := &file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[1]
+	mi := &file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -180,7 +249,7 @@ func (x *ResolveRequest) String() string {
 func (*ResolveRequest) ProtoMessage() {}
 
 func (x *ResolveRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[1]
+	mi := &file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -193,7 +262,7 @@ func (x *ResolveRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveRequest.ProtoReflect.Descriptor instead.
 func (*ResolveRequest) Descriptor() ([]byte, []int) {
-	return file_jobdb_secrets_plugin_v1_provider_proto_rawDescGZIP(), []int{1}
+	return file_jobdb_secrets_plugin_v1_provider_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ResolveRequest) GetTenantId() string {
@@ -250,7 +319,7 @@ type SecretValue struct {
 
 func (x *SecretValue) Reset() {
 	*x = SecretValue{}
-	mi := &file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[2]
+	mi := &file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -262,7 +331,7 @@ func (x *SecretValue) String() string {
 func (*SecretValue) ProtoMessage() {}
 
 func (x *SecretValue) ProtoReflect() protoreflect.Message {
-	mi := &file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[2]
+	mi := &file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -275,7 +344,7 @@ func (x *SecretValue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecretValue.ProtoReflect.Descriptor instead.
 func (*SecretValue) Descriptor() ([]byte, []int) {
-	return file_jobdb_secrets_plugin_v1_provider_proto_rawDescGZIP(), []int{2}
+	return file_jobdb_secrets_plugin_v1_provider_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *SecretValue) GetValue() string {
@@ -315,7 +384,7 @@ type ResolveResult struct {
 
 func (x *ResolveResult) Reset() {
 	*x = ResolveResult{}
-	mi := &file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[3]
+	mi := &file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -327,7 +396,7 @@ func (x *ResolveResult) String() string {
 func (*ResolveResult) ProtoMessage() {}
 
 func (x *ResolveResult) ProtoReflect() protoreflect.Message {
-	mi := &file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[3]
+	mi := &file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -340,7 +409,7 @@ func (x *ResolveResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveResult.ProtoReflect.Descriptor instead.
 func (*ResolveResult) Descriptor() ([]byte, []int) {
-	return file_jobdb_secrets_plugin_v1_provider_proto_rawDescGZIP(), []int{3}
+	return file_jobdb_secrets_plugin_v1_provider_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ResolveResult) GetSecrets() map[string]*SecretValue {
@@ -363,7 +432,7 @@ type ResolveReply struct {
 
 func (x *ResolveReply) Reset() {
 	*x = ResolveReply{}
-	mi := &file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[4]
+	mi := &file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -375,7 +444,7 @@ func (x *ResolveReply) String() string {
 func (*ResolveReply) ProtoMessage() {}
 
 func (x *ResolveReply) ProtoReflect() protoreflect.Message {
-	mi := &file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[4]
+	mi := &file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -388,7 +457,7 @@ func (x *ResolveReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveReply.ProtoReflect.Descriptor instead.
 func (*ResolveReply) Descriptor() ([]byte, []int) {
-	return file_jobdb_secrets_plugin_v1_provider_proto_rawDescGZIP(), []int{4}
+	return file_jobdb_secrets_plugin_v1_provider_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ResolveReply) GetOutcome() isResolveReply_Outcome {
@@ -436,12 +505,17 @@ var File_jobdb_secrets_plugin_v1_provider_proto protoreflect.FileDescriptor
 
 const file_jobdb_secrets_plugin_v1_provider_proto_rawDesc = "" +
 	"\n" +
-	"&jobdb/secrets/plugin/v1/provider.proto\x12\x17jobdb.secrets.plugin.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xda\x01\n" +
+	"&jobdb/secrets/plugin/v1/provider.proto\x12\x17jobdb.secrets.plugin.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x94\x02\n" +
 	"\fLeaseContext\x12\x19\n" +
 	"\blease_id\x18\x01 \x01(\tR\aleaseId\x12\x1b\n" +
 	"\tworker_id\x18\x02 \x01(\tR\bworkerId\x12D\n" +
 	"\x10lease_expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x0eleaseExpiresAt\x12L\n" +
-	"\x14authorized_not_after\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x12authorizedNotAfter\"\xf4\x01\n" +
+	"\x14authorized_not_after\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x12authorizedNotAfter\x128\n" +
+	"\x04cell\x18\x05 \x01(\v2$.jobdb.secrets.plugin.v1.CellContextR\x04cell\"N\n" +
+	"\vCellContext\x12\x17\n" +
+	"\acell_id\x18\x01 \x01(\tR\x06cellId\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
+	"\x04repo\x18\x03 \x01(\tR\x04repo\"\xf4\x01\n" +
 	"\x0eResolveRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x15\n" +
 	"\x06job_id\x18\x02 \x01(\tR\x05jobId\x12!\n" +
@@ -493,33 +567,35 @@ func file_jobdb_secrets_plugin_v1_provider_proto_rawDescGZIP() []byte {
 }
 
 var file_jobdb_secrets_plugin_v1_provider_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_jobdb_secrets_plugin_v1_provider_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_jobdb_secrets_plugin_v1_provider_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_jobdb_secrets_plugin_v1_provider_proto_goTypes = []any{
 	(Failure)(0),                  // 0: jobdb.secrets.plugin.v1.Failure
 	(*LeaseContext)(nil),          // 1: jobdb.secrets.plugin.v1.LeaseContext
-	(*ResolveRequest)(nil),        // 2: jobdb.secrets.plugin.v1.ResolveRequest
-	(*SecretValue)(nil),           // 3: jobdb.secrets.plugin.v1.SecretValue
-	(*ResolveResult)(nil),         // 4: jobdb.secrets.plugin.v1.ResolveResult
-	(*ResolveReply)(nil),          // 5: jobdb.secrets.plugin.v1.ResolveReply
-	nil,                           // 6: jobdb.secrets.plugin.v1.ResolveResult.SecretsEntry
-	(*timestamppb.Timestamp)(nil), // 7: google.protobuf.Timestamp
+	(*CellContext)(nil),           // 2: jobdb.secrets.plugin.v1.CellContext
+	(*ResolveRequest)(nil),        // 3: jobdb.secrets.plugin.v1.ResolveRequest
+	(*SecretValue)(nil),           // 4: jobdb.secrets.plugin.v1.SecretValue
+	(*ResolveResult)(nil),         // 5: jobdb.secrets.plugin.v1.ResolveResult
+	(*ResolveReply)(nil),          // 6: jobdb.secrets.plugin.v1.ResolveReply
+	nil,                           // 7: jobdb.secrets.plugin.v1.ResolveResult.SecretsEntry
+	(*timestamppb.Timestamp)(nil), // 8: google.protobuf.Timestamp
 }
 var file_jobdb_secrets_plugin_v1_provider_proto_depIdxs = []int32{
-	7, // 0: jobdb.secrets.plugin.v1.LeaseContext.lease_expires_at:type_name -> google.protobuf.Timestamp
-	7, // 1: jobdb.secrets.plugin.v1.LeaseContext.authorized_not_after:type_name -> google.protobuf.Timestamp
-	1, // 2: jobdb.secrets.plugin.v1.ResolveRequest.lease:type_name -> jobdb.secrets.plugin.v1.LeaseContext
-	7, // 3: jobdb.secrets.plugin.v1.SecretValue.expires_at:type_name -> google.protobuf.Timestamp
-	6, // 4: jobdb.secrets.plugin.v1.ResolveResult.secrets:type_name -> jobdb.secrets.plugin.v1.ResolveResult.SecretsEntry
-	4, // 5: jobdb.secrets.plugin.v1.ResolveReply.result:type_name -> jobdb.secrets.plugin.v1.ResolveResult
-	0, // 6: jobdb.secrets.plugin.v1.ResolveReply.failure:type_name -> jobdb.secrets.plugin.v1.Failure
-	3, // 7: jobdb.secrets.plugin.v1.ResolveResult.SecretsEntry.value:type_name -> jobdb.secrets.plugin.v1.SecretValue
-	2, // 8: jobdb.secrets.plugin.v1.SecretProvider.ResolveSecrets:input_type -> jobdb.secrets.plugin.v1.ResolveRequest
-	5, // 9: jobdb.secrets.plugin.v1.SecretProvider.ResolveSecrets:output_type -> jobdb.secrets.plugin.v1.ResolveReply
-	9, // [9:10] is the sub-list for method output_type
-	8, // [8:9] is the sub-list for method input_type
-	8, // [8:8] is the sub-list for extension type_name
-	8, // [8:8] is the sub-list for extension extendee
-	0, // [0:8] is the sub-list for field type_name
+	8,  // 0: jobdb.secrets.plugin.v1.LeaseContext.lease_expires_at:type_name -> google.protobuf.Timestamp
+	8,  // 1: jobdb.secrets.plugin.v1.LeaseContext.authorized_not_after:type_name -> google.protobuf.Timestamp
+	2,  // 2: jobdb.secrets.plugin.v1.LeaseContext.cell:type_name -> jobdb.secrets.plugin.v1.CellContext
+	1,  // 3: jobdb.secrets.plugin.v1.ResolveRequest.lease:type_name -> jobdb.secrets.plugin.v1.LeaseContext
+	8,  // 4: jobdb.secrets.plugin.v1.SecretValue.expires_at:type_name -> google.protobuf.Timestamp
+	7,  // 5: jobdb.secrets.plugin.v1.ResolveResult.secrets:type_name -> jobdb.secrets.plugin.v1.ResolveResult.SecretsEntry
+	5,  // 6: jobdb.secrets.plugin.v1.ResolveReply.result:type_name -> jobdb.secrets.plugin.v1.ResolveResult
+	0,  // 7: jobdb.secrets.plugin.v1.ResolveReply.failure:type_name -> jobdb.secrets.plugin.v1.Failure
+	4,  // 8: jobdb.secrets.plugin.v1.ResolveResult.SecretsEntry.value:type_name -> jobdb.secrets.plugin.v1.SecretValue
+	3,  // 9: jobdb.secrets.plugin.v1.SecretProvider.ResolveSecrets:input_type -> jobdb.secrets.plugin.v1.ResolveRequest
+	6,  // 10: jobdb.secrets.plugin.v1.SecretProvider.ResolveSecrets:output_type -> jobdb.secrets.plugin.v1.ResolveReply
+	10, // [10:11] is the sub-list for method output_type
+	9,  // [9:10] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_jobdb_secrets_plugin_v1_provider_proto_init() }
@@ -527,9 +603,9 @@ func file_jobdb_secrets_plugin_v1_provider_proto_init() {
 	if File_jobdb_secrets_plugin_v1_provider_proto != nil {
 		return
 	}
-	file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[1].OneofWrappers = []any{}
 	file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[2].OneofWrappers = []any{}
-	file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[4].OneofWrappers = []any{
+	file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[3].OneofWrappers = []any{}
+	file_jobdb_secrets_plugin_v1_provider_proto_msgTypes[5].OneofWrappers = []any{
 		(*ResolveReply_Result)(nil),
 		(*ResolveReply_Failure)(nil),
 	}
@@ -539,7 +615,7 @@ func file_jobdb_secrets_plugin_v1_provider_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_jobdb_secrets_plugin_v1_provider_proto_rawDesc), len(file_jobdb_secrets_plugin_v1_provider_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

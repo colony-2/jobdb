@@ -115,6 +115,19 @@ is separate from job history. A plugin is trusted executable code, not a sandbox
 For non-Go implementations, the protobuf service alone is insufficient: they
 must also implement the go-plugin handshake and control/health protocol.
 
+Cell context is available through `req.Lease.Cell`: `CellID` is the stable cell
+ID, `Cell` is its name, and `CellRepo` is its repository locator. These values
+come from the job's stored cell context through the broker, not from application
+metadata. Use the tenant ID and cell ID together for cell-specific authorization;
+the name and repository are job context, not a fresh lookup of mutable cell
+properties.
+
+The cell message is an additive extension to protocol version 1. Existing plugin
+binaries continue to work and ignore the new field. Rebuild with the updated SDK
+to receive it; the `SecretProvider` method signature is unchanged. Older hosts
+omit cell context, which decodes to an empty `ResolvedCell`. Providers that require
+cell-specific authorization should deny requests without a cell ID.
+
 ## Development: local SQLite plus the example plugin
 
 Build the example from the JobDB repository:
