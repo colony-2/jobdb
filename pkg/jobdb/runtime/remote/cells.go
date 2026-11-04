@@ -201,10 +201,22 @@ func (l *remoteExecutionLease) ResolveCell(ctx context.Context, name string) (jo
 	return decodeCellResponse[jobdb.ResolvedCell](l.runtime.raw.ResolveCellWithLease(ctx, l.jobKey.TenantId, l.jobKey.JobId, l.leaseID, &runtimeapi.ResolveCellWithLeaseParams{XJobDBLeaseToken: l.LeaseToken()}, runtimeapi.ResolveCellWithLeaseJSONRequestBody{Cell: name}))
 }
 
+func isCellPath(path string) bool {
+	p := strings.Split(path, "/")
+	if len(p) < 5 || p[1] != "v1" || p[2] != "tenants" {
+		return false
+	}
+	if p[4] == "cells" {
+		return len(p) == 5 || len(p) == 6 || len(p) == 7 && p[6] == "retire"
+	}
+	return len(p) == 10 && p[4] == "jobs" && p[6] == "leases" && p[8] == "cells" && p[9] == "resolve"
+}
+
 // Validate the raw cell envelope before decoding optional pointers, preserving
 // the distinction between omitted properties and explicit null.
 func prepareCellRequest(w http.ResponseWriter, r *http.Request) bool {
-	if !strings.Contains(r.URL.Path, "/cells") {
+	// Match resource positions, keeping escaped slashes inside identifiers.
+	if !isCellPath(r.URL.EscapedPath()) {
 		return true
 	}
 	fail := func(e error) bool { writeCellError(w, e); return false }
