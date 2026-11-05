@@ -18,7 +18,7 @@ func newDelegationTransport(client *http.Client) *delegationTransport {
 	return &delegationTransport{original: client, restricted: &restricted}
 }
 func (d *delegationTransport) Do(req *http.Request) (*http.Response, error) {
-	if isDelegationToken(req.Header.Get("X-JobDB-Lease-Token")) || isSecretResolutionPath(req.URL.EscapedPath()) || isConfigurationPath(req.URL.EscapedPath()) {
+	if isDelegationToken(req.Header.Get("X-JobDB-Lease-Token")) || isSecretResolutionPath(req.URL.EscapedPath()) || isConfigurationPath(req.URL.EscapedPath()) || isCellPath(req.URL.EscapedPath()) {
 		return d.restricted.Do(req)
 	}
 	return d.original.Do(req)

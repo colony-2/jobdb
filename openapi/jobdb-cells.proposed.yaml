@@ -492,6 +492,52 @@ paths:
         permission: jobs.submit
         target: resolved cell
         missingCellCreation: never; explicit CreateCell required
+  /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+      - $ref: '#/components/parameters/ParentJobId'
+      - $ref: '#/components/parameters/LeaseId'
+    post:
+      operationId: createCellWithLease
+      tags: [leases]
+      summary: Explicitly create a cell using a live execution lease
+      description: >-
+        Owner leases may create cells in their tenant. Delegated leases require
+        cells.create and the requested name must match its selector. Verify the
+        signed lease, path binding, attenuation, deadline, and live parent before
+        mutation. Creation never expands submission scope. All names, including
+        root, follow the same rules. requestId replay is scoped to the tenant and
+        exact parent lease identity. No Git operation occurs.
+      security:
+        - bearerAuth: []
+          leaseToken: []
+      parameters:
+        - name: X-JobDB-Lease-Token
+          in: header
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateCellRequest'}
+      responses:
+        '201':
+          description: Cell created or original creation replayed.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/NoStore'}
+            ETag: {$ref: '#/components/headers/CellETag'}
+            Location:
+              description: URI of the created cell.
+              schema: {type: string, format: uri-reference}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Cell'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells/resolve:
     parameters:
     - $ref: '#/components/parameters/TenantId'
@@ -507,11 +553,11 @@ paths:
         leaseToken: []
       description: 'Read-only. Verify the signed live lease, path binding, attenuation, and deadline.
 
-        Require effective jobs.submit authority and target-cell scope. Root owner scope
+        Require effective jobs.submit authority and target-cell scope. Lease scope
 
-        covers all tenant names; ordinary scope covers its own cell unless explicitly
+        covers its own cell unless trusted policy explicitly grants more targets.
 
-        granting more targets. A delegation without jobs.submit cannot resolve targets.
+        A delegation without jobs.submit cannot resolve targets.
 
         Return canonical cell name, immutable ID, and registered repo only. This supports
 
@@ -1018,7 +1064,7 @@ components:
           $ref: ./jobdb-runtime.yaml#/components/schemas/DelegationNames
         cellNames:
           $ref: '#/components/schemas/CellNameSelector'
-      description: Proposed jobs.submit delegation shape. A lease defaults to its own cell unless trusted policy grants additional existing targets. No lease creates cells. Missing jobs.submit denies submission. Existing jobTypes/jobIds and all ancestor restrictions still apply; omitted cellNames inherits target scope.
+      description: Proposed jobs.submit delegation shape. A lease defaults to its own cell unless trusted policy grants additional existing targets. Explicit creation is available on owner leases; delegated creation requires a separate cells.create selector and does not expand submission scope. Missing jobs.submit denies submission. Existing jobTypes/jobIds and all ancestor restrictions still apply; omitted cellNames inherits target scope.
     ResolveCellRequest:
       type: object
       additionalProperties: false

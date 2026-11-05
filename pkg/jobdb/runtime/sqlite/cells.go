@@ -301,6 +301,27 @@ func (l *executionLease) ResolveCell(ctx context.Context, name string) (jobdb.Re
 	return l.runtime.ResolveCellWithLeaseByID(ctx, l.jobKey, l.leaseID, l.workerID, name)
 }
 
+func (r *Runtime) CreateCellWithLeaseByID(ctx context.Context, key jobdb.JobKey, leaseID, workerID string, req jobdb.CreateCellRequest) (out jobdb.Cell, err error) {
+	p := cellstate.LeaseProof{JobKey: key, LeaseID: leaseID, WorkerID: workerID}
+	ctx = cellstate.WithLease(ctx, p)
+	err = r.cellMutation(ctx, key.TenantId, func(tx *sql.Tx, s *cellstate.State) error {
+		if _, e := r.cellParent(ctx, tx, s, key.TenantId); e != nil {
+			return e
+		}
+		var e error
+		out, e = s.CreateWithLease(ctx, p, req)
+		return e
+	})
+	return
+}
+
+func (l *executionLease) CreateCell(ctx context.Context, req jobdb.CreateCellRequest) (jobdb.Cell, error) {
+	if err := l.checkExpiry(); err != nil {
+		return jobdb.Cell{}, err
+	}
+	return l.runtime.CreateCellWithLeaseByID(ctx, l.jobKey, l.leaseID, l.workerID, req)
+}
+
 // withoutCellJSON retains the legacy non-cell snapshot format. Cell identity is
 // stored only in relational columns, never duplicated in these JSON objects.
 func withoutCellJSON(value any) ([]byte, error) {

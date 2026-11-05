@@ -5,14 +5,16 @@ Git refs. JobDB supplies stable cell identity and repo snapshots; see the
 [contract](SPEC-Tenant-Cells.md) and [c2j integration](GUIDE-C2J-CELLS.md).
 
 Provisioning requires two explicit operations: provision or identify the Git
-repository, then register the JobDB cell through an authorized administration
-path. Submit initialization work only after registration succeeds. A live job
-lease does not create cells, and a cell named `root` has no special authority.
+repository, then register the JobDB cell through administration or an explicit
+lease `CreateCell` call. Normal execution leases may create cells within their
+tenant; delegated leases need a `cells.create` name selector. Submit initialization
+work only after registration succeeds and submission access is granted. A cell
+named `root` has no special authority.
 Product review workflows may retain that name by convention, but permission
 must come from trusted policy rather than naming or workspace context.
 
 Keep review/approval steps separate from the registration credential. Route
-approved registration to a service with `cells.create`; do not copy privileged
+approved registration to a service or delegated lease with `cells.create`; do not copy privileged
 metadata into child context. Cross-cell submission requires an explicit trusted
 target grant, still constrained by delegation restrictions. A child job gets
 the ordinary authority of its own cell when acquired.

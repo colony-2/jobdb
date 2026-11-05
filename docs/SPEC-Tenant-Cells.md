@@ -97,9 +97,19 @@ Every submission requires `cell`, resolved through current names and aliases.
 Administrative submission requires `jobs.submit` on the target. A lease defaults
 to submission within its own cell. Trusted server policy can grant additional
 existing cell IDs through `LeaseSubmitCells`; delegation job-type/job-ID/cell-name
-restrictions intersect this ceiling and never expand it. A lease has no cell
-creation capability. Registration requires a separate administrative operation.
-This applies equally to a job in a cell named `root`.
+restrictions intersect this ceiling and never expand it. A normal execution lease
+can explicitly register cells in its tenant through `CreateCell`; delegated leases
+require a `cells.create` name selector. Creation does not grant submission access
+to the new cell. This applies equally to a job in a cell named `root`.
+
+`POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells` accepts the
+same properties as administrative creation and returns 201 with the cell, ETag,
+Location, and `Cache-Control: no-store`. The lease method infers the tenant when
+omitted and rejects a different tenant. It verifies the exact live parent in the
+creation transaction, including on request-id replay. Replay identity is scoped
+to the tenant, parent job, lease ID, and worker. A delegated `cells.create` selector
+uses `{ "any": true }` or `{ "names": ["example"] }`; omission denies creation,
+and descendants may only narrow it. Submission remains a separate permission.
 
 The backend derives parent identity from a live stored lease, validating tenant,
 worker, lease ID, expiry, cancellation, and stored ownership in the admission

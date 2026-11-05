@@ -6,6 +6,12 @@ special root endpoint or permission. All cells are explicitly registered;
 submission to a missing name fails regardless of repository input or caller
 creation authority.
 
+Expose `CreateCell` on execution leases through `CreateCellWithLeaseByID` in the
+runtime scheduler adapter. Validate the live parent and create the cell in one
+transaction using `cellstate.State.CreateWithLease`. Normal leases can create in
+their tenant; delegated leases additionally need `cells.create`, enforced by the
+remote delegation boundary. Registration does not expand submission scope.
+
 Store cells, aliases, creation replays, and tenant cursor keys in ordinary rows.
 Only arbitrary cell metadata remains JSON. Replays retain a normalized request
 hash and the original result fields. Remove whole-cell/catalog/preparation JSON

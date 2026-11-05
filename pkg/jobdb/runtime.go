@@ -64,6 +64,9 @@ type JobHandle struct {
 // ExecutionLease represents a leased unit of work returned by PollWork or
 // GetJobLease.
 type ExecutionLease interface {
+	// CreateCell explicitly registers a cell in this lease's tenant. It does not
+	// expand submission scope. Delegated leases require cells.create authority.
+	CreateCell(context.Context, CreateCellRequest) (Cell, error)
 	ResolveCell(context.Context, string) (ResolvedCell, error)
 	// GetConfiguration reads a fresh tenant snapshot using this live lease.
 	GetConfiguration(context.Context) (ConfigurationSnapshot, error)

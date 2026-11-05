@@ -10,6 +10,18 @@ import (
 func (r *Runtime) CreateCell(ctx context.Context, q jobdb.CreateCellRequest) (jobdb.Cell, error) {
 	return r.scheduler.CreateCell(ctx, q)
 }
+
+func (r *Runtime) CreateCellWithLeaseByID(ctx context.Context, key jobdb.JobKey, leaseID, workerID string, req jobdb.CreateCellRequest) (jobdb.Cell, error) {
+	return r.scheduler.CreateCellWithLeaseByID(ctx, key, leaseID, workerID, req)
+}
+
+func (l *executionLease) CreateCell(ctx context.Context, req jobdb.CreateCellRequest) (jobdb.Cell, error) {
+	if err := l.checkExpiry(); err != nil {
+		return jobdb.Cell{}, err
+	}
+	p := l.snapshot.Identity
+	return l.runtime.CreateCellWithLeaseByID(ctx, p.JobKey, p.LeaseID, p.WorkerID, req)
+}
 func (r *Runtime) GetCell(ctx context.Context, q jobdb.CellKey) (jobdb.Cell, error) {
 	return r.scheduler.GetCell(ctx, q)
 }

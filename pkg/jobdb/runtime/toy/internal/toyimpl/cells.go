@@ -189,6 +189,24 @@ func (r *Runtime) ResolveCellWithLeaseByID(ctx context.Context, key jobdb.JobKey
 func (l *runtimeLease) ResolveCell(ctx context.Context, name string) (jobdb.ResolvedCell, error) {
 	return l.runtime.ResolveCellWithLeaseByID(ctx, l.jobKey, l.leaseID, l.workerID, name)
 }
+
+func (r *Runtime) CreateCellWithLeaseByID(ctx context.Context, key jobdb.JobKey, leaseID, workerID string, req jobdb.CreateCellRequest) (jobdb.Cell, error) {
+	p := cellstate.LeaseProof{JobKey: key, LeaseID: leaseID, WorkerID: workerID}
+	ctx = cellstate.WithLease(ctx, p)
+	r.engine.mu.Lock()
+	defer r.engine.mu.Unlock()
+	if _, err := r.engine.cellParentLocked(ctx, key.TenantId); err != nil {
+		return jobdb.Cell{}, err
+	}
+	return r.engine.cellsLocked(key.TenantId).CreateWithLease(ctx, p, req)
+}
+
+func (l *runtimeLease) CreateCell(ctx context.Context, req jobdb.CreateCellRequest) (jobdb.Cell, error) {
+	if err := l.checkExpiry(); err != nil {
+		return jobdb.Cell{}, err
+	}
+	return l.runtime.CreateCellWithLeaseByID(ctx, l.jobKey, l.leaseID, l.workerID, req)
+}
 func (e *ToyEngine) cellHandleLocked(key jobdb.JobKey, rec *jobRecord) jobdb.JobHandle {
 	target := rec.cell
 	if c, ok := e.cellsLocked(key.TenantId).Cells[target.CellID]; ok {

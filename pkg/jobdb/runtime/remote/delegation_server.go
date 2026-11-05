@@ -144,6 +144,8 @@ func (s *proxyServer) prepareDelegationRequest(w http.ResponseWriter, r *http.Re
 		allowed = policy.Write != nil
 	case r.Method == http.MethodPost && suffix == "cells/resolve":
 		allowed = policy.Submit != nil
+	case r.Method == http.MethodPost && suffix == "cells":
+		allowed = policy.CreateCells != nil
 	case r.Method == http.MethodPost && suffix == "jobs":
 		allowed = policy.Submit != nil && policy.Submit.JobIDs.Any
 	case r.Method == http.MethodPut && len(p) == 10 && p[8] == "jobs":
@@ -165,6 +167,18 @@ func (s *proxyServer) prepareDelegationRequest(w http.ResponseWriter, r *http.Re
 		return reject(&delegationError{400, "invalid_delegation_request"})
 	}
 	r.Body = io.NopCloser(bytes.NewReader(raw))
+	if suffix == "cells" {
+		var body struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(raw, &body) != nil || jobdb.ValidateCellName(body.Name) != nil {
+			return reject(&delegationError{400, "invalid_delegation_request"})
+		}
+		if !namesAllow(*policy.CreateCells, body.Name) {
+			return reject(delegationDenied())
+		}
+		return true
+	}
 	if suffix == "cells/resolve" {
 		var body struct {
 			Cell string `json:"cell"`

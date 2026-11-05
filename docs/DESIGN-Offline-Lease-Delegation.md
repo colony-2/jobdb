@@ -31,6 +31,13 @@ The request contains only `Permissions` and optional `NotAfter`. Keep
 `Renew` and `X-JobDB-Lease-Token`. Do not introduce a replacement restriction API
 or require c2j to branch on token format.
 
+`Permissions.CreateCells` (`cells.create` on the wire) optionally selects cell
+names through `DelegationNames`. Omission denies explicit cell creation; a child
+grant can only narrow the selector. Normal owner leases can create cells within
+their tenant. Use `ExecutionLease.CreateCell` for registration; it does not imply
+`jobs.submit` or expand the lease's target-cell scope. The exact parent lease is
+validated in the creation transaction, including for request-id replay.
+
 Local derivation cannot check backend liveness. An invalid parent can therefore
 be detected at import/use rather than creation. Successful creation has never
 guaranteed that the parent will remain live until the next operation; no new

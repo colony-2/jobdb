@@ -1827,6 +1827,52 @@ paths:
           $ref: '#/components/responses/PreconditionRequired'
         '500':
           $ref: '#/components/responses/InternalError'
+  /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+      - $ref: '#/components/parameters/ParentJobId'
+      - $ref: '#/components/parameters/LeaseId'
+    post:
+      operationId: createCellWithLease
+      tags: [leases]
+      summary: Explicitly create a cell using a live execution lease
+      description: >-
+        Owner leases may create cells in their tenant. Delegated leases require
+        cells.create and the requested name must match its selector. Verify the
+        signed lease, path binding, attenuation, deadline, and live parent before
+        mutation. Creation never expands submission scope. All names, including
+        root, follow the same rules. requestId replay is scoped to the tenant and
+        exact parent lease identity. No Git operation occurs.
+      security:
+        - bearerAuth: []
+          leaseToken: []
+      parameters:
+        - name: X-JobDB-Lease-Token
+          in: header
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateCellRequest'}
+      responses:
+        '201':
+          description: Cell created or original creation replayed.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/NoStore'}
+            ETag: {$ref: '#/components/headers/CellETag'}
+            Location:
+              description: URI of the created cell.
+              schema: {type: string, format: uri-reference}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Cell'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells/resolve:
     parameters:
       - $ref: '#/components/parameters/TenantId'
@@ -1840,7 +1886,7 @@ paths:
       security:
         - bearerAuth: []
           leaseToken: []
-      description: "Read-only. Verify the signed live lease, path binding, attenuation, and deadline.\nRequire effective jobs.submit authority and target-cell scope. Root owner scope\ncovers all tenant names; ordinary scope covers its own cell unless explicitly\ngranting more targets. A delegation without jobs.submit cannot resolve targets.\nReturn canonical cell name, immutable ID, and registered repo only. This supports\nname-only c2j requests that must load a recipe before job submission. It grants\nno cell metadata, job history, or secret access. Job-type/job-ID restrictions\nremain checked at submission; resolution cannot expand them.\n\nMissing or inaccessible names return 404. An authorized retired cell returns\n409 cell_retired. Current names and reserved aliases resolve to the same ID.\nNo registration, job creation, Git network call, or policy mutation occurs.\nSubsequent submission must recheck authority, repo assertion, and active state."
+      description: "Read-only. Verify the signed live lease, path binding, attenuation, and deadline.\nRequire effective jobs.submit authority and target-cell scope. Lease scope covers its own cell unless trusted policy explicitly grants more targets. A delegation without jobs.submit cannot resolve targets.\nReturn canonical cell name, immutable ID, and registered repo only. This supports\nname-only c2j requests that must load a recipe before job submission. It grants\nno cell metadata, job history, or secret access. Job-type/job-ID restrictions\nremain checked at submission; resolution cannot expand them.\n\nMissing or inaccessible names return 404. An authorized retired cell returns\n409 cell_retired. Current names and reserved aliases resolve to the same ID.\nNo registration, job creation, Git network call, or policy mutation occurs.\nSubsequent submission must recheck authority, repo assertion, and active state."
       x-jobdb-authorization:
         permission: jobs.submit
         target: effective submission cell scope
@@ -2321,6 +2367,7 @@ components:
       type: object
       additionalProperties: false
       properties:
+        cells.create: {$ref: '#/components/schemas/DelegationNames'}
         jobs.submit: {$ref: '#/components/schemas/DelegationSubmitPermission'}
         secrets.resolve:
           type: array

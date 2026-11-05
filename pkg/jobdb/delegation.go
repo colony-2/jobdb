@@ -57,10 +57,11 @@ type DelegationWritePermission struct {
 // Delegation does not authorize completion, rescheduling, configuration reads,
 // restart submission, schema registration, or artifact downloads. Further delegation may only narrow this allowlist.
 type DelegationPermissions struct {
-	Submit  *DelegationSubmitPermission `json:"jobs.submit,omitempty"`
-	Secrets []string                    `json:"secrets.resolve,omitempty"`
-	Read    *DelegationChapters         `json:"chapters.read,omitempty"`
-	Write   *DelegationWritePermission  `json:"chapters.write,omitempty"`
+	CreateCells *DelegationNames            `json:"cells.create,omitempty"`
+	Submit      *DelegationSubmitPermission `json:"jobs.submit,omitempty"`
+	Secrets     []string                    `json:"secrets.resolve,omitempty"`
+	Read        *DelegationChapters         `json:"chapters.read,omitempty"`
+	Write       *DelegationWritePermission  `json:"chapters.write,omitempty"`
 }
 
 // CreateDelegationRequest restricts a lease to Permissions until NotAfter.

@@ -2,6 +2,7 @@ package cellstate
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
@@ -14,6 +15,22 @@ type LeaseProof struct {
 	LeaseID, WorkerID string
 }
 type leaseKey struct{}
+
+// CreateWithLease registers a cell using lease authority. The backend must
+// validate the exact live lease in the same transaction before calling this.
+// Creation grants no access to submit jobs into the new cell.
+func (s *State) CreateWithLease(ctx context.Context, p LeaseProof, req jobdb.CreateCellRequest) (jobdb.Cell, error) {
+	if req.TenantID != "" && req.TenantID != p.JobKey.TenantId {
+		return jobdb.Cell{}, jobdb.ErrCellForbidden
+	}
+	req.TenantID = p.JobKey.TenantId
+	ctx = jobdb.WithCellAuthority(ctx, jobdb.CellAuthority{
+		TenantID:    req.TenantID,
+		Principal:   fmt.Sprintf("lease:%q:%q:%q", p.JobKey.JobId, p.LeaseID, p.WorkerID),
+		Permissions: map[string]bool{"cells.create": true},
+	})
+	return s.Create(ctx, req)
+}
 
 func WithLease(ctx context.Context, p LeaseProof) context.Context {
 	if ctx == nil {

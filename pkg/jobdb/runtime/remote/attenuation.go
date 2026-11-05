@@ -361,6 +361,9 @@ func chaptersSubset(c, p *jobdb.DelegationChapters) bool {
 	return true
 }
 func permissionsSubset(c, p jobdb.DelegationPermissions) bool {
+	if c.CreateCells != nil && (p.CreateCells == nil || !namesSubset(*c.CreateCells, *p.CreateCells)) {
+		return false
+	}
 	if c.Submit != nil && (p.Submit == nil || !namesSubset(c.Submit.JobTypes, p.Submit.JobTypes) || !namesSubset(c.Submit.JobIDs, p.Submit.JobIDs) || !cellNamesSubset(c.Submit.CellNames, p.Submit.CellNames)) {
 		return false
 	}

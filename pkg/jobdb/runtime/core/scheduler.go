@@ -12,6 +12,7 @@ import (
 // mutations for runtime core.
 type Scheduler interface {
 	jobdb.CellRuntime
+	CreateCellWithLeaseByID(context.Context, jobdb.JobKey, string, string, jobdb.CreateCellRequest) (jobdb.Cell, error)
 	ResolveCellWithLeaseByID(context.Context, jobdb.JobKey, string, string, string) (jobdb.ResolvedCell, error)
 	GoalScheduler
 	// ResolveScheduleCell resolves an existing active target with jobs.submit authority.

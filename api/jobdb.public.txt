@@ -235,6 +235,7 @@ type DelegationOrdinalRange struct
   field Start int64 `json:"start"`
   field End int64 `json:"end"`
 type DelegationPermissions struct
+  field CreateCells *DelegationNames `json:"cells.create,omitempty"`
   field Submit *DelegationSubmitPermission `json:"jobs.submit,omitempty"`
   field Secrets []string `json:"secrets.resolve,omitempty"`
   field Read *DelegationChapters `json:"chapters.read,omitempty"`
@@ -373,6 +374,7 @@ type ExecutionLease interface
   method ClientPayload func() encoding/json.RawMessage
   method ClientPayloadRevision func() int64
   method Complete func(ctx context.Context, req CompleteExecutionRequest) error
+  method CreateCell func(context.Context, CreateCellRequest) (Cell, error)
   method ExecutionState func() ExecutionState
   method GetConfiguration func(context.Context) (ConfigurationSnapshot, error)
   method Job func() JobHandle
@@ -1497,6 +1499,7 @@ method Runtime.ChapterApplicationPayloadLimit func() int64
 method Runtime.CompleteJobWithLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.CompleteExecutionRequest) error
 method Runtime.CompleteTaskIfWaiting func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CompleteTaskIfWaitingRequest) error
 method Runtime.CreateCell func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.CreateCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
+method Runtime.CreateCellWithLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.CreateCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method Runtime.DeleteJobs func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.DeleteJobsRequest) (github.com/colony-2/jobdb/pkg/jobdb.DeleteJobsResponse, error)
 method Runtime.FailGoal func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.FailGoalRequest) (github.com/colony-2/jobdb/pkg/jobdb.GoalInfo, error)
 method Runtime.GetCell func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.CellKey) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
@@ -1551,6 +1554,7 @@ type Scheduler interface
   method CancelJob func(ctx context.Context, req CancelJobMutation) (StoredJob, error)
   method ClaimTask func(ctx context.Context, req ClaimTaskRequest) (LeaseIdentity, error)
   method CompleteLease func(ctx context.Context, mutation CompletionMutation) (StoredJob, error)
+  method CreateCellWithLeaseByID func(context.Context, github.com/colony-2/jobdb/pkg/jobdb.JobKey, string, string, github.com/colony-2/jobdb/pkg/jobdb.CreateCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
   method CreateJob func(ctx context.Context, req CreateJobRequest) (StoredJob, error)
   method GetJob func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey) (StoredJob, error)
   method GetSchedule func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey) (StoredSchedule, error)
@@ -2330,6 +2334,7 @@ method Runtime.Close func(ctx context.Context) error
 method Runtime.CompleteJobWithLeaseByID func(ctx context.Context, jobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.CompleteExecutionRequest) error
 method Runtime.CompleteTaskIfWaiting func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CompleteTaskIfWaitingRequest) error
 method Runtime.CreateCell func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CreateCellRequest) (out github.com/colony-2/jobdb/pkg/jobdb.Cell, err error)
+method Runtime.CreateCellWithLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.CreateCellRequest) (out github.com/colony-2/jobdb/pkg/jobdb.Cell, err error)
 method Runtime.DeleteJobs func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.DeleteJobsRequest) (github.com/colony-2/jobdb/pkg/jobdb.DeleteJobsResponse, error)
 method Runtime.DiscardJobPreparation func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey) error
 method Runtime.FailGoal func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.FailGoalRequest) (out github.com/colony-2/jobdb/pkg/jobdb.GoalInfo, err error)
@@ -2445,6 +2450,7 @@ type State struct
   field Creations []Creation
 method State.ByName func(name string) (github.com/colony-2/jobdb/pkg/jobdb.Cell, bool)
 method State.Create func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CreateCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
+method State.CreateWithLease func(ctx context.Context, p LeaseProof, req github.com/colony-2/jobdb/pkg/jobdb.CreateCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method State.Get func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.CellKey) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method State.List func(ctx context.Context, r github.com/colony-2/jobdb/pkg/jobdb.ListCellsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListCellsResponse, error)
 method State.Resolve func(ctx context.Context, tenant string, name string, repo string, parent *github.com/colony-2/jobdb/pkg/jobdb.Cell, existing *github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, confirmation bool) (github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, error)

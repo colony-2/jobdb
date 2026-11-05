@@ -54,6 +54,9 @@ func (r cellResponse) write(w http.ResponseWriter) error {
 	return json.NewEncoder(w).Encode(r.body)
 }
 func (r cellResponse) VisitCreateCellResponse(w http.ResponseWriter) error { return r.write(w) }
+func (r cellResponse) VisitCreateCellWithLeaseResponse(w http.ResponseWriter) error {
+	return r.write(w)
+}
 func (r cellResponse) VisitGetCellResponse(w http.ResponseWriter) error    { return r.write(w) }
 func (r cellResponse) VisitListCellsResponse(w http.ResponseWriter) error  { return r.write(w) }
 func (r cellResponse) VisitUpdateCellResponse(w http.ResponseWriter) error { return r.write(w) }
@@ -142,6 +145,30 @@ func (s *proxyServer) ResolveCellWithLease(ctx context.Context, q runtimeapi.Res
 	c, e := ops.ResolveCellWithLeaseByID(ctx, key, q.LeaseId, claims.WorkerID, q.Body.Cell)
 	return cellResponse{body: c, err: e}, nil
 }
+
+func (s *proxyServer) CreateCellWithLease(ctx context.Context, q runtimeapi.CreateCellWithLeaseRequestObject) (runtimeapi.CreateCellWithLeaseResponseObject, error) {
+	if q.Body == nil {
+		return nil, jobdb.ErrInvalidCell
+	}
+	key := jobdb.JobKey{TenantId: q.TenantId, JobId: q.ParentJobId}
+	claims, err := s.validatedLeaseClaims(ctx, q.Params.XJobDBLeaseToken, key, q.LeaseId)
+	if err != nil {
+		return nil, err
+	}
+	ops, ok := s.runtime.(interface {
+		CreateCellWithLeaseByID(context.Context, jobdb.JobKey, string, string, jobdb.CreateCellRequest) (jobdb.Cell, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("cell lease creator missing")
+	}
+	req, err := convertCellJSON[runtimeapi.CreateCellRequest, jobdb.CreateCellRequest](*q.Body)
+	if err != nil {
+		return nil, err
+	}
+	req.TenantID = key.TenantId
+	c, err := ops.CreateCellWithLeaseByID(ctx, key, q.LeaseId, claims.WorkerID, req)
+	return cellResponse{body: c, err: err, status: http.StatusCreated, revision: c.Revision, location: "/v1/tenants/" + url.PathEscape(key.TenantId) + "/cells/" + url.PathEscape(c.ID)}, nil
+}
 func decodeCellResponse[T any](resp *http.Response, err error) (T, error) {
 	var out T
 	if err != nil {
@@ -201,6 +228,24 @@ func (l *remoteExecutionLease) ResolveCell(ctx context.Context, name string) (jo
 	return decodeCellResponse[jobdb.ResolvedCell](l.runtime.raw.ResolveCellWithLease(ctx, l.jobKey.TenantId, l.jobKey.JobId, l.leaseID, &runtimeapi.ResolveCellWithLeaseParams{XJobDBLeaseToken: l.LeaseToken()}, runtimeapi.ResolveCellWithLeaseJSONRequestBody{Cell: name}))
 }
 
+func (l *remoteExecutionLease) CreateCell(ctx context.Context, req jobdb.CreateCellRequest) (jobdb.Cell, error) {
+	if req.TenantID != "" && req.TenantID != l.jobKey.TenantId {
+		return jobdb.Cell{}, jobdb.ErrCellForbidden
+	}
+	body, err := convertCellJSON[jobdb.CreateCellRequest, runtimeapi.CreateCellRequest](req)
+	if err != nil {
+		return jobdb.Cell{}, err
+	}
+	resp, err := l.runtime.client.CreateCellWithLeaseWithResponse(ctx, l.jobKey.TenantId, l.jobKey.JobId, l.leaseID, &runtimeapi.CreateCellWithLeaseParams{XJobDBLeaseToken: l.LeaseToken()}, body)
+	if err != nil {
+		return jobdb.Cell{}, err
+	}
+	if resp.StatusCode() != http.StatusCreated || resp.JSON201 == nil {
+		return jobdb.Cell{}, responseError("create cell with lease", resp.StatusCode(), resp.Body, jobdb.ErrExecutionLeaseLost)
+	}
+	return convertCellJSON[runtimeapi.Cell, jobdb.Cell](*resp.JSON201)
+}
+
 func isCellPath(path string) bool {
 	p := strings.Split(path, "/")
 	if len(p) < 5 || p[1] != "v1" || p[2] != "tenants" {
@@ -209,7 +254,7 @@ func isCellPath(path string) bool {
 	if p[4] == "cells" {
 		return len(p) == 5 || len(p) == 6 || len(p) == 7 && p[6] == "retire"
 	}
-	return len(p) == 10 && p[4] == "jobs" && p[6] == "leases" && p[8] == "cells" && p[9] == "resolve"
+	return (len(p) == 9 || len(p) == 10 && p[9] == "resolve") && p[4] == "jobs" && p[6] == "leases" && p[8] == "cells"
 }
 
 // Validate the raw cell envelope before decoding optional pointers, preserving

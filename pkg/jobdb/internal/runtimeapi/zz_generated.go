@@ -418,6 +418,7 @@ type DelegationOrdinalRange struct {
 
 // DelegationPermissions defines model for DelegationPermissions.
 type DelegationPermissions struct {
+	CellsCreate  *DelegationNames    `json:"cells.create,omitempty"`
 	ChaptersRead *DelegationChapters `json:"chapters.read,omitempty"`
 
 	// ChaptersWrite Only TaskAttemptOutcome chapters. Artifact selectors allow fresh uploads, never stored references.
@@ -1632,6 +1633,11 @@ type ResolveSecretsWithLeaseParams struct {
 	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
 }
 
+// CreateCellWithLeaseParams defines parameters for CreateCellWithLease.
+type CreateCellWithLeaseParams struct {
+	XJobDBLeaseToken string `json:"X-JobDB-Lease-Token"`
+}
+
 // ResolveCellWithLeaseParams defines parameters for ResolveCellWithLease.
 type ResolveCellWithLeaseParams struct {
 	XJobDBLeaseToken string `json:"X-JobDB-Lease-Token"`
@@ -1727,6 +1733,9 @@ type ResolveSecretsWithLeaseJSONRequestBody = ResolveSecretsBody
 
 // PutRestartJobJSONRequestBody defines body for PutRestartJob for application/json ContentType.
 type PutRestartJobJSONRequestBody = SubmitRestartJobRequest
+
+// CreateCellWithLeaseJSONRequestBody defines body for CreateCellWithLease for application/json ContentType.
+type CreateCellWithLeaseJSONRequestBody = CreateCellRequest
 
 // ResolveCellWithLeaseJSONRequestBody defines body for ResolveCellWithLease for application/json ContentType.
 type ResolveCellWithLeaseJSONRequestBody = ResolveCellRequest
@@ -2565,6 +2574,11 @@ type ClientInterface interface {
 
 	PutRestartJob(ctx context.Context, tenantId TenantId, jobId JobId, body PutRestartJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// CreateCellWithLeaseWithBody request with any body
+	CreateCellWithLeaseWithBody(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *CreateCellWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CreateCellWithLease(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *CreateCellWithLeaseParams, body CreateCellWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ResolveCellWithLeaseWithBody request with any body
 	ResolveCellWithLeaseWithBody(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *ResolveCellWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -3353,6 +3367,30 @@ func (c *Client) PutRestartJobWithBody(ctx context.Context, tenantId TenantId, j
 
 func (c *Client) PutRestartJob(ctx context.Context, tenantId TenantId, jobId JobId, body PutRestartJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPutRestartJobRequest(c.Server, tenantId, jobId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateCellWithLeaseWithBody(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *CreateCellWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateCellWithLeaseRequestWithBody(c.Server, tenantId, parentJobId, leaseId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateCellWithLease(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *CreateCellWithLeaseParams, body CreateCellWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateCellWithLeaseRequest(c.Server, tenantId, parentJobId, leaseId, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -5923,6 +5961,80 @@ func NewPutRestartJobRequestWithBody(server string, tenantId TenantId, jobId Job
 	return req, nil
 }
 
+// NewCreateCellWithLeaseRequest calls the generic CreateCellWithLease builder with application/json body
+func NewCreateCellWithLeaseRequest(server string, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *CreateCellWithLeaseParams, body CreateCellWithLeaseJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateCellWithLeaseRequestWithBody(server, tenantId, parentJobId, leaseId, params, "application/json", bodyReader)
+}
+
+// NewCreateCellWithLeaseRequestWithBody generates requests for CreateCellWithLease with any type of body
+func NewCreateCellWithLeaseRequestWithBody(server string, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *CreateCellWithLeaseParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "parentJobId", runtime.ParamLocationPath, parentJobId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithLocation("simple", false, "leaseId", runtime.ParamLocationPath, leaseId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs/%s/leases/%s/cells", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithLocation("simple", false, "X-JobDB-Lease-Token", runtime.ParamLocationHeader, params.XJobDBLeaseToken)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-JobDB-Lease-Token", headerParam0)
+
+	}
+
+	return req, nil
+}
+
 // NewResolveCellWithLeaseRequest calls the generic ResolveCellWithLease builder with application/json body
 func NewResolveCellWithLeaseRequest(server string, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *ResolveCellWithLeaseParams, body ResolveCellWithLeaseJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -7105,6 +7217,11 @@ type ClientWithResponsesInterface interface {
 
 	PutRestartJobWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, body PutRestartJobJSONRequestBody, reqEditors ...RequestEditorFn) (*PutRestartJobHTTPResponse, error)
 
+	// CreateCellWithLeaseWithBodyWithResponse request with any body
+	CreateCellWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *CreateCellWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateCellWithLeaseHTTPResponse, error)
+
+	CreateCellWithLeaseWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *CreateCellWithLeaseParams, body CreateCellWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateCellWithLeaseHTTPResponse, error)
+
 	// ResolveCellWithLeaseWithBodyWithResponse request with any body
 	ResolveCellWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *ResolveCellWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ResolveCellWithLeaseHTTPResponse, error)
 
@@ -8085,6 +8202,33 @@ func (r PutRestartJobHTTPResponse) StatusCode() int {
 	return 0
 }
 
+type CreateCellWithLeaseHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *Cell
+	JSON400      *BadRequest
+	JSON401      *Unauthorized
+	JSON403      *Forbidden
+	JSON409      *Conflict
+	JSON500      *InternalError
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateCellWithLeaseHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateCellWithLeaseHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type ResolveCellWithLeaseHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -8991,6 +9135,23 @@ func (c *ClientWithResponses) PutRestartJobWithResponse(ctx context.Context, ten
 		return nil, err
 	}
 	return ParsePutRestartJobHTTPResponse(rsp)
+}
+
+// CreateCellWithLeaseWithBodyWithResponse request with arbitrary body returning *CreateCellWithLeaseHTTPResponse
+func (c *ClientWithResponses) CreateCellWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *CreateCellWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateCellWithLeaseHTTPResponse, error) {
+	rsp, err := c.CreateCellWithLeaseWithBody(ctx, tenantId, parentJobId, leaseId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateCellWithLeaseHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) CreateCellWithLeaseWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *CreateCellWithLeaseParams, body CreateCellWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateCellWithLeaseHTTPResponse, error) {
+	rsp, err := c.CreateCellWithLease(ctx, tenantId, parentJobId, leaseId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateCellWithLeaseHTTPResponse(rsp)
 }
 
 // ResolveCellWithLeaseWithBodyWithResponse request with arbitrary body returning *ResolveCellWithLeaseHTTPResponse
@@ -10679,6 +10840,67 @@ func ParsePutRestartJobHTTPResponse(rsp *http.Response) (*PutRestartJobHTTPRespo
 	return response, nil
 }
 
+// ParseCreateCellWithLeaseHTTPResponse parses an HTTP response from a CreateCellWithLeaseWithResponse call
+func ParseCreateCellWithLeaseHTTPResponse(rsp *http.Response) (*CreateCellWithLeaseHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateCellWithLeaseHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Cell
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseResolveCellWithLeaseHTTPResponse parses an HTTP response from a ResolveCellWithLeaseWithResponse call
 func ParseResolveCellWithLeaseHTTPResponse(rsp *http.Response) (*ResolveCellWithLeaseHTTPResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -11349,6 +11571,9 @@ type ServerInterface interface {
 	// Submit restart job with explicit job ID
 	// (PUT /v1/tenants/{tenantId}/jobs/{jobId}/restart)
 	PutRestartJob(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId)
+	// Explicitly create a cell using a live execution lease
+	// (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells)
+	CreateCellWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params CreateCellWithLeaseParams)
 	// Resolve an active cell name within lease submission scope
 	// (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells/resolve)
 	ResolveCellWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params ResolveCellWithLeaseParams)
@@ -11625,6 +11850,12 @@ func (_ Unimplemented) ResolveSecretsWithLease(w http.ResponseWriter, r *http.Re
 // Submit restart job with explicit job ID
 // (PUT /v1/tenants/{tenantId}/jobs/{jobId}/restart)
 func (_ Unimplemented) PutRestartJob(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Explicitly create a cell using a live execution lease
+// (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells)
+func (_ Unimplemented) CreateCellWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params CreateCellWithLeaseParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -13753,6 +13984,85 @@ func (siw *ServerInterfaceWrapper) PutRestartJob(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// CreateCellWithLease operation middleware
+func (siw *ServerInterfaceWrapper) CreateCellWithLease(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "parentJobId" -------------
+	var parentJobId ParentJobId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "parentJobId", chi.URLParam(r, "parentJobId"), &parentJobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "parentJobId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "leaseId" -------------
+	var leaseId LeaseId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "leaseId", chi.URLParam(r, "leaseId"), &leaseId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "leaseId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, LeaseTokenScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateCellWithLeaseParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-JobDB-Lease-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-JobDB-Lease-Token")]; found {
+		var XJobDBLeaseToken string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-JobDB-Lease-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-JobDB-Lease-Token", valueList[0], &XJobDBLeaseToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-JobDB-Lease-Token", Err: err})
+			return
+		}
+
+		params.XJobDBLeaseToken = XJobDBLeaseToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-JobDB-Lease-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-JobDB-Lease-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateCellWithLease(w, r, tenantId, parentJobId, leaseId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ResolveCellWithLease operation middleware
 func (siw *ServerInterfaceWrapper) ResolveCellWithLease(w http.ResponseWriter, r *http.Request) {
 
@@ -14848,6 +15158,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/restart", wrapper.PutRestartJob)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells", wrapper.CreateCellWithLease)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells/resolve", wrapper.ResolveCellWithLease)
@@ -16756,6 +17069,90 @@ func (response PutRestartJob413JSONResponse) VisitPutRestartJobResponse(w http.R
 	return json.NewEncoder(w).Encode(response)
 }
 
+type CreateCellWithLeaseRequestObject struct {
+	TenantId    TenantId    `json:"tenantId"`
+	ParentJobId ParentJobId `json:"parentJobId"`
+	LeaseId     LeaseId     `json:"leaseId"`
+	Params      CreateCellWithLeaseParams
+	Body        *CreateCellWithLeaseJSONRequestBody
+}
+
+type CreateCellWithLeaseResponseObject interface {
+	VisitCreateCellWithLeaseResponse(w http.ResponseWriter) error
+}
+
+type CreateCellWithLease201ResponseHeaders struct {
+	CacheControl string
+	ETag         string
+	Location     string
+}
+
+type CreateCellWithLease201JSONResponse struct {
+	Body    Cell
+	Headers CreateCellWithLease201ResponseHeaders
+}
+
+func (response CreateCellWithLease201JSONResponse) VisitCreateCellWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type CreateCellWithLease400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateCellWithLease400JSONResponse) VisitCreateCellWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type CreateCellWithLease401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateCellWithLease401JSONResponse) VisitCreateCellWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("WWW-Authenticate", fmt.Sprint(response.Headers.WWWAuthenticate))
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type CreateCellWithLease403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateCellWithLease403JSONResponse) VisitCreateCellWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type CreateCellWithLease409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateCellWithLease409JSONResponse) VisitCreateCellWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type CreateCellWithLease500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response CreateCellWithLease500JSONResponse) VisitCreateCellWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
 type ResolveCellWithLeaseRequestObject struct {
 	TenantId    TenantId    `json:"tenantId"`
 	ParentJobId ParentJobId `json:"parentJobId"`
@@ -17367,6 +17764,9 @@ type StrictServerInterface interface {
 	// Submit restart job with explicit job ID
 	// (PUT /v1/tenants/{tenantId}/jobs/{jobId}/restart)
 	PutRestartJob(ctx context.Context, request PutRestartJobRequestObject) (PutRestartJobResponseObject, error)
+	// Explicitly create a cell using a live execution lease
+	// (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells)
+	CreateCellWithLease(ctx context.Context, request CreateCellWithLeaseRequestObject) (CreateCellWithLeaseResponseObject, error)
 	// Resolve an active cell name within lease submission scope
 	// (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells/resolve)
 	ResolveCellWithLease(ctx context.Context, request ResolveCellWithLeaseRequestObject) (ResolveCellWithLeaseResponseObject, error)
@@ -18641,6 +19041,42 @@ func (sh *strictHandler) PutRestartJob(w http.ResponseWriter, r *http.Request, t
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PutRestartJobResponseObject); ok {
 		if err := validResponse.VisitPutRestartJobResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateCellWithLease operation middleware
+func (sh *strictHandler) CreateCellWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params CreateCellWithLeaseParams) {
+	var request CreateCellWithLeaseRequestObject
+
+	request.TenantId = tenantId
+	request.ParentJobId = parentJobId
+	request.LeaseId = leaseId
+	request.Params = params
+
+	var body CreateCellWithLeaseJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateCellWithLease(ctx, request.(CreateCellWithLeaseRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateCellWithLease")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateCellWithLeaseResponseObject); ok {
+		if err := validResponse.VisitCreateCellWithLeaseResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

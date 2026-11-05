@@ -20,6 +20,7 @@ func cellAdmin(tenant string) context.Context {
 // RunCellConformance tests the mandatory named-cell contract against a fresh tenant.
 func RunCellConformance(t *testing.T, rt jobdb.WorkflowRuntime) {
 	t.Helper()
+	t.Run("lease cell creation", func(t *testing.T) { runLeaseCellCreation(t, rt) })
 	tenant := "cells-" + ksuid.New().String()
 	ctx := cellAdmin(tenant)
 	_, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: tenant, Cell: "root", CellRepo: "github.com/org/root", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(1)}})
@@ -217,4 +218,45 @@ func RunCellConformance(t *testing.T, rt jobdb.WorkflowRuntime) {
 		require.Equal(t, child.CellRepo, restarted.CellRepo)
 	})
 
+}
+
+func runLeaseCellCreation(t *testing.T, rt jobdb.WorkflowRuntime) {
+	tenant := "lease-cells-" + ksuid.New().String()
+	admin := cellAdmin(tenant)
+	_, err := rt.CreateCell(admin, jobdb.CreateCellRequest{TenantID: tenant, Name: "ordinary", Repo: "github.com/org/ordinary"})
+	require.NoError(t, err)
+	parent, err := rt.SubmitJob(admin, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: tenant, Cell: "ordinary", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
+	require.NoError(t, err)
+	lease, err := rt.GetJobLease(admin, jobdb.GetJobLeaseRequest{JobKey: parent.JobKey, WorkerID: "creator", Routes: []jobdb.Route{{JobType: "job"}}})
+	require.NoError(t, err)
+	require.NotNil(t, lease)
+	ctx := context.Background() // No administrative CellAuthority is needed.
+	req := jobdb.CreateCellRequest{Name: "created", Repo: "github.com/org/created", RequestID: "once", Metadata: map[string]json.RawMessage{"team": json.RawMessage(`"example"`)}}
+	created, err := lease.CreateCell(ctx, req)
+	require.NoError(t, err)
+	require.NotEmpty(t, created.ID)
+	require.Equal(t, tenant, created.TenantID)
+	require.Equal(t, req.Metadata, created.Metadata)
+	again, err := lease.CreateCell(ctx, req)
+	require.NoError(t, err)
+	require.Equal(t, created, again)
+	changed := req
+	changed.Description = "different"
+	_, err = lease.CreateCell(ctx, changed)
+	require.ErrorIs(t, err, jobdb.ErrCellRequestConflict)
+	changed.TenantID = "another-tenant"
+	_, err = lease.CreateCell(ctx, changed)
+	require.ErrorIs(t, err, jobdb.ErrCellForbidden)
+	_, err = lease.CreateCell(ctx, jobdb.CreateCellRequest{Name: "root", Repo: "github.com/org/root"})
+	require.NoError(t, err)
+	_, err = lease.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: tenant, Cell: created.Name, JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
+	require.Error(t, err, "creation must not expand submission scope")
+	require.NoError(t, rt.CancelJob(admin, jobdb.CancelJobRequest{JobKey: parent.JobKey}))
+	_, err = lease.CreateCell(ctx, req) // Even a replay requires a live parent.
+	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
+	_, err = lease.CreateCell(ctx, jobdb.CreateCellRequest{Name: "after-cancel", Repo: "github.com/org/after-cancel"})
+	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
+	list, err := rt.ListCells(admin, jobdb.ListCellsRequest{TenantID: tenant, Name: "after-cancel"})
+	require.NoError(t, err)
+	require.Empty(t, list.Cells)
 }

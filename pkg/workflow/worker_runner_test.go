@@ -1219,3 +1219,7 @@ func (r *runnerTestRuntime) ListDependencyWaits(context.Context, jobdb.ListDepen
 func (l *fakeExecutionLease) ResolveCell(context.Context, string) (jobdb.ResolvedCell, error) {
 	return jobdb.ResolvedCell{}, errors.New("unexpected cell resolution")
 }
+
+func (l *fakeExecutionLease) CreateCell(context.Context, jobdb.CreateCellRequest) (jobdb.Cell, error) {
+	return jobdb.Cell{}, errors.New("unexpected cell creation")
+}

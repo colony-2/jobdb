@@ -32,8 +32,9 @@ mismatch requires an explicit configuration or registry correction.
 Use the registry or a live lease's `ResolveCell` method for name resolution.
 A lease defaults to its own cell; trusted server policy may grant additional
 existing targets. Preserve delegated job-type/job-ID/cell-name restrictions.
-Cell creation is a separate administrative action, never inherited from a
-parent lease. Working in another repository does not change job ownership or
+Cell creation is an explicit `CreateCell` call on a normal execution lease, or
+an administrative registration. Delegated leases require a `cells.create` name
+selector; creation does not expand their submission scope. Working in another repository does not change job ownership or
 expand authority. Bind workspace Git operations to the returned repo snapshot;
 keep Git refs separate from cell names and repository locators.
 

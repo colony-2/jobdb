@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
@@ -42,6 +43,7 @@ func TestCellValidationRouteScope(t *testing.T) {
 		{http.MethodPost, "/v1/tenants/cells-example/cells"},
 		{http.MethodPatch, "/v1/tenants/cells/cells/id"},
 		{http.MethodPost, "/v1/tenants/cells/jobs/cells/leases/l/cells/resolve"},
+		{http.MethodPost, "/v1/tenants/cells/jobs/cells/leases/l/cells"},
 		{http.MethodPost, "/v1/tenants/t%2Fcells/cells"},
 	} {
 		t.Run(tc.path, func(t *testing.T) {
@@ -188,4 +190,76 @@ func TestCellDelegationCeilings(t *testing.T) {
 	require.NoError(t, err)
 	_, err = DecodeLeaseCapability([]byte(strings.Replace(string(raw), `"version":2`, `"version":1`, 1)))
 	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
+}
+
+func TestDelegatedCellCreation(t *testing.T) {
+	for _, backend := range []string{"toy", "sqlite"} {
+		t.Run(backend, func(t *testing.T) {
+			f := newDelegationFixture(t, backend, nil)
+			ctx := context.Background()
+			request := func(name string) jobdb.CreateCellRequest {
+				return jobdb.CreateCellRequest{Name: name, Repo: "github.com/org/" + name, RequestID: name}
+			}
+			without := f.create(t, jobdb.CreateDelegationRequest{Permissions: delegationPolicy()})
+			_, err := without.CreateCell(ctx, request("denied"))
+			require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
+			all := jobdb.DelegationPermissions{CreateCells: &jobdb.DelegationNames{Any: true}}
+			_, err = f.client.CreateDelegation(ctx, without, jobdb.CreateDelegationRequest{Permissions: all})
+			require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
+			broad := f.create(t, jobdb.CreateDelegationRequest{Permissions: all})
+			policy := jobdb.DelegationPermissions{CreateCells: &jobdb.DelegationNames{Names: []string{"allowed"}}}
+			narrow, err := f.client.CreateDelegation(ctx, broad, jobdb.CreateDelegationRequest{Permissions: policy})
+			require.NoError(t, err)
+			_, err = f.client.CreateDelegation(ctx, narrow, jobdb.CreateDelegationRequest{Permissions: all})
+			require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
+			// The server must reject widening even if a client skips SDK checks.
+			forged := appendTestRestriction(t, narrow.(*remoteExecutionLease).LeaseToken(), all, nil)
+			status, _ := delegationHTTP(t, f, http.MethodPost, delegationBase(narrow)+"/cells", forged, request("denied"))
+			require.NotEqual(t, http.StatusCreated, status)
+			_, err = narrow.CreateCell(ctx, request("denied"))
+			require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
+			created, err := narrow.CreateCell(ctx, request("allowed"))
+			require.NoError(t, err)
+			require.Equal(t, "tenant", created.TenantID)
+			again, err := narrow.CreateCell(ctx, request("allowed"))
+			require.NoError(t, err)
+			require.Equal(t, created, again)
+			// Dropping the action when delegating again cannot be undone.
+			empty, err := f.client.CreateDelegation(ctx, narrow, jobdb.CreateDelegationRequest{})
+			require.NoError(t, err)
+			_, err = empty.CreateCell(ctx, request("allowed"))
+			require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
+			_, err = f.client.CreateDelegation(ctx, empty, jobdb.CreateDelegationRequest{Permissions: policy})
+			require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
+			// Creating a cell does not grant jobs.submit to the delegation.
+			_, err = narrow.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", Cell: created.Name, JobType: "child", Data: jobdb.NewTaskDataOrPanic(1)}})
+			require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
+			_, err = f.client.CreateDelegation(ctx, f.owner, jobdb.CreateDelegationRequest{Permissions: jobdb.DelegationPermissions{CreateCells: &jobdb.DelegationNames{Any: true, Names: []string{"invalid"}}}})
+			require.Error(t, err)
+
+			path := delegationBase(broad) + "/cells"
+			for _, path := range []string{
+				strings.Replace(path, "/tenants/tenant/", "/tenants/other/", 1),
+				strings.Replace(path, "/leases/"+broad.LeaseID(), "/leases/other", 1),
+			} {
+				status, _ := delegationHTTP(t, f, http.MethodPost, path, broad.LeaseToken(), request("denied"))
+				require.Equal(t, http.StatusUnauthorized, status)
+			}
+			status, _ = delegationHTTP(t, f, http.MethodPost, path, broad.LeaseToken(), map[string]any{"name": "denied", "repo": "github.com/org/denied", "metadata": nil})
+			require.Equal(t, http.StatusBadRequest, status)
+			status, _ = delegationHTTP(t, f, http.MethodPost, path, "invalid", request("denied"))
+			require.NotEqual(t, http.StatusCreated, status)
+			deadline := time.Now().Add(100 * time.Millisecond)
+			expiring := f.create(t, jobdb.CreateDelegationRequest{Permissions: all, NotAfter: &deadline})
+			time.Sleep(time.Until(deadline) + 10*time.Millisecond)
+			_, err = expiring.CreateCell(ctx, request("denied"))
+			require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
+			require.NoError(t, f.client.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: f.owner.Job().JobKey}))
+			_, err = broad.CreateCell(ctx, request("denied"))
+			require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
+			list, err := f.client.ListCells(ctx, jobdb.ListCellsRequest{TenantID: "tenant", Name: "denied"})
+			require.NoError(t, err)
+			require.Empty(t, list.Cells)
+		})
+	}
 }
