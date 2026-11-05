@@ -97,8 +97,6 @@ type CellAuthority struct {
 	TenantID    string
 	Permissions map[string]bool
 	Cells       map[string]bool
-	// LeaseSubmitCells explicitly permits leases to submit to these existing cell IDs.
-	LeaseSubmitCells map[string]bool
 }
 type cellAuthorityKey struct{}
 
@@ -108,7 +106,6 @@ func WithCellAuthority(ctx context.Context, a CellAuthority) context.Context {
 	}
 	a.Permissions = cloneCellPermissions(a.Permissions)
 	a.Cells = cloneCellPermissions(a.Cells)
-	a.LeaseSubmitCells = cloneCellPermissions(a.LeaseSubmitCells)
 	return context.WithValue(ctx, cellAuthorityKey{}, a)
 }
 func cloneCellPermissions(m map[string]bool) map[string]bool {
@@ -128,7 +125,6 @@ func CellAuthorityFromContext(ctx context.Context) (CellAuthority, bool) {
 	a, ok := ctx.Value(cellAuthorityKey{}).(CellAuthority)
 	a.Permissions = cloneCellPermissions(a.Permissions)
 	a.Cells = cloneCellPermissions(a.Cells)
-	a.LeaseSubmitCells = cloneCellPermissions(a.LeaseSubmitCells)
 	return a, ok
 }
 func AuthorizeCell(ctx context.Context, tenant, id, permission string) error {

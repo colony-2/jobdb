@@ -94,13 +94,25 @@ Every submission requires `cell`, resolved through current names and aliases.
 | Missing cell, with or without repo | `not_found`; no cell, job, goal, or history is published. |
 | Retired cell, new work | `cell_retired`. |
 
-Administrative submission requires `jobs.submit` on the target. A lease defaults
-to submission within its own cell. Trusted server policy can grant additional
-existing cell IDs through `LeaseSubmitCells`; delegation job-type/job-ID/cell-name
-restrictions intersect this ceiling and never expand it. A normal execution lease
-can explicitly register cells in its tenant through `CreateCell`; delegated leases
-require a `cells.create` name selector. Creation does not grant submission access
-to the new cell. This applies equally to a job in a cell named `root`.
+Administrative submission requires `jobs.submit` on the target. Normal execution
+leases may submit to any registered active cell in their tenant. Delegated leases
+require `jobs.submit`: omitted `cellNames` adds no restriction, an explicit list
+allows only those names, and an empty selector allows none. Descendants inherit
+ancestor restrictions and cannot widen them. There is no separate permission
+for submitting to a cell other than the owning cell.
+
+Lease-scoped `ResolveCell` uses the same action and cell-name scope. Trusted
+principal policy, when supplied, may additionally restrict tenant, permissions,
+and allowed cell IDs through `CellAuthority.Cells`. Those restrictions apply
+equally to the owning cell and other cells; a cell outside the principal's list
+returns `not_found`. No additional cross-cell grant is required.
+
+Normal execution leases may explicitly register any cell name within their
+tenant. Delegated `cells.create` grants permit all names with `{ "any": true }`
+or just the names in `{ "names": ["example"] }`. Omitting the action denies it.
+Creation and submission are independent actions: creation does not add a
+submission permission or widen a submission name list. An unrestricted submitter
+can use a newly created cell. `root` follows the same rules as every other name.
 
 `POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells` accepts the
 same properties as administrative creation and returns 201 with the cell, ETag,

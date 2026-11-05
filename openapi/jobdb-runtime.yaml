@@ -1886,7 +1886,7 @@ paths:
       security:
         - bearerAuth: []
           leaseToken: []
-      description: "Read-only. Verify the signed live lease, path binding, attenuation, and deadline.\nRequire effective jobs.submit authority and target-cell scope. Lease scope covers its own cell unless trusted policy explicitly grants more targets. A delegation without jobs.submit cannot resolve targets.\nReturn canonical cell name, immutable ID, and registered repo only. This supports\nname-only c2j requests that must load a recipe before job submission. It grants\nno cell metadata, job history, or secret access. Job-type/job-ID restrictions\nremain checked at submission; resolution cannot expand them.\n\nMissing or inaccessible names return 404. An authorized retired cell returns\n409 cell_retired. Current names and reserved aliases resolve to the same ID.\nNo registration, job creation, Git network call, or policy mutation occurs.\nSubsequent submission must recheck authority, repo assertion, and active state."
+      description: "Read-only. Verify the signed live lease, path binding, attenuation, and deadline.\nRequire effective jobs.submit authority and target-cell scope. Normal lease scope includes all registered active cells in the tenant; explicit principal or delegation restrictions may narrow it. A delegation without jobs.submit cannot resolve targets.\nReturn canonical cell name, immutable ID, and registered repo only. This supports\nname-only c2j requests that must load a recipe before job submission. It grants\nno cell metadata, job history, or secret access. Job-type/job-ID restrictions\nremain checked at submission; resolution cannot expand them.\n\nMissing or inaccessible names return 404. An authorized retired cell returns\n409 cell_retired. Current names and reserved aliases resolve to the same ID.\nNo registration, job creation, Git network call, or policy mutation occurs.\nSubsequent submission must recheck authority, repo assertion, and active state."
       x-jobdb-authorization:
         permission: jobs.submit
         target: effective submission cell scope
@@ -1940,7 +1940,7 @@ components:
       type: apiKey
       in: header
       name: X-JobDB-Lease-Token
-      description: Cell name is required and must resolve to an explicitly created, active cell in the tenant. Optional cellRepo asserts the repository mapping; it never creates a cell. Missing cells return not_found. Leases default to their own cell; trusted policy may grant submission to other existing cells. Delegation restrictions always apply. Cell names, including root, grant no special authority. Job IDs remain unique across the tenant. Existing jobs and restarts retain their repository snapshots.
+      description: Cell name is required and must resolve to an explicitly created, active cell in the tenant. Optional cellRepo asserts the repository mapping; it never creates a cell. Missing cells return not_found. Normal leases may submit to all registered active cells in their tenant; an explicit delegation cellNames list narrows the allowed targets. Delegation restrictions always apply. Cell names, including root, grant no special authority. Job IDs remain unique across the tenant. Existing jobs and restarts retain their repository snapshots.
   parameters:
     TenantId:
       name: tenantId

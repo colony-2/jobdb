@@ -96,7 +96,6 @@ type CellAuthority struct
   field TenantID string
   field Permissions map[string]bool
   field Cells map[string]bool
-  field LeaseSubmitCells map[string]bool
 func CellAuthorityFromContext func(ctx context.Context) (CellAuthority, bool)
 type CellError struct
   field Code string

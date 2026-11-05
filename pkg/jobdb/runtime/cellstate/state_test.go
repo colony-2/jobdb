@@ -68,7 +68,7 @@ func TestRepoNormalization(t *testing.T) {
 	}
 }
 
-func TestRootCellHasOrdinaryLeaseScope(t *testing.T) {
+func TestLeaseSubmissionDefaultsToTenantAndHonorsExplicitScope(t *testing.T) {
 	s := cellstate.New()
 	ctx := celltest.Context(context.Background())
 	creator := jobdb.WithCellAuthority(context.Background(), jobdb.CellAuthority{Principal: "creator", TenantID: "t", Permissions: map[string]bool{"cells.create": true}})
@@ -76,12 +76,22 @@ func TestRootCellHasOrdinaryLeaseScope(t *testing.T) {
 	require.NoError(t, err)
 	other, err := s.Create(ctx, jobdb.CreateCellRequest{TenantID: "t", Name: "other", Repo: "example.test/other"})
 	require.NoError(t, err)
-	_, err = s.Resolve(ctx, "t", "other", "", &root, nil, false)
-	require.ErrorIs(t, err, jobdb.ErrCellNotFound)
-	granted := jobdb.WithCellAuthority(context.Background(), jobdb.CellAuthority{Principal: "worker", TenantID: "t", Permissions: map[string]bool{"jobs.submit": true}, LeaseSubmitCells: map[string]bool{other.ID: true}})
-	target, err := s.Resolve(granted, "t", "other", "", &root, nil, false)
+	for _, caller := range []context.Context{context.Background(), ctx} {
+		for _, parent := range []*jobdb.Cell{&root, &other} {
+			for _, name := range []string{"root", "other"} {
+				_, err := s.Resolve(caller, "t", name, "", parent, nil, false)
+				require.NoError(t, err)
+			}
+		}
+	}
+	restricted := jobdb.WithCellAuthority(context.Background(), jobdb.CellAuthority{Principal: "worker", TenantID: "t", Permissions: map[string]bool{"jobs.submit": true}, Cells: map[string]bool{other.ID: true}})
+	target, err := s.Resolve(restricted, "t", "other", "", &root, nil, false)
 	require.NoError(t, err)
 	require.Equal(t, other.Resolved(), target)
+	_, err = s.Resolve(restricted, "t", "root", "", &root, nil, false)
+	require.ErrorIs(t, err, jobdb.ErrCellNotFound, "owning cell has no implicit exemption from the list")
+	_, err = s.Resolve(creator, "t", "root", "", &root, nil, false)
+	require.ErrorIs(t, err, jobdb.ErrCellForbidden, "cell creation does not grant job submission")
 	for _, parent := range []*jobdb.Cell{nil, &root, &other} {
 		_, err = s.Resolve(ctx, "t", "missing", "example.test/missing", parent, nil, false)
 		require.ErrorIs(t, err, jobdb.ErrCellNotFound)

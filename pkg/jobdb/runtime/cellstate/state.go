@@ -325,7 +325,10 @@ func (s *State) Resolve(ctx context.Context, tenant, name, repo string, parent *
 	if e := jobdb.ValidateCellName(name); e != nil {
 		return jobdb.ResolvedCell{}, e
 	}
-	if parent == nil {
+	// A validated owner lease permits submission throughout its tenant. Trusted
+	// principal restrictions, when supplied, apply equally to every target cell.
+	_, restricted := jobdb.CellAuthorityFromContext(ctx)
+	if parent == nil || restricted {
 		if e := jobdb.AuthorizeCell(ctx, tenant, "", "jobs.submit"); e != nil {
 			return jobdb.ResolvedCell{}, e
 		}
@@ -338,13 +341,7 @@ func (s *State) Resolve(ctx context.Context, tenant, name, repo string, parent *
 		}
 	}
 	c, ok := s.ByName(name)
-	if parent != nil && (!ok || c.ID != parent.ID) {
-		a, trusted := jobdb.CellAuthorityFromContext(ctx)
-		if !ok || !trusted || !a.LeaseSubmitCells[c.ID] || jobdb.AuthorizeCell(ctx, tenant, c.ID, "jobs.submit") != nil {
-			return jobdb.ResolvedCell{}, jobdb.ErrCellNotFound
-		}
-	}
-	if parent == nil && ok {
+	if ok && (parent == nil || restricted) {
 		if e := jobdb.AuthorizeCell(ctx, tenant, c.ID, "jobs.submit"); e != nil {
 			return jobdb.ResolvedCell{}, e
 		}

@@ -278,7 +278,7 @@ paths:
       - jobs
       operationId: submitJob
       summary: Submit job
-      description: "Cell name is required and must resolve to an explicitly created, active cell in the tenant. Optional cellRepo asserts the repository mapping; it never creates a cell. Missing cells return not_found. Leases default to their own cell; trusted policy may grant submission to other existing cells. Delegation restrictions always apply. Cell names, including root, grant no special authority. Job IDs remain unique across the tenant. Existing jobs and restarts retain their repository snapshots."
+      description: "Cell name is required and must resolve to an explicitly created, active cell in the tenant. Optional cellRepo asserts the repository mapping; it never creates a cell. Missing cells return not_found. Normal leases may submit to all registered active cells in their tenant; an explicit delegation cellNames list narrows the allowed targets. Delegation restrictions always apply. Cell names, including root, grant no special authority. Job IDs remain unique across the tenant. Existing jobs and restarts retain their repository snapshots."
       parameters:
       - $ref: '#/components/parameters/TenantId'
       requestBody:
@@ -330,7 +330,7 @@ paths:
       - jobs
       operationId: putJob
       summary: Submit job with explicit job ID
-      description: "Cell name is required and must resolve to an explicitly created, active cell in the tenant. Optional cellRepo asserts the repository mapping; it never creates a cell. Missing cells return not_found. Leases default to their own cell; trusted policy may grant submission to other existing cells. Delegation restrictions always apply. Cell names, including root, grant no special authority. Job IDs remain unique across the tenant. Existing jobs and restarts retain their repository snapshots."
+      description: "Cell name is required and must resolve to an explicitly created, active cell in the tenant. Optional cellRepo asserts the repository mapping; it never creates a cell. Missing cells return not_found. Normal leases may submit to all registered active cells in their tenant; an explicit delegation cellNames list narrows the allowed targets. Delegation restrictions always apply. Cell names, including root, grant no special authority. Job IDs remain unique across the tenant. Existing jobs and restarts retain their repository snapshots."
       parameters:
       - $ref: '#/components/parameters/TenantId'
       - $ref: '#/components/parameters/JobId'
@@ -383,7 +383,7 @@ paths:
       - leases
       operationId: submitJobWithLease
       summary: Submit child job with lease
-      description: "Cell name is required and must resolve to an explicitly created, active cell in the tenant. Optional cellRepo asserts the repository mapping; it never creates a cell. Missing cells return not_found. Leases default to their own cell; trusted policy may grant submission to other existing cells. Delegation restrictions always apply. Cell names, including root, grant no special authority. Job IDs remain unique across the tenant. Existing jobs and restarts retain their repository snapshots."
+      description: "Cell name is required and must resolve to an explicitly created, active cell in the tenant. Optional cellRepo asserts the repository mapping; it never creates a cell. Missing cells return not_found. Normal leases may submit to all registered active cells in their tenant; an explicit delegation cellNames list narrows the allowed targets. Delegation restrictions always apply. Cell names, including root, grant no special authority. Job IDs remain unique across the tenant. Existing jobs and restarts retain their repository snapshots."
       parameters:
       - $ref: '#/components/parameters/TenantId'
       - $ref: '#/components/parameters/ParentJobId'
@@ -440,7 +440,7 @@ paths:
       - leases
       operationId: putJobWithLease
       summary: Submit child job with explicit job ID and lease
-      description: "Cell name is required and must resolve to an explicitly created, active cell in the tenant. Optional cellRepo asserts the repository mapping; it never creates a cell. Missing cells return not_found. Leases default to their own cell; trusted policy may grant submission to other existing cells. Delegation restrictions always apply. Cell names, including root, grant no special authority. Job IDs remain unique across the tenant. Existing jobs and restarts retain their repository snapshots."
+      description: "Cell name is required and must resolve to an explicitly created, active cell in the tenant. Optional cellRepo asserts the repository mapping; it never creates a cell. Missing cells return not_found. Normal leases may submit to all registered active cells in their tenant; an explicit delegation cellNames list narrows the allowed targets. Delegation restrictions always apply. Cell names, including root, grant no special authority. Job IDs remain unique across the tenant. Existing jobs and restarts retain their repository snapshots."
       parameters:
       - $ref: '#/components/parameters/TenantId'
       - $ref: '#/components/parameters/ParentJobId'
@@ -553,9 +553,9 @@ paths:
         leaseToken: []
       description: 'Read-only. Verify the signed live lease, path binding, attenuation, and deadline.
 
-        Require effective jobs.submit authority and target-cell scope. Lease scope
+        Require effective jobs.submit authority and target-cell scope. Normal lease scope includes all registered active cells in the tenant; explicit
 
-        covers its own cell unless trusted policy explicitly grants more targets.
+        principal or delegation restrictions may narrow it.
 
         A delegation without jobs.submit cannot resolve targets.
 
@@ -623,7 +623,7 @@ components:
       type: apiKey
       in: header
       name: X-JobDB-Lease-Token
-      description: Cell name is required and must resolve to an explicitly created, active cell in the tenant. Optional cellRepo asserts the repository mapping; it never creates a cell. Missing cells return not_found. Leases default to their own cell; trusted policy may grant submission to other existing cells. Delegation restrictions always apply. Cell names, including root, grant no special authority. Job IDs remain unique across the tenant. Existing jobs and restarts retain their repository snapshots.
+      description: Cell name is required and must resolve to an explicitly created, active cell in the tenant. Optional cellRepo asserts the repository mapping; it never creates a cell. Missing cells return not_found. Normal leases may submit to all registered active cells in their tenant; an explicit delegation cellNames list narrows the allowed targets. Delegation restrictions always apply. Cell names, including root, grant no special authority. Job IDs remain unique across the tenant. Existing jobs and restarts retain their repository snapshots.
   headers:
     NoStore:
       required: true
@@ -1064,7 +1064,7 @@ components:
           $ref: ./jobdb-runtime.yaml#/components/schemas/DelegationNames
         cellNames:
           $ref: '#/components/schemas/CellNameSelector'
-      description: Proposed jobs.submit delegation shape. A lease defaults to its own cell unless trusted policy grants additional existing targets. Explicit creation is available on owner leases; delegated creation requires a separate cells.create selector and does not expand submission scope. Missing jobs.submit denies submission. Existing jobTypes/jobIds and all ancestor restrictions still apply; omitted cellNames inherits target scope.
+      description: Proposed jobs.submit delegation shape. A normal lease covers all registered active cells in its tenant; an explicit cellNames list narrows the targets. Explicit creation is available on owner leases; delegated creation requires a separate cells.create selector and does not expand submission scope. Missing jobs.submit denies submission. Existing jobTypes/jobIds and all ancestor restrictions still apply; omitted cellNames inherits target scope.
     ResolveCellRequest:
       type: object
       additionalProperties: false

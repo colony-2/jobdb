@@ -30,8 +30,9 @@ registration, not a reason to retry submission with more metadata. Repository
 mismatch requires an explicit configuration or registry correction.
 
 Use the registry or a live lease's `ResolveCell` method for name resolution.
-A lease defaults to its own cell; trusted server policy may grant additional
-existing targets. Preserve delegated job-type/job-ID/cell-name restrictions.
+A normal lease covers all registered active cells in its tenant. A submission
+permission with an explicit cell-name list covers only those names. Preserve
+delegated job-type/job-ID/cell-name restrictions; no extra cross-cell grant is needed.
 Cell creation is an explicit `CreateCell` call on a normal execution lease, or
 an administrative registration. Delegated leases require a `cells.create` name
 selector; creation does not expand their submission scope. Working in another repository does not change job ownership or

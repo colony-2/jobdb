@@ -15,9 +15,9 @@ must come from trusted policy rather than naming or workspace context.
 
 Keep review/approval steps separate from the registration credential. Route
 approved registration to a service or delegated lease with `cells.create`; do not copy privileged
-metadata into child context. Cross-cell submission requires an explicit trusted
-target grant, still constrained by delegation restrictions. A child job gets
-the ordinary authority of its own cell when acquired.
+metadata into child context. `jobs.submit: true` allows all tenant cells unless
+an explicit cell-name list narrows it. `cells.create` follows the same all-or-listed
+model. The actions remain independent and ancestor restrictions still apply.
 
 Use a creation request ID for retried registration, then submit by cell name
 with an optional repo assertion. Unknown targets fail without side effects.

@@ -207,6 +207,8 @@ func TestDelegatedCellCreation(t *testing.T) {
 			_, err = f.client.CreateDelegation(ctx, without, jobdb.CreateDelegationRequest{Permissions: all})
 			require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
 			broad := f.create(t, jobdb.CreateDelegationRequest{Permissions: all})
+			_, err = broad.CreateCell(ctx, request("unlisted"))
+			require.NoError(t, err, "unrestricted creation permits any new name")
 			policy := jobdb.DelegationPermissions{CreateCells: &jobdb.DelegationNames{Names: []string{"allowed"}}}
 			narrow, err := f.client.CreateDelegation(ctx, broad, jobdb.CreateDelegationRequest{Permissions: policy})
 			require.NoError(t, err)
@@ -260,6 +262,66 @@ func TestDelegatedCellCreation(t *testing.T) {
 			list, err := f.client.ListCells(ctx, jobdb.ListCellsRequest{TenantID: "tenant", Name: "denied"})
 			require.NoError(t, err)
 			require.Empty(t, list.Cells)
+		})
+	}
+}
+
+func TestCellSubmissionAllOrListed(t *testing.T) {
+	for _, backend := range []string{"toy", "sqlite"} {
+		t.Run(backend, func(t *testing.T) {
+			f := newDelegationFixture(t, backend, nil)
+			ctx := context.Background()
+			for _, name := range []string{"c2j", "root"} {
+				_, err := f.owner.CreateCell(ctx, jobdb.CreateCellRequest{Name: name, Repo: "github.com/colony-2/" + name})
+				require.NoError(t, err)
+			}
+			policy := func(names *jobdb.DelegationNames) jobdb.DelegationPermissions {
+				return jobdb.DelegationPermissions{Submit: &jobdb.DelegationSubmitPermission{
+					JobTypes: jobdb.DelegationNames{Any: true}, JobIDs: jobdb.DelegationNames{Any: true}, CellNames: names,
+				}}
+			}
+			all := f.create(t, jobdb.CreateDelegationRequest{Permissions: policy(nil)})
+			listed, err := f.client.CreateDelegation(ctx, all, jobdb.CreateDelegationRequest{Permissions: policy(&jobdb.DelegationNames{Names: []string{"c2j"}})})
+			require.NoError(t, err)
+			inherited, err := f.client.CreateDelegation(ctx, listed, jobdb.CreateDelegationRequest{Permissions: policy(nil)})
+			require.NoError(t, err)
+			none := f.create(t, jobdb.CreateDelegationRequest{})
+			empty := f.create(t, jobdb.CreateDelegationRequest{Permissions: policy(&jobdb.DelegationNames{})})
+			for _, tc := range []struct {
+				name    string
+				lease   jobdb.ExecutionLease
+				allowed map[string]bool
+			}{
+				{"owner", f.owner, map[string]bool{"test": true, "c2j": true, "root": true}},
+				{"all", all, map[string]bool{"test": true, "c2j": true, "root": true}},
+				{"listed", listed, map[string]bool{"c2j": true}},
+				{"inherited", inherited, map[string]bool{"c2j": true}},
+				{"no action", none, nil},
+				{"empty list", empty, nil},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					for _, name := range []string{"test", "c2j", "root"} {
+						resolved, err := tc.lease.ResolveCell(ctx, name)
+						if tc.allowed[name] {
+							require.NoError(t, err)
+							require.Equal(t, name, resolved.Cell)
+						} else {
+							require.ErrorContains(t, err, "lease_permission_denied")
+						}
+						h, err := tc.lease.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
+							TenantId: "tenant", Cell: name, JobType: "child", Data: jobdb.NewTaskDataOrPanic(1),
+						}})
+						if tc.allowed[name] {
+							require.NoError(t, err)
+							require.Equal(t, name, h.Cell)
+						} else {
+							require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
+						}
+					}
+				})
+			}
+			_, err = f.client.CreateDelegation(ctx, listed, jobdb.CreateDelegationRequest{Permissions: policy(&jobdb.DelegationNames{Any: true})})
+			require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
 		})
 	}
 }
