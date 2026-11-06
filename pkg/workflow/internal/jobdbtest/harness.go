@@ -859,6 +859,10 @@ func (l *tenantNamespacedLease) ResolveCell(ctx context.Context, name string) (j
 	return l.lease.ResolveCell(ctx, name)
 }
 
+func (l *tenantNamespacedLease) LookupCell(ctx context.Context, name string) (jobdb.ResolvedCell, error) {
+	return l.lease.LookupCell(ctx, name)
+}
+
 func (l *tenantNamespacedLease) CreateCell(ctx context.Context, req jobdb.CreateCellRequest) (jobdb.Cell, error) {
 	if req.TenantID != "" {
 		req.TenantID = l.runtime.prefixTenant(req.TenantID)

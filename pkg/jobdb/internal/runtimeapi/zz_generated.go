@@ -903,6 +903,12 @@ type ListSchedulesResponse struct {
 	Schedules     []ScheduleInfo `json:"schedules"`
 }
 
+// LookupCellRequest defines model for LookupCellRequest.
+type LookupCellRequest struct {
+	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. root is an ordinary name with no special privileges.
+	Cell CellName `json:"cell"`
+}
+
 // Metadata defines model for Metadata.
 type Metadata struct {
 	Fields map[string]MetadataValue `json:"fields"`
@@ -1638,6 +1644,11 @@ type CreateCellWithLeaseParams struct {
 	XJobDBLeaseToken string `json:"X-JobDB-Lease-Token"`
 }
 
+// LookupCellWithLeaseParams defines parameters for LookupCellWithLease.
+type LookupCellWithLeaseParams struct {
+	XJobDBLeaseToken string `json:"X-JobDB-Lease-Token"`
+}
+
 // ResolveCellWithLeaseParams defines parameters for ResolveCellWithLease.
 type ResolveCellWithLeaseParams struct {
 	XJobDBLeaseToken string `json:"X-JobDB-Lease-Token"`
@@ -1736,6 +1747,9 @@ type PutRestartJobJSONRequestBody = SubmitRestartJobRequest
 
 // CreateCellWithLeaseJSONRequestBody defines body for CreateCellWithLease for application/json ContentType.
 type CreateCellWithLeaseJSONRequestBody = CreateCellRequest
+
+// LookupCellWithLeaseJSONRequestBody defines body for LookupCellWithLease for application/json ContentType.
+type LookupCellWithLeaseJSONRequestBody = LookupCellRequest
 
 // ResolveCellWithLeaseJSONRequestBody defines body for ResolveCellWithLease for application/json ContentType.
 type ResolveCellWithLeaseJSONRequestBody = ResolveCellRequest
@@ -2579,6 +2593,11 @@ type ClientInterface interface {
 
 	CreateCellWithLease(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *CreateCellWithLeaseParams, body CreateCellWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// LookupCellWithLeaseWithBody request with any body
+	LookupCellWithLeaseWithBody(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *LookupCellWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	LookupCellWithLease(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *LookupCellWithLeaseParams, body LookupCellWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ResolveCellWithLeaseWithBody request with any body
 	ResolveCellWithLeaseWithBody(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *ResolveCellWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -3391,6 +3410,30 @@ func (c *Client) CreateCellWithLeaseWithBody(ctx context.Context, tenantId Tenan
 
 func (c *Client) CreateCellWithLease(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *CreateCellWithLeaseParams, body CreateCellWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateCellWithLeaseRequest(c.Server, tenantId, parentJobId, leaseId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) LookupCellWithLeaseWithBody(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *LookupCellWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewLookupCellWithLeaseRequestWithBody(c.Server, tenantId, parentJobId, leaseId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) LookupCellWithLease(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *LookupCellWithLeaseParams, body LookupCellWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewLookupCellWithLeaseRequest(c.Server, tenantId, parentJobId, leaseId, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -6035,6 +6078,80 @@ func NewCreateCellWithLeaseRequestWithBody(server string, tenantId TenantId, par
 	return req, nil
 }
 
+// NewLookupCellWithLeaseRequest calls the generic LookupCellWithLease builder with application/json body
+func NewLookupCellWithLeaseRequest(server string, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *LookupCellWithLeaseParams, body LookupCellWithLeaseJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewLookupCellWithLeaseRequestWithBody(server, tenantId, parentJobId, leaseId, params, "application/json", bodyReader)
+}
+
+// NewLookupCellWithLeaseRequestWithBody generates requests for LookupCellWithLease with any type of body
+func NewLookupCellWithLeaseRequestWithBody(server string, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *LookupCellWithLeaseParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "parentJobId", runtime.ParamLocationPath, parentJobId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithLocation("simple", false, "leaseId", runtime.ParamLocationPath, leaseId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs/%s/leases/%s/cells/lookup", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithLocation("simple", false, "X-JobDB-Lease-Token", runtime.ParamLocationHeader, params.XJobDBLeaseToken)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-JobDB-Lease-Token", headerParam0)
+
+	}
+
+	return req, nil
+}
+
 // NewResolveCellWithLeaseRequest calls the generic ResolveCellWithLease builder with application/json body
 func NewResolveCellWithLeaseRequest(server string, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *ResolveCellWithLeaseParams, body ResolveCellWithLeaseJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -7222,6 +7339,11 @@ type ClientWithResponsesInterface interface {
 
 	CreateCellWithLeaseWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *CreateCellWithLeaseParams, body CreateCellWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateCellWithLeaseHTTPResponse, error)
 
+	// LookupCellWithLeaseWithBodyWithResponse request with any body
+	LookupCellWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *LookupCellWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LookupCellWithLeaseHTTPResponse, error)
+
+	LookupCellWithLeaseWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *LookupCellWithLeaseParams, body LookupCellWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*LookupCellWithLeaseHTTPResponse, error)
+
 	// ResolveCellWithLeaseWithBodyWithResponse request with any body
 	ResolveCellWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *ResolveCellWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ResolveCellWithLeaseHTTPResponse, error)
 
@@ -8229,6 +8351,34 @@ func (r CreateCellWithLeaseHTTPResponse) StatusCode() int {
 	return 0
 }
 
+type LookupCellWithLeaseHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ResolvedCell
+	JSON400      *BadRequest
+	JSON401      *Unauthorized
+	JSON403      *Forbidden
+	JSON404      *NotFound
+	JSON409      *ResolveConflict
+	JSON500      *InternalError
+}
+
+// Status returns HTTPResponse.Status
+func (r LookupCellWithLeaseHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r LookupCellWithLeaseHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type ResolveCellWithLeaseHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -9152,6 +9302,23 @@ func (c *ClientWithResponses) CreateCellWithLeaseWithResponse(ctx context.Contex
 		return nil, err
 	}
 	return ParseCreateCellWithLeaseHTTPResponse(rsp)
+}
+
+// LookupCellWithLeaseWithBodyWithResponse request with arbitrary body returning *LookupCellWithLeaseHTTPResponse
+func (c *ClientWithResponses) LookupCellWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *LookupCellWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LookupCellWithLeaseHTTPResponse, error) {
+	rsp, err := c.LookupCellWithLeaseWithBody(ctx, tenantId, parentJobId, leaseId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseLookupCellWithLeaseHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) LookupCellWithLeaseWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *LookupCellWithLeaseParams, body LookupCellWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*LookupCellWithLeaseHTTPResponse, error) {
+	rsp, err := c.LookupCellWithLease(ctx, tenantId, parentJobId, leaseId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseLookupCellWithLeaseHTTPResponse(rsp)
 }
 
 // ResolveCellWithLeaseWithBodyWithResponse request with arbitrary body returning *ResolveCellWithLeaseHTTPResponse
@@ -10901,6 +11068,74 @@ func ParseCreateCellWithLeaseHTTPResponse(rsp *http.Response) (*CreateCellWithLe
 	return response, nil
 }
 
+// ParseLookupCellWithLeaseHTTPResponse parses an HTTP response from a LookupCellWithLeaseWithResponse call
+func ParseLookupCellWithLeaseHTTPResponse(rsp *http.Response) (*LookupCellWithLeaseHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &LookupCellWithLeaseHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ResolvedCell
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ResolveConflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseResolveCellWithLeaseHTTPResponse parses an HTTP response from a ResolveCellWithLeaseWithResponse call
 func ParseResolveCellWithLeaseHTTPResponse(rsp *http.Response) (*ResolveCellWithLeaseHTTPResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -11574,6 +11809,9 @@ type ServerInterface interface {
 	// Explicitly create a cell using a live execution lease
 	// (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells)
 	CreateCellWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params CreateCellWithLeaseParams)
+	// Look up an active cell independently of submission authority
+	// (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells/lookup)
+	LookupCellWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params LookupCellWithLeaseParams)
 	// Resolve an active cell name within lease submission scope
 	// (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells/resolve)
 	ResolveCellWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params ResolveCellWithLeaseParams)
@@ -11856,6 +12094,12 @@ func (_ Unimplemented) PutRestartJob(w http.ResponseWriter, r *http.Request, ten
 // Explicitly create a cell using a live execution lease
 // (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells)
 func (_ Unimplemented) CreateCellWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params CreateCellWithLeaseParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Look up an active cell independently of submission authority
+// (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells/lookup)
+func (_ Unimplemented) LookupCellWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params LookupCellWithLeaseParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -14063,6 +14307,83 @@ func (siw *ServerInterfaceWrapper) CreateCellWithLease(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// LookupCellWithLease operation middleware
+func (siw *ServerInterfaceWrapper) LookupCellWithLease(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "parentJobId" -------------
+	var parentJobId ParentJobId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "parentJobId", chi.URLParam(r, "parentJobId"), &parentJobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "parentJobId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "leaseId" -------------
+	var leaseId LeaseId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "leaseId", chi.URLParam(r, "leaseId"), &leaseId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "leaseId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, LeaseTokenScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params LookupCellWithLeaseParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-JobDB-Lease-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-JobDB-Lease-Token")]; found {
+		var XJobDBLeaseToken string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-JobDB-Lease-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-JobDB-Lease-Token", valueList[0], &XJobDBLeaseToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-JobDB-Lease-Token", Err: err})
+			return
+		}
+
+		params.XJobDBLeaseToken = XJobDBLeaseToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-JobDB-Lease-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-JobDB-Lease-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LookupCellWithLease(w, r, tenantId, parentJobId, leaseId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ResolveCellWithLease operation middleware
 func (siw *ServerInterfaceWrapper) ResolveCellWithLease(w http.ResponseWriter, r *http.Request) {
 
@@ -15161,6 +15482,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells", wrapper.CreateCellWithLease)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells/lookup", wrapper.LookupCellWithLease)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells/resolve", wrapper.ResolveCellWithLease)
@@ -17153,6 +17477,95 @@ func (response CreateCellWithLease500JSONResponse) VisitCreateCellWithLeaseRespo
 	return json.NewEncoder(w).Encode(response.Body)
 }
 
+type LookupCellWithLeaseRequestObject struct {
+	TenantId    TenantId    `json:"tenantId"`
+	ParentJobId ParentJobId `json:"parentJobId"`
+	LeaseId     LeaseId     `json:"leaseId"`
+	Params      LookupCellWithLeaseParams
+	Body        *LookupCellWithLeaseJSONRequestBody
+}
+
+type LookupCellWithLeaseResponseObject interface {
+	VisitLookupCellWithLeaseResponse(w http.ResponseWriter) error
+}
+
+type LookupCellWithLease200ResponseHeaders struct {
+	CacheControl string
+}
+
+type LookupCellWithLease200JSONResponse struct {
+	Body    ResolvedCell
+	Headers LookupCellWithLease200ResponseHeaders
+}
+
+func (response LookupCellWithLease200JSONResponse) VisitLookupCellWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type LookupCellWithLease400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response LookupCellWithLease400JSONResponse) VisitLookupCellWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type LookupCellWithLease401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response LookupCellWithLease401JSONResponse) VisitLookupCellWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("WWW-Authenticate", fmt.Sprint(response.Headers.WWWAuthenticate))
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type LookupCellWithLease403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response LookupCellWithLease403JSONResponse) VisitLookupCellWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type LookupCellWithLease404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response LookupCellWithLease404JSONResponse) VisitLookupCellWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type LookupCellWithLease409JSONResponse struct{ ResolveConflictJSONResponse }
+
+func (response LookupCellWithLease409JSONResponse) VisitLookupCellWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type LookupCellWithLease500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response LookupCellWithLease500JSONResponse) VisitLookupCellWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
 type ResolveCellWithLeaseRequestObject struct {
 	TenantId    TenantId    `json:"tenantId"`
 	ParentJobId ParentJobId `json:"parentJobId"`
@@ -17767,6 +18180,9 @@ type StrictServerInterface interface {
 	// Explicitly create a cell using a live execution lease
 	// (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells)
 	CreateCellWithLease(ctx context.Context, request CreateCellWithLeaseRequestObject) (CreateCellWithLeaseResponseObject, error)
+	// Look up an active cell independently of submission authority
+	// (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells/lookup)
+	LookupCellWithLease(ctx context.Context, request LookupCellWithLeaseRequestObject) (LookupCellWithLeaseResponseObject, error)
 	// Resolve an active cell name within lease submission scope
 	// (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells/resolve)
 	ResolveCellWithLease(ctx context.Context, request ResolveCellWithLeaseRequestObject) (ResolveCellWithLeaseResponseObject, error)
@@ -19077,6 +19493,42 @@ func (sh *strictHandler) CreateCellWithLease(w http.ResponseWriter, r *http.Requ
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateCellWithLeaseResponseObject); ok {
 		if err := validResponse.VisitCreateCellWithLeaseResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// LookupCellWithLease operation middleware
+func (sh *strictHandler) LookupCellWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params LookupCellWithLeaseParams) {
+	var request LookupCellWithLeaseRequestObject
+
+	request.TenantId = tenantId
+	request.ParentJobId = parentJobId
+	request.LeaseId = leaseId
+	request.Params = params
+
+	var body LookupCellWithLeaseJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.LookupCellWithLease(ctx, request.(LookupCellWithLeaseRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "LookupCellWithLease")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(LookupCellWithLeaseResponseObject); ok {
+		if err := validResponse.VisitLookupCellWithLeaseResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

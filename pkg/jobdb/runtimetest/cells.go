@@ -21,6 +21,7 @@ func cellAdmin(tenant string) context.Context {
 func RunCellConformance(t *testing.T, rt jobdb.WorkflowRuntime) {
 	t.Helper()
 	t.Run("lease cell creation", func(t *testing.T) { runLeaseCellCreation(t, rt) })
+	t.Run("lease cell lookup", func(t *testing.T) { runLeaseCellLookup(t, rt) })
 	tenant := "cells-" + ksuid.New().String()
 	ctx := cellAdmin(tenant)
 	_, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: tenant, Cell: "root", CellRepo: "github.com/org/root", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(1)}})

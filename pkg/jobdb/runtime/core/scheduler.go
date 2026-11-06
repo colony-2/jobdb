@@ -14,6 +14,7 @@ type Scheduler interface {
 	jobdb.CellRuntime
 	CreateCellWithLeaseByID(context.Context, jobdb.JobKey, string, string, jobdb.CreateCellRequest) (jobdb.Cell, error)
 	ResolveCellWithLeaseByID(context.Context, jobdb.JobKey, string, string, string) (jobdb.ResolvedCell, error)
+	LookupCellWithLeaseByID(context.Context, jobdb.JobKey, string, string, string) (jobdb.ResolvedCell, error)
 	GoalScheduler
 	// ResolveScheduleCell resolves an existing active target with jobs.submit authority.
 	// UpsertSchedule and active-state mutations must recheck its ID/repo in the commit transaction.

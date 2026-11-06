@@ -12,6 +12,14 @@ transaction using `cellstate.State.CreateWithLease`. Normal leases can create in
 their tenant; delegated leases additionally need `cells.create`, enforced by the
 remote delegation boundary. Registration does not expand submission scope.
 
+Expose `LookupCell` through the scheduler's `LookupCellWithLeaseByID` method.
+Validate the live lease and read its tenant registry in one transaction using
+`cellstate.State.Lookup`, without submission authorization or registry writes.
+Run the shared cell conformance suite directly and through HTTP; it includes
+lookup outside submission scope and empty delegated grants. JobDB, pgjobdb,
+and c2j upgrade together; implementers must add the new lease and scheduler
+methods. See [lease cell lookup](GUIDE-LEASE-CELL-LOOKUP.md).
+
 Store cells, aliases, creation replays, and tenant cursor keys in ordinary rows.
 Only arbitrary cell metadata remains JSON. Replays retain a normalized request
 hash and the original result fields. Remove whole-cell/catalog/preparation JSON

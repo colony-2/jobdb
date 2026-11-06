@@ -301,6 +301,29 @@ func (l *executionLease) ResolveCell(ctx context.Context, name string) (jobdb.Re
 	return l.runtime.ResolveCellWithLeaseByID(ctx, l.jobKey, l.leaseID, l.workerID, name)
 }
 
+func (r *Runtime) LookupCellWithLeaseByID(ctx context.Context, key jobdb.JobKey, leaseID, workerID, name string) (out jobdb.ResolvedCell, err error) {
+	ctx = cellstate.WithLease(ctx, cellstate.LeaseProof{JobKey: key, LeaseID: leaseID, WorkerID: workerID})
+	err = r.withTx(ctx, func(tx *sql.Tx) error {
+		s, e := loadCells(ctx, tx, key.TenantId)
+		if e != nil {
+			return e
+		}
+		if _, e = r.cellParent(ctx, tx, s, key.TenantId); e != nil {
+			return e
+		}
+		out, e = s.Lookup(name)
+		return e
+	})
+	return
+}
+
+func (l *executionLease) LookupCell(ctx context.Context, name string) (jobdb.ResolvedCell, error) {
+	if err := l.checkExpiry(); err != nil {
+		return jobdb.ResolvedCell{}, err
+	}
+	return l.runtime.LookupCellWithLeaseByID(ctx, l.jobKey, l.leaseID, l.workerID, name)
+}
+
 func (r *Runtime) CreateCellWithLeaseByID(ctx context.Context, key jobdb.JobKey, leaseID, workerID string, req jobdb.CreateCellRequest) (out jobdb.Cell, err error) {
 	p := cellstate.LeaseProof{JobKey: key, LeaseID: leaseID, WorkerID: workerID}
 	ctx = cellstate.WithLease(ctx, p)

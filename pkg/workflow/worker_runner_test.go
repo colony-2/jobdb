@@ -1216,6 +1216,10 @@ func (r *runnerTestRuntime) ListDependencyWaits(context.Context, jobdb.ListDepen
 	return jobdb.ListDependencyWaitsResponse{}, nil
 }
 
+func (l *fakeExecutionLease) LookupCell(context.Context, string) (jobdb.ResolvedCell, error) {
+	return jobdb.ResolvedCell{}, errors.New("unexpected cell lookup")
+}
+
 func (l *fakeExecutionLease) ResolveCell(context.Context, string) (jobdb.ResolvedCell, error) {
 	return jobdb.ResolvedCell{}, errors.New("unexpected cell resolution")
 }

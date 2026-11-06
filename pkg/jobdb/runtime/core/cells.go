@@ -41,6 +41,16 @@ func (l *executionLease) ResolveCell(ctx context.Context, name string) (jobdb.Re
 	p := l.snapshot.Identity
 	return l.runtime.ResolveCellWithLeaseByID(ctx, p.JobKey, p.LeaseID, p.WorkerID, name)
 }
+func (r *Runtime) LookupCellWithLeaseByID(ctx context.Context, key jobdb.JobKey, leaseID, workerID, name string) (jobdb.ResolvedCell, error) {
+	return r.scheduler.LookupCellWithLeaseByID(ctx, key, leaseID, workerID, name)
+}
+func (l *executionLease) LookupCell(ctx context.Context, name string) (jobdb.ResolvedCell, error) {
+	if err := l.checkExpiry(); err != nil {
+		return jobdb.ResolvedCell{}, err
+	}
+	p := l.snapshot.Identity
+	return l.runtime.LookupCellWithLeaseByID(ctx, p.JobKey, p.LeaseID, p.WorkerID, name)
+}
 func (l *executionLease) cellContext(ctx context.Context) context.Context {
 	p := l.snapshot.Identity
 	return cellstate.WithLease(ctx, cellstate.LeaseProof{JobKey: p.JobKey, LeaseID: p.LeaseID, WorkerID: p.WorkerID})

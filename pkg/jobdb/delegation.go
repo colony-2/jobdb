@@ -54,6 +54,8 @@ type DelegationWritePermission struct {
 }
 
 // DelegationPermissions is an immutable allowlist; omitted actions are denied.
+// LookupCell is available to every valid lease, including an empty delegation,
+// independently of this allowlist and any submission cell-name restriction.
 // Delegation does not authorize completion, rescheduling, configuration reads,
 // restart submission, schema registration, or artifact downloads. Further delegation may only narrow this allowlist.
 type DelegationPermissions struct {

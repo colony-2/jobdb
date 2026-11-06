@@ -64,6 +64,9 @@ func (r cellResponse) VisitRetireCellResponse(w http.ResponseWriter) error { ret
 func (r cellResponse) VisitResolveCellWithLeaseResponse(w http.ResponseWriter) error {
 	return r.write(w)
 }
+func (r cellResponse) VisitLookupCellWithLeaseResponse(w http.ResponseWriter) error {
+	return r.write(w)
+}
 func writeCellError(w http.ResponseWriter, e error) bool {
 	status, code, ok := jobdb.CellErrorStatus(e)
 	if !ok {
@@ -144,6 +147,25 @@ func (s *proxyServer) ResolveCellWithLease(ctx context.Context, q runtimeapi.Res
 	}
 	c, e := ops.ResolveCellWithLeaseByID(ctx, key, q.LeaseId, claims.WorkerID, q.Body.Cell)
 	return cellResponse{body: c, err: e}, nil
+}
+
+func (s *proxyServer) LookupCellWithLease(ctx context.Context, q runtimeapi.LookupCellWithLeaseRequestObject) (runtimeapi.LookupCellWithLeaseResponseObject, error) {
+	if q.Body == nil {
+		return nil, jobdb.ErrInvalidCell
+	}
+	key := jobdb.JobKey{TenantId: q.TenantId, JobId: q.ParentJobId}
+	claims, err := s.validatedLeaseClaims(ctx, q.Params.XJobDBLeaseToken, key, q.LeaseId)
+	if err != nil {
+		return nil, err
+	}
+	ops, ok := s.runtime.(interface {
+		LookupCellWithLeaseByID(context.Context, jobdb.JobKey, string, string, string) (jobdb.ResolvedCell, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("cell lease lookup missing")
+	}
+	c, err := ops.LookupCellWithLeaseByID(ctx, key, q.LeaseId, claims.WorkerID, q.Body.Cell)
+	return cellResponse{body: c, err: err}, nil
 }
 
 func (s *proxyServer) CreateCellWithLease(ctx context.Context, q runtimeapi.CreateCellWithLeaseRequestObject) (runtimeapi.CreateCellWithLeaseResponseObject, error) {
@@ -228,6 +250,17 @@ func (l *remoteExecutionLease) ResolveCell(ctx context.Context, name string) (jo
 	return decodeCellResponse[jobdb.ResolvedCell](l.runtime.raw.ResolveCellWithLease(ctx, l.jobKey.TenantId, l.jobKey.JobId, l.leaseID, &runtimeapi.ResolveCellWithLeaseParams{XJobDBLeaseToken: l.LeaseToken()}, runtimeapi.ResolveCellWithLeaseJSONRequestBody{Cell: name}))
 }
 
+func (l *remoteExecutionLease) LookupCell(ctx context.Context, name string) (jobdb.ResolvedCell, error) {
+	resp, err := l.runtime.client.LookupCellWithLeaseWithResponse(ctx, l.jobKey.TenantId, l.jobKey.JobId, l.leaseID, &runtimeapi.LookupCellWithLeaseParams{XJobDBLeaseToken: l.LeaseToken()}, runtimeapi.LookupCellWithLeaseJSONRequestBody{Cell: name})
+	if err != nil {
+		return jobdb.ResolvedCell{}, err
+	}
+	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
+		return jobdb.ResolvedCell{}, responseError("lookup cell with lease", resp.StatusCode(), resp.Body, jobdb.ErrExecutionLeaseLost)
+	}
+	return convertCellJSON[runtimeapi.ResolvedCell, jobdb.ResolvedCell](*resp.JSON200)
+}
+
 func (l *remoteExecutionLease) CreateCell(ctx context.Context, req jobdb.CreateCellRequest) (jobdb.Cell, error) {
 	if req.TenantID != "" && req.TenantID != l.jobKey.TenantId {
 		return jobdb.Cell{}, jobdb.ErrCellForbidden
@@ -254,7 +287,7 @@ func isCellPath(path string) bool {
 	if p[4] == "cells" {
 		return len(p) == 5 || len(p) == 6 || len(p) == 7 && p[6] == "retire"
 	}
-	return (len(p) == 9 || len(p) == 10 && p[9] == "resolve") && p[4] == "jobs" && p[6] == "leases" && p[8] == "cells"
+	return (len(p) == 9 || len(p) == 10 && (p[9] == "resolve" || p[9] == "lookup")) && p[4] == "jobs" && p[6] == "leases" && p[8] == "cells"
 }
 
 // Validate the raw cell envelope before decoding optional pointers, preserving

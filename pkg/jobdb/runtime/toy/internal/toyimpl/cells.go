@@ -190,6 +190,23 @@ func (l *runtimeLease) ResolveCell(ctx context.Context, name string) (jobdb.Reso
 	return l.runtime.ResolveCellWithLeaseByID(ctx, l.jobKey, l.leaseID, l.workerID, name)
 }
 
+func (r *Runtime) LookupCellWithLeaseByID(ctx context.Context, key jobdb.JobKey, leaseID, workerID, name string) (jobdb.ResolvedCell, error) {
+	ctx = cellstate.WithLease(ctx, cellstate.LeaseProof{JobKey: key, LeaseID: leaseID, WorkerID: workerID})
+	r.engine.mu.Lock()
+	defer r.engine.mu.Unlock()
+	if _, err := r.engine.cellParentLocked(ctx, key.TenantId); err != nil {
+		return jobdb.ResolvedCell{}, err
+	}
+	return r.engine.cellsLocked(key.TenantId).Lookup(name)
+}
+
+func (l *runtimeLease) LookupCell(ctx context.Context, name string) (jobdb.ResolvedCell, error) {
+	if err := l.checkExpiry(); err != nil {
+		return jobdb.ResolvedCell{}, err
+	}
+	return l.runtime.LookupCellWithLeaseByID(ctx, l.jobKey, l.leaseID, l.workerID, name)
+}
+
 func (r *Runtime) CreateCellWithLeaseByID(ctx context.Context, key jobdb.JobKey, leaseID, workerID string, req jobdb.CreateCellRequest) (jobdb.Cell, error) {
 	p := cellstate.LeaseProof{JobKey: key, LeaseID: leaseID, WorkerID: workerID}
 	ctx = cellstate.WithLease(ctx, p)

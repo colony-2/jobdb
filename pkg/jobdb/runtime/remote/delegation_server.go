@@ -144,6 +144,8 @@ func (s *proxyServer) prepareDelegationRequest(w http.ResponseWriter, r *http.Re
 		allowed = policy.Write != nil
 	case r.Method == http.MethodPost && suffix == "cells/resolve":
 		allowed = policy.Submit != nil
+	case r.Method == http.MethodPost && suffix == "cells/lookup":
+		allowed = true
 	case r.Method == http.MethodPost && suffix == "cells":
 		allowed = policy.CreateCells != nil
 	case r.Method == http.MethodPost && suffix == "jobs":
@@ -155,7 +157,7 @@ func (s *proxyServer) prepareDelegationRequest(w http.ResponseWriter, r *http.Re
 	if !allowed {
 		return reject(delegationDenied())
 	}
-	if r.Method == http.MethodGet || suffix == "secrets/resolve" {
+	if r.Method == http.MethodGet || suffix == "secrets/resolve" || suffix == "cells/lookup" {
 		return true
 	}
 	// Bound buffering needed to authorize selectors before any runtime side effects.

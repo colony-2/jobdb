@@ -83,6 +83,16 @@ visible cell. Read operations never create cells.
 
 ## Submission and leases
 
+`ExecutionLease.LookupCell(ctx, name)` and
+`POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells/lookup`
+provide metadata lookup using a live lease alone. Any owner or delegated lease,
+including an empty grant, can look up any active cell in its own tenant without
+submission, configuration, or registry-list permission. Names and aliases return
+only the current canonical name, immutable ID, and registered repository. The
+lease and delegation lifecycle remain enforced on every call. Lookup grants no
+additional permissions and leaves all submission checks intact. See the
+[API and implementer guide](GUIDE-LEASE-CELL-LOOKUP.md).
+
 Every submission requires `cell`, resolved through current names and aliases.
 `cellRepo` is an optional assertion against the selected repository snapshot.
 

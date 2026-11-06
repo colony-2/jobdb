@@ -77,6 +77,14 @@ copy its full credential; deriving a credential with less authority is allowed.
 This does not prevent copying, forwarding or collusion. There is no individual
 grant revocation API.
 
+Every valid delegation, including an empty permission grant, may call
+`LookupCell` (`POST .../leases/{leaseId}/cells/lookup`) to read one active cell's
+current name, ID, and registered repository within the parent's tenant. This
+requires no submission or lookup grant and ignores submission cell-name filters.
+It grants no job, Git, secret, registry-list, or mutation access. The existing
+`ResolveCell` endpoint continues to require submission authority. Lookup checks
+the same signature, path binding, deadline, and live-parent rules as other calls.
+
 ## One grant proof, no inherited access window
 
 The macaroon itself remains valid until parent loss or the effective deadline.

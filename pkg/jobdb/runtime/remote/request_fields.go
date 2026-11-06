@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/runtimeapi"
 )
 
@@ -23,6 +24,9 @@ func strictRequestFields(next runtimeapi.StrictHandlerFunc, _ string) runtimeapi
 			body := v.FieldByName("Body")
 			if body.IsValid() && len(raw) > 0 {
 				if err := validateRequestFields(raw, body.Type(), ""); err != nil {
+					if isCellPath(r.URL.EscapedPath()) {
+						return nil, jobdb.ErrInvalidCell
+					}
 					return nil, badRequest(err.Error())
 				}
 			}

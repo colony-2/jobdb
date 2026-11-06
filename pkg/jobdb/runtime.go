@@ -67,6 +67,10 @@ type ExecutionLease interface {
 	// CreateCell explicitly registers a cell in this lease's tenant. It does not
 	// expand submission scope. Delegated leases require cells.create authority.
 	CreateCell(context.Context, CreateCellRequest) (Cell, error)
+	// LookupCell returns the current registered identity and repository for a name
+	// or alias in this live lease's tenant. It requires no submission or metadata
+	// grant, including for delegated leases, and grants no submission authority.
+	LookupCell(context.Context, string) (ResolvedCell, error)
 	ResolveCell(context.Context, string) (ResolvedCell, error)
 	// GetConfiguration reads a fresh tenant snapshot using this live lease.
 	GetConfiguration(context.Context) (ConfigurationSnapshot, error)

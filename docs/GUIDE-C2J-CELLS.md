@@ -29,7 +29,13 @@ with `not_found` even if a repo is supplied. Surface that as a missing
 registration, not a reason to retry submission with more metadata. Repository
 mismatch requires an explicit configuration or registry correction.
 
-Use the registry or a live lease's `ResolveCell` method for name resolution.
+Use a live lease's `LookupCell` for workspace name resolution. It returns the
+current registered name, immutable ID, and canonical repository for any active
+cell in the lease's tenant, including through an empty delegation. Remove the
+local `jobs.submit` / `jobs.cellNames` prerequisite from workspace lookup. Keep
+repository assertions and Git credential checks. See [lease cell lookup](GUIDE-LEASE-CELL-LOOKUP.md).
+
+`ResolveCell` remains a submission-authorized resolver.
 A normal lease covers all registered active cells in its tenant. A submission
 permission with an explicit cell-name list covers only those names. Preserve
 delegated job-type/job-ID/cell-name restrictions; no extra cross-cell grant is needed.

@@ -538,6 +538,56 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '409': {$ref: '#/components/responses/Conflict'}
         '500': {$ref: '#/components/responses/InternalError'}
+  /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells/lookup:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+      - $ref: '#/components/parameters/ParentJobId'
+      - $ref: '#/components/parameters/LeaseId'
+    post:
+      operationId: lookupCellWithLease
+      tags: [leases]
+      summary: Look up an active cell independently of submission authority
+      security:
+        - leaseToken: []
+      description: |
+        Validate the live owning or delegated lease, path binding, and delegation
+        restrictions and deadline. Any valid lease, including an empty delegation,
+        may look up any active cell in its tenant without jobs.submit, a lookup
+        grant, administrative access, or a cell listing grant. Submission cell
+        filters do not restrict lookup. Exact names and permanent aliases return
+        the current canonical name, immutable ID, and registered repository.
+        Each response is a coherent registry snapshot; later calls may observe
+        registry edits. Lookup performs no registry mutation, job submission, Git
+        access, or permission change. Submission and restart independently recheck
+        all existing authority and repository assertions.
+      x-jobdb-authorization:
+        authority: live execution lease
+        target: authenticated lease tenant
+        effect: name/ID/repository lookup only
+      parameters:
+        - name: X-JobDB-Lease-Token
+          in: header
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LookupCellRequest'}
+      responses:
+        '200':
+          description: Current active cell identity and repository.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/NoStore'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ResolvedCell'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/ResolveConflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells/resolve:
     parameters:
     - $ref: '#/components/parameters/TenantId'
@@ -1065,6 +1115,13 @@ components:
         cellNames:
           $ref: '#/components/schemas/CellNameSelector'
       description: Proposed jobs.submit delegation shape. A normal lease covers all registered active cells in its tenant; an explicit cellNames list narrows the targets. Explicit creation is available on owner leases; delegated creation requires a separate cells.create selector and does not expand submission scope. Missing jobs.submit denies submission. Existing jobTypes/jobIds and all ancestor restrictions still apply; omitted cellNames inherits target scope.
+    LookupCellRequest:
+      type: object
+      additionalProperties: false
+      required: [cell]
+      properties:
+        cell:
+          $ref: '#/components/schemas/CellName'
     ResolveCellRequest:
       type: object
       additionalProperties: false

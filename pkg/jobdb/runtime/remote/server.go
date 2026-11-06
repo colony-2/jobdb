@@ -91,6 +91,10 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 	}
 	strict := runtimeapi.NewStrictHandlerWithOptions(server, []runtimeapi.StrictMiddlewareFunc{strictRequestFields}, runtimeapi.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			if isCellPath(r.URL.EscapedPath()) {
+				writeCellError(w, jobdb.ErrInvalidCell)
+				return
+			}
 			if isConfigurationPath(r.URL.EscapedPath()) {
 				configuration.WriteError(w, jobdb.ErrInvalidConfigurationRequest)
 				return
