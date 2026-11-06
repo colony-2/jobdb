@@ -1,5 +1,0 @@
-base: go
-jobdb: http://localhost:9047/c2
-
-packages:
-    - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#go_1_26
