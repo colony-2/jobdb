@@ -224,6 +224,10 @@ func (r *claimsCapturingRuntime) CancelJob(context.Context, jobdb.CancelJobReque
 	return errors.New("unexpected CancelJob")
 }
 
+func (r *claimsCapturingRuntime) ClearCrashConcern(context.Context, jobdb.ClearCrashConcernRequest) error {
+	return errors.New("unexpected ClearCrashConcern")
+}
+
 func (r *claimsCapturingRuntime) CompleteTaskIfWaiting(context.Context, jobdb.CompleteTaskIfWaitingRequest) error {
 	return errors.New("unexpected CompleteTaskIfWaiting")
 }

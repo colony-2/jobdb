@@ -69,6 +69,10 @@ func (r replayReadOnlyRuntime) CancelJob(context.Context, CancelJobRequest) erro
 	return replayMutationError("cancel job")
 }
 
+func (r replayReadOnlyRuntime) ClearCrashConcern(context.Context, ClearCrashConcernRequest) error {
+	return replayMutationError("clear crash concern")
+}
+
 func (r replayReadOnlyRuntime) PollWork(context.Context, PollWorkRequest) ([]ExecutionLease, error) {
 	return nil, replayMutationError("poll work")
 }

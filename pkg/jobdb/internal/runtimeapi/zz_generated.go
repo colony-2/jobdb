@@ -326,6 +326,15 @@ type ChapterRecord struct {
 	WorkerId      *string             `json:"workerId,omitempty"`
 }
 
+// ClearCrashConcernRequest defines model for ClearCrashConcernRequest.
+type ClearCrashConcernRequest struct {
+	// Reason Optional operator reason for backend tracing.
+	Reason *string `json:"reason,omitempty"`
+
+	// WorkerId Optional operator identifier; defaults to a backend identifier.
+	WorkerId *string `json:"workerId,omitempty"`
+}
+
 // ClientPayloadUpdate defines model for ClientPayloadUpdate.
 type ClientPayloadUpdate = clientpayload.Update
 
@@ -1724,6 +1733,9 @@ type CancelJobJSONRequestBody = CancelJobRequest
 // CommitChapterIfWaitingJSONRequestBody defines body for CommitChapterIfWaiting for application/json ContentType.
 type CommitChapterIfWaitingJSONRequestBody = CommitChapterIfWaitingRequest
 
+// ClearCrashConcernJSONRequestBody defines body for ClearCrashConcern for application/json ContentType.
+type ClearCrashConcernJSONRequestBody = ClearCrashConcernRequest
+
 // GetJobLeaseJSONRequestBody defines body for GetJobLease for application/json ContentType.
 type GetJobLeaseJSONRequestBody = GetJobLeaseRequest
 
@@ -2535,6 +2547,11 @@ type ClientInterface interface {
 
 	CommitChapterIfWaiting(ctx context.Context, tenantId TenantId, jobId JobId, ordinal Ordinal, body CommitChapterIfWaitingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ClearCrashConcernWithBody request with any body
+	ClearCrashConcernWithBody(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ClearCrashConcern(ctx context.Context, tenantId TenantId, jobId JobId, body ClearCrashConcernJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetDependencyWait request
 	GetDependencyWait(ctx context.Context, tenantId string, jobId string, waitId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -3146,6 +3163,30 @@ func (c *Client) CommitChapterIfWaitingWithBody(ctx context.Context, tenantId Te
 
 func (c *Client) CommitChapterIfWaiting(ctx context.Context, tenantId TenantId, jobId JobId, ordinal Ordinal, body CommitChapterIfWaitingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCommitChapterIfWaitingRequest(c.Server, tenantId, jobId, ordinal, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ClearCrashConcernWithBody(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewClearCrashConcernRequestWithBody(c.Server, tenantId, jobId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ClearCrashConcern(ctx context.Context, tenantId TenantId, jobId JobId, body ClearCrashConcernJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewClearCrashConcernRequest(c.Server, tenantId, jobId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -5113,6 +5154,60 @@ func NewCommitChapterIfWaitingRequestWithBody(server string, tenantId TenantId, 
 	}
 
 	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs/%s/chapters/%s/commit-if-waiting", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewClearCrashConcernRequest calls the generic ClearCrashConcern builder with application/json body
+func NewClearCrashConcernRequest(server string, tenantId TenantId, jobId JobId, body ClearCrashConcernJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewClearCrashConcernRequestWithBody(server, tenantId, jobId, "application/json", bodyReader)
+}
+
+// NewClearCrashConcernRequestWithBody generates requests for ClearCrashConcern with any type of body
+func NewClearCrashConcernRequestWithBody(server string, tenantId TenantId, jobId JobId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "jobId", runtime.ParamLocationPath, jobId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs/%s/clear-crash-concern", pathParam0, pathParam1)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -7281,6 +7376,11 @@ type ClientWithResponsesInterface interface {
 
 	CommitChapterIfWaitingWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, ordinal Ordinal, body CommitChapterIfWaitingJSONRequestBody, reqEditors ...RequestEditorFn) (*CommitChapterIfWaitingHTTPResponse, error)
 
+	// ClearCrashConcernWithBodyWithResponse request with any body
+	ClearCrashConcernWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ClearCrashConcernHTTPResponse, error)
+
+	ClearCrashConcernWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, body ClearCrashConcernJSONRequestBody, reqEditors ...RequestEditorFn) (*ClearCrashConcernHTTPResponse, error)
+
 	// GetDependencyWaitWithResponse request
 	GetDependencyWaitWithResponse(ctx context.Context, tenantId string, jobId string, waitId string, reqEditors ...RequestEditorFn) (*GetDependencyWaitHTTPResponse, error)
 
@@ -8019,6 +8119,27 @@ func (r CommitChapterIfWaitingHTTPResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r CommitChapterIfWaitingHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ClearCrashConcernHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// Status returns HTTPResponse.Status
+func (r ClearCrashConcernHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ClearCrashConcernHTTPResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -9112,6 +9233,23 @@ func (c *ClientWithResponses) CommitChapterIfWaitingWithResponse(ctx context.Con
 		return nil, err
 	}
 	return ParseCommitChapterIfWaitingHTTPResponse(rsp)
+}
+
+// ClearCrashConcernWithBodyWithResponse request with arbitrary body returning *ClearCrashConcernHTTPResponse
+func (c *ClientWithResponses) ClearCrashConcernWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ClearCrashConcernHTTPResponse, error) {
+	rsp, err := c.ClearCrashConcernWithBody(ctx, tenantId, jobId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseClearCrashConcernHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) ClearCrashConcernWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, body ClearCrashConcernJSONRequestBody, reqEditors ...RequestEditorFn) (*ClearCrashConcernHTTPResponse, error) {
+	rsp, err := c.ClearCrashConcern(ctx, tenantId, jobId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseClearCrashConcernHTTPResponse(rsp)
 }
 
 // GetDependencyWaitWithResponse request returning *GetDependencyWaitHTTPResponse
@@ -10581,6 +10719,22 @@ func ParseCommitChapterIfWaitingHTTPResponse(rsp *http.Response) (*CommitChapter
 	return response, nil
 }
 
+// ParseClearCrashConcernHTTPResponse parses an HTTP response from a ClearCrashConcernWithResponse call
+func ParseClearCrashConcernHTTPResponse(rsp *http.Response) (*ClearCrashConcernHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ClearCrashConcernHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
 // ParseGetDependencyWaitHTTPResponse parses an HTTP response from a GetDependencyWaitWithResponse call
 func ParseGetDependencyWaitHTTPResponse(rsp *http.Response) (*GetDependencyWaitHTTPResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -11767,6 +11921,9 @@ type ServerInterface interface {
 	// Commit chapter if waiting
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/chapters/{ordinal}/commit-if-waiting)
 	CommitChapterIfWaiting(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, ordinal Ordinal)
+	// Clear consecutive crash concern for an inactive job
+	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/clear-crash-concern)
+	ClearCrashConcern(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId)
 
 	// (GET /v1/tenants/{tenantId}/jobs/{jobId}/dependency-waits/{waitId})
 	GetDependencyWait(w http.ResponseWriter, r *http.Request, tenantId string, jobId string, waitId string)
@@ -12011,6 +12168,12 @@ func (_ Unimplemented) OpenArtifact(w http.ResponseWriter, r *http.Request, tena
 // Commit chapter if waiting
 // (POST /v1/tenants/{tenantId}/jobs/{jobId}/chapters/{ordinal}/commit-if-waiting)
 func (_ Unimplemented) CommitChapterIfWaiting(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, ordinal Ordinal) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Clear consecutive crash concern for an inactive job
+// (POST /v1/tenants/{tenantId}/jobs/{jobId}/clear-crash-concern)
+func (_ Unimplemented) ClearCrashConcern(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -13288,6 +13451,46 @@ func (siw *ServerInterfaceWrapper) CommitChapterIfWaiting(w http.ResponseWriter,
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CommitChapterIfWaiting(w, r, tenantId, jobId, ordinal)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ClearCrashConcern operation middleware
+func (siw *ServerInterfaceWrapper) ClearCrashConcern(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "jobId" -------------
+	var jobId JobId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobId", chi.URLParam(r, "jobId"), &jobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ClearCrashConcern(w, r, tenantId, jobId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -15442,6 +15645,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/chapters/{ordinal}/commit-if-waiting", wrapper.CommitChapterIfWaiting)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/clear-crash-concern", wrapper.ClearCrashConcern)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/dependency-waits/{waitId}", wrapper.GetDependencyWait)
 	})
 	r.Group(func(r chi.Router) {
@@ -16886,6 +17092,56 @@ func (response CommitChapterIfWaiting413JSONResponse) VisitCommitChapterIfWaitin
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ClearCrashConcernRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	JobId    JobId    `json:"jobId"`
+	Body     *ClearCrashConcernJSONRequestBody
+}
+
+type ClearCrashConcernResponseObject interface {
+	VisitClearCrashConcernResponse(w http.ResponseWriter) error
+}
+
+type ClearCrashConcern204Response struct {
+}
+
+func (response ClearCrashConcern204Response) VisitClearCrashConcernResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type ClearCrashConcern400Response struct {
+}
+
+func (response ClearCrashConcern400Response) VisitClearCrashConcernResponse(w http.ResponseWriter) error {
+	w.WriteHeader(400)
+	return nil
+}
+
+type ClearCrashConcern403Response struct {
+}
+
+func (response ClearCrashConcern403Response) VisitClearCrashConcernResponse(w http.ResponseWriter) error {
+	w.WriteHeader(403)
+	return nil
+}
+
+type ClearCrashConcern404Response struct {
+}
+
+func (response ClearCrashConcern404Response) VisitClearCrashConcernResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
+type ClearCrashConcern409Response struct {
+}
+
+func (response ClearCrashConcern409Response) VisitClearCrashConcernResponse(w http.ResponseWriter) error {
+	w.WriteHeader(409)
+	return nil
+}
+
 type GetDependencyWaitRequestObject struct {
 	TenantId string `json:"tenantId"`
 	JobId    string `json:"jobId"`
@@ -18138,6 +18394,9 @@ type StrictServerInterface interface {
 	// Commit chapter if waiting
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/chapters/{ordinal}/commit-if-waiting)
 	CommitChapterIfWaiting(ctx context.Context, request CommitChapterIfWaitingRequestObject) (CommitChapterIfWaitingResponseObject, error)
+	// Clear consecutive crash concern for an inactive job
+	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/clear-crash-concern)
+	ClearCrashConcern(ctx context.Context, request ClearCrashConcernRequestObject) (ClearCrashConcernResponseObject, error)
 
 	// (GET /v1/tenants/{tenantId}/jobs/{jobId}/dependency-waits/{waitId})
 	GetDependencyWait(ctx context.Context, request GetDependencyWaitRequestObject) (GetDependencyWaitResponseObject, error)
@@ -19035,6 +19294,40 @@ func (sh *strictHandler) CommitChapterIfWaiting(w http.ResponseWriter, r *http.R
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CommitChapterIfWaitingResponseObject); ok {
 		if err := validResponse.VisitCommitChapterIfWaitingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ClearCrashConcern operation middleware
+func (sh *strictHandler) ClearCrashConcern(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId) {
+	var request ClearCrashConcernRequestObject
+
+	request.TenantId = tenantId
+	request.JobId = jobId
+
+	var body ClearCrashConcernJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ClearCrashConcern(ctx, request.(ClearCrashConcernRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ClearCrashConcern")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ClearCrashConcernResponseObject); ok {
+		if err := validResponse.VisitClearCrashConcernResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

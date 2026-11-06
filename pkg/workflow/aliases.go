@@ -64,6 +64,7 @@ type ExecutionLease = jobdb.ExecutionLease
 type SubmitJobRequest = jobdb.SubmitJobRequest
 type SubmitRestartJobRequest = jobdb.SubmitRestartJobRequest
 type CancelJobRequest = jobdb.CancelJobRequest
+type ClearCrashConcernRequest = jobdb.ClearCrashConcernRequest
 type PollWorkRequest = jobdb.PollWorkRequest
 type GetJobLeaseRequest = jobdb.GetJobLeaseRequest
 type CompleteTaskIfWaitingRequest = jobdb.CompleteTaskIfWaitingRequest

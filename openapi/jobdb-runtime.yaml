@@ -1467,6 +1467,45 @@ paths:
           description: Chapter stored
         '409':
           description: Conflicting chapter write
+  /v1/tenants/{tenantId}/jobs/{jobId}/clear-crash-concern:
+    post:
+      tags: [jobs]
+      operationId: clearCrashConcern
+      summary: Clear consecutive crash concern for an inactive job
+      description: |
+        Operator action using deployment authorization, like cancellation.
+        Delegated lease credentials cannot call this endpoint.
+        Atomically reset the consecutive expired-lease count. Preserve the job ID,
+        history, payload, routing, dependencies, availability, execution deadlines,
+        and lifetime expiration statistics. This does not acquire a lease or
+        immediately execute the job. Other scheduling constraints still apply.
+        Reject live leases, completed, cancelled, or hidden jobs with 409.
+        Clearing an already-clear inactive job succeeds without changing it.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClearCrashConcernRequest'
+            example:
+              reason: Worker deployment repaired
+              workerId: operator
+      responses:
+        '204':
+          description: Crash concern cleared; normal scheduling eligibility applies.
+        '400':
+          description: Invalid request.
+        '403':
+          description: Caller is not authorized; delegated lease credentials are denied.
+        '404':
+          description: Job not found in this tenant.
+        '409':
+          description: Job has a live lease or is completed, cancelled, or hidden.
   /v1/tenants/{tenantId}/jobs/{jobId}/cancel:
     post:
       tags: [jobs]
@@ -3345,6 +3384,16 @@ components:
         requestTime:
           type: string
           format: date-time
+    ClearCrashConcernRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          description: Optional operator reason for backend tracing.
+        workerId:
+          type: string
+          description: Optional operator identifier; defaults to a backend identifier.
     CancelJobRequest:
       type: object
       additionalProperties: false

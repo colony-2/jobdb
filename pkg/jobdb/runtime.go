@@ -23,6 +23,7 @@ type WorkflowRuntime interface {
 	SubmitJob(ctx context.Context, req SubmitJobRequest) (JobHandle, error)
 	SubmitRestartJob(ctx context.Context, req SubmitRestartJobRequest) (JobHandle, error)
 	CancelJob(ctx context.Context, req CancelJobRequest) error
+	ClearCrashConcern(ctx context.Context, req ClearCrashConcernRequest) error
 
 	// Worker loop
 	PollWork(ctx context.Context, req PollWorkRequest) ([]ExecutionLease, error)

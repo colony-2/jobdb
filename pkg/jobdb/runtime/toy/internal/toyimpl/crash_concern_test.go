@@ -49,6 +49,10 @@ func TestCrashConcernBlocksTaskAndAlternateClaims(t *testing.T) {
 	require.Equal(t, &fallback, record.alternateRoute)
 	require.Equal(t, "expired", record.leaseID)
 	require.EqualValues(t, crashconcern.DefaultThreshold, record.consecutiveExpirations)
+	require.NoError(t, r.ClearCrashConcern(ctx, jobdb.ClearCrashConcernRequest{JobKey: h.JobKey}))
+	lease, err = r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "recovered", Routes: []jobdb.Route{fallback}})
+	require.NoError(t, err)
+	require.NotNil(t, lease, "clearing also recovers task work")
 }
 
 func TestCrashConcernRenewalAndReschedule(t *testing.T) {

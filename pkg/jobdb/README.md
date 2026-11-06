@@ -179,8 +179,13 @@ SQLite persists the counter across daemon restarts. Format 3 databases upgrade
 to format 4 by adding the counter, initialized to zero; prior expiry counts were
 not recorded and cannot be reconstructed. Toy retains it for the runtime's
 lifetime. Remote runtimes use their underlying scheduler's policy. PostgreSQL
-also supports a configured threshold and its existing explicit
-`clear_crash_concern` operation; there is no new portable clearing API here.
+also supports a configured threshold.
+
+Operators can call `WorkflowRuntime.ClearCrashConcern` or
+`jobdb jobs clear-crash-concern -t TENANT JOB_ID` to reset the consecutive count
+and restore normal scheduling eligibility. Clearing preserves history and other
+scheduling constraints, and rejects live leases, completed, cancelled, or hidden
+jobs. See the [CLI, REST, and Go recovery guide](../../docs/GUIDE-CRASH-CONCERN.md).
 
 ## Data And Artifacts
 

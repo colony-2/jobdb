@@ -170,6 +170,11 @@ type ChapterRef struct
   field Attempt int
   field TaskType string
 func CheckCellRevision func(header string, revision string) error
+type ClearCrashConcernRequest struct
+  field JobKey JobKey
+  field WorkerID string
+  field Reason string
+method ClearCrashConcernRequest.Validate func() error
 type ClientPayloadUpdate = github.com/colony-2/jobdb/pkg/jobdb/clientpayload.Update
 func CloneExecutionState func(s ExecutionState) ExecutionState
 func CloneRoute func(route *Route) *Route
@@ -339,6 +344,7 @@ var ErrGoalNotFound error
 var ErrInvalidCell *CellError
 var ErrInvalidCellPageToken *CellError
 var ErrInvalidConfigurationRequest error
+var ErrInvalidCrashConcernRequest error
 var ErrInvalidDependency error
 var ErrInvalidJobDeletion error
 var ErrInvalidSecretRequest error
@@ -1216,6 +1222,7 @@ type WorkflowRuntime interface
   embedded GoalRuntime
   method ArchiveSchedule func(ctx context.Context, req ScheduleMutationRequest) (ScheduleInfo, error)
   method CancelJob func(ctx context.Context, req CancelJobRequest) error
+  method ClearCrashConcern func(ctx context.Context, req ClearCrashConcernRequest) error
   method CompleteTaskIfWaiting func(ctx context.Context, req CompleteTaskIfWaitingRequest) error
   method GetChapter func(ctx context.Context, ref ChapterRef) (Chapter, error)
   method GetConfiguration func(context.Context, GetConfigurationRequest) (ConfigurationSnapshot, error)
@@ -1496,6 +1503,7 @@ method Runtime.AddGoalCandidate func(ctx context.Context, req github.com/colony-
 method Runtime.ArchiveSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ScheduleMutationRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.CancelJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CancelJobRequest) error
 method Runtime.ChapterApplicationPayloadLimit func() int64
+method Runtime.ClearCrashConcern func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ClearCrashConcernRequest) error
 method Runtime.CompleteJobWithLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.CompleteExecutionRequest) error
 method Runtime.CompleteTaskIfWaiting func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CompleteTaskIfWaitingRequest) error
 method Runtime.CreateCell func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.CreateCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
@@ -1554,6 +1562,7 @@ type Scheduler interface
   method AcquireWork func(ctx context.Context, req WorkRequest) ([]LeaseSnapshot, error)
   method CancelJob func(ctx context.Context, req CancelJobMutation) (StoredJob, error)
   method ClaimTask func(ctx context.Context, req ClaimTaskRequest) (LeaseIdentity, error)
+  method ClearCrashConcern func(context.Context, github.com/colony-2/jobdb/pkg/jobdb.ClearCrashConcernRequest) error
   method CompleteLease func(ctx context.Context, mutation CompletionMutation) (StoredJob, error)
   method CreateCellWithLeaseByID func(context.Context, github.com/colony-2/jobdb/pkg/jobdb.JobKey, string, string, github.com/colony-2/jobdb/pkg/jobdb.CreateCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
   method CreateJob func(ctx context.Context, req CreateJobRequest) (StoredJob, error)
@@ -1799,6 +1808,7 @@ const ChapterMetadataString github.com/colony-2/jobdb/pkg/jobdb.ChapterMetadataK
 type ChapterMetadataValue = github.com/colony-2/jobdb/pkg/jobdb.ChapterMetadataValue
 type ChapterOutcome = github.com/colony-2/jobdb/pkg/jobdb.ChapterOutcome
 type ChapterRef = github.com/colony-2/jobdb/pkg/jobdb.ChapterRef
+type ClearCrashConcernRequest = github.com/colony-2/jobdb/pkg/jobdb.ClearCrashConcernRequest
 type ClientPayloadUpdate = github.com/colony-2/jobdb/pkg/jobdb/clientpayload.Update
 type CompleteExecutionRequest = github.com/colony-2/jobdb/pkg/jobdb.CompleteExecutionRequest
 type CompleteTaskIfWaitingRequest = github.com/colony-2/jobdb/pkg/jobdb.CompleteTaskIfWaitingRequest
@@ -2262,6 +2272,7 @@ method Runtime.AddGoalCandidate func(ctx context.Context, req github.com/colony-
 method Runtime.ArchiveJobSchema func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey) (github.com/colony-2/jobdb/pkg/jobdb.JobSchemaInfo, error)
 method Runtime.ArchiveSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ScheduleMutationRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.CancelJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CancelJobRequest) error
+method Runtime.ClearCrashConcern func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ClearCrashConcernRequest) error
 method Runtime.CompleteTaskIfWaiting func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CompleteTaskIfWaitingRequest) error
 method Runtime.CreateCell func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.CreateCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method Runtime.CreateDelegation func(ctx context.Context, parent github.com/colony-2/jobdb/pkg/jobdb.ExecutionLease, req github.com/colony-2/jobdb/pkg/jobdb.CreateDelegationRequest) (github.com/colony-2/jobdb/pkg/jobdb.RenewableExecutionLease, error)
@@ -2332,6 +2343,7 @@ method Runtime.ArchiveJobSchema func(ctx context.Context, key github.com/colony-
 method Runtime.ArchiveSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ScheduleMutationRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.CancelJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CancelJobRequest) error
 method Runtime.ChapterApplicationPayloadLimit func() int64
+method Runtime.ClearCrashConcern func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ClearCrashConcernRequest) error
 method Runtime.Close func(ctx context.Context) error
 method Runtime.CompleteJobWithLeaseByID func(ctx context.Context, jobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.CompleteExecutionRequest) error
 method Runtime.CompleteTaskIfWaiting func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CompleteTaskIfWaitingRequest) error

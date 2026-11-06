@@ -23,6 +23,9 @@ type Scheduler interface {
 	GetJob(ctx context.Context, key jobdb.JobKey) (StoredJob, error)
 	ListJobs(ctx context.Context, req ListJobsRequest) (ListJobsResponse, error)
 	CancelJob(ctx context.Context, req CancelJobMutation) (StoredJob, error)
+	// ClearCrashConcern atomically resets only the consecutive expiry counter.
+	// Reject live leases and final/hidden jobs without mutating them.
+	ClearCrashConcern(context.Context, jobdb.ClearCrashConcernRequest) error
 
 	AcquireWork(ctx context.Context, req WorkRequest) ([]LeaseSnapshot, error)
 	AcquireJobLease(ctx context.Context, req JobLeaseRequest) (*LeaseSnapshot, error)

@@ -21,6 +21,10 @@ schedule APIs, tenant configuration requests/snapshots and administration,
 error types, and the `WorkflowRuntime` interface used by runtime
 adapters and advanced consumers.
 
+Operator recovery uses `WorkflowRuntime.ClearCrashConcern` with
+`ClearCrashConcernRequest` to reset a job's consecutive expired-lease count.
+See [clearing crash concern](GUIDE-CRASH-CONCERN.md) for CLI, REST, and Go usage.
+
 Routing uses `Route{JobType, TaskType}` throughout the public API. See the
 [consumer migration guide](MIGRATION-TYPED-ROUTES.md) for the breaking changes.
 

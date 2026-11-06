@@ -45,6 +45,7 @@ func runCrashConcern(t *testing.T, harnesses []Harness) {
 				return lease
 			}
 			var previous string
+			var expired jobdb.ExecutionLease
 			// Counters record expired-lease reclaims. At the threshold the live
 			// lease remains ACTIVE; its expiry must prevent the next acquisition.
 			for reclaims := 0; reclaims <= crashconcern.DefaultThreshold; reclaims++ {
@@ -59,6 +60,7 @@ func runCrashConcern(t *testing.T, harnesses []Harness) {
 				require.NotNil(t, lease, "isolated expiry must remain recoverable")
 				require.NotEqual(t, previous, lease.LeaseID())
 				previous = lease.LeaseID()
+				expired = lease
 				info, err := r.GetJob(ctx, key)
 				require.NoError(t, err)
 				require.Equal(t, jobdb.JobStatusActive, info.Status)
@@ -110,6 +112,31 @@ func runCrashConcern(t *testing.T, harnesses []Harness) {
 			leases := poll()
 			require.Len(t, leases, 1, "a crash-concern job must not obstruct other ready work")
 			require.Equal(t, healthy, leases[0].Job().JobKey)
+			require.ErrorIs(t, r.ClearCrashConcern(ctx, jobdb.ClearCrashConcernRequest{JobKey: healthy}), jobdb.ErrConflict)
+			require.ErrorIs(t, r.ClearCrashConcern(ctx, jobdb.ClearCrashConcernRequest{}), jobdb.ErrInvalidCrashConcernRequest)
+			require.ErrorIs(t, r.ClearCrashConcern(ctx, jobdb.ClearCrashConcernRequest{JobKey: jobdb.JobKey{TenantId: key.TenantId + "-other", JobId: key.JobId}}), jobdb.ErrJobNotFound)
+			chapters, err := r.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: key})
+			require.NoError(t, err)
+			clear := jobdb.ClearCrashConcernRequest{JobKey: key, WorkerID: "operator", Reason: "worker repaired"}
+			require.NoError(t, r.ClearCrashConcern(ctx, clear))
+			require.NoError(t, r.ClearCrashConcern(ctx, clear), "repeating the clear before acquisition is harmless")
+			info, err := r.GetJob(ctx, key)
+			require.NoError(t, err)
+			require.Equal(t, jobdb.JobStatusReady, info.Status)
+			afterChapters, err := r.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: key})
+			require.NoError(t, err)
+			require.Equal(t, chapters, afterChapters, "clear must preserve replay history")
+			require.ErrorIs(t, expired.KeepAlive(ctx), jobdb.ErrExecutionLeaseLost)
+			recovered := get()
+			require.NotNil(t, recovered)
+			require.Equal(t, key, recovered.Job().JobKey)
+			require.NotEqual(t, expired.LeaseID(), recovered.LeaseID())
+			require.ErrorIs(t, r.ClearCrashConcern(ctx, clear), jobdb.ErrConflict)
+			require.NoError(t, recovered.Complete(ctx, jobdb.CompleteExecutionRequest{Status: "success", Chapter: &jobdb.Chapter{Ordinal: 1, TaskType: route.JobType, CreatedAt: time.Now().UTC(), Body: jobdb.JobAttemptOutcomeChapter{Outcome: jobdb.ApplicationOutputOutcome{Output: jobdb.ApplicationOutputBytes{Data: []byte(`1`)}}}}}))
+			require.ErrorIs(t, r.ClearCrashConcern(ctx, clear), jobdb.ErrConflict)
+			cancelled := submit("cancelled")
+			require.NoError(t, r.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: cancelled}))
+			require.ErrorIs(t, r.ClearCrashConcern(ctx, jobdb.ClearCrashConcernRequest{JobKey: cancelled}), jobdb.ErrConflict)
 		})
 	}
 }

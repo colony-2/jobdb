@@ -147,6 +147,11 @@ runtime, err := remoteruntime.New("http://127.0.0.1:9047", nil)
 See [pkg/jobdb/README.md](pkg/jobdb/README.md) for the Go runtime API, data
 types, and runtime package reference.
 
+To recover a job blocked by repeated worker crashes, run
+`jobdb jobs clear-crash-concern -t TENANT JOB_ID --reason 'worker issue fixed'`.
+See [clearing crash concern](docs/GUIDE-CRASH-CONCERN.md) for CLI options,
+REST and Go examples, and recovery behavior.
+
 ## Tenant Configuration
 
 Every backend provides a tenant configuration store and public administration API.

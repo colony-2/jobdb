@@ -18,6 +18,7 @@ import (
 
 func newJobsCmd() *cobra.Command {
 	root := &cobra.Command{Use: "jobs", Short: "Manage jobs through the runtime API", Args: cobra.NoArgs}
+	root.AddCommand(newClearCrashConcernCmd())
 	var tenant, baseURL, olderThan, before string
 	var metadata []string
 	var all, dryRun, jsonOutput bool

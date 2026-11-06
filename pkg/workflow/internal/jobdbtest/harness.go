@@ -498,6 +498,11 @@ func (r *tenantNamespacedRuntime) CancelJob(ctx context.Context, req jobdb.Cance
 	return r.runtime.CancelJob(ctx, req)
 }
 
+func (r *tenantNamespacedRuntime) ClearCrashConcern(ctx context.Context, req jobdb.ClearCrashConcernRequest) error {
+	req.JobKey = r.prefixJobKey(req.JobKey)
+	return r.runtime.ClearCrashConcern(ctx, req)
+}
+
 func (r *tenantNamespacedRuntime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jobdb.ExecutionLease, error) {
 	if req.TenantId != "" {
 		req.TenantId = r.prefixTenant(req.TenantId)

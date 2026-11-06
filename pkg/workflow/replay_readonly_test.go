@@ -121,6 +121,12 @@ func TestReplayReadOnlyRuntimeRejectsMutations(t *testing.T) {
 			},
 		},
 		{
+			name: "ClearCrashConcern",
+			call: func() error {
+				return replayRuntime.ClearCrashConcern(ctx, ClearCrashConcernRequest{})
+			},
+		},
+		{
 			name: "CancelJob",
 			call: func() error {
 				return replayRuntime.CancelJob(ctx, CancelJobRequest{})
