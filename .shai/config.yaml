@@ -1,6 +1,6 @@
 type: shai-sandbox
 version: 1
-image: ghcr.io/colony-2/shai-mega
+image: ghcr.io/colony-2/shai-mega:dind-latest
 resources:
   default:
     vars:
@@ -12,8 +12,12 @@ resources:
       - name: uname
         command: uname -a
     mounts:
-      - source: /src/colony2
-        target: /colony2
+      - source: /src/pgjobdb
+        target: /pgjobdb
+        mode: rw
+      - source: /src/recipes/
+        target: /recipes
+        mode: rw
       - source: ${{ env.HOME }}/shaihome
         target: /home/shai/
         mode: rw
@@ -96,7 +100,44 @@ resources:
     ports:
       - host: github.com
         port: 22
+      - host: 192.168.1.195
+        port: 8080
+      - host: 192.168.1.195
+        port: 8082
+      - host: 192.168.1.195
+        port: 9047
+    options:
+      privileged: true
+    root-commands:
+      - |
+        socket="/var/run/docker.sock"
+
+        # Initial quick check
+        if [ ! -S "$socket" ]; then
+          sleep 0.2
+          if [ ! -S "$socket" ]; then
+            echo "Waiting for $socket..."
+
+            # Now loop for the remainder of the 2s (approx 1.7s left)
+            count=0
+            while [ ! -S "$socket" ] && [ $count -lt 18 ]; do
+              sleep 0.1
+              ((count++))
+            done
+          fi
+        fi
+
+        if [ -S "$socket" ]; then
+          chmod 666 "$socket"
+        else
+          echo "Docker socket not available within 2s" >&2
+          exit 1
+        fi
 apply:
   - path: ./
     resources:
       - default
+  - path: server/ops
+    resources:
+      - default
+    image: ghcr.io/colony-2/shai-mega:dind-latest
