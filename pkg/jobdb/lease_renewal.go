@@ -28,8 +28,12 @@ type RenewableExecutionLease interface {
 	LeaseExpiry() time.Time
 }
 
-// LeaseRenewalError reports an initial or subsequent renewal failure. Unwrap
-// preserves authority errors (ErrExecutionLeaseLost) and transport errors.
+// LeaseRenewalError reports an initial or subsequent renewal failure, or
+// involuntary authority loss detected during an active renewable runner session
+// (including supplied leases), whether detected by append, mutation, or heartbeat.
+// Unwrap preserves authority errors (ErrExecutionLeaseLost) and transport errors.
+// Transport failure alone does not prove lost authority. Import errors retain
+// their underlying classification.
 type LeaseRenewalError struct{ Err error }
 
 // Causes may opt into user-visible diagnostics with SafeMessage. Ordinary error

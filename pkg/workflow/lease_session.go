@@ -166,8 +166,20 @@ func (s *leaseSession) operationContext(ctx context.Context) (context.Context, f
 	stop := context.AfterFunc(s.ctx, cancel)
 	return bounded, func() { stop(); cancel() }
 }
+
+// classifyLeaseLoss is used only at an active renewable session boundary.
+// Preserve the complete control/cause chain and already classified errors.
+func classifyLeaseLoss(err error) error {
+	var renewal *jobdb.LeaseRenewalError
+	if errors.Is(err, jobdb.ErrExecutionLeaseLost) && !errors.As(err, &renewal) {
+		return &jobdb.LeaseRenewalError{Err: err}
+	}
+	return err
+}
+
 func (s *leaseSession) mutationError(err error) error {
 	if errors.Is(err, jobdb.ErrExecutionLeaseLost) {
+		err = classifyLeaseLoss(err)
 		s.cancel(err)
 	}
 	return err

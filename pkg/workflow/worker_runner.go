@@ -311,7 +311,14 @@ func (r *workerRunner) DoJob(ctx context.Context) (output JobData, runErr error)
 				cause := context.Cause(session.ctx)
 				session.close()
 				if cause != nil {
-					output, runErr = nil, cause
+					// Prefer an authority-bearing control error: it retains the
+					// rejected append and its execution-control marker.
+					if !errors.Is(runErr, jobdb.ErrExecutionLeaseLost) {
+						output, runErr = nil, cause
+					}
+				}
+				if !session.isReleased() {
+					runErr = classifyLeaseLoss(runErr)
 				}
 			}()
 		} else {

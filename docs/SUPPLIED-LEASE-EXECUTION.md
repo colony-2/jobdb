@@ -101,7 +101,9 @@ upgraded before using the new remote runner lifecycle.
 ## Errors, cancellation, and persistence
 
 Use `errors.As` with a `*jobdb.LeaseRenewalError` target to recognize runner renewal failures
-and `errors.Is(err, jobdb.ErrExecutionLeaseLost)` for invalid/lost authority. Remote
+and involuntary authority loss during active renewable sessions, including supplied
+leases. Append, mutation, and heartbeat detection all receive this classification.
+Use `errors.Is(err, jobdb.ErrExecutionLeaseLost)` for invalid/lost authority. Remote
 transport failures are available through `*remote.LeaseTransportError`; they are
 not reported as proof of lost authority. Import may directly return these underlying
 errors. A terminal job read cannot hide this invocation's renewal or lease-loss error.

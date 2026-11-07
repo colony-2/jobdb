@@ -218,8 +218,10 @@ func TestSuppliedLeaseLossCancelsWithoutFailureChapter(t *testing.T) {
 			select {
 			case err := <-result:
 				var renewal *jobdb.LeaseRenewalError
+				require.ErrorAs(t, err, &renewal)
 				if transport {
-					require.ErrorAs(t, err, &renewal)
+					var transportErr *remote.LeaseTransportError
+					require.ErrorAs(t, err, &transportErr)
 				}
 				require.Equal(t, !transport, errors.Is(err, jobdb.ErrExecutionLeaseLost))
 			case <-time.After(3 * time.Second):
