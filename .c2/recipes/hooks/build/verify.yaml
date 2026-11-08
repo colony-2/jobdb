@@ -1,0 +1,270 @@
+id: jobdb-build-verify
+version: 1.0.0
+desc: Validate the candidate on this worker with independently recorded CI checks.
+inputs:
+  api_version: ${{ inputs.api_version }}
+  candidate: ${{ inputs.candidate }}
+  base: ${{ inputs.base }}
+state:
+  initial: check_environment
+  states:
+    check_environment:
+      id: check_environment
+      timeout: 2m
+      op: command_execution
+      inputs:
+        shell: bash
+        working_directory: ${{ context.environment.op.worktree_path }}
+        timeout: 2m
+        continue_on_error: true
+        capture_diagnostics: always
+        env:
+          GOPRIVATE: github.com/colony-2/*
+          GOTOOLCHAIN: local
+          GOFLAGS: -mod=readonly
+          OUTBOX: ${{ context.environment.op.outbox }}
+          API_VERSION: ${{ inputs.api_version }}
+          CANDIDATE: ${{ inputs.candidate }}
+          BASE: ${{ inputs.base }}
+          GOOS: linux
+          GOARCH: arm64
+          CGO_ENABLED: "1"
+          CC: gcc
+          GOWORK: "off"
+        run: |
+          set -eu
+          exec > "$OUTBOX/environment.log" 2>&1
+          printf 'Candidate: %s\nBase: %s\n' "$CANDIDATE" "$BASE"
+          printf 'Observed HEAD: '; git rev-parse HEAD
+          uname -s -m
+          test "$API_VERSION" = c2.build-hook/v1
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = aarch64
+          for tool in bash git go gcc python3 mktemp; do command -v "$tool"; done
+          go version
+          go env GOOS GOARCH CGO_ENABLED CC
+          gcc --version | head -n 1
+          python3 --version
+          bash --version | head -n 1
+          git --version
+          test "$(go env CGO_ENABLED)" = 1
+          case "$(go env GOVERSION)" in go1.26.*) ;; *) echo 'Requires pinned Go 1.26 toolchain'; exit 1 ;; esac
+          printf 'CI specifies Go 1.26.1; native package pins compatible Go 1.26.8.\n'
+          printf 'Held: alternate OS/architecture matrices, tagging, signing, releases and publication.\n'
+          printf 'Embedded PostgreSQL: isolated local child processes; root drops to nobody.\n'
+      catch:
+        - when: failure.kind != 'cancellation'
+          continue:
+            outputs:
+              success: false
+              exit_code: -1
+              timed_out: ${{ failure.kind == 'timeout' }}
+              failure: ${{ failure }}
+              error_message: ${{ failure.message }}
+              stdout: ""
+      transitions:
+        - to: test_integration
+          when: jq(states.check_environment.outputs, '.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)') == true
+        - to: summarize
+      const: true
+      execution_needs:
+        packages:
+          - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#bash
+          - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#coreutils
+          - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#git
+          - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#go_1_26
+          - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#gcc
+          - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#python3
+    test_integration:
+      id: test_integration
+      timeout: 30m
+      op: command_execution
+      inputs:
+        shell: bash
+        working_directory: ${{ context.environment.op.worktree_path }}
+        timeout: 30m
+        continue_on_error: true
+        capture_diagnostics: always
+        env:
+          GOPRIVATE: github.com/colony-2/*
+          GOTOOLCHAIN: local
+          GOFLAGS: -mod=readonly
+          OUTBOX: ${{ context.environment.op.outbox }}
+          GOOS: linux
+          GOARCH: arm64
+          CGO_ENABLED: "1"
+          CC: gcc
+          GOWORK: "off"
+        run: |
+          set -eu
+          exec > "$OUTBOX/tests.log" 2>&1
+          scratch=$(mktemp -d /tmp/jobdb-verify.XXXXXXXX)
+          trap 'rm -rf -- "$scratch"' EXIT
+          # Embedded PG test binaries drop root; only scratch ancestors need traversal.
+          chmod 755 "$scratch"
+          export TMPDIR="$scratch/tmp" GOCACHE="$scratch/go-build" GOMODCACHE="$scratch/go-mod"
+          export GOPATH="$scratch/go" XDG_CACHE_HOME="$scratch/cache"
+          mkdir -p "$TMPDIR" "$GOCACHE" "$GOMODCACHE" "$XDG_CACHE_HOME"
+          chmod 755 "$TMPDIR"
+          for variable in ${!C2J_CURRENT_@} ${!C2J_CHILD_JOB_@} ${!C2J_WORKSPACE_@}; do unset "$variable"; done
+          unset C2J_TENANT_ID C2J_OBJECT_OUTBOX JOBDB_EXTERNAL_REMOTE_BASE_URL JOBDB_EXTERNAL_REMOTE_NAME JOBDB_EXTERNAL_REMOTE_ONLY JOBDB_CHAPTER_POSTGRES_DSN
+          # Scoped Git transport credentials remain available for module downloads.
+          printf '%s\n' 'Command: go test -count=1 -p=2 -v -tags=integration -exec <python3 absolute-native-launcher> ./...'
+          go test -count=1 -p=2 -v -tags=integration -exec "python3 $PWD/scripts/verify-test-exec.py" ./...
+      catch:
+        - when: failure.kind != 'cancellation'
+          continue:
+            outputs:
+              success: false
+              exit_code: -1
+              timed_out: ${{ failure.kind == 'timeout' }}
+              failure: ${{ failure }}
+              error_message: ${{ failure.message }}
+              stdout: ""
+      transitions:
+        - to: test_races
+      const: true
+      execution_needs:
+        packages:
+          - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#bash
+          - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#coreutils
+          - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#git
+          - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#go_1_26
+          - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#gcc
+          - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#python3
+    summarize:
+      id: summarize
+      timeout: 2m
+      op: command_execution
+      artifacts:
+        ./: '${{ jq([(has(states.check_environment) ? states.check_environment.artifacts : {}), (has(states.test_integration) ? states.test_integration.artifacts : {}), (has(states.test_races) ? states.test_races.artifacts : {})], ''add | with_entries(select(.key == "environment.log" or .key == "tests.log" or .key == "races.log"))'') }}'
+      inputs:
+        shell: bash
+        working_directory: ${{ context.environment.op.worktree_path }}
+        timeout: 2m
+        capture_diagnostics: always
+        env:
+          INBOX: ${{ context.environment.op.inbox }}
+          OUTBOX: ${{ context.environment.op.outbox }}
+          CANDIDATE: ${{ inputs.candidate }}
+          BASE: ${{ inputs.base }}
+          VERDICT: '${{ (inputs.api_version == ''c2.build-hook/v1'' && jq((has(states.check_environment) ? states.check_environment.outputs : {}), ''.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)'') == true && ''environment.log'' in (has(states.check_environment) ? states.check_environment.artifacts : {}) && jq((has(states.test_integration) ? states.test_integration.outputs : {}), ''.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)'') == true && ''tests.log'' in (has(states.test_integration) ? states.test_integration.artifacts : {}) && jq((has(states.test_races) ? states.test_races.outputs : {}), ''.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)'') == true && ''races.log'' in (has(states.test_races) ? states.test_races.artifacts : {})) ? ''passed'' : ''failed'' }}'
+          RESULT_0: '${{ (jq((has(states.check_environment) ? states.check_environment.outputs : {}), ''.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)'') == true) ? ''passed'' : ''failed'' }}'
+          DETAIL_0: '${{ json_stringify((has(states.check_environment) ? states.check_environment.outputs : {})) }}'
+          RESULT_1: '${{ !(jq((has(states.check_environment) ? states.check_environment.outputs : {}), ''.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)'') == true) ? ''not run (environment gate failed)'' : (jq((has(states.test_integration) ? states.test_integration.outputs : {}), ''.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)'') == true) ? ''passed'' : ''failed'' }}'
+          DETAIL_1: '${{ json_stringify((has(states.test_integration) ? states.test_integration.outputs : {})) }}'
+          RESULT_2: '${{ !(jq((has(states.check_environment) ? states.check_environment.outputs : {}), ''.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)'') == true) ? ''not run (environment gate failed)'' : (jq((has(states.test_races) ? states.test_races.outputs : {}), ''.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)'') == true) ? ''passed'' : ''failed'' }}'
+          DETAIL_2: '${{ json_stringify((has(states.test_races) ? states.test_races.outputs : {})) }}'
+        run: |
+          set -eu
+          report="$OUTBOX/summary.md"
+          missing=0
+          {
+            printf '# JobDB local verification: %s\n\nCandidate: %s\nBase: %s\n' "$VERDICT" "$CANDIDATE" "$BASE"
+            printf '\nNative Linux arm64 checks only; does not certify the GitHub matrix or publication.\n'
+            printf '\n## check_environment: %s\n\n```json\n%s\n```\n' "$RESULT_0" "$DETAIL_0"
+            if [ -s "$INBOX/environment.log" ]; then
+              printf 'Evidence: environment.log\n'
+            else
+              printf 'Evidence unavailable: environment.log\n'; missing=1
+            fi
+            printf '\n## test_integration: %s\n\n```json\n%s\n```\n' "$RESULT_1" "$DETAIL_1"
+            if [ -s "$INBOX/tests.log" ]; then
+              printf 'Evidence: tests.log\n'
+            else
+              printf 'Evidence unavailable: tests.log\n'; missing=1
+            fi
+            printf '\n## test_races: %s\n\n```json\n%s\n```\n' "$RESULT_2" "$DETAIL_2"
+            if [ -s "$INBOX/races.log" ]; then
+              printf 'Evidence: races.log\n'
+            else
+              printf 'Evidence unavailable: races.log\n'; missing=1
+            fi
+            printf '\n## Environment\n\n'
+            if [ -s "$INBOX/environment.log" ]; then cat "$INBOX/environment.log"; fi
+            printf '\n## Observed skip markers (not additional coverage)\n\n'
+            for log in tests.log races.log; do
+              if [ -f "$INBOX/$log" ]; then grep -E -- '--- SKIP:|SKIP|[Ss]kipping' "$INBOX/$log" || true; fi
+            done
+          } > "$report"
+          test -s "$report"
+          test "$missing" = 0
+          printf 'JobDB local verification %s; environment=%s, integration=%s, races=%s. See summary.md and per-task logs.' "$VERDICT" "$RESULT_0" "$RESULT_1" "$RESULT_2"
+      catch:
+        - when: failure.kind != 'cancellation'
+          continue:
+            outputs:
+              success: false
+              exit_code: -1
+              timed_out: ${{ failure.kind == 'timeout' }}
+              failure: ${{ failure }}
+              error_message: ${{ failure.message }}
+              stdout: ""
+      const: true
+      execution_needs:
+        packages:
+          - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#bash
+          - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#coreutils
+          - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#gnugrep
+    test_races:
+      id: test_races
+      timeout: 30m
+      op: command_execution
+      inputs:
+        shell: bash
+        working_directory: ${{ context.environment.op.worktree_path }}
+        timeout: 30m
+        continue_on_error: true
+        capture_diagnostics: always
+        env:
+          GOPRIVATE: github.com/colony-2/*
+          GOTOOLCHAIN: local
+          GOFLAGS: -mod=readonly
+          OUTBOX: ${{ context.environment.op.outbox }}
+          GOOS: linux
+          GOARCH: arm64
+          CGO_ENABLED: "1"
+          CC: gcc
+          GOWORK: "off"
+        run: |
+          set -eu
+          exec > "$OUTBOX/races.log" 2>&1
+          scratch=$(mktemp -d /tmp/jobdb-verify.XXXXXXXX)
+          trap 'rm -rf -- "$scratch"' EXIT
+          # Embedded PG test binaries drop root; only scratch ancestors need traversal.
+          chmod 755 "$scratch"
+          export TMPDIR="$scratch/tmp" GOCACHE="$scratch/go-build" GOMODCACHE="$scratch/go-mod"
+          export GOPATH="$scratch/go" XDG_CACHE_HOME="$scratch/cache"
+          mkdir -p "$TMPDIR" "$GOCACHE" "$GOMODCACHE" "$XDG_CACHE_HOME"
+          chmod 755 "$TMPDIR"
+          for variable in ${!C2J_CURRENT_@} ${!C2J_CHILD_JOB_@} ${!C2J_WORKSPACE_@}; do unset "$variable"; done
+          unset C2J_TENANT_ID C2J_OBJECT_OUTBOX JOBDB_EXTERNAL_REMOTE_BASE_URL JOBDB_EXTERNAL_REMOTE_NAME JOBDB_EXTERNAL_REMOTE_ONLY JOBDB_CHAPTER_POSTGRES_DSN
+          # Scoped Git transport credentials remain available for module downloads.
+          printf '%s\n' "Command: go test -count=1 -p=1 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider"
+          go test -count=1 -p=1 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider
+      catch:
+        - when: failure.kind != 'cancellation'
+          continue:
+            outputs:
+              success: false
+              exit_code: -1
+              timed_out: ${{ failure.kind == 'timeout' }}
+              failure: ${{ failure }}
+              error_message: ${{ failure.message }}
+              stdout: ""
+      transitions:
+        - to: summarize
+      const: true
+      execution_needs:
+        packages:
+          - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#bash
+          - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#coreutils
+          - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#git
+          - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#go_1_26
+          - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#gcc
+          - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#python3
+outputs:
+  api_version: c2.build-hook/v1
+  status: '${{ (inputs.api_version == ''c2.build-hook/v1'' && jq((has(states.check_environment) ? states.check_environment.outputs : {}), ''.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)'') == true && ''environment.log'' in (has(states.check_environment) ? states.check_environment.artifacts : {}) && jq((has(states.test_integration) ? states.test_integration.outputs : {}), ''.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)'') == true && ''tests.log'' in (has(states.test_integration) ? states.test_integration.artifacts : {}) && jq((has(states.test_races) ? states.test_races.outputs : {}), ''.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)'') == true && ''races.log'' in (has(states.test_races) ? states.test_races.artifacts : {}) && jq((has(states.summarize) ? states.summarize.outputs : {}), ''.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)'') == true && ''summary.md'' in (has(states.summarize) ? states.summarize.artifacts : {}) && size((has(states.summarize) ? states.summarize.outputs : {}).stdout) > 0 && size((has(states.summarize) ? states.summarize.outputs : {}).stdout) <= 8192) ? ''passed'' : ''failed'' }}'
+  summary: '${{ size((has(states.summarize) ? states.summarize.outputs : {}).stdout) > 0 && size((has(states.summarize) ? states.summarize.outputs : {}).stdout) <= 8192 ? (has(states.summarize) ? states.summarize.outputs : {}).stdout : ''Local verification failed: reporting output unavailable; inspect task diagnostics.'' }}'
+  artifact_refs: '${{ jq([jq([(has(states.check_environment) ? states.check_environment.artifacts : {}), (has(states.test_integration) ? states.test_integration.artifacts : {}), (has(states.test_races) ? states.test_races.artifacts : {})], ''add | with_entries(select(.key == "environment.log" or .key == "tests.log" or .key == "races.log"))''), jq((has(states.summarize) ? states.summarize.artifacts : {}), ''with_entries(select(.key == "summary.md"))'')], ''add'') }}'

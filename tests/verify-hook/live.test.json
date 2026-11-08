@@ -1,0 +1,138 @@
+{
+  "recipe": "driver-live.yaml",
+  "live": true,
+  "cases": [
+    {
+      "id": "VH-031-native-fixture-pass",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "files": {
+              "go.mod": "module example.com/jobdbverifyfixture\n\ngo 1.26\n",
+              "candidate-untracked.txt": "preserve candidate content\n",
+              "pkg/workflow/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/jobdb/secrets/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/jobdb/cli/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "examples/secret-provider/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {  }\n"
+            },
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
+              "scripts/verify-test-exec.py": "../../scripts/verify-test-exec.py"
+            }
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "op": "command_execution"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "passed"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.artifact_refs.size() == 4"
+        },
+        {
+          "type": "cel_true",
+          "expr": "repositories.root.clean && repositories.root.new_commits == 0 && repositories.root.changed_files.size() == 0"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 5 && calls[2].outputs.success == true && calls[4].outputs.success == true"
+        }
+      ],
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base `touch SHOULD_NOT_EXIST`",
+          "documents": {},
+          "settings": null
+        }
+      }
+    },
+    {
+      "id": "VH-031-native-forced-failure",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "files": {
+              "go.mod": "module example.com/jobdbverifyfixture\n\ngo 1.26\n",
+              "candidate-untracked.txt": "preserve candidate content\n",
+              "pkg/workflow/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/jobdb/secrets/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/jobdb/cli/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "examples/secret-provider/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) { t.Fatal(\"representative forced failure\") }\n"
+            },
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
+              "scripts/verify-test-exec.py": "../../scripts/verify-test-exec.py"
+            }
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "op": "command_execution"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.artifact_refs.size() == 4"
+        },
+        {
+          "type": "cel_true",
+          "expr": "repositories.root.clean && repositories.root.new_commits == 0 && repositories.root.changed_files.size() == 0"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 5 && calls[2].outputs.success == true && calls[4].outputs.success == true"
+        }
+      ],
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base `touch SHOULD_NOT_EXIST`",
+          "documents": {},
+          "settings": null
+        }
+      }
+    }
+  ]
+}

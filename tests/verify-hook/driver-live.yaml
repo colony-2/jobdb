@@ -1,0 +1,63 @@
+schema_version: 2
+# Bounded candidate-hook caller. This recipe never merges or publishes.
+id: jobdb-verify-test
+source_hooks: from_current
+input_schema:
+  type:
+    type: string
+    required: false
+  title:
+    type: string
+    required: false
+  prompt:
+    type: string
+    default_value: Verify candidate
+  hook_inputs:
+    type: object
+    default_value:
+      api_version: c2.build-hook/v1
+      request: 'check $(touch SHOULD_NOT_EXIST)'
+      target_directory: '; touch SHOULD_NOT_EXIST'
+      candidate: managed-workspace-content
+      base: f92ae253a5da7a6b81944d0bdf4cadb085772140
+      documents: {}
+inputs:
+  hook_inputs: ${{ inputs.hook_inputs }}
+sequence:
+- id: invoke
+  include: cell://.c2/recipes/hooks/build/verify.yaml
+  inputs:
+    api_version: ${{ inputs.hook_inputs.api_version }}
+    request: ${{ inputs.hook_inputs.request }}
+    target_directory: ${{ inputs.hook_inputs.target_directory }}
+    candidate: ${{ inputs.hook_inputs.candidate }}
+    base: ${{ inputs.hook_inputs.base }}
+    documents: ${{ inputs.hook_inputs.documents }}
+    settings: '${{ has(inputs.hook_inputs.settings) ? inputs.hook_inputs.settings : null }}'
+- id: inspect_evidence
+  op: command_execution
+  const: true
+  execution_needs:
+    packages:
+    - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#bash
+    - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#coreutils
+  artifacts:
+    ./: ${{ sequence.invoke.outputs.artifact_refs }}
+  inputs:
+    shell: bash
+    working_directory: ${{ context.environment.op.worktree_path }}
+    timeout: 1m
+    env:
+      INBOX: ${{ context.environment.op.inbox }}
+    run: |
+      set -eu
+      test ! -e SHOULD_NOT_EXIST
+      for name in environment.log tests.log races.log summary.md; do
+        test -s "$INBOX/$name"
+      done
+      printf 'All four durable native artifacts rebound; shell syntax stayed data.'
+outputs:
+  api_version: ${{ sequence.invoke.outputs.api_version }}
+  status: ${{ sequence.invoke.outputs.status }}
+  summary: ${{ sequence.invoke.outputs.summary }}
+  artifact_refs: ${{ sequence.invoke.outputs.artifact_refs }}

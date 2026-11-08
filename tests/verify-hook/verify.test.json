@@ -1,0 +1,2249 @@
+{
+  "recipe": "driver.yaml",
+  "cases": [
+    {
+      "id": "VH-007-settings-absent",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        }
+      },
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base",
+          "documents": {}
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_races/test_races"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "races.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "JobDB local verification completed"
+              },
+              "artifacts": {
+                "summary.md": "native evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "passed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.artifact_refs.size() == 4 && outputs.artifact_refs[\"tests.log\"].name == \"tests.log\""
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 4 && calls.all(c, c.inputs.capture_diagnostics == \"always\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path.endsWith(\"/test_integration/test_integration\"))[0].inputs.run.contains(\"-tags=integration\") && calls.filter(c, c.node_path.endsWith(\"/test_races/test_races\"))[0].inputs.run.contains(\"-race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, !c.node_path.endsWith(\"/summarize/summarize\")).all(c, c.inputs.env.GOOS == \"linux\" && c.inputs.env.GOARCH == \"arm64\" && c.inputs.env.CGO_ENABLED == \"1\" && c.inputs.env.CC == \"gcc\")"
+        }
+      ]
+    },
+    {
+      "id": "VH-007-settings-null",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        }
+      },
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base",
+          "documents": {},
+          "settings": null
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_races/test_races"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "races.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "JobDB local verification completed"
+              },
+              "artifacts": {
+                "summary.md": "native evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "passed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        }
+      ]
+    },
+    {
+      "id": "VH-007-settings-value-artifact",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        }
+      },
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base",
+          "documents": {},
+          "settings": {
+            "kind": "value",
+            "name": "settings.json",
+            "format": "json",
+            "value": {
+              "variables": {}
+            }
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_races/test_races"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "races.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "JobDB local verification completed"
+              },
+              "artifacts": {
+                "summary.md": "native evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "passed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        }
+      ]
+    },
+    {
+      "id": "VH-010-011-ordinary-failure",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        }
+      },
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base",
+          "documents": {}
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": false,
+                "exit_code": 17,
+                "timed_out": false,
+                "error_message": "forced failing check",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_races/test_races"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "races.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "JobDB local verification completed"
+              },
+              "artifacts": {
+                "summary.md": "native evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 4"
+        }
+      ]
+    },
+    {
+      "id": "VH-010-011-race-failure",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        }
+      },
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base",
+          "documents": {}
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_races/test_races"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": false,
+                "exit_code": 5,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "races.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "JobDB local verification completed"
+              },
+              "artifacts": {
+                "summary.md": "native evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 4"
+        }
+      ]
+    },
+    {
+      "id": "VH-010-011-timeout",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        }
+      },
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base",
+          "documents": {}
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": false,
+                "exit_code": -1,
+                "timed_out": true,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_races/test_races"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "races.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "JobDB local verification completed"
+              },
+              "artifacts": {
+                "summary.md": "native evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 4"
+        }
+      ]
+    },
+    {
+      "id": "VH-010-011-missing-tool",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        }
+      },
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base",
+          "documents": {}
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": false,
+                "exit_code": 127,
+                "timed_out": false,
+                "error_message": "go: command not found",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_races/test_races"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "races.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "JobDB local verification completed"
+              },
+              "artifacts": {
+                "summary.md": "native evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 4"
+        }
+      ]
+    },
+    {
+      "id": "VH-010-011-launch-error",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        }
+      },
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base",
+          "documents": {}
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": false,
+                "exit_code": -1,
+                "timed_out": false,
+                "error_message": "launch failed",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_races/test_races"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "races.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "JobDB local verification completed"
+              },
+              "artifacts": {
+                "summary.md": "native evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 4"
+        }
+      ]
+    },
+    {
+      "id": "VH-010-011-malformed-success",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        }
+      },
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base",
+          "documents": {}
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": "true",
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_races/test_races"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "races.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "JobDB local verification completed"
+              },
+              "artifacts": {
+                "summary.md": "native evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 4"
+        }
+      ]
+    },
+    {
+      "id": "VH-010-011-diagnostic-error",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        }
+      },
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base",
+          "documents": {}
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "",
+                "diagnostic_errors": [
+                  "evidence upload failed"
+                ]
+              },
+              "artifacts": {
+                "tests.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_races/test_races"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "races.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "JobDB local verification completed"
+              },
+              "artifacts": {
+                "summary.md": "native evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 4"
+        }
+      ]
+    },
+    {
+      "id": "VH-010-011-report-failure",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        }
+      },
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base",
+          "documents": {}
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_races/test_races"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "races.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": false,
+                "exit_code": 1,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "JobDB local verification completed"
+              },
+              "artifacts": {
+                "summary.md": "native evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 4"
+        }
+      ]
+    },
+    {
+      "id": "VH-010-011-empty-report-output",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        }
+      },
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base",
+          "documents": {}
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_races/test_races"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "races.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "summary.md": "native evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 4"
+        }
+      ]
+    },
+    {
+      "id": "VH-010-011-oversized-summary",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        }
+      },
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base",
+          "documents": {}
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_races/test_races"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "races.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              "artifacts": {
+                "summary.md": "native evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 4"
+        }
+      ]
+    },
+    {
+      "id": "VH-014-missing-evidence-0",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        }
+      },
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base",
+          "documents": {}
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {}
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_races/test_races"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "races.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "JobDB local verification completed"
+              },
+              "artifacts": {
+                "summary.md": "native evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        }
+      ]
+    },
+    {
+      "id": "VH-014-missing-evidence-1",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        }
+      },
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base",
+          "documents": {}
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {}
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_races/test_races"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "races.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "JobDB local verification completed"
+              },
+              "artifacts": {
+                "summary.md": "native evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        }
+      ]
+    },
+    {
+      "id": "VH-014-missing-evidence-2",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        }
+      },
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base",
+          "documents": {}
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_races/test_races"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {}
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "JobDB local verification completed"
+              },
+              "artifacts": {
+                "summary.md": "native evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        }
+      ]
+    },
+    {
+      "id": "VH-014-missing-evidence-3",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        }
+      },
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base",
+          "documents": {}
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_races/test_races"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "races.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "JobDB local verification completed"
+              },
+              "artifacts": {}
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        }
+      ]
+    },
+    {
+      "id": "VH-012-environment-gate",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        }
+      },
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base",
+          "documents": {}
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": false,
+                "exit_code": 1,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "JobDB local verification completed"
+              },
+              "artifacts": {
+                "summary.md": "native evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 2 && calls[1].inputs.env.RESULT_1 == \"not run (environment gate failed)\" && calls[1].inputs.env.RESULT_2 == \"not run (environment gate failed)\""
+        }
+      ]
+    },
+    {
+      "id": "VH-011-task-throw",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        }
+      },
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base",
+          "documents": {}
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "fail",
+              "error": {
+                "code": "launch_failed",
+                "message": "forced native launch failure"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_races/test_races"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "races.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "JobDB local verification completed"
+              },
+              "artifacts": {
+                "summary.md": "native evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 4"
+        }
+      ]
+    },
+    {
+      "id": "VH-011-report-throw",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        }
+      },
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base",
+          "documents": {}
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_races/test_races"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "races.log": "native evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "jobdb-verify-test/invoke/jobdb-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "fail",
+              "error": {
+                "code": "launch_failed",
+                "message": "forced native launch failure"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 4"
+        }
+      ]
+    }
+  ]
+}
