@@ -183,6 +183,7 @@ type AppError = jobdb.AppError
 type SystemError = jobdb.SystemError
 type TimeoutError = jobdb.TimeoutError
 type JobFailedError = jobdb.JobFailedError
+type JobCancelledError = jobdb.JobCancelledError
 type NonRetryableError = jobdb.NonRetryableError
 
 var (

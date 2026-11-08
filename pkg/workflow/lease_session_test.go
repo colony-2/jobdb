@@ -132,10 +132,18 @@ func TestLeaseSessionSerializesReleaseAndRenewal(t *testing.T) {
 	}
 }
 func TestLeaseSessionFailureIsNotMaskedByTerminalRead(t *testing.T) {
-	runtime := &runJobIfLeaseableStubRuntime{jobResp: JobInfo{Status: JobStatusCompleted}}
-	for _, err := range []error{ErrExecutionLeaseLost, &jobdb.LeaseRenewalError{Err: errors.New("transport")}} {
-		_, got := classifyJobRunAfterRun(celltest.Context(context.Background()), runtime, JobKey{}, nil, nil, err)
-		require.ErrorIs(t, got, err)
+	for _, status := range []JobStatus{JobStatusCompleted, JobStatusCancelled} {
+		t.Run(string(status), func(t *testing.T) {
+			runtime := &runJobIfLeaseableStubRuntime{jobResp: JobInfo{Status: status, CompletionDetail: "operator cancelled"}}
+			for _, err := range []error{ErrExecutionLeaseLost, &jobdb.LeaseRenewalError{Err: errors.New("transport")}} {
+				_, got := classifyJobRunAfterRun(celltest.Context(context.Background()), runtime, JobKey{}, nil, nil, err)
+				require.ErrorIs(t, got, err)
+			}
+			ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
+			cancel()
+			_, got := classifyJobRunAfterRun(ctx, runtime, JobKey{}, nil, nil, ctx.Err())
+			require.ErrorIs(t, got, context.Canceled)
+		})
 	}
 }
 func TestSuppliedLeaseRequiresRenewalSupport(t *testing.T) {

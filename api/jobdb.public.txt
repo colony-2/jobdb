@@ -569,6 +569,10 @@ type JobAttempt struct
   field Tasks []TaskRun
 type JobAttemptOutcomeChapter struct
   field Outcome ChapterOutcome
+type JobCancelledError struct
+  field Detail string
+method JobCancelledError.Error func() string
+method JobCancelledError.Unwrap func() error
 type JobData = TaskData
 type JobDeletionRuntime interface
   method DeleteJobs func(context.Context, DeleteJobsRequest) (DeleteJobsResponse, error)
@@ -1976,6 +1980,7 @@ func IsExistingJobMismatch func(err error) bool
 func IsSystemError func(err error) bool
 type JobAttempt = github.com/colony-2/jobdb/pkg/jobdb.JobAttempt
 type JobAttemptOutcomeChapter = github.com/colony-2/jobdb/pkg/jobdb.JobAttemptOutcomeChapter
+type JobCancelledError = github.com/colony-2/jobdb/pkg/jobdb.JobCancelledError
 type JobData = github.com/colony-2/jobdb/pkg/jobdb.TaskData
 type JobEndEvent struct
   field JobKey JobKey

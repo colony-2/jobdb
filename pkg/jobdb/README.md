@@ -219,10 +219,20 @@ timeout failures:
 - `SystemError`
 - `TimeoutError`
 - `JobFailedError`
+- `JobCancelledError`
 - `NonRetryableError`
 
 Helpers such as `IsAppError`, `IsSystemError`, `IsTimeoutError`, and
 `IsJobFailed` are available for classification.
+
+Cancelled results from `GetJobRunResponse.GetOutput` and the workflow runner's
+`JobRunOutcome.JobError` return `*JobCancelledError`. Use
+`errors.Is(err, jobdb.ErrJobCancelled)` to classify cancellation and
+`errors.As(err, &cancelled)` with `var cancelled *jobdb.JobCancelledError` to read
+`cancelled.Detail`. The detail preserves the exact stored cancellation reason,
+including whitespace and newlines; an empty reason stays empty. `Error()` includes
+a nonempty reason and otherwise returns `"job cancelled"`. Cancellation remains
+distinct from `JobFailedError` and takes precedence over prior attempt failures.
 
 ## Schedules And Listing
 

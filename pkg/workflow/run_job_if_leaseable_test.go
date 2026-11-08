@@ -8,6 +8,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+	"github.com/stretchr/testify/require"
 )
 
 type runJobIfLeaseableStubRuntime struct {
@@ -205,6 +206,28 @@ func TestGetJobForRunReturnsCompletedWithoutLeaseForTerminalJob(t *testing.T) {
 	if outcome.Output == nil {
 		t.Fatal("expected completed output")
 	}
+}
+
+func TestClassifyJobRunAfterRunPreservesCancellationDetail(t *testing.T) {
+	reason := "  Use existing artifacts.\n请不要生成 PDF ☃\n"
+	staleOutput := NewTaskDataOrPanic("stale output")
+	runtime := &runJobIfLeaseableStubRuntime{jobResp: JobInfo{
+		Status: JobStatusCancelled, CompletionDetail: reason, Data: staleOutput,
+	}}
+	outcome, err := classifyJobRunAfterRun(celltest.Context(context.Background()), runtime,
+		JobKey{}, nil, staleOutput, errors.New("old attempt failure"))
+	require.NoError(t, err)
+	require.Equal(t, JobRunFailed, outcome.Status)
+	require.NotNil(t, outcome.JobStatus)
+	require.Equal(t, JobStatusCancelled, *outcome.JobStatus)
+	require.True(t, outcome.LeaseAcquired)
+	require.Nil(t, outcome.Output)
+	require.ErrorIs(t, outcome.JobError, ErrJobCancelled)
+	require.NotErrorIs(t, outcome.JobError, ErrJobFailed)
+	var cancelled *JobCancelledError
+	require.ErrorAs(t, outcome.JobError, &cancelled)
+	require.Equal(t, reason, cancelled.Detail)
+	require.EqualError(t, outcome.JobError, "job cancelled: "+reason)
 }
 
 func TestGetJobForRunReportsSuspendedMissingRouteWithoutLease(t *testing.T) {

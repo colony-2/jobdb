@@ -432,7 +432,7 @@ func classifyJobRunTerminal(job JobInfo, directOutput JobData) (JobRunOutcome, e
 
 	if job.Status == JobStatusCancelled {
 		outcome.Status = JobRunFailed
-		outcome.JobError = ErrJobCancelled
+		outcome.JobError = &JobCancelledError{Detail: job.CompletionDetail}
 		return outcome, nil
 	}
 	if job.Status != JobStatusCompleted {
