@@ -359,6 +359,7 @@ var ErrJobSchemaArchived error
 var ErrJobSchemaNotFound error
 var ErrJobSchemaValidation error
 var ErrLeaseDelegationUnsupported error
+var ErrLeaseEventsUnsupported *CellError
 var ErrLeasePermissionDenied error
 var ErrLeaseRenewalUnsupported error
 var ErrMissingInputHash error
@@ -726,6 +727,8 @@ type LeaseEvent struct
   field AcquisitionSource LeaseAcquisitionSource `json:"acquisitionSource,omitempty"`
   field PreviousLeaseID string `json:"previousLeaseId,omitempty"`
 const LeaseEventAcquired LeaseEventType = "lease_acquired"
+type LeaseEventReader interface
+  method ListLeaseEvents func(context.Context, ListLeaseEventsRequest) (ListLeaseEventsResponse, error)
 const LeaseEventRenewed LeaseEventType = "lease_renewed"
 type LeaseEventType string
 type LeaseRenewalError struct
@@ -806,6 +809,7 @@ method ListJobsRequest.ValidateRoutes func() error
 type ListJobsResponse struct
   field Jobs []JobSummary
   field NextPageToken string
+func ListLeaseEvents func(ctx context.Context, runtime WorkflowRuntime, req ListLeaseEventsRequest) (ListLeaseEventsResponse, error)
 type ListLeaseEventsRequest struct
   field TenantID string `json:"-"`
   field CellNames []string `json:"cellNames,omitempty"`
@@ -1278,7 +1282,6 @@ type WorkflowRuntime interface
   method GetSchedule func(ctx context.Context, key ScheduleKey) (ScheduleInfo, error)
   method ListChapters func(ctx context.Context, req ListChaptersRequest) ([]Chapter, error)
   method ListJobs func(ctx context.Context, req ListJobsRequest) (ListJobsResponse, error)
-  method ListLeaseEvents func(context.Context, ListLeaseEventsRequest) (ListLeaseEventsResponse, error)
   method ListScheduleRuns func(ctx context.Context, req ListScheduleRunsRequest) (ListScheduleRunsResponse, error)
   method ListSchedules func(ctx context.Context, req ListSchedulesRequest) (ListSchedulesResponse, error)
   method OpenArtifact func(ctx context.Context, ref ArtifactRef) (ArtifactReader, error)
@@ -1621,7 +1624,6 @@ type Scheduler interface
   method GetWaitingTask func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey) (WaitingTaskSnapshot, error)
   method KeepAliveLease func(ctx context.Context, mutation LeaseMutation) (LeaseSnapshot, error)
   method ListJobs func(ctx context.Context, req ListJobsRequest) (ListJobsResponse, error)
-  method ListLeaseEvents func(context.Context, github.com/colony-2/jobdb/pkg/jobdb.ListLeaseEventsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListLeaseEventsResponse, error)
   method ListScheduleRuns func(ctx context.Context, req ListScheduleRunsRequest) (ListScheduleRunsResponse, error)
   method ListSchedules func(ctx context.Context, req ListSchedulesRequest) (ListSchedulesResponse, error)
   method LookupCellWithLeaseByID func(context.Context, github.com/colony-2/jobdb/pkg/jobdb.JobKey, string, string, string) (github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, error)

@@ -14,7 +14,9 @@ name, a Git repository, description, and arbitrary JSON metadata. All
 names can change; old names remain aliases. Repo and metadata updates use PATCH
 with an ETag. Cells are retired, never deleted.
 
-This release requires fresh execution storage and coordinated client upgrades.
+The earlier named-cell transition has a separate storage and client upgrade
+boundary for pre-cell deployments. Lease events preserve format-11 storage and
+require no coordinated client upgrade.
 Explicitly create cells against the **JobDB API URL** before submitting jobs:
 
 ```bash
@@ -217,3 +219,14 @@ Useful references:
 
 See [SQLite development secrets](docs/GUIDE-SQLITE-SECRETS.md) for tenant secret
 storage, CLI administration, and lease-scoped secret resolution.
+
+## Optional canonical lease events
+
+SQLite and toy runtimes record lease events automatically with existing constructors
+and CLI invocations. Legacy implementations retain the same base interfaces;
+use `jobdb.ListLeaseEvents(ctx, runtime, req)` to query optional support and handle
+`ErrLeaseEventsUnsupported`. SQLite keeps base format 11 and installs the additive
+extension transactionally at startup, preserving existing data. Known format-12
+databases are validated and normalized automatically. Pre-upgrade activity and
+historical writers leave partial history; no backfill is fabricated.
+See [lease event compatibility and upgrades](docs/GUIDE-LEASE-EVENTS.md).

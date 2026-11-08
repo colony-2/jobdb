@@ -23,10 +23,10 @@ func TestLeaseEventHTTPAuthorizationAndValidation(t *testing.T) {
 			var rt jobdb.WorkflowRuntime = toy.New()
 			ctx := celltest.Context(context.Background())
 			if kind == "sqlite" {
-				embedded, e := sqliteruntime.StartEmbeddedRuntime(ctx)
+				embedded, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: t.TempDir() + "/jobdb.db"})
 				require.NoError(t, e)
-				defer embedded.Shutdown()
-				rt = embedded.Runtime
+				defer embedded.Close(ctx)
+				rt = embedded
 			}
 			h, e := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "job", Cell: "test", CellRepo: "example.test/test", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
 			require.NoError(t, e)

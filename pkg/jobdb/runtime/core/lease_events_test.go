@@ -43,3 +43,15 @@ func TestLeaseEventCoreForwardsOnlyScheduler(t *testing.T) {
 	_, e = rt.ListLeaseEvents(celltest.Context(context.Background()), jobdb.ListLeaseEventsRequest{TenantID: "tenant"})
 	require.ErrorIs(t, e, s.err)
 }
+
+func TestLeaseEventCoreLegacyScheduler(t *testing.T) {
+	// readTestScheduler has no optional event reader.
+	rt, e := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: readTestScheduler{}, Chapters: noSummaryHistory{}, Schemas: readTestSchemas{}})
+	require.NoError(t, e)
+	_, e = rt.ListLeaseEvents(celltest.Context(context.Background()), jobdb.ListLeaseEventsRequest{TenantID: "tenant"})
+	require.ErrorIs(t, e, jobdb.ErrLeaseEventsUnsupported)
+	_, e = rt.ListLeaseEvents(context.Background(), jobdb.ListLeaseEventsRequest{TenantID: "tenant"})
+	require.ErrorIs(t, e, jobdb.ErrCellForbidden)
+	_, e = rt.ListLeaseEvents(celltest.Context(context.Background()), jobdb.ListLeaseEventsRequest{})
+	require.ErrorIs(t, e, jobdb.ErrInvalidLeaseEventRequest)
+}

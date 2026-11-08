@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -108,5 +109,37 @@ func TestWithHealthCheck(t *testing.T) {
 	}
 	if !called {
 		t.Fatal("runtime request did not reach runtime handler")
+	}
+}
+
+func TestLeaseEventCLIDefault(t *testing.T) {
+	original := serveHTTPFunc
+	defer func() { serveHTTPFunc = original }()
+	for _, backend := range []string{"", "sqlite", "toy"} {
+		t.Run(backend, func(t *testing.T) {
+			serveHTTPFunc = func(ctx context.Context, _ string, handler http.Handler, cleanup func(context.Context) error) error {
+				if cleanup != nil {
+					defer cleanup(ctx)
+				}
+				req := httptest.NewRequest("POST", "/v1/tenants/tenant/lease-events/query", strings.NewReader(`{}`))
+				req = req.WithContext(celltest.Context(req.Context()))
+				w := httptest.NewRecorder()
+				handler.ServeHTTP(w, req)
+				if w.Code != http.StatusOK {
+					t.Fatalf("event query status %d: %s", w.Code, w.Body.String())
+				}
+				return nil
+			}
+			args := []string{}
+			if backend != "" {
+				args = append(args, backend)
+			}
+			args = append(args, "--db", filepath.Join(t.TempDir(), "jobdb.db"))
+			cmd := newRootCmd()
+			cmd.SetArgs(args)
+			if e := cmd.ExecuteContext(context.Background()); e != nil {
+				t.Fatal(e)
+			}
+		})
 	}
 }

@@ -69,6 +69,11 @@ paths:
         '401': {description: Authentication required}
         '403': {description: Permission denied, including delegated credentials}
         '404': {description: Explicit cell absent or inaccessible}
+        '501':
+          description: lease_events_unsupported (optional capability absent or collection disabled)
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
         '500': {description: Backend failure}
   /v1/tenants/{tenantId}/goals/query:
     post:

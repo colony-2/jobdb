@@ -504,7 +504,7 @@ WHERE tenant_id = ? AND job_id = ?`,
 			if n == 0 {
 				continue
 			}
-			if err := insertLeaseEvent(ctx, tx, row, now, jobdb.LeaseAcquisitionPoll, nil); err != nil {
+			if err := r.insertLeaseEvent(ctx, tx, row, now, jobdb.LeaseAcquisitionPoll, nil); err != nil {
 				return err
 			}
 			lease = &executionLease{cell: row.cell,
@@ -602,7 +602,7 @@ WHERE tenant_id = ? AND job_id = ?`,
 		if err != nil {
 			return err
 		}
-		if err := insertLeaseEvent(ctx, tx, row, now, jobdb.LeaseAcquisitionTargeted, nil); err != nil {
+		if err := r.insertLeaseEvent(ctx, tx, row, now, jobdb.LeaseAcquisitionTargeted, nil); err != nil {
 			return err
 		}
 		lease = &executionLease{cell: row.cell,

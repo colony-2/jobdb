@@ -17,7 +17,14 @@ func (s *proxyServer) ListLeaseEvents(ctx context.Context, q runtimeapi.ListLeas
 		return cellResponse{err: jobdb.ErrInvalidLeaseEventRequest}, nil
 	}
 	req.TenantID = q.TenantId
-	out, err := s.runtime.ListLeaseEvents(ctx, req)
+	req, err := jobdb.NormalizeLeaseEventRequest(req)
+	if err != nil {
+		return cellResponse{err: err}, nil
+	}
+	if err = jobdb.AuthorizeCell(ctx, req.TenantID, "", "jobs.list"); err != nil {
+		return cellResponse{err: err}, nil
+	}
+	out, err := jobdb.ListLeaseEvents(ctx, s.runtime, req)
 	return cellResponse{body: out, err: err}, nil
 }
 func (r *Runtime) ListLeaseEvents(ctx context.Context, req jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error) {
@@ -38,6 +45,8 @@ func (r *Runtime) ListLeaseEvents(ctx context.Context, req jobdb.ListLeaseEvents
 		var envelope struct{ Code string }
 		_ = json.NewDecoder(resp.Body).Decode(&envelope)
 		switch envelope.Code {
+		case "lease_events_unsupported":
+			return jobdb.ListLeaseEventsResponse{}, jobdb.ErrLeaseEventsUnsupported
 		case "invalid_lease_event_page_token":
 			return jobdb.ListLeaseEventsResponse{}, jobdb.ErrInvalidLeaseEventPageToken
 		case "invalid_request":
@@ -48,6 +57,9 @@ func (r *Runtime) ListLeaseEvents(ctx context.Context, req jobdb.ListLeaseEvents
 			return jobdb.ListLeaseEventsResponse{}, jobdb.ErrCellForbidden
 		case "lease_permission_denied":
 			return jobdb.ListLeaseEventsResponse{}, jobdb.ErrLeasePermissionDenied
+		}
+		if envelope.Code == "" && (resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed) {
+			return jobdb.ListLeaseEventsResponse{}, jobdb.ErrLeaseEventsUnsupported
 		}
 		return jobdb.ListLeaseEventsResponse{}, responseError("list lease events", resp.StatusCode, nil, nil)
 	}

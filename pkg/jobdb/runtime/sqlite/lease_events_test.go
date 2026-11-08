@@ -133,7 +133,7 @@ func TestLeaseEventQueriesAndPlans(t *testing.T) {
 				}
 				q := jobdb.ListLeaseEventsRequest{TenantID: "tenant", JobIDs: ids, PageSize: size}
 				counted.queries.Store(0)
-				page, e := rt.ListLeaseEvents(ctx, q)
+				page, e := jobdb.ListLeaseEvents(ctx, rt, q)
 				require.NoError(t, e)
 				require.NotEmpty(t, page.Events)
 				require.EqualValues(t, 2, counted.queries.Load())

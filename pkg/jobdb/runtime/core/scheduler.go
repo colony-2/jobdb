@@ -21,7 +21,6 @@ type Scheduler interface {
 	ResolveScheduleCell(context.Context, string, string, string) (jobdb.ResolvedCell, error)
 	CreateJob(ctx context.Context, req CreateJobRequest) (StoredJob, error)
 	GetJob(ctx context.Context, key jobdb.JobKey) (StoredJob, error)
-	ListLeaseEvents(context.Context, jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error)
 	ListJobs(ctx context.Context, req ListJobsRequest) (ListJobsResponse, error)
 	CancelJob(ctx context.Context, req CancelJobMutation) (StoredJob, error)
 	// ClearCrashConcern atomically resets only the consecutive expiry counter.

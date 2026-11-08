@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// RunLeaseEventConformance exercises canonical history through mandatory public ports.
+// RunLeaseEventConformance exercises canonical history through the optional public reader (support is required by this explicit suite).
 // Backend owners additionally test insertion rollback, installation, query budgets and plans.
 func RunLeaseEventConformance(t *testing.T, harnesses ...Harness) {
 	for _, h := range harnesses {
@@ -31,7 +31,7 @@ func RunLeaseEventConformance(t *testing.T, harnesses ...Harness) {
 			}
 			list := func(q jobdb.ListLeaseEventsRequest) jobdb.ListLeaseEventsResponse {
 				q.TenantID = tenant
-				v, e := r.ListLeaseEvents(ctx, q)
+				v, e := jobdb.ListLeaseEvents(ctx, r, q)
 				require.NoError(t, e)
 				require.NotNil(t, v.Events)
 				return v
@@ -120,7 +120,7 @@ func RunLeaseEventConformance(t *testing.T, harnesses ...Harness) {
 				{TenantID: tenant, PageSize: 1, PageToken: page.NextPageToken, WorkerIDs: []string{"worker-1"}},
 				{TenantID: "other", PageSize: 1, PageToken: page.NextPageToken},
 			} {
-				_, e := r.ListLeaseEvents(ctx, q)
+				_, e := jobdb.ListLeaseEvents(ctx, r, q)
 				require.ErrorIs(t, e, jobdb.ErrInvalidLeaseEventPageToken)
 			}
 			// Cancellation retains history and renewal rejection appends nothing.

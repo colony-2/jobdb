@@ -21,9 +21,13 @@ schedule APIs, tenant configuration requests/snapshots and administration,
 error types, and the `WorkflowRuntime` interface used by runtime
 adapters and advanced consumers.
 
-Lease history uses the mandatory `WorkflowRuntime.ListLeaseEvents` port and
-canonical `LeaseEvent` snapshots. See [lease history](GUIDE-LEASE-EVENTS.md) for
-filters, cursor behavior, migration and backend integration.
+Lease history uses the standalone optional `LeaseEventReader` and the validating
+`jobdb.ListLeaseEvents` helper, with canonical `LeaseEvent` snapshots. Missing
+support returns `ErrLeaseEventsUnsupported`; legacy runtime and scheduler
+implementations need no new method and may adopt event support independently.
+Supplied SQLite and toy runtimes record lease events automatically with existing
+constructors and CLI invocations. See [lease history](GUIDE-LEASE-EVENTS.md) for
+filters, cursor behavior, automatic database upgrades and backend integration.
 
 Operator recovery uses `WorkflowRuntime.ClearCrashConcern` with
 `ClearCrashConcernRequest` to reset a job's consecutive expired-lease count.

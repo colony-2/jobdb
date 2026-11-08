@@ -40,7 +40,7 @@ func (r *Runtime) RenewExecutionLeaseByID(ctx context.Context, key jobdb.JobKey,
 			return err
 		}
 		previous := timeFromNS(row.leaseExpiresAtNS.Int64)
-		if err := insertLeaseEvent(ctx, tx, row, now, "", &previous); err != nil {
+		if err := r.insertLeaseEvent(ctx, tx, row, now, "", &previous); err != nil {
 			return err
 		}
 		lease = &executionLease{cell: row.cell, runtime: r, jobKey: key, goalID: row.goalID, leaseID: leaseID, workerID: workerID,

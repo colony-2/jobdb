@@ -255,5 +255,5 @@ func (r replayReadOnlyRuntime) ListCells(ctx context.Context, req jobdb.ListCell
 }
 
 func (r replayReadOnlyRuntime) ListLeaseEvents(ctx context.Context, req ListLeaseEventsRequest) (ListLeaseEventsResponse, error) {
-	return r.runtime.ListLeaseEvents(ctx, req)
+	return jobdb.ListLeaseEvents(ctx, r.runtime, req)
 }

@@ -38,12 +38,12 @@ func runPayloadAndRouteConformance(t *testing.T, run func(*testing.T, ...runtime
 				var runtime jobdb.WorkflowRuntime = toyruntime.New()
 				cleanup := func() {}
 				if kind == "sqlite" {
-					embedded, err := sqliteruntime.StartEmbeddedRuntime(celltest.Context(context.Background()))
+					embedded, err := sqliteruntime.NewFromConfig(celltest.Context(context.Background()), sqliteruntime.Config{DBPath: tb.TempDir() + "/jobdb.db"})
 					if err != nil {
 						tb.Fatal(err)
 					}
-					runtime = embedded.Runtime
-					cleanup = embedded.Shutdown
+					runtime = embedded
+					cleanup = func() { _ = embedded.Close(context.Background()) }
 				}
 				if remote {
 					server := httptest.NewServer(celltest.Handler(NewServer(runtime)))

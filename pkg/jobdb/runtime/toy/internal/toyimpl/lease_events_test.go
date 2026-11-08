@@ -95,3 +95,17 @@ func TestLeaseEventCancellationDeletionRaces(t *testing.T) {
 		}
 	}
 }
+
+func TestLeaseEventsDefaultEnabled(t *testing.T) {
+	r := New()
+	ctx := celltest.Context(context.Background())
+	h, e := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "job", Cell: "test", CellRepo: "example.test/test", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
+	require.NoError(t, e)
+	l, e := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "job"}}})
+	require.NoError(t, e)
+	require.NoError(t, l.KeepAlive(ctx))
+	require.Len(t, r.engine.leaseEvents, 2)
+	require.EqualValues(t, 2, r.engine.leaseEventSequence)
+	_, e = r.ListLeaseEvents(ctx, jobdb.ListLeaseEventsRequest{TenantID: "tenant"})
+	require.NoError(t, e)
+}

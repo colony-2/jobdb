@@ -5,6 +5,7 @@ import (
 	"database/sql"
 
 	"fmt"
+	"strings"
 )
 
 const schemaSQL = `
@@ -118,55 +119,94 @@ CREATE TABLE IF NOT EXISTS jobdb_goal_preparations(tenant_id TEXT NOT NULL,job_i
  CREATE INDEX jobdb_dependency_waits_state_idx ON jobdb_dependency_waits(tenant_id,job_id,state,wait_id);
 `
 
+// migrate keeps the historical base format. Events are an additive extension.
 func migrate(ctx context.Context, db *sql.DB) error {
 	if db == nil {
 		return fmt.Errorf("sqlite runtime: db is required")
-	}
-	var version, tables int
-	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
-		return err
-	}
-	if version == 12 {
-		return nil
-	}
-	if version == 11 {
-		tx, err := db.BeginTx(ctx, nil)
-		if err != nil {
-			return err
-		}
-		defer tx.Rollback()
-		if _, err = tx.ExecContext(ctx, leaseEventSchemaSQL); err != nil {
-			return err
-		}
-		if _, err = tx.ExecContext(ctx, "PRAGMA user_version=12"); err != nil {
-			return err
-		}
-		return tx.Commit()
-	}
-	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tables); err != nil {
-		return err
-	}
-	if version != 0 || tables != 0 {
-		return fmt.Errorf("sqlite runtime: unsupported database format %d; cell storage requires a fresh database; reset required (no old-job migration)", version)
 	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err = tx.ExecContext(ctx, schemaSQL); err != nil {
+	var version, tables int
+	if err = tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, goalSchemaSQL); err != nil {
+	if version != 0 && version != 11 && version != 12 {
+		return fmt.Errorf("sqlite runtime: unsupported database format %d", version)
+	}
+	if version == 0 {
+		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tables); err != nil {
+			return err
+		}
+		if tables != 0 {
+			return fmt.Errorf("sqlite runtime: unsupported unversioned database; existing data was not changed")
+		}
+		if _, err = tx.ExecContext(ctx, schemaSQL+goalSchemaSQL); err != nil {
+			return err
+		}
+	} else {
+		// Compare known definitions before normalizing a format-12 marker. Extra
+		// application/chapter/configuration tables are deliberately left untouched.
+		if err = validateLeaseEventBaseSchema(ctx, tx, version == 12); err != nil {
+			return err
+		}
+	}
+	var eventTables int
+	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='jobdb_lease_events'").Scan(&eventTables); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, leaseEventSchemaSQL); err != nil {
-		return err
+	if eventTables == 0 {
+		if _, err = tx.ExecContext(ctx, leaseEventSchemaSQL); err != nil {
+			return err
+		}
 	}
-	if _, err = tx.ExecContext(ctx, "PRAGMA user_version=12"); err != nil {
-		return err
+	if version != 11 {
+		if _, err = tx.ExecContext(ctx, "PRAGMA user_version=11"); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
+}
+
+func validateLeaseEventBaseSchema(ctx context.Context, tx *sql.Tx, requireEvents bool) error {
+	expected, err := sql.Open(sqliteDriverName, ":memory:")
+	if err != nil {
+		return err
+	}
+	defer expected.Close()
+	if _, err = expected.ExecContext(ctx, schemaSQL+goalSchemaSQL+leaseEventSchemaSQL); err != nil {
+		return err
+	}
+	rows, err := expected.QueryContext(ctx, "SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	normalize := func(s string) string {
+		return strings.Join(strings.Fields(strings.ReplaceAll(s, "IF NOT EXISTS ", "")), " ")
+	}
+	var eventTable int
+	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE name='jobdb_lease_events'").Scan(&eventTable); err != nil {
+		return err
+	}
+	for rows.Next() {
+		var name, want, got string
+		if err = rows.Scan(&name, &want); err != nil {
+			return err
+		}
+		if strings.HasPrefix(name, "jobdb_lease_events") && !requireEvents && eventTable == 0 {
+			continue
+		}
+		if err = tx.QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE name=?", name).Scan(&got); err != nil {
+			return fmt.Errorf("sqlite runtime: inconsistent schema %s: %w", name, err)
+		}
+		if normalize(got) != normalize(want) {
+			return fmt.Errorf("sqlite runtime: inconsistent schema %s", name)
+		}
+	}
+	return rows.Err()
 }
 
 const leaseEventSchemaSQL = `

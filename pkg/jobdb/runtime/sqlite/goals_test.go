@@ -21,7 +21,7 @@ func TestPreCellFormatRejected(t *testing.T) {
 	db.SetMaxOpenConns(1)
 	_, err = db.Exec("CREATE TABLE jobdb_jobs(job_id TEXT); INSERT INTO jobdb_jobs VALUES('old'); PRAGMA user_version=9;")
 	require.NoError(t, err)
-	require.ErrorContains(t, migrate(context.Background(), db), "reset required")
+	require.ErrorContains(t, migrate(context.Background(), db), "unsupported")
 	var id string
 	require.NoError(t, db.QueryRow("SELECT job_id FROM jobdb_jobs").Scan(&id))
 	require.Equal(t, "old", id)

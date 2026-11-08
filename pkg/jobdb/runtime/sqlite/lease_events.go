@@ -14,7 +14,7 @@ import (
 
 // insertLeaseEvent snapshots the updated row and catalog inside the writer transaction.
 // Missing immutable facts are an error, rather than a successful mutation without history.
-func insertLeaseEvent(ctx context.Context, tx *sql.Tx, old jobRow, now time.Time, source jobdb.LeaseAcquisitionSource, previous *time.Time) error {
+func (r *Runtime) insertLeaseEvent(ctx context.Context, tx *sql.Tx, old jobRow, now time.Time, source jobdb.LeaseAcquisitionSource, previous *time.Time) error {
 	typ := jobdb.LeaseEventAcquired
 	var prevExpiry, src, prevID any
 	if previous != nil {

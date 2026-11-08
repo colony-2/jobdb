@@ -1,10 +1,20 @@
 # Canonical lease history
 
-`WorkflowRuntime.ListLeaseEvents(context.Context, ListLeaseEventsRequest)` returns
-`ListLeaseEventsResponse{Events, NextPageToken}` for exactly one tenant. It is a
-mandatory runtime and `runtimecore.Scheduler` port; rebuild adapters and consumers
-together. `POST /v1/tenants/{tenantId}/lease-events/query` is the corresponding
-read-only remote operation. Delegated credentials cannot use it.
+`jobdb.ListLeaseEvents(ctx, runtime, req)` queries the optional `LeaseEventReader`
+capability and returns `ListLeaseEventsResponse{Events, NextPageToken}` for exactly
+one tenant. `WorkflowRuntime` and `runtimecore.Scheduler` remain unchanged for
+legacy implementations. Existing concrete `ListLeaseEvents` methods remain
+available. A wrapper may explicitly forward `LeaseEventReader` to expose it.
+`POST /v1/tenants/{tenantId}/lease-events/query` is the corresponding read-only
+remote operation. Delegated credentials cannot use it.
+
+Supplied SQLite and toy runtimes record events automatically, including ordinary
+CLI startup. No activation flag is required. Legacy/custom backends may omit the
+capability and return `ErrLeaseEventsUnsupported`
+(check with `errors.Is`), never a successful empty history. An authorized HTTP
+request returns 501 with code `lease_events_unsupported`. New clients also map
+unrecognized old-server endpoint 404/405 responses to that sentinel, preserving
+recognized domain errors and authentication/backend/transport failures.
 
 Events are immutable historical snapshots. `lease_acquired` includes its source
 (`poll`, `targeted`, or `task_completion`) and an optional replaced expired lease.
@@ -35,45 +45,43 @@ changes and visibility changes can affect later pages. Refresh the first page to
 find newer activity. Traversal is exact for an unchanged dataset, including tied
 timestamps; it is not a gap-free export or replication cursor.
 
-SQLite format 12 upgrades format 11 transactionally without replacing jobs, cells,
-goals, leases or chapters. Reapplying installation is harmless. No old acquisitions
-or diagnostic events are backfilled, so a pre-upgrade lease may have only renewal
-events. Toy retains history only for its engine lifetime.
+## Compatibility and automatic upgrades
 
-Stop old writers, upgrade storage and deploy all compatible writers before recording
-collection activation operationally. Do not infer activation from the oldest event.
-This library change does not activate collection in a remote deployment.
+SQLite retains base format 11. Ordinary startup automatically installs the event
+table and indexes in one transaction without changing that marker. Repeated
+startup preserves existing records and signing keys without synthetic backfill.
+Databases already marked
+12 by ea45f87 are checked against the known base and event definitions, then
+transactionally normalized to 11 without replacing jobs, cells, goals, leases,
+chapters, events or signing keys. Unknown formats and inconsistent schemas are
+rejected without changing their data or marker. This extension does not introduce
+support for unrelated older base formats.
 
-## Compatibility and upgrades
+Authentic pre-event format-11 code (f92ae253a5da7a6b81944d0bdf4cadb085772140)
+accepts the additive schema and can continue legacy reads and writes. Mixed old/new
+writers and pre-upgrade activity produce **partial history**: old writers do not record
+events. Existing acquisitions are never backfilled. A pre-upgrade lease may have
+only renewal events, and empty history cannot establish that a job never ran.
+Toy retains history only for its engine lifetime.
 
-This change is not fully backward compatible. Compatibility depends on the boundary:
+The oldest event is not proof of complete history. Startup and source acceptance
+do not require deployment coordination or downstream rebuilds. Consumers adopt the optional feature
+independently. Callers holding `WorkflowRuntime` use the public helper or an
+explicit optional-interface assertion; concrete-method callers remain compatible.
 
-| Boundary | Effect |
-| --- | --- |
-| Go implementations | Adding the required `ListLeaseEvents` method to `WorkflowRuntime` and `runtimecore.Scheduler` is a source-breaking interface change. Custom backends, wrappers, mocks and adapters must implement it and rebuild with their dependents. Callers using existing methods on the supplied implementations need no call-site changes. |
-| Existing HTTP operations | The query endpoint is additive; existing job detail/list payloads are unchanged. Existing clients can continue using those operations on an upgraded server. |
-| New clients with old servers | Older servers do not provide the event endpoint. Treat that failure as an explicit unavailable/incompatible error, never as empty history. There is no optional-port or silent fallback. |
-| SQLite data | The supported forward upgrade is additive format 11 to 12 and preserves existing data. Older formats are not covered by this migration. The prior format-11 binary rejects format 12; no downgrade migration is supplied. |
-| Writers and recording | Mixed old/new writers are not a supported complete-history rollout: old writers do not record canonical events. Stop old writers, upgrade storage, deploy compatible writers and restart them before declaring collection active. |
-
-Existing acquisitions are not backfilled. A lease acquired before upgrade may have
-only renewal events; an empty history does not establish that a job never ran.
-Canonical recording also adds work and storage to successful lease mutations, and
-an event insertion failure now fails the mutation atomically. Plan capacity for
-retained renewals and indexes; no automatic retention expiry is introduced.
-
-These are the agreed compatibility boundaries. Making the new method optional or
-supporting mixed-version recording would require a separate contract change.
+Event inserts remain atomic with lease mutations: insertion failure rolls back
+acquisition or renewal. Failed schema installation rolls back completely and can
+be retried after correcting the error; saved data must never be reset to upgrade.
 
 ## Backend integration
 
-The exact required scheduler signature is:
+A scheduler may expose the standalone `jobdb.LeaseEventReader` signature:
 
 ```go
 ListLeaseEvents(context.Context, jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error)
 ```
 
-Core validates/authorizes and forwards this call; it never reconstructs events.
+Core validates/authorizes before optional dispatch and forwards this call; it never reconstructs events.
 Backend implementations must also validate and authorize their native entry point.
 `jobdb.NormalizeLeaseEventRequest(req)` returns a validated canonical copy. Public
 `runtime/cellstate` helpers support backend-independent scope and cursors:
@@ -96,8 +104,9 @@ mutation paths, including borrowed transactions, internal claims and direct
 renewal handles. Canonical writes must work with diagnostic tracing disabled.
 
 `runtimetest.RunLeaseEventConformance(t, harnesses ...runtimetest.Harness)` exercises
-the public port and also runs from `RunWorkflowRuntimeConformance`. Supply fresh
-fixtures. Deployment authentication must be tested at the server boundary, since
+the optional public port strictly: missing support fails. General
+`RunWorkflowRuntimeConformance` probes with authorized credentials and skips only
+absent or unsupported capabilities; other errors fail. Supplied default runtimes pass strict event conformance. Deployment authentication must be tested at the server boundary, since
 client context values are not transmitted as authority. Backend-specific tests
 must cover insertion rollback, upgrade/reopen, query budgets/plans, storage
 precision and concurrency in addition to this public suite.

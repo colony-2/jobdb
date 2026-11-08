@@ -8774,6 +8774,7 @@ type ListLeaseEventsHTTPResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *ListLeaseEventsResponse
 	JSON400      *ErrorResponse
+	JSON501      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -11718,6 +11719,13 @@ func ParseListLeaseEventsHTTPResponse(rsp *http.Response) (*ListLeaseEventsHTTPR
 			return nil, err
 		}
 		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 501:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON501 = &dest
 
 	}
 
@@ -18370,6 +18378,15 @@ type ListLeaseEvents500Response struct {
 func (response ListLeaseEvents500Response) VisitListLeaseEventsResponse(w http.ResponseWriter) error {
 	w.WriteHeader(500)
 	return nil
+}
+
+type ListLeaseEvents501JSONResponse ErrorResponse
+
+func (response ListLeaseEvents501JSONResponse) VisitListLeaseEventsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(501)
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ListSchedulesRequestObject struct {

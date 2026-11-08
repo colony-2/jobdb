@@ -53,7 +53,7 @@ func (r *Runtime) claimWaitingTask(ctx context.Context, expected jobRow, resumeJ
 		if err != nil {
 			return err
 		}
-		return insertLeaseEvent(ctx, tx, current, now, jobdb.LeaseAcquisitionTaskCompletion, nil)
+		return r.insertLeaseEvent(ctx, tx, current, now, jobdb.LeaseAcquisitionTaskCompletion, nil)
 	})
 	if err != nil {
 		return nil, err

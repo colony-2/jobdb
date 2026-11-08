@@ -139,7 +139,7 @@ WHERE tenant_id = ? AND job_id = ? AND lease_id = ?`,
 			return err
 		}
 		previous := timeFromNS(row.leaseExpiresAtNS.Int64)
-		return insertLeaseEvent(ctx, tx, row, now, "", &previous)
+		return r.insertLeaseEvent(ctx, tx, row, now, "", &previous)
 	})
 	if err != nil {
 		return time.Time{}, err
