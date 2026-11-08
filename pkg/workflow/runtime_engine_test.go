@@ -454,3 +454,7 @@ func TestTaskDiscoveryRechecksDetailRoute(t *testing.T) {
 		t.Fatalf("legacy detail route: %v %v", handles, err)
 	}
 }
+
+func (r *fakeWorkflowRuntime) ListLeaseEvents(context.Context, ListLeaseEventsRequest) (ListLeaseEventsResponse, error) {
+	return ListLeaseEventsResponse{Events: []LeaseEvent{}}, nil
+}

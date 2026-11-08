@@ -876,3 +876,12 @@ func (l *tenantNamespacedLease) CreateCell(ctx context.Context, req jobdb.Create
 	c.TenantID = l.runtime.stripTenant(c.TenantID)
 	return c, err
 }
+
+func (r *tenantNamespacedRuntime) ListLeaseEvents(ctx context.Context, req jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error) {
+	req.TenantID = r.prefixTenant(req.TenantID)
+	out, err := r.runtime.ListLeaseEvents(ctx, req)
+	for i := range out.Events {
+		out.Events[i].JobKey = r.stripJobKey(out.Events[i].JobKey)
+	}
+	return out, err
+}

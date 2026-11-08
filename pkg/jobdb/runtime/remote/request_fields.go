@@ -24,6 +24,9 @@ func strictRequestFields(next runtimeapi.StrictHandlerFunc, _ string) runtimeapi
 			body := v.FieldByName("Body")
 			if body.IsValid() && len(raw) > 0 {
 				if err := validateRequestFields(raw, body.Type(), ""); err != nil {
+					if isLeaseEventsPath(r.URL.EscapedPath()) {
+						return nil, jobdb.ErrInvalidLeaseEventRequest
+					}
 					if isCellPath(r.URL.EscapedPath()) {
 						return nil, jobdb.ErrInvalidCell
 					}

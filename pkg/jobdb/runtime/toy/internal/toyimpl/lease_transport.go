@@ -16,7 +16,9 @@ func (r *Runtime) KeepAliveLeaseByID(ctx context.Context, jobKey jobdb.JobKey, l
 }
 
 func (r *Runtime) KeepAliveLeaseByIDWithExpiry(_ context.Context, jobKey jobdb.JobKey, leaseID string, workerID string, leaseDuration time.Duration) (time.Time, error) {
-	record := r.engine.getJobRecord(jobKey)
+	r.engine.mu.Lock()
+	defer r.engine.mu.Unlock()
+	record := r.engine.jobRecords[jobKey]
 	if record == nil {
 		return time.Time{}, jobdb.ErrJobNotFound
 	}
@@ -25,7 +27,10 @@ func (r *Runtime) KeepAliveLeaseByIDWithExpiry(_ context.Context, jobKey jobdb.J
 	if leaseID == "" || record.leaseID != leaseID || record.leaseWorkerID != workerID || !record.leased || !record.leaseExpiresAt.After(time.Now().UTC()) || record.cancelled || record.archived != nil {
 		return time.Time{}, jobdb.ErrExecutionLeaseLost
 	}
-	record.leaseExpiresAt = time.Now().UTC().Add(toyLeaseDurationOrDefault(leaseDuration))
+	now := time.Now().UTC()
+	previous := record.leaseExpiresAt
+	record.leaseExpiresAt = now.Add(toyLeaseDurationOrDefault(leaseDuration))
+	r.engine.appendLeaseEventLocked(record, now, "", "", &previous)
 	return record.leaseExpiresAt, nil
 }
 
@@ -85,7 +90,9 @@ func (r *Runtime) RenewExecutionLeaseByID(ctx context.Context, key jobdb.JobKey,
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	record := r.engine.getJobRecord(key)
+	r.engine.mu.Lock()
+	defer r.engine.mu.Unlock()
+	record := r.engine.jobRecords[key]
 	if record == nil {
 		return nil, jobdb.ErrExecutionLeaseLost
 	}
@@ -95,7 +102,10 @@ func (r *Runtime) RenewExecutionLeaseByID(ctx context.Context, key jobdb.JobKey,
 		return nil, jobdb.ErrExecutionLeaseLost
 	}
 	duration = toyLeaseDurationOrDefault(duration)
-	record.leaseExpiresAt = time.Now().UTC().Add(duration)
+	now := time.Now().UTC()
+	previous := record.leaseExpiresAt
+	record.leaseExpiresAt = now.Add(duration)
+	r.engine.appendLeaseEventLocked(record, now, "", "", &previous)
 	return &runtimeLease{runtime: r, jobKey: key, leaseID: leaseID, workerID: workerID,
 		route: record.route, payload: cloneJSON(record.payload), clientPayload: cloneJSON(record.clientPayload), clientPayloadRevision: record.clientPayloadRevision,
 		duration: duration, expiresAt: record.leaseExpiresAt, schemaHash: jobmetadata.SchemaHashFromStoredMetadata(record.metadata)}, nil

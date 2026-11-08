@@ -267,3 +267,20 @@ func cloneRoute(route *Route) *Route        { return jobdb.CloneRoute(route) }
 func validateIdentifier(value string) error { return jobdb.ValidateIdentifier(value) }
 
 type ExecutionChapter = jobdb.ExecutionChapter
+
+type LeaseEventType = jobdb.LeaseEventType
+type LeaseAcquisitionSource = jobdb.LeaseAcquisitionSource
+type LeaseEvent = jobdb.LeaseEvent
+type ListLeaseEventsRequest = jobdb.ListLeaseEventsRequest
+type ListLeaseEventsResponse = jobdb.ListLeaseEventsResponse
+
+const (
+	LeaseEventAcquired             = jobdb.LeaseEventAcquired
+	LeaseEventRenewed              = jobdb.LeaseEventRenewed
+	LeaseAcquisitionPoll           = jobdb.LeaseAcquisitionPoll
+	LeaseAcquisitionTargeted       = jobdb.LeaseAcquisitionTargeted
+	LeaseAcquisitionTaskCompletion = jobdb.LeaseAcquisitionTaskCompletion
+)
+
+var ErrInvalidLeaseEventRequest = jobdb.ErrInvalidLeaseEventRequest
+var ErrInvalidLeaseEventPageToken = jobdb.ErrInvalidLeaseEventPageToken

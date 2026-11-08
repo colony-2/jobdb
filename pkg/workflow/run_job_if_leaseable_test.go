@@ -354,3 +354,7 @@ func (r *runJobIfLeaseableStubRuntime) ListGoals(context.Context, jobdb.ListGoal
 func (r *runJobIfLeaseableStubRuntime) ListDependencyWaits(context.Context, jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error) {
 	return jobdb.ListDependencyWaitsResponse{}, nil
 }
+
+func (r *runJobIfLeaseableStubRuntime) ListLeaseEvents(context.Context, ListLeaseEventsRequest) (ListLeaseEventsResponse, error) {
+	return ListLeaseEventsResponse{Events: []LeaseEvent{}}, nil
+}

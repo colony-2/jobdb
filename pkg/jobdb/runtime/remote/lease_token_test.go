@@ -347,3 +347,7 @@ func (s *leaseTokenSigner) mint(jobKey jobdb.JobKey, leaseID string, workerID st
 func (s *leaseTokenSigner) mintForLeaseExpiry(jobKey jobdb.JobKey, leaseID string, workerID string, schemaHash string, leaseExpiresAt time.Time, ttl time.Duration) (string, error) {
 	return s.mintWithPrincipal(jobKey, leaseID, workerID, schemaHash, leaseExpiresAt, ttl, nil, jobdb.ResolvedCell{Cell: "test", CellID: "cell", CellRepo: "example.test/test"})
 }
+
+func (r *claimsCapturingRuntime) ListLeaseEvents(context.Context, jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error) {
+	return jobdb.ListLeaseEventsResponse{Events: []jobdb.LeaseEvent{}}, nil
+}

@@ -46,6 +46,8 @@ func WithJobIDGenerator(gen JobIDGenerator) Option {
 
 // ToyEngine holds the in-memory state backing the toy WorkflowRuntime.
 type ToyEngine struct {
+	leaseEvents                       []jobdb.LeaseEvent
+	leaseEventSequence                int64
 	cells                             map[string]*cellstate.State
 	maxChapterApplicationPayloadBytes int64
 	goals                             *goalstate.Memory

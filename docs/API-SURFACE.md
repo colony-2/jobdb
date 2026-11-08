@@ -21,6 +21,10 @@ schedule APIs, tenant configuration requests/snapshots and administration,
 error types, and the `WorkflowRuntime` interface used by runtime
 adapters and advanced consumers.
 
+Lease history uses the mandatory `WorkflowRuntime.ListLeaseEvents` port and
+canonical `LeaseEvent` snapshots. See [lease history](GUIDE-LEASE-EVENTS.md) for
+filters, cursor behavior, migration and backend integration.
+
 Operator recovery uses `WorkflowRuntime.ClearCrashConcern` with
 `ClearCrashConcernRequest` to reset a job's consecutive expired-lease count.
 See [clearing crash concern](GUIDE-CRASH-CONCERN.md) for CLI, REST, and Go usage.

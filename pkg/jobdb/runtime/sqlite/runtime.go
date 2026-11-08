@@ -504,6 +504,9 @@ WHERE tenant_id = ? AND job_id = ?`,
 			if n == 0 {
 				continue
 			}
+			if err := insertLeaseEvent(ctx, tx, row, now, jobdb.LeaseAcquisitionPoll, nil); err != nil {
+				return err
+			}
 			lease = &executionLease{cell: row.cell,
 				goalID:   row.goalID,
 				runtime:  r,
@@ -597,6 +600,9 @@ SET consecutive_expirations = CASE WHEN lease_id IS NOT NULL THEN consecutive_ex
 WHERE tenant_id = ? AND job_id = ?`,
 			nextRoute.JobType, nextRoute.TaskType, leaseID, workerID, timeToNS(expires), altJob, altTask, altAt, timeToNS(now), row.tenantID, row.jobID)
 		if err != nil {
+			return err
+		}
+		if err := insertLeaseEvent(ctx, tx, row, now, jobdb.LeaseAcquisitionTargeted, nil); err != nil {
 			return err
 		}
 		lease = &executionLease{cell: row.cell,

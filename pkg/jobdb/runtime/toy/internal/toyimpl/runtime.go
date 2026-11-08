@@ -523,6 +523,9 @@ func (r *Runtime) CancelJob(ctx context.Context, req jobdb.CancelJobRequest) err
 }
 
 func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jobdb.ExecutionLease, error) {
+	if req.WorkerID == "" {
+		req.WorkerID = "toy"
+	}
 	for _, route := range req.Routes {
 		if err := route.Validate(); err != nil {
 			return nil, err
@@ -559,10 +562,11 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 	now := time.Now().UTC()
 	out := make([]jobdb.ExecutionLease, 0, limit)
 	for key, record := range r.engine.jobRecords {
-		if key.TenantId != req.TenantId || !allowed[record.cell.CellID] {
+		if key.TenantId != req.TenantId || !allowed[record.cell.CellID] || r.engine.cellsLocked(req.TenantId).Cells[record.cell.CellID].State != jobdb.CellActive {
 			continue
 		}
 		record.mu.Lock()
+		now = time.Now().UTC()
 		r.advanceRecordStateLocked(key.TenantId, now, record)
 		if record.leased || record.status != jobdb.JobStatusReady {
 			record.mu.Unlock()
@@ -595,9 +599,11 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 		} else {
 			record.consecutiveExpirations = 0
 		}
+		previousLeaseID := record.leaseID
 		record.leaseID = ksuid.New().String()
 		record.leaseWorkerID = req.WorkerID
 		record.leaseExpiresAt = now.Add(toyLeaseDurationOrDefault(req.LeaseDuration))
+		r.engine.appendLeaseEventLocked(record, now, jobdb.LeaseAcquisitionPoll, previousLeaseID, nil)
 		payload := cloneJSON(record.payload)
 		out = append(out, &runtimeLease{
 			runtime: r,
@@ -634,6 +640,9 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 }
 
 func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
+	if req.WorkerID == "" {
+		req.WorkerID = "toy"
+	}
 	for _, route := range req.Routes {
 		if err := route.Validate(); err != nil {
 			return nil, err
@@ -670,8 +679,8 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 		return nil, jobdb.ErrCellRetired
 	}
 
-	now := time.Now().UTC()
 	record.mu.Lock()
+	now := time.Now().UTC()
 	r.advanceRecordStateLocked(req.JobKey.TenantId, now, record)
 	if record.leased || record.status != jobdb.JobStatusReady {
 		record.mu.Unlock()
@@ -695,9 +704,11 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 	} else {
 		record.consecutiveExpirations = 0
 	}
+	previousLeaseID := record.leaseID
 	record.leaseID = ksuid.New().String()
 	record.leaseWorkerID = req.WorkerID
 	record.leaseExpiresAt = now.Add(toyLeaseDurationOrDefault(req.LeaseDuration))
+	r.engine.appendLeaseEventLocked(record, now, jobdb.LeaseAcquisitionTargeted, previousLeaseID, nil)
 	lease := &runtimeLease{
 		runtime: r,
 		jobKey:  req.JobKey,
@@ -1663,6 +1674,16 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	if record.leased || record.currentStatus(time.Now().UTC()) != jobdb.JobStatusReady || record.archived != nil || record.cancelled || record.route != currentRoute || !bytes.Equal(record.payload, payload) {
 		return fmt.Errorf("%w: waiting task changed", jobdb.ErrConflict)
 	}
+	now := time.Now().UTC()
+	previousLeaseID := record.leaseID
+	record.leaseID = ksuid.New().String()
+	record.leaseWorkerID = "task_completion"
+	record.leaseExpiresAt = now.Add(time.Minute)
+	record.leased = true
+	record.status = jobdb.JobStatusActive
+	record.payload = mustMarshalWorkerPayload(workerJobPayload{RunPolicy: payloadInfo.RunPolicy})
+	record.route = jobdb.Route{JobType: wait.Next}
+	r.engine.appendLeaseEventLocked(record, now, jobdb.LeaseAcquisitionTaskCompletion, previousLeaseID, nil)
 	chapters := r.engine.runtimeChapters[req.JobKey]
 	if chapters == nil {
 		return jobdb.ErrJobNotFound

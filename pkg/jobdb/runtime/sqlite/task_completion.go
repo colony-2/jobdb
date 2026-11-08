@@ -50,7 +50,10 @@ func (r *Runtime) claimWaitingTask(ctx context.Context, expected jobRow, resumeJ
 		// not redirect recovery to another task after this lease expires.
 		_, err = tx.ExecContext(ctx, `UPDATE jobdb_jobs SET consecutive_expirations=CASE WHEN lease_id IS NOT NULL THEN consecutive_expirations+1 ELSE 0 END,route_job_type=?,route_task_type='',payload=?,lease_id=?,lease_worker_id=?,lease_expires_at_ns=?,alternate_job_type=NULL,alternate_task_type=NULL,alternate_at_ns=NULL,updated_at_ns=? WHERE tenant_id=? AND job_id=?`,
 			resumeJobType, payload, lease.leaseID, lease.workerID, timeToNS(lease.expiresAt), timeToNS(now), key.TenantId, key.JobId)
-		return err
+		if err != nil {
+			return err
+		}
+		return insertLeaseEvent(ctx, tx, current, now, jobdb.LeaseAcquisitionTaskCompletion, nil)
 	})
 	if err != nil {
 		return nil, err

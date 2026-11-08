@@ -68,6 +68,10 @@ func TestTaskCompletionRecoversAfterRestart(t *testing.T) {
 			if err := r.CompleteTaskIfWaiting(ctx, req); err == nil || (afterChapter && !strings.Contains(err.Error(), "injected failure")) {
 				t.Fatalf("completion: %v", err)
 			}
+			events, err := r.ListLeaseEvents(ctx, jobdb.ListLeaseEventsRequest{TenantID: "tenant"})
+			if err != nil || len(events.Events) != 2 || events.Events[0].AcquisitionSource != jobdb.LeaseAcquisitionTaskCompletion {
+				t.Fatalf("committed claim history: %+v %v", events, err)
+			}
 			if err := r.Close(ctx); err != nil {
 				t.Fatal(err)
 			}

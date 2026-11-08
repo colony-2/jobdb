@@ -35,6 +35,41 @@ tags:
 security:
   - bearerAuth: []
 paths:
+  /v1/tenants/{tenantId}/lease-events/query:
+    post:
+      operationId: listLeaseEvents
+      tags: [leases]
+      description: |
+        Read-only live traversal of retained canonical acquisitions and renewals, newest first.
+        Reauthorize every page. Delegated lease credentials are denied. No totals or backfill.
+        Filters are OR within arrays and AND across dimensions; explicit null/empty arrays are invalid.
+        Time bounds are inclusive lower and exclusive upper. Cursors bind normalized scope and page size.
+        Concurrent commits and visibility/membership changes may alter traversal; refresh to find new activity.
+      parameters:
+        - name: tenantId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ListLeaseEventsRequest'}
+      responses:
+        '200':
+          description: One page, including an empty events array when no visible history exists.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ListLeaseEventsResponse'}
+        '400':
+          description: invalid_request or invalid_lease_event_page_token
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+        '401': {description: Authentication required}
+        '403': {description: Permission denied, including delegated credentials}
+        '404': {description: Explicit cell absent or inaccessible}
+        '500': {description: Backend failure}
   /v1/tenants/{tenantId}/goals/query:
     post:
       tags: [jobs]
@@ -2158,6 +2193,99 @@ components:
       schema:
         $ref: '#/components/schemas/CellName'
   schemas:
+    LeaseEventType:
+      type: string
+      enum: [lease_acquired, lease_renewed]
+    LeaseAcquisitionSource:
+      type: string
+      enum: [poll, targeted, task_completion]
+    ListLeaseEventsRequest:
+      example: {jobIds: [job-1], eventTypes: [lease_acquired], pageSize: 1}
+      type: object
+      additionalProperties: false
+      properties:
+        cellNames:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {type: string, minLength: 1}
+        cellIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {type: string, minLength: 1}
+        jobIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {type: string, minLength: 1}
+        goalIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {type: string, minLength: 1}
+        workerIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {type: string, minLength: 1}
+        leaseIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {type: string, minLength: 1}
+        eventTypes:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {$ref: '#/components/schemas/LeaseEventType'}
+        jobTypes:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {type: string, minLength: 1}
+        routes:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {$ref: '#/components/schemas/Route'}
+        occurredAfter: {type: string, format: date-time}
+        occurredBefore: {type: string, format: date-time}
+        includeHidden: {type: boolean, default: false}
+        pageSize: {type: integer, minimum: 1, maximum: 200, default: 100}
+        pageToken: {type: string}
+    ListLeaseEventsResponse:
+      example: {events: []}
+      type: object
+      additionalProperties: false
+      required: [events]
+      properties:
+        events:
+          type: array
+          items: {$ref: '#/components/schemas/LeaseEvent'}
+        nextPageToken: {type: string}
+    LeaseEvent:
+      type: object
+      additionalProperties: false
+      description: Immutable scheduler snapshot. Acquisitions require acquisitionSource and omit previousLeaseExpiresAt; renewals require previousLeaseExpiresAt and omit acquisitionSource and previousLeaseId. Tokens and credentials are never returned. Renewal can shorten expiry.
+      required: [eventId, eventType, occurredAt, jobKey, cell, cellId, cellRepo, goalId, jobType, route, leaseId, workerId, leaseExpiresAt]
+      properties:
+        eventId: {type: string}
+        eventType: {$ref: '#/components/schemas/LeaseEventType'}
+        occurredAt: {type: string, format: date-time}
+        jobKey: {$ref: '#/components/schemas/JobKey'}
+        cell: {type: string}
+        cellId: {type: string}
+        cellRepo: {type: string}
+        goalId: {type: string}
+        jobType: {type: string}
+        route: {$ref: '#/components/schemas/Route'}
+        leaseId: {type: string}
+        workerId: {type: string}
+        leaseExpiresAt: {type: string, format: date-time}
+        previousLeaseExpiresAt: {type: string, format: date-time}
+        acquisitionSource: {$ref: '#/components/schemas/LeaseAcquisitionSource'}
+        previousLeaseId: {type: string}
     GoalKey:
       type: object
       additionalProperties: false

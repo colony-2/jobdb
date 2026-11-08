@@ -119,21 +119,27 @@ func (r *Runtime) KeepAliveLeaseByIDWithExpiry(ctx context.Context, jobKey jobdb
 	if leaseID == "" || workerID == "" {
 		return time.Time{}, jobdb.ErrExecutionLeaseLost
 	}
-	expires := time.Now().UTC().Add(leaseDurationOrDefault(leaseDuration))
+	var expires time.Time
 	err := r.withTx(ctx, func(tx *sql.Tx) error {
 		row, err := r.loadJobRowTx(ctx, tx, jobKey)
 		if err != nil {
 			return err
 		}
-		if err := validateLeaseRow(row, leaseID, workerID, time.Now().UTC()); err != nil {
+		now := time.Now().UTC()
+		if err := validateLeaseRow(row, leaseID, workerID, now); err != nil {
 			return err
 		}
+		expires = now.Add(leaseDurationOrDefault(leaseDuration))
 		_, err = tx.ExecContext(ctx, `
 UPDATE jobdb_jobs
 SET lease_expires_at_ns = ?, updated_at_ns = ?
 WHERE tenant_id = ? AND job_id = ? AND lease_id = ?`,
-			timeToNS(expires), timeToNS(time.Now().UTC()), jobKey.TenantId, jobKey.JobId, leaseID)
-		return err
+			timeToNS(expires), timeToNS(now), jobKey.TenantId, jobKey.JobId, leaseID)
+		if err != nil {
+			return err
+		}
+		previous := timeFromNS(row.leaseExpiresAtNS.Int64)
+		return insertLeaseEvent(ctx, tx, row, now, "", &previous)
 	})
 	if err != nil {
 		return time.Time{}, err

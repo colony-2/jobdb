@@ -128,6 +128,19 @@ const (
 	JobStoreARCHIVED JobStore = "ARCHIVED"
 )
 
+// Defines values for LeaseAcquisitionSource.
+const (
+	Poll           LeaseAcquisitionSource = "poll"
+	Targeted       LeaseAcquisitionSource = "targeted"
+	TaskCompletion LeaseAcquisitionSource = "task_completion"
+)
+
+// Defines values for LeaseEventType.
+const (
+	LeaseAcquired LeaseEventType = "lease_acquired"
+	LeaseRenewed  LeaseEventType = "lease_renewed"
+)
+
 // Defines values for MetadataBoolKind.
 const (
 	Bool MetadataBoolKind = "bool"
@@ -810,6 +823,32 @@ type KeepAliveLeaseResponse struct {
 	LeaseToken string          `json:"leaseToken"`
 }
 
+// LeaseAcquisitionSource defines model for LeaseAcquisitionSource.
+type LeaseAcquisitionSource string
+
+// LeaseEvent Immutable scheduler snapshot. Acquisitions require acquisitionSource and omit previousLeaseExpiresAt; renewals require previousLeaseExpiresAt and omit acquisitionSource and previousLeaseId. Tokens and credentials are never returned. Renewal can shorten expiry.
+type LeaseEvent struct {
+	AcquisitionSource      *LeaseAcquisitionSource `json:"acquisitionSource,omitempty"`
+	Cell                   string                  `json:"cell"`
+	CellId                 string                  `json:"cellId"`
+	CellRepo               string                  `json:"cellRepo"`
+	EventId                string                  `json:"eventId"`
+	EventType              LeaseEventType          `json:"eventType"`
+	GoalId                 string                  `json:"goalId"`
+	JobKey                 JobKey                  `json:"jobKey"`
+	JobType                string                  `json:"jobType"`
+	LeaseExpiresAt         time.Time               `json:"leaseExpiresAt"`
+	LeaseId                string                  `json:"leaseId"`
+	OccurredAt             time.Time               `json:"occurredAt"`
+	PreviousLeaseExpiresAt *time.Time              `json:"previousLeaseExpiresAt,omitempty"`
+	PreviousLeaseId        *string                 `json:"previousLeaseId,omitempty"`
+	Route                  Route                   `json:"route"`
+	WorkerId               string                  `json:"workerId"`
+}
+
+// LeaseEventType defines model for LeaseEventType.
+type LeaseEventType string
+
 // ListCellsResponse defines model for ListCellsResponse.
 type ListCellsResponse struct {
 	Cells []Cell `json:"cells"`
@@ -879,6 +918,30 @@ type ListJobsRequest struct {
 // ListJobsResponse defines model for ListJobsResponse.
 type ListJobsResponse struct {
 	Jobs          []JobSummary `json:"jobs"`
+	NextPageToken *string      `json:"nextPageToken,omitempty"`
+}
+
+// ListLeaseEventsRequest defines model for ListLeaseEventsRequest.
+type ListLeaseEventsRequest struct {
+	CellIds        *[]string         `json:"cellIds,omitempty"`
+	CellNames      *[]string         `json:"cellNames,omitempty"`
+	EventTypes     *[]LeaseEventType `json:"eventTypes,omitempty"`
+	GoalIds        *[]string         `json:"goalIds,omitempty"`
+	IncludeHidden  *bool             `json:"includeHidden,omitempty"`
+	JobIds         *[]string         `json:"jobIds,omitempty"`
+	JobTypes       *[]string         `json:"jobTypes,omitempty"`
+	LeaseIds       *[]string         `json:"leaseIds,omitempty"`
+	OccurredAfter  *time.Time        `json:"occurredAfter,omitempty"`
+	OccurredBefore *time.Time        `json:"occurredBefore,omitempty"`
+	PageSize       *int              `json:"pageSize,omitempty"`
+	PageToken      *string           `json:"pageToken,omitempty"`
+	Routes         *[]Route          `json:"routes,omitempty"`
+	WorkerIds      *[]string         `json:"workerIds,omitempty"`
+}
+
+// ListLeaseEventsResponse defines model for ListLeaseEventsResponse.
+type ListLeaseEventsResponse struct {
+	Events        []LeaseEvent `json:"events"`
 	NextPageToken *string      `json:"nextPageToken,omitempty"`
 }
 
@@ -1778,6 +1841,9 @@ type PutJobWithLeaseJSONRequestBody = SubmitJobRequest
 // PutRestartJobWithLeaseJSONRequestBody defines body for PutRestartJobWithLease for application/json ContentType.
 type PutRestartJobWithLeaseJSONRequestBody = SubmitRestartJobRequest
 
+// ListLeaseEventsJSONRequestBody defines body for ListLeaseEvents for application/json ContentType.
+type ListLeaseEventsJSONRequestBody = ListLeaseEventsRequest
+
 // ListSchedulesJSONRequestBody defines body for ListSchedules for application/json ContentType.
 type ListSchedulesJSONRequestBody = ListSchedulesRequest
 
@@ -2639,6 +2705,11 @@ type ClientInterface interface {
 	PutRestartJobWithLeaseWithBody(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, childJobId ChildJobId, params *PutRestartJobWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	PutRestartJobWithLease(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, childJobId ChildJobId, params *PutRestartJobWithLeaseParams, body PutRestartJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListLeaseEventsWithBody request with any body
+	ListLeaseEventsWithBody(ctx context.Context, tenantId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ListLeaseEvents(ctx context.Context, tenantId string, body ListLeaseEventsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListSchedulesWithBody request with any body
 	ListSchedulesWithBody(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -3595,6 +3666,30 @@ func (c *Client) PutRestartJobWithLeaseWithBody(ctx context.Context, tenantId Te
 
 func (c *Client) PutRestartJobWithLease(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, childJobId ChildJobId, params *PutRestartJobWithLeaseParams, body PutRestartJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPutRestartJobWithLeaseRequest(c.Server, tenantId, parentJobId, leaseId, childJobId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListLeaseEventsWithBody(ctx context.Context, tenantId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListLeaseEventsRequestWithBody(c.Server, tenantId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListLeaseEvents(ctx context.Context, tenantId string, body ListLeaseEventsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListLeaseEventsRequest(c.Server, tenantId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -6631,6 +6726,53 @@ func NewPutRestartJobWithLeaseRequestWithBody(server string, tenantId TenantId, 
 	return req, nil
 }
 
+// NewListLeaseEventsRequest calls the generic ListLeaseEvents builder with application/json body
+func NewListLeaseEventsRequest(server string, tenantId string, body ListLeaseEventsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewListLeaseEventsRequestWithBody(server, tenantId, "application/json", bodyReader)
+}
+
+// NewListLeaseEventsRequestWithBody generates requests for ListLeaseEvents with any type of body
+func NewListLeaseEventsRequestWithBody(server string, tenantId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/lease-events/query", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewListSchedulesRequest calls the generic ListSchedules builder with application/json body
 func NewListSchedulesRequest(server string, tenantId TenantId, body ListSchedulesJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -7468,6 +7610,11 @@ type ClientWithResponsesInterface interface {
 	PutRestartJobWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, childJobId ChildJobId, params *PutRestartJobWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutRestartJobWithLeaseHTTPResponse, error)
 
 	PutRestartJobWithLeaseWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, childJobId ChildJobId, params *PutRestartJobWithLeaseParams, body PutRestartJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*PutRestartJobWithLeaseHTTPResponse, error)
+
+	// ListLeaseEventsWithBodyWithResponse request with any body
+	ListLeaseEventsWithBodyWithResponse(ctx context.Context, tenantId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListLeaseEventsHTTPResponse, error)
+
+	ListLeaseEventsWithResponse(ctx context.Context, tenantId string, body ListLeaseEventsJSONRequestBody, reqEditors ...RequestEditorFn) (*ListLeaseEventsHTTPResponse, error)
 
 	// ListSchedulesWithBodyWithResponse request with any body
 	ListSchedulesWithBodyWithResponse(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListSchedulesHTTPResponse, error)
@@ -8622,6 +8769,29 @@ func (r PutRestartJobWithLeaseHTTPResponse) StatusCode() int {
 	return 0
 }
 
+type ListLeaseEventsHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ListLeaseEventsResponse
+	JSON400      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r ListLeaseEventsHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListLeaseEventsHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type ListSchedulesHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -9542,6 +9712,23 @@ func (c *ClientWithResponses) PutRestartJobWithLeaseWithResponse(ctx context.Con
 		return nil, err
 	}
 	return ParsePutRestartJobWithLeaseHTTPResponse(rsp)
+}
+
+// ListLeaseEventsWithBodyWithResponse request with arbitrary body returning *ListLeaseEventsHTTPResponse
+func (c *ClientWithResponses) ListLeaseEventsWithBodyWithResponse(ctx context.Context, tenantId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListLeaseEventsHTTPResponse, error) {
+	rsp, err := c.ListLeaseEventsWithBody(ctx, tenantId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListLeaseEventsHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) ListLeaseEventsWithResponse(ctx context.Context, tenantId string, body ListLeaseEventsJSONRequestBody, reqEditors ...RequestEditorFn) (*ListLeaseEventsHTTPResponse, error) {
+	rsp, err := c.ListLeaseEvents(ctx, tenantId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListLeaseEventsHTTPResponse(rsp)
 }
 
 // ListSchedulesWithBodyWithResponse request with arbitrary body returning *ListSchedulesHTTPResponse
@@ -11504,6 +11691,39 @@ func ParsePutRestartJobWithLeaseHTTPResponse(rsp *http.Response) (*PutRestartJob
 	return response, nil
 }
 
+// ParseListLeaseEventsHTTPResponse parses an HTTP response from a ListLeaseEventsWithResponse call
+func ParseListLeaseEventsHTTPResponse(rsp *http.Response) (*ListLeaseEventsHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListLeaseEventsHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ListLeaseEventsResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListSchedulesHTTPResponse parses an HTTP response from a ListSchedulesWithResponse call
 func ParseListSchedulesHTTPResponse(rsp *http.Response) (*ListSchedulesHTTPResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -11984,6 +12204,9 @@ type ServerInterface interface {
 	// Submit child restart job with explicit job ID and lease
 	// (PUT /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/jobs/{childJobId}/restart)
 	PutRestartJobWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, childJobId ChildJobId, params PutRestartJobWithLeaseParams)
+
+	// (POST /v1/tenants/{tenantId}/lease-events/query)
+	ListLeaseEvents(w http.ResponseWriter, r *http.Request, tenantId string)
 	// List schedules
 	// (POST /v1/tenants/{tenantId}/schedules/query)
 	ListSchedules(w http.ResponseWriter, r *http.Request, tenantId TenantId)
@@ -12293,6 +12516,11 @@ func (_ Unimplemented) PutJobWithLease(w http.ResponseWriter, r *http.Request, t
 // Submit child restart job with explicit job ID and lease
 // (PUT /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/jobs/{childJobId}/restart)
 func (_ Unimplemented) PutRestartJobWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, childJobId ChildJobId, params PutRestartJobWithLeaseParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /v1/tenants/{tenantId}/lease-events/query)
+func (_ Unimplemented) ListLeaseEvents(w http.ResponseWriter, r *http.Request, tenantId string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -14992,6 +15220,37 @@ func (siw *ServerInterfaceWrapper) PutRestartJobWithLease(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
+// ListLeaseEvents operation middleware
+func (siw *ServerInterfaceWrapper) ListLeaseEvents(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListLeaseEvents(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListSchedules operation middleware
 func (siw *ServerInterfaceWrapper) ListSchedules(w http.ResponseWriter, r *http.Request) {
 
@@ -15706,6 +15965,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/jobs/{childJobId}/restart", wrapper.PutRestartJobWithLease)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/lease-events/query", wrapper.ListLeaseEvents)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/schedules/query", wrapper.ListSchedules)
@@ -18051,6 +18313,65 @@ func (response PutRestartJobWithLease413JSONResponse) VisitPutRestartJobWithLeas
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ListLeaseEventsRequestObject struct {
+	TenantId string `json:"tenantId"`
+	Body     *ListLeaseEventsJSONRequestBody
+}
+
+type ListLeaseEventsResponseObject interface {
+	VisitListLeaseEventsResponse(w http.ResponseWriter) error
+}
+
+type ListLeaseEvents200JSONResponse ListLeaseEventsResponse
+
+func (response ListLeaseEvents200JSONResponse) VisitListLeaseEventsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListLeaseEvents400JSONResponse ErrorResponse
+
+func (response ListLeaseEvents400JSONResponse) VisitListLeaseEventsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListLeaseEvents401Response struct {
+}
+
+func (response ListLeaseEvents401Response) VisitListLeaseEventsResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type ListLeaseEvents403Response struct {
+}
+
+func (response ListLeaseEvents403Response) VisitListLeaseEventsResponse(w http.ResponseWriter) error {
+	w.WriteHeader(403)
+	return nil
+}
+
+type ListLeaseEvents404Response struct {
+}
+
+func (response ListLeaseEvents404Response) VisitListLeaseEventsResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
+type ListLeaseEvents500Response struct {
+}
+
+func (response ListLeaseEvents500Response) VisitListLeaseEventsResponse(w http.ResponseWriter) error {
+	w.WriteHeader(500)
+	return nil
+}
+
 type ListSchedulesRequestObject struct {
 	TenantId TenantId `json:"tenantId"`
 	Body     *ListSchedulesJSONRequestBody
@@ -18457,6 +18778,9 @@ type StrictServerInterface interface {
 	// Submit child restart job with explicit job ID and lease
 	// (PUT /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/jobs/{childJobId}/restart)
 	PutRestartJobWithLease(ctx context.Context, request PutRestartJobWithLeaseRequestObject) (PutRestartJobWithLeaseResponseObject, error)
+
+	// (POST /v1/tenants/{tenantId}/lease-events/query)
+	ListLeaseEvents(ctx context.Context, request ListLeaseEventsRequestObject) (ListLeaseEventsResponseObject, error)
 	// List schedules
 	// (POST /v1/tenants/{tenantId}/schedules/query)
 	ListSchedules(ctx context.Context, request ListSchedulesRequestObject) (ListSchedulesResponseObject, error)
@@ -20004,6 +20328,39 @@ func (sh *strictHandler) PutRestartJobWithLease(w http.ResponseWriter, r *http.R
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PutRestartJobWithLeaseResponseObject); ok {
 		if err := validResponse.VisitPutRestartJobWithLeaseResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListLeaseEvents operation middleware
+func (sh *strictHandler) ListLeaseEvents(w http.ResponseWriter, r *http.Request, tenantId string) {
+	var request ListLeaseEventsRequestObject
+
+	request.TenantId = tenantId
+
+	var body ListLeaseEventsJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListLeaseEvents(ctx, request.(ListLeaseEventsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListLeaseEvents")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListLeaseEventsResponseObject); ok {
+		if err := validResponse.VisitListLeaseEventsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

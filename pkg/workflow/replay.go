@@ -253,3 +253,7 @@ func (r replayReadOnlyRuntime) GetCell(ctx context.Context, key jobdb.CellKey) (
 func (r replayReadOnlyRuntime) ListCells(ctx context.Context, req jobdb.ListCellsRequest) (jobdb.ListCellsResponse, error) {
 	return r.runtime.ListCells(ctx, req)
 }
+
+func (r replayReadOnlyRuntime) ListLeaseEvents(ctx context.Context, req ListLeaseEventsRequest) (ListLeaseEventsResponse, error) {
+	return r.runtime.ListLeaseEvents(ctx, req)
+}

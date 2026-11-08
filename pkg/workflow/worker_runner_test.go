@@ -1227,3 +1227,7 @@ func (l *fakeExecutionLease) ResolveCell(context.Context, string) (jobdb.Resolve
 func (l *fakeExecutionLease) CreateCell(context.Context, jobdb.CreateCellRequest) (jobdb.Cell, error) {
 	return jobdb.Cell{}, errors.New("unexpected cell creation")
 }
+
+func (r *runnerTestRuntime) ListLeaseEvents(context.Context, ListLeaseEventsRequest) (ListLeaseEventsResponse, error) {
+	return ListLeaseEventsResponse{Events: []LeaseEvent{}}, nil
+}

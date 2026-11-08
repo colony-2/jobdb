@@ -42,6 +42,7 @@ type WorkflowRuntime interface {
 
 	// Read APIs
 	GetJob(ctx context.Context, jobKey JobKey) (JobInfo, error)
+	ListLeaseEvents(context.Context, ListLeaseEventsRequest) (ListLeaseEventsResponse, error)
 	ListJobs(ctx context.Context, req ListJobsRequest) (ListJobsResponse, error)
 
 	// Chapter / replay access
