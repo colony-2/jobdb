@@ -6,9 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
-	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
-	"github.com/stretchr/testify/require"
+
 	"io"
 	"testing"
 	"time"
@@ -126,15 +124,8 @@ func (legacyScheduler) ListScheduleRuns(ctx context.Context, req ListScheduleRun
 	panic("compile-only historical fixture")
 }
 
-var _ Scheduler = legacyScheduler{}
-
-// Legacy scheduler construction needs no optional reader.
-type compatibilityChapters struct{ ChapterLog }
-type compatibilitySchemas struct{ SchemaStore }
-
-func TestLegacySchedulerConstruction(t *testing.T) {
-	rt, err := NewRuntime(Config{Scheduler: legacyScheduler{}, Configurations: &configuration.MemoryStore{}, Chapters: compatibilityChapters{}, Schemas: compatibilitySchemas{}})
-	require.NoError(t, err)
-	_, err = jobdb.ListLeaseEvents(celltest.Context(context.Background()), rt, jobdb.ListLeaseEventsRequest{TenantID: "tenant"})
-	require.ErrorIs(t, err, jobdb.ErrLeaseEventsUnsupported)
+func TestHistoricalPortRequiresLeaseEvents(t *testing.T) {
+	if _, ok := any(legacyScheduler{}).(Scheduler); ok {
+		t.Fatal("historical implementation without lease history satisfies mandatory port")
+	}
 }

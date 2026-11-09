@@ -11,25 +11,32 @@ import (
 	"testing"
 )
 
-type legacyEventWrapper struct{ jobdb.WorkflowRuntime }
-type failingEventWrapper struct{ jobdb.WorkflowRuntime }
+type forwardingEventWrapper struct{ jobdb.WorkflowRuntime }
+type failingEventWrapper struct {
+	jobdb.WorkflowRuntime
+	err error
+}
 
-func (failingEventWrapper) ListLeaseEvents(context.Context, jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error) {
-	return jobdb.ListLeaseEventsResponse{}, errors.New("probe backend failure")
+func (r failingEventWrapper) ListLeaseEvents(context.Context, jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error) {
+	return jobdb.ListLeaseEventsResponse{}, r.err
 }
 
 func TestLeaseEventConformanceCompatibility(t *testing.T) {
 	mode := os.Getenv("JOBDB_EVENT_CONFORMANCE_MODE")
 	if mode != "" {
 		h := Harness{Name: "probe", New: func(testing.TB) Fixture {
-			var r jobdb.WorkflowRuntime = toy.New()
-			if strings.Contains(mode, "absent") {
-				r = legacyEventWrapper{r}
+			native := toy.New()
+			var r jobdb.WorkflowRuntime = native
+			if strings.Contains(mode, "forwarded") {
+				r = forwardingEventWrapper{r}
 			}
 			if strings.Contains(mode, "failure") {
-				r = failingEventWrapper{r}
+				r = failingEventWrapper{WorkflowRuntime: r, err: errors.New("probe backend failure")}
 			}
-			return Fixture{Runtime: r}
+			if strings.Contains(mode, "unsupported") {
+				r = failingEventWrapper{WorkflowRuntime: r, err: jobdb.ErrLeaseEventsUnsupported}
+			}
+			return Fixture{Runtime: r, LeaseEventLeaseValidity: native.ValidateExecutionLeaseByID}
 		}}
 		if strings.HasPrefix(mode, "strict") {
 			RunLeaseEventConformance(t, h)
@@ -43,10 +50,13 @@ func TestLeaseEventConformanceCompatibility(t *testing.T) {
 		fails   bool
 		message string
 	}{
-		{"general-absent", false, "optional lease events unsupported"},
+		{"general-forwarded", false, "PASS"},
 		{"general-default", false, "PASS"},
 		{"general-failure", true, "probe backend failure"},
-		{"strict-absent", true, "lease_events_unsupported"},
+		{"general-unsupported", true, "lease_events_unsupported"},
+		{"strict-failure", true, "probe backend failure"},
+		{"strict-unsupported", true, "lease_events_unsupported"},
+		{"strict-forwarded", false, "PASS"},
 		{"strict-default", false, "PASS"},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {

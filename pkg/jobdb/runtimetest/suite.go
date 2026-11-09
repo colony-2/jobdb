@@ -128,9 +128,6 @@ func RunWorkflowRuntimeConformance(t *testing.T, harnesses ...Harness) {
 					})
 				}
 				_, err := jobdb.ListLeaseEvents(celltest.Context(context.Background()), f.Runtime, jobdb.ListLeaseEventsRequest{TenantID: "lease-event-probe"})
-				if errors.Is(err, jobdb.ErrLeaseEventsUnsupported) {
-					t.Skip("optional lease events unsupported")
-				}
 				if err != nil {
 					t.Fatal(err)
 				}

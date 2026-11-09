@@ -1273,6 +1273,7 @@ func ValidateScheduleRequest func(req UpsertScheduleRequest) error
 func WithCellAuthority func(ctx context.Context, a CellAuthority) context.Context
 func WithTx func(ctx context.Context, tx *gorm.io/gorm.DB) context.Context
 type WorkflowRuntime interface
+  embedded LeaseEventReader
   embedded CellRuntime
   embedded GoalRuntime
   method ArchiveSchedule func(ctx context.Context, req ScheduleMutationRequest) (ScheduleInfo, error)
@@ -1327,6 +1328,7 @@ type Capabilities struct
 const DoubleTaskName untyped string = "double"
 const FailingJobName untyped string = "failing"
 type Fixture struct
+  field LeaseEventLeaseValidity func(context.Context, github.com/colony-2/jobdb/pkg/jobdb.JobKey, string, string) (github.com/colony-2/jobdb/pkg/jobdb.LeaseValidity, error)
   field Runtime github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime
   field SchemaRegistry github.com/colony-2/jobdb/pkg/jobdb.JobSchemaRegistry
   field WorkerTenantID string
@@ -1613,6 +1615,7 @@ type ScheduleStateMutation struct
   field RequestTime time.Time
   field WorkerID string
 type Scheduler interface
+  embedded github.com/colony-2/jobdb/pkg/jobdb.LeaseEventReader
   embedded github.com/colony-2/jobdb/pkg/jobdb.CellRuntime
   embedded GoalScheduler
   method AcquireJobLease func(ctx context.Context, req JobLeaseRequest) (*LeaseSnapshot, error)

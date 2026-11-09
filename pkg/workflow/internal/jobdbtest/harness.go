@@ -893,3 +893,5 @@ func (r *tenantNamespacedRuntime) ListLeaseEvents(ctx context.Context, req jobdb
 	}
 	return out, err
 }
+
+var _ jobdb.WorkflowRuntime = (*tenantNamespacedRuntime)(nil)

@@ -1,20 +1,18 @@
 # Canonical lease history
 
-`jobdb.ListLeaseEvents(ctx, runtime, req)` queries the optional `LeaseEventReader`
-capability and returns `ListLeaseEventsResponse{Events, NextPageToken}` for exactly
-one tenant. `WorkflowRuntime` and `runtimecore.Scheduler` remain unchanged for
-legacy implementations. Existing concrete `ListLeaseEvents` methods remain
-available. A wrapper may explicitly forward `LeaseEventReader` to expose it.
-`POST /v1/tenants/{tenantId}/lease-events/query` is the corresponding read-only
-remote operation. Delegated credentials cannot use it.
+`jobdb.ListLeaseEvents(ctx, runtime, req)` validates and queries retained history,
+returning `ListLeaseEventsResponse{Events, NextPageToken}` for exactly one tenant.
+Both `WorkflowRuntime` and `runtimecore.Scheduler` require `LeaseEventReader`.
+Wrappers must forward actual reads, including filters, pagination, responses and
+errors. `POST /v1/tenants/{tenantId}/lease-events/query` is the corresponding
+read-only remote operation. Delegated credentials cannot use it.
 
 Supplied SQLite and toy runtimes record events automatically, including ordinary
-CLI startup. No activation flag is required. Legacy/custom backends may omit the
-capability and return `ErrLeaseEventsUnsupported`
-(check with `errors.Is`), never a successful empty history. An authorized HTTP
-request returns 501 with code `lease_events_unsupported`. New clients also map
-unrecognized old-server endpoint 404/405 responses to that sentinel, preserving
-recognized domain errors and authentication/backend/transport failures.
+CLI startup. No activation flag is required. Missing adapter methods fail Go
+compilation. Old-server endpoint failures remain explicit errors; unknown 404/405
+responses are not translated into an optional-support sentinel or empty history.
+Structured domain errors retain their meaning. `ErrLeaseEventsUnsupported` remains
+exported for source compatibility and explicit collection errors.
 
 Events are immutable historical snapshots. `lease_acquired` includes its source
 (`poll`, `targeted`, or `task_completion`) and an optional replaced expired lease.
@@ -64,10 +62,12 @@ events. Existing acquisitions are never backfilled. A pre-upgrade lease may have
 only renewal events, and empty history cannot establish that a job never ran.
 Toy retains history only for its engine lifetime.
 
-The oldest event is not proof of complete history. Startup and source acceptance
-do not require deployment coordination or downstream rebuilds. Consumers adopt the optional feature
-independently. Callers holding `WorkflowRuntime` use the public helper or an
-explicit optional-interface assertion; concrete-method callers remain compatible.
+The oldest event is not proof of complete history. The mandatory interface is an
+intentional source break: custom runtimes, schedulers and wrappers must implement
+or forward the existing signature and upgrade together. See the
+[migration note](MIGRATION-MANDATORY-LEASE-HISTORY.md). Source acceptance and
+publication do not wait for downstream deployment; there is no mixed-version
+server compatibility promise.
 
 Event inserts remain atomic with lease mutations: insertion failure rolls back
 acquisition or renewal. Failed schema installation rolls back completely and can
@@ -75,13 +75,13 @@ be retried after correcting the error; saved data must never be reset to upgrade
 
 ## Backend integration
 
-A scheduler may expose the standalone `jobdb.LeaseEventReader` signature:
+Every scheduler must expose the `jobdb.LeaseEventReader` signature:
 
 ```go
 ListLeaseEvents(context.Context, jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error)
 ```
 
-Core validates/authorizes before optional dispatch and forwards this call; it never reconstructs events.
+Core validates/authorizes before direct dispatch and forwards this call; it never reconstructs events.
 Backend implementations must also validate and authorize their native entry point.
 `jobdb.NormalizeLeaseEventRequest(req)` returns a validated canonical copy. Public
 `runtime/cellstate` helpers support backend-independent scope and cursors:
@@ -104,9 +104,9 @@ mutation paths, including borrowed transactions, internal claims and direct
 renewal handles. Canonical writes must work with diagnostic tracing disabled.
 
 `runtimetest.RunLeaseEventConformance(t, harnesses ...runtimetest.Harness)` exercises
-the optional public port strictly: missing support fails. General
-`RunWorkflowRuntimeConformance` probes with authorized credentials and skips only
-absent or unsupported capabilities; other errors fail. Supplied default runtimes pass strict event conformance. Deployment authentication must be tested at the server boundary, since
+the mandatory public port. General `RunWorkflowRuntimeConformance` also requires
+history support and fails on read errors. Supplied default runtimes pass strict
+event conformance. Deployment authentication must be tested at the server boundary, since
 client context values are not transmitted as authority. Backend-specific tests
 must cover insertion rollback, upgrade/reopen, query budgets/plans, storage
 precision and concurrency in addition to this public suite.

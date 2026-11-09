@@ -10,6 +10,7 @@ import (
 // WorkflowRuntime is the backend-agnostic facade used to isolate jobdb from
 // concrete persistence, artifact storage, and lease-management backends.
 type WorkflowRuntime interface {
+	LeaseEventReader
 	CellRuntime
 	GoalRuntime
 	// GetConfiguration reads current tenant configuration using verified lease claims.

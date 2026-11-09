@@ -58,9 +58,6 @@ func (r *Runtime) ListLeaseEvents(ctx context.Context, req jobdb.ListLeaseEvents
 		case "lease_permission_denied":
 			return jobdb.ListLeaseEventsResponse{}, jobdb.ErrLeasePermissionDenied
 		}
-		if envelope.Code == "" && (resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed) {
-			return jobdb.ListLeaseEventsResponse{}, jobdb.ErrLeaseEventsUnsupported
-		}
 		return jobdb.ListLeaseEventsResponse{}, responseError("list lease events", resp.StatusCode, nil, nil)
 	}
 	var out jobdb.ListLeaseEventsResponse

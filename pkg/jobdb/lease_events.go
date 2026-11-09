@@ -66,7 +66,7 @@ type ListLeaseEventsResponse struct {
 }
 
 var (
-	// ErrLeaseEventsUnsupported means collection or the optional reader is unavailable.
+	// ErrLeaseEventsUnsupported means lease-event collection is unavailable; retained for source compatibility.
 	ErrLeaseEventsUnsupported     = &CellError{"lease_events_unsupported", 501}
 	ErrInvalidLeaseEventRequest   = &CellError{"invalid_request", 400}
 	ErrInvalidLeaseEventPageToken = &CellError{"invalid_lease_event_page_token", 400}
@@ -195,21 +195,17 @@ func NormalizeLeaseEventRequest(r ListLeaseEventsRequest) (ListLeaseEventsReques
 	return r, nil
 }
 
-// LeaseEventReader is an optional runtime capability. Exposing the method does
-// not imply that collection is enabled; callers must handle unsupported errors.
+// LeaseEventReader is the narrow history read port required by WorkflowRuntime
+// and runtimecore.Scheduler. Collection settings remain backend-specific.
 type LeaseEventReader interface {
 	ListLeaseEvents(context.Context, ListLeaseEventsRequest) (ListLeaseEventsResponse, error)
 }
 
-// ListLeaseEvents validates and dispatches an optional event query.
+// ListLeaseEvents validates and dispatches an event query.
 func ListLeaseEvents(ctx context.Context, runtime WorkflowRuntime, req ListLeaseEventsRequest) (ListLeaseEventsResponse, error) {
 	req, err := NormalizeLeaseEventRequest(req)
 	if err != nil {
 		return ListLeaseEventsResponse{}, err
 	}
-	reader, ok := runtime.(LeaseEventReader)
-	if !ok {
-		return ListLeaseEventsResponse{}, ErrLeaseEventsUnsupported
-	}
-	return reader.ListLeaseEvents(ctx, req)
+	return runtime.ListLeaseEvents(ctx, req)
 }

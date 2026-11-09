@@ -389,8 +389,14 @@ func TestExecutionAlternateDeadlines(t *testing.T) {
 					if mode == "alternate-first" {
 						tasks = append(tasks, fallback)
 					}
-					out, err = runExecutionTest(t, rt, key, w, tasks...)
-					require.NoError(t, err)
+					// HTTP rescheduling sends a relative delay which the server
+					// anchors on receipt. Passing the client's deadline does not
+					// prove that the scheduler has made the timeout route eligible.
+					require.Eventually(t, func() bool {
+						out, err = runExecutionTest(t, rt, key, w, tasks...)
+						require.NoError(t, err)
+						return out.LeaseAcquired
+					}, 3*time.Second, 10*time.Millisecond, "timeout route must become leaseable")
 					if mode != "completed" {
 						// The timeout has now won the waiting slot and recorded an
 						// outcome. Wall-clock expiry alone does not reject answers.

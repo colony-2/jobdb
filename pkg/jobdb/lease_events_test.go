@@ -1,7 +1,9 @@
 package jobdb
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
@@ -41,4 +43,36 @@ func TestLeaseEventNormalization(t *testing.T) {
 	require.Len(t, n.Routes, 1)
 	_, e = NormalizeLeaseEventRequest(ListLeaseEventsRequest{TenantID: "t", JobIDs: strings.Fields(strings.Repeat("a ", 101))})
 	require.ErrorIs(t, e, ErrInvalidLeaseEventRequest)
+}
+
+type historyProbe struct {
+	WorkflowRuntime
+	req   ListLeaseEventsRequest
+	calls int
+	err   error
+}
+
+func (r *historyProbe) ListLeaseEvents(_ context.Context, req ListLeaseEventsRequest) (ListLeaseEventsResponse, error) {
+	r.calls++
+	r.req = req
+	return ListLeaseEventsResponse{Events: []LeaseEvent{{EventID: "actual"}}, NextPageToken: "next"}, r.err
+}
+func TestLeaseEventHelperMandatoryForwarding(t *testing.T) {
+	r := &historyProbe{}
+	var port WorkflowRuntime = r
+	_, err := ListLeaseEvents(context.Background(), port, ListLeaseEventsRequest{})
+	require.ErrorIs(t, err, ErrInvalidLeaseEventRequest)
+	require.Zero(t, r.calls)
+	req := ListLeaseEventsRequest{TenantID: "tenant", JobIDs: []string{"b", "a", "b"}, PageToken: "page", PageSize: 7}
+	out, err := ListLeaseEvents(context.Background(), port, req)
+	require.NoError(t, err)
+	require.Equal(t, []string{"a", "b"}, r.req.JobIDs)
+	require.Equal(t, "page", r.req.PageToken)
+	require.Equal(t, 7, r.req.PageSize)
+	require.Equal(t, "actual", out.Events[0].EventID)
+	require.Equal(t, "next", out.NextPageToken)
+	r.err = errors.New("backend failed")
+	out, err = ListLeaseEvents(context.Background(), port, req)
+	require.ErrorIs(t, err, r.err)
+	require.Equal(t, "actual", out.Events[0].EventID)
 }

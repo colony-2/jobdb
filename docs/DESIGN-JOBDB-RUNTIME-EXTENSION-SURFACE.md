@@ -216,6 +216,7 @@ Recommended driver concepts:
 
 ```go
 type Scheduler interface {
+    jobdb.LeaseEventReader // Mandatory retained history reads.
     CreateJob(context.Context, CreateJobRequest) (StoredJob, error)
     GetJob(context.Context, jobdb.JobKey) (StoredJob, error)
     ListJobs(context.Context, ListJobsRequest) (ListJobsResponse, error)
@@ -332,3 +333,6 @@ surface.
   restart, and conflict cases enabled.
 - JobDB core does not expose current internal codec, schema, leaseauth, or
   chapter-store subpackages directly.
+
+Lease history is required on both runtime and scheduler ports. Adapter owners must
+coordinate upgrades and forward real reads; see [migration](MIGRATION-MANDATORY-LEASE-HISTORY.md).

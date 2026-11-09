@@ -27,7 +27,9 @@ func TestLeaseEventCoreForwardsOnlyScheduler(t *testing.T) {
 	s := &eventTestScheduler{}
 	rt, e := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: s, Chapters: noSummaryHistory{}, Schemas: readTestSchemas{}})
 	require.NoError(t, e)
-	page, e := rt.ListLeaseEvents(celltest.Context(context.Background()), jobdb.ListLeaseEventsRequest{TenantID: "tenant", JobIDs: []string{"b", "a", "b"}})
+	var port jobdb.WorkflowRuntime = rt
+	var _ runtimecore.Scheduler = s
+	page, e := port.ListLeaseEvents(celltest.Context(context.Background()), jobdb.ListLeaseEventsRequest{TenantID: "tenant", JobIDs: []string{"b", "a", "b"}})
 	require.NoError(t, e)
 	require.Equal(t, 1, s.calls)
 	require.Equal(t, []string{"a", "b"}, s.req.JobIDs)
@@ -42,16 +44,4 @@ func TestLeaseEventCoreForwardsOnlyScheduler(t *testing.T) {
 	s.err = errors.New("backend failure")
 	_, e = rt.ListLeaseEvents(celltest.Context(context.Background()), jobdb.ListLeaseEventsRequest{TenantID: "tenant"})
 	require.ErrorIs(t, e, s.err)
-}
-
-func TestLeaseEventCoreLegacyScheduler(t *testing.T) {
-	// readTestScheduler has no optional event reader.
-	rt, e := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: readTestScheduler{}, Chapters: noSummaryHistory{}, Schemas: readTestSchemas{}})
-	require.NoError(t, e)
-	_, e = rt.ListLeaseEvents(celltest.Context(context.Background()), jobdb.ListLeaseEventsRequest{TenantID: "tenant"})
-	require.ErrorIs(t, e, jobdb.ErrLeaseEventsUnsupported)
-	_, e = rt.ListLeaseEvents(context.Background(), jobdb.ListLeaseEventsRequest{TenantID: "tenant"})
-	require.ErrorIs(t, e, jobdb.ErrCellForbidden)
-	_, e = rt.ListLeaseEvents(celltest.Context(context.Background()), jobdb.ListLeaseEventsRequest{})
-	require.ErrorIs(t, e, jobdb.ErrInvalidLeaseEventRequest)
 }

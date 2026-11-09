@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"io"
+	"testing"
 	"time"
 )
 
@@ -119,15 +120,8 @@ func (legacyRuntime) OpenArtifact(ctx context.Context, ref jobdb.ArtifactRef) (j
 	panic("compile-only historical fixture")
 }
 
-var _ jobdb.WorkflowRuntime = legacyRuntime{}
-
-// Configuration administration was already required by the historical HTTP server.
-func (legacyRuntime) GetTenantConfiguration(context.Context, string) (jobdb.ConfigurationSnapshot, error) {
-	panic("unused")
-}
-func (legacyRuntime) SetTenantConfigurationValue(context.Context, jobdb.SetTenantConfigurationValueRequest) (string, error) {
-	panic("unused")
-}
-func (legacyRuntime) RemoveTenantConfigurationValue(context.Context, jobdb.RemoveTenantConfigurationValueRequest) (string, error) {
-	panic("unused")
+func TestHistoricalPortRequiresLeaseEvents(t *testing.T) {
+	if _, ok := any(legacyRuntime{}).(jobdb.WorkflowRuntime); ok {
+		t.Fatal("historical implementation without lease history satisfies mandatory port")
+	}
 }

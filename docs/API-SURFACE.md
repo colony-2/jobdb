@@ -21,10 +21,11 @@ schedule APIs, tenant configuration requests/snapshots and administration,
 error types, and the `WorkflowRuntime` interface used by runtime
 adapters and advanced consumers.
 
-Lease history uses the standalone optional `LeaseEventReader` and the validating
-`jobdb.ListLeaseEvents` helper, with canonical `LeaseEvent` snapshots. Missing
-support returns `ErrLeaseEventsUnsupported`; legacy runtime and scheduler
-implementations need no new method and may adopt event support independently.
+Lease history requires `LeaseEventReader` on `WorkflowRuntime` and
+`runtimecore.Scheduler`, with the validating `jobdb.ListLeaseEvents` helper and
+canonical `LeaseEvent` snapshots. Implementations missing the method intentionally
+fail compilation; custom adapters must implement real reads and wrappers must
+forward them. See [coordinated migration](MIGRATION-MANDATORY-LEASE-HISTORY.md).
 Supplied SQLite and toy runtimes record lease events automatically with existing
 constructors and CLI invocations. See [lease history](GUIDE-LEASE-EVENTS.md) for
 filters, cursor behavior, automatic database upgrades and backend integration.

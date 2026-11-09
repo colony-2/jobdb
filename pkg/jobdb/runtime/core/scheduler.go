@@ -11,6 +11,7 @@ import (
 // Scheduler persists job and schedule state and performs atomic lease
 // mutations for runtime core.
 type Scheduler interface {
+	jobdb.LeaseEventReader
 	jobdb.CellRuntime
 	CreateCellWithLeaseByID(context.Context, jobdb.JobKey, string, string, jobdb.CreateCellRequest) (jobdb.Cell, error)
 	ResolveCellWithLeaseByID(context.Context, jobdb.JobKey, string, string, string) (jobdb.ResolvedCell, error)

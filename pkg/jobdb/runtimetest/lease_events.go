@@ -65,7 +65,7 @@ func leaseEventExpiry(ctx context.Context, f Fixture, key jobdb.JobKey, leaseID,
 	return nil
 }
 
-// RunLeaseEventConformance exercises canonical history through the optional public reader (support is required by this explicit suite).
+// RunLeaseEventConformance exercises canonical history through the mandatory public reader.
 // Backend owners additionally test insertion rollback, installation, query budgets and plans.
 func RunLeaseEventConformance(t *testing.T, harnesses ...Harness) {
 	for _, h := range harnesses {

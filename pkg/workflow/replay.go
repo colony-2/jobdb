@@ -257,3 +257,5 @@ func (r replayReadOnlyRuntime) ListCells(ctx context.Context, req jobdb.ListCell
 func (r replayReadOnlyRuntime) ListLeaseEvents(ctx context.Context, req ListLeaseEventsRequest) (ListLeaseEventsResponse, error) {
 	return jobdb.ListLeaseEvents(ctx, r.runtime, req)
 }
+
+var _ jobdb.WorkflowRuntime = replayReadOnlyRuntime{}

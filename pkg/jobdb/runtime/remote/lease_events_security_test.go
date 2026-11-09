@@ -106,20 +106,49 @@ func TestLeaseEventHTTPAuthorizationAndValidation(t *testing.T) {
 }
 
 type failedLeaseEventsRuntime struct {
+	calls int
 	jobdb.WorkflowRuntime
 	jobdb.ConfigurationAdmin
 }
 
-func (failedLeaseEventsRuntime) ListLeaseEvents(context.Context, jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error) {
+func (r *failedLeaseEventsRuntime) ListLeaseEvents(context.Context, jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error) {
+	r.calls++
 	return jobdb.ListLeaseEventsResponse{}, errors.New("injected backend failure")
 }
 func TestLeaseEventBackendFailureIsNotEmpty(t *testing.T) {
-	server := httptest.NewServer(NewServer(failedLeaseEventsRuntime{}))
+	backend := &failedLeaseEventsRuntime{}
+	server := httptest.NewServer(celltest.Handler(NewServer(backend)))
 	defer server.Close()
 	client, e := New(server.URL, server.Client())
 	require.NoError(t, e)
 	_, e = client.ListLeaseEvents(context.Background(), jobdb.ListLeaseEventsRequest{TenantID: "tenant"})
 	require.Error(t, e)
+	require.Equal(t, 1, backend.calls)
+}
+
+func TestLeaseEventHTTPRejectsBeforeBackendRead(t *testing.T) {
+	backend := &failedLeaseEventsRuntime{}
+	server := httptest.NewServer(NewServer(backend))
+	defer server.Close()
+	client, err := New(server.URL, server.Client())
+	require.NoError(t, err)
+	_, err = client.ListLeaseEvents(context.Background(), jobdb.ListLeaseEventsRequest{TenantID: "tenant"})
+	require.ErrorIs(t, err, jobdb.ErrCellForbidden)
+	require.Zero(t, backend.calls)
+	// A tenant-bound authority cannot read another tenant, even through an adapter
+	// whose backend would otherwise accept the request.
+	handler := NewServer(backend)
+	authority, _ := jobdb.CellAuthorityFromContext(celltest.Context(context.Background()))
+	authority.TenantID = "tenant"
+	scoped := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler.ServeHTTP(w, r.WithContext(jobdb.WithCellAuthority(r.Context(), authority)))
+	}))
+	defer scoped.Close()
+	client, err = New(scoped.URL, scoped.Client())
+	require.NoError(t, err)
+	_, err = client.ListLeaseEvents(context.Background(), jobdb.ListLeaseEventsRequest{TenantID: "other"})
+	require.ErrorIs(t, err, jobdb.ErrCellForbidden)
+	require.Zero(t, backend.calls)
 }
 
 func TestLeaseEventDelegationActionsDoNotRecord(t *testing.T) {
