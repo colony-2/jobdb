@@ -35,8 +35,9 @@ func adaptHarnesses(in []jobdbtest.RuntimeHarness) []runtimetest.Harness {
 				}
 				built := item.New(tt)
 				return runtimetest.Fixture{
-					Runtime:        built.Runtime,
-					WorkerTenantID: built.WorkerTenantID,
+					Runtime:                 built.Runtime,
+					LeaseEventLeaseValidity: built.LeaseEventLeaseValidity,
+					WorkerTenantID:          built.WorkerTenantID,
 					Cleanup: func(context.Context) error {
 						built.Shutdown(tt)
 						return nil

@@ -30,6 +30,14 @@ type Harness struct {
 }
 
 type Fixture struct {
+	// LeaseEventLeaseValidity supplies read-only authoritative backend validation for
+	// RunLeaseEventConformance when Runtime is transport-backed. It must match the
+	// job, lease and worker identities and return persisted expiry without mutation
+	// or reading events. Other suites ignore it. Native wrappers forwarding
+	// ValidateExecutionLeaseByID should omit it; native deadlines must match exactly.
+	// Remote consumers must wire this hook to their backend, not their HTTP client.
+	LeaseEventLeaseValidity func(context.Context, jobdb.JobKey, string, string) (jobdb.LeaseValidity, error)
+
 	Runtime        jobdb.WorkflowRuntime
 	SchemaRegistry jobdb.JobSchemaRegistry
 	WorkerTenantID string

@@ -31,6 +31,10 @@ type RuntimeHarness struct {
 }
 
 type BuiltRuntimeHarness struct {
+	// LeaseEventLeaseValidity reads authoritative native state for HTTP conformance.
+	// Direct harnesses leave it nil so native deadline equality remains required.
+	LeaseEventLeaseValidity func(context.Context, jobdb.JobKey, string, string) (jobdb.LeaseValidity, error)
+
 	Name           string
 	Runtime        jobdb.WorkflowRuntime
 	Engine         workflow.Engine
@@ -337,7 +341,9 @@ func newRemoteToyHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRuntim
 		server.Close()
 		t.Fatalf("build remote toy runtime: %v", err)
 	}
-	return buildHarness(t, "remote-toy", runtime, true, server.Close, workers...)
+	built := buildHarness(t, "remote-toy", runtime, true, server.Close, workers...)
+	built.LeaseEventLeaseValidity = underlying.ValidateExecutionLeaseByID
+	return built
 }
 
 func newRemoteSQLiteHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRuntimeHarness {
@@ -357,7 +363,9 @@ func newRemoteSQLiteHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRun
 		server.Close()
 		embedded.Shutdown()
 	}
-	return buildHarness(t, "remote-sqlite", runtime, true, shutdown, workers...)
+	built := buildHarness(t, "remote-sqlite", runtime, true, shutdown, workers...)
+	built.LeaseEventLeaseValidity = embedded.Runtime.ValidateExecutionLeaseByID
+	return built
 }
 
 func newExternalRemoteHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRuntimeHarness {

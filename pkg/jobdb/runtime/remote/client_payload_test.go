@@ -45,7 +45,15 @@ func runPayloadAndRouteConformance(t *testing.T, run func(*testing.T, ...runtime
 					runtime = embedded
 					cleanup = func() { _ = embedded.Close(context.Background()) }
 				}
+				var validity func(context.Context, jobdb.JobKey, string, string) (jobdb.LeaseValidity, error)
 				if remote {
+					validator, ok := runtime.(interface {
+						ValidateExecutionLeaseByID(context.Context, jobdb.JobKey, string, string) (jobdb.LeaseValidity, error)
+					})
+					if !ok {
+						tb.Fatal("native backend must provide lease validation")
+					}
+					validity = validator.ValidateExecutionLeaseByID
 					server := httptest.NewServer(celltest.Handler(NewServer(runtime)))
 					inner := cleanup
 					cleanup = func() { server.Close(); inner() }
@@ -55,7 +63,7 @@ func runPayloadAndRouteConformance(t *testing.T, run func(*testing.T, ...runtime
 					}
 					runtime = client
 				}
-				return runtimetest.Fixture{Runtime: runtime, Cleanup: func(context.Context) error { cleanup(); return nil }}
+				return runtimetest.Fixture{Runtime: runtime, LeaseEventLeaseValidity: validity, Cleanup: func(context.Context) error { cleanup(); return nil }}
 			}})
 		}
 	}

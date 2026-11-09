@@ -11,6 +11,60 @@ import (
 	"time"
 )
 
+// renewableLease requires the synchronous renewal contract even for rejected renewals.
+func renewableLease(t *testing.T, lease jobdb.ExecutionLease) jobdb.RenewableExecutionLease {
+	t.Helper()
+	renewable, ok := lease.(jobdb.RenewableExecutionLease)
+	require.True(t, ok, "lease must implement RenewableExecutionLease")
+	require.NotNil(t, renewable)
+	return renewable
+}
+
+func renewLease(t *testing.T, ctx context.Context, lease jobdb.ExecutionLease) jobdb.RenewableExecutionLease {
+	t.Helper()
+	previous := renewableLease(t, lease)
+	next, err := previous.Renew(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, next)
+	require.Equal(t, previous.Job().JobKey, next.Job().JobKey)
+	require.Equal(t, previous.LeaseID(), next.LeaseID())
+	require.Equal(t, previous.LeaseWorkerID(), next.LeaseWorkerID())
+	return next
+}
+
+// leaseEventExpiry checks an event against an independent backend read, never
+// using the event itself as the validity oracle.
+func leaseEventExpiry(ctx context.Context, f Fixture, key jobdb.JobKey, leaseID, workerID string, safe, event time.Time) error {
+	validate := f.LeaseEventLeaseValidity
+	native := validate == nil
+	if native {
+		v, ok := f.Runtime.(interface {
+			ValidateExecutionLeaseByID(context.Context, jobdb.JobKey, string, string) (jobdb.LeaseValidity, error)
+		})
+		if !ok {
+			return fmt.Errorf("lease-event backend validator required: supply Fixture.LeaseEventLeaseValidity")
+		}
+		validate = v.ValidateExecutionLeaseByID
+	}
+	validity, err := validate(ctx, key, leaseID, workerID)
+	if err != nil {
+		return fmt.Errorf("lease-event backend validation: %w", err)
+	}
+	if validity.ExpiresAt.IsZero() {
+		return fmt.Errorf("lease-event backend expiry is zero")
+	}
+	if !event.Equal(validity.ExpiresAt) {
+		return fmt.Errorf("lease-event expiry differs from backend expiry")
+	}
+	if safe.IsZero() || safe.After(validity.ExpiresAt) {
+		return fmt.Errorf("lease-event safe deadline is zero or after backend expiry")
+	}
+	if native && !safe.Equal(validity.ExpiresAt) {
+		return fmt.Errorf("lease-event native deadline differs from backend expiry")
+	}
+	return nil
+}
+
 // RunLeaseEventConformance exercises canonical history through the optional public reader (support is required by this explicit suite).
 // Backend owners additionally test insertion rollback, installation, query budgets and plans.
 func RunLeaseEventConformance(t *testing.T, harnesses ...Harness) {
@@ -57,13 +111,17 @@ func RunLeaseEventConformance(t *testing.T, harnesses ...Harness) {
 			require.Equal(t, "example.test/test", a.CellRepo)
 			require.Empty(t, a.PreviousLeaseID)
 			require.Nil(t, a.PreviousLeaseExpiresAt)
-			require.NoError(t, lease.KeepAlive(ctx))
+			require.NoError(t, leaseEventExpiry(ctx, f, key, lease.LeaseID(), renewableLease(t, lease).LeaseWorkerID(), renewableLease(t, lease).LeaseExpiry(), a.LeaseExpiresAt))
+			lease = renewLease(t, ctx, lease)
 			renewed := list(jobdb.ListLeaseEventsRequest{}).Events
 			require.Len(t, renewed, 2)
 			b := renewed[0]
 			require.Equal(t, jobdb.LeaseEventRenewed, b.EventType)
 			require.Equal(t, a.LeaseID, b.LeaseID)
+			require.NotNil(t, b.PreviousLeaseExpiresAt)
 			require.Equal(t, a.LeaseExpiresAt, *b.PreviousLeaseExpiresAt)
+			require.NoError(t, leaseEventExpiry(ctx, f, key, lease.LeaseID(), renewableLease(t, lease).LeaseWorkerID(), renewableLease(t, lease).LeaseExpiry(), b.LeaseExpiresAt))
+			require.Equal(t, renewed, list(jobdb.ListLeaseEventsRequest{}).Events, "backend oracle must not mutate history")
 			require.Empty(t, b.AcquisitionSource)
 			require.Empty(t, b.PreviousLeaseID)
 			// Validation/read actions are never renewal mutations.
@@ -95,9 +153,10 @@ func RunLeaseEventConformance(t *testing.T, harnesses ...Harness) {
 			require.Equal(t, b.Cell, list(jobdb.ListLeaseEventsRequest{}).Events[0].Cell)
 			require.False(t, list(jobdb.ListLeaseEventsRequest{}).Events[0].PreviousLeaseExpiresAt.IsZero())
 			for i := 0; i < 8; i++ {
-				require.NoError(t, lease.KeepAlive(ctx))
+				lease = renewLease(t, ctx, lease)
 			}
 			original := list(jobdb.ListLeaseEventsRequest{}).Events
+			require.Len(t, original, 10)
 			for _, size := range []int{1, 100, 200} {
 				q := jobdb.ListLeaseEventsRequest{PageSize: size}
 				seen := []jobdb.LeaseEvent{}
@@ -126,7 +185,8 @@ func RunLeaseEventConformance(t *testing.T, harnesses ...Harness) {
 			// Cancellation retains history and renewal rejection appends nothing.
 			e = r.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: key})
 			require.NoError(t, e)
-			require.Error(t, lease.KeepAlive(ctx))
+			_, e = renewableLease(t, lease).Renew(ctx)
+			require.ErrorIs(t, e, jobdb.ErrExecutionLeaseLost)
 			require.Equal(t, original, list(jobdb.ListLeaseEventsRequest{}).Events)
 			// Poll attribution and competing targeted claims.
 			second := submit("second")
@@ -179,7 +239,9 @@ func RunLeaseEventConformance(t *testing.T, harnesses ...Harness) {
 
 			// Live traversal: old continuation excludes a new renewal; fresh first page sees it.
 			first := list(jobdb.ListLeaseEventsRequest{PageSize: 1})
-			require.NoError(t, ls[0].KeepAlive(ctx))
+			beforeRenewal := list(jobdb.ListLeaseEventsRequest{}).Events
+			ls[0] = renewLease(t, ctx, ls[0])
+			require.Len(t, list(jobdb.ListLeaseEventsRequest{}).Events, len(beforeRenewal)+1)
 			fresh := list(jobdb.ListLeaseEventsRequest{PageSize: 1})
 			require.NotEqual(t, first.Events[0].EventID, fresh.Events[0].EventID)
 			continuation := list(jobdb.ListLeaseEventsRequest{PageSize: 1, PageToken: first.NextPageToken})
