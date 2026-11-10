@@ -30,6 +30,13 @@ Supplied SQLite and toy runtimes record lease events automatically with existing
 constructors and CLI invocations. See [lease history](GUIDE-LEASE-EVENTS.md) for
 filters, cursor behavior, automatic database upgrades and backend integration.
 
+Fresh submission can select an existing primary goal with `SubmitJob.GoalID`.
+The optional `PrimaryGoalSelectionCapability`, trusted selection-authority hook,
+shared preparation/publication fields and retained complete receipts define
+backend support. Unknown support fails safely, and HTTP uses a dedicated
+operation. See [primary goal selection](GUIDE-PRIMARY-GOAL-SELECTION.md) for
+permissions, retries, compatibility and backend implementer requirements.
+
 Operator recovery uses `WorkflowRuntime.ClearCrashConcern` with
 `ClearCrashConcernRequest` to reset a job's consecutive expired-lease count.
 See [clearing crash concern](GUIDE-CRASH-CONCERN.md) for CLI, REST, and Go usage.

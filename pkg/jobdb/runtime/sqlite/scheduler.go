@@ -182,7 +182,10 @@ INSERT INTO jobdb_jobs (
 				return err
 			}
 		}
-		return goalEngine(ctx, tx).CheckCycle(jobKey.TenantId, jobdb.DependencyTarget{GoalID: goalID})
+		if err = goalEngine(ctx, tx).CheckCycle(jobKey.TenantId, jobdb.DependencyTarget{GoalID: goalID}); err != nil {
+			return err
+		}
+		return saveSelectedReceipt(ctx, tx, jobKey, target, goalID)
 	})
 }
 

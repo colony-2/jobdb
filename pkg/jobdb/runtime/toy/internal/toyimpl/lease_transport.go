@@ -60,6 +60,9 @@ func (r *Runtime) ValidateExecutionLeaseByID(ctx context.Context, key jobdb.JobK
 }
 
 func (r *Runtime) SubmitJobWithLeaseByID(ctx context.Context, parentJobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {
+	if req.Job.GoalID != "" {
+		return jobdb.JobHandle{}, jobdb.ErrPrimaryGoalSelectionUnsupported
+	}
 	if _, err := r.ValidateExecutionLeaseByID(ctx, parentJobKey, leaseID, workerID); err != nil {
 		return jobdb.JobHandle{}, err
 	}

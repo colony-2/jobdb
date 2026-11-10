@@ -14,6 +14,7 @@ import (
 type preparedGoalJob struct {
 	Request goalstate.Preparation
 	GoalID  string
+	Receipt *jobdb.JobHandle
 }
 
 func (e *ToyEngine) initGoalsLocked() {
@@ -59,6 +60,31 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (go
 			req.Key = key
 		}
 	}
+	if old, ok := e.preparedGoals[req.Key]; ok && old.Receipt != nil {
+		if err := jobdb.AuthorizePrimaryGoalSelection(ctx, jobdb.GoalKey{TenantId: req.Key.TenantId, GoalID: old.GoalID}, old.Request.Target); err != nil {
+			return goalstate.Prepared{}, err
+		}
+		if old.Request.Descriptor != req.Descriptor || old.Request.RequestID != req.RequestID {
+			return goalstate.Prepared{}, goalstate.PreparationMismatch(old.Request.Descriptor, req.Descriptor)
+		}
+		if req.Cell != old.Request.Cell {
+			cell, ok := e.cellsLocked(req.Key.TenantId).ByName(req.Cell)
+			if !ok || cell.ID != old.Receipt.CellID {
+				return goalstate.Prepared{}, jobdb.NewExistingJobMismatchError("cell differs")
+			}
+		}
+		if req.CellRepo != "" {
+			repo, err := jobdb.NormalizeCellRepo(req.CellRepo)
+			if err != nil {
+				return goalstate.Prepared{}, err
+			}
+			if repo != old.Receipt.CellRepo {
+				return goalstate.Prepared{}, jobdb.NewExistingJobMismatchError("repository differs")
+			}
+		}
+		h := *old.Receipt
+		return goalstate.Prepared{Key: req.Key, Target: old.Request.Target, GoalID: old.GoalID, Published: true, Receipt: &h}, nil
+	}
 	target, err := e.prepareCellLocked(ctx, req)
 	if err != nil {
 		return goalstate.Prepared{}, err
@@ -81,6 +107,15 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (go
 		if old.Request.Descriptor != req.Descriptor || old.Request.RequestID != req.RequestID {
 			return goalstate.Prepared{}, goalstate.PreparationMismatch(old.Request.Descriptor, req.Descriptor)
 		}
+		if req.SelectedGoalID != "" {
+			g, err := e.goals.Goal(jobdb.GoalKey{TenantId: key.TenantId, GoalID: req.SelectedGoalID})
+			if err != nil {
+				return goalstate.Prepared{}, err
+			}
+			if err = goalstate.ValidateSelectedGoal(ctx, req, target, g); err != nil {
+				return goalstate.Prepared{}, err
+			}
+		}
 		return goalstate.Prepared{Target: target, Key: key, GoalID: old.GoalID, Published: e.jobRecords[key] != nil}, nil
 	}
 	if key.JobId == "" {
@@ -94,6 +129,16 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (go
 		return goalstate.Prepared{}, err
 	}
 	goalID := ksuid.New().String()
+	if req.SelectedGoalID != "" {
+		goalID = req.SelectedGoalID
+		g, err := e.goals.Goal(jobdb.GoalKey{TenantId: key.TenantId, GoalID: goalID})
+		if err != nil {
+			return goalstate.Prepared{}, err
+		}
+		if err = goalstate.ValidateSelectedGoal(ctx, req, target, g); err != nil {
+			return goalstate.Prepared{}, err
+		}
+	}
 	if req.ShareGoal {
 		source := e.jobRecords[jobdb.JobKey{TenantId: key.TenantId, JobId: req.PriorJobID}]
 		if source == nil {
@@ -133,9 +178,12 @@ func (e *ToyEngine) publishGoalLocked(ctx context.Context, key jobdb.JobKey, rec
 	gk := jobdb.GoalKey{TenantId: key.TenantId, GoalID: p.GoalID}
 	record.goalID = p.GoalID
 	record.key = key
-	if p.Request.ShareGoal {
+	if p.Request.ShareGoal || p.Request.SelectedGoalID != "" {
 		g, err := state.Goal(gk)
 		if err != nil {
+			return err
+		}
+		if err := goalstate.ValidateSelectedGoal(ctx, p.Request, target, g); err != nil {
 			return err
 		}
 		if g.State != jobdb.GoalOpen {
@@ -153,6 +201,12 @@ func (e *ToyEngine) publishGoalLocked(ctx context.Context, key jobdb.JobKey, rec
 	}
 	if err := engine.CheckCycle(key.TenantId, jobdb.DependencyTarget{GoalID: p.GoalID}); err != nil {
 		return err
+	}
+	if p.Request.SelectedGoalID != "" {
+		h := target.Handle(key, p.GoalID)
+		p.Receipt = &h
+		p.Request.Target = target
+		e.preparedGoals[key] = p
 	}
 	e.goals = state
 	e.cells[key.TenantId] = cells
@@ -234,7 +288,7 @@ func (r *Runtime) DiscardJobPreparation(ctx context.Context, key jobdb.JobKey) e
 		return nil
 	}
 	p, ok := e.preparedGoals[key]
-	if ok {
+	if ok && p.Receipt == nil {
 		delete(e.preparedGoals, key)
 		if p.Request.RequestID != "" {
 			delete(e.goalRequests, jobdb.GoalKey{TenantId: key.TenantId, GoalID: p.Request.RequestID})
@@ -242,3 +296,5 @@ func (r *Runtime) DiscardJobPreparation(ctx context.Context, key jobdb.JobKey) e
 	}
 	return nil
 }
+
+func (r *Runtime) SupportsPrimaryGoalSelection() bool { return true }

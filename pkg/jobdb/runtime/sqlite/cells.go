@@ -221,6 +221,32 @@ func (r *Runtime) prepareCell(ctx context.Context, tx *sql.Tx, req *goalstate.Pr
 	if e != nil {
 		return jobdb.ResolvedCell{}, e
 	}
+	if req.SelectedGoalID != "" {
+		if _, ok := cellstate.Lease(ctx); ok {
+			return jobdb.ResolvedCell{}, jobdb.ErrPrimaryGoalSelectionUnsupported
+		}
+		c, ok := s.ByName(req.Cell)
+		if !ok {
+			return jobdb.ResolvedCell{}, jobdb.ErrCellNotFound
+		}
+		if c.State != jobdb.CellActive {
+			return jobdb.ResolvedCell{}, jobdb.ErrCellRetired
+		}
+		if req.CellRepo != "" {
+			repo, err := jobdb.NormalizeCellRepo(req.CellRepo)
+			if err != nil {
+				return jobdb.ResolvedCell{}, err
+			}
+			if repo != c.Repo {
+				return jobdb.ResolvedCell{}, jobdb.ErrCellRepoMismatch
+			}
+		}
+		target := jobdb.ResolvedCell{Cell: c.Name, CellID: c.ID, CellRepo: c.Repo}
+		if err := jobdb.AuthorizePrimaryGoalSelection(ctx, jobdb.GoalKey{TenantId: req.Key.TenantId, GoalID: req.SelectedGoalID}, target); err != nil {
+			return jobdb.ResolvedCell{}, err
+		}
+		return target, nil
+	}
 	parent, e := r.cellParent(ctx, tx, s, req.Key.TenantId)
 	if key, ok := cellstate.Schedule(ctx); ok {
 		if key.TenantId != req.Key.TenantId {
@@ -267,8 +293,13 @@ func (r *Runtime) prepareCell(ctx context.Context, tx *sql.Tx, req *goalstate.Pr
 }
 func (r *Runtime) publishCell(ctx context.Context, tx *sql.Tx, key jobdb.JobKey) (jobdb.ResolvedCell, error) {
 	req := goalstate.Preparation{Key: key}
-	if e := tx.QueryRowContext(ctx, `SELECT requested_cell,requested_repo,cell_id,cell_name,cell_repo,parent_job_id,prior_job_id FROM jobdb_goal_preparations WHERE tenant_id=? AND job_id=?`, key.TenantId, key.JobId).Scan(&req.Cell, &req.CellRepo, &req.Target.CellID, &req.Target.Cell, &req.Target.CellRepo, &req.ParentJobID, &req.PriorJobID); e != nil {
+	if e := tx.QueryRowContext(ctx, `SELECT requested_cell,requested_repo,cell_id,cell_name,cell_repo,parent_job_id,prior_job_id,descriptor FROM jobdb_goal_preparations WHERE tenant_id=? AND job_id=?`, key.TenantId, key.JobId).Scan(&req.Cell, &req.CellRepo, &req.Target.CellID, &req.Target.Cell, &req.Target.CellRepo, &req.ParentJobID, &req.PriorJobID, &req.Descriptor); e != nil {
 		return jobdb.ResolvedCell{}, e
+	}
+	var err error
+	req.SelectedGoalID, err = goalstate.SelectedGoal(req.Descriptor)
+	if err != nil {
+		return jobdb.ResolvedCell{}, err
 	}
 	target, e := r.prepareCell(ctx, tx, &req)
 	if e != nil {

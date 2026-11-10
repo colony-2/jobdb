@@ -68,6 +68,9 @@ const (
 	ErrorCodeJobSchemaValidationFailed         ErrorCode = "job_schema_validation_failed"
 	ErrorCodeLeasePermissionDenied             ErrorCode = "lease_permission_denied"
 	ErrorCodeNotFound                          ErrorCode = "not_found"
+	ErrorCodePrimaryGoalSelectionForbidden     ErrorCode = "primary_goal_selection_forbidden"
+	ErrorCodePrimaryGoalSelectionUnsupported   ErrorCode = "primary_goal_selection_unsupported"
+	ErrorCodeSubmissionReceiptUnavailable      ErrorCode = "submission_receipt_unavailable"
 	ErrorCodeWorkflowNotDeterministic          ErrorCode = "workflow_not_deterministic"
 )
 
@@ -1082,6 +1085,11 @@ type PollWorkRequest struct {
 	WorkerId string `json:"workerId"`
 }
 
+// PrimaryGoalSelectionCapability defines model for PrimaryGoalSelectionCapability.
+type PrimaryGoalSelectionCapability struct {
+	Supported bool `json:"supported"`
+}
+
 // RegisterJobSchemaRequest defines model for RegisterJobSchemaRequest.
 type RegisterJobSchemaRequest struct {
 	// Schema JobDB schema envelope. Each shape is a JSON Schema draft 2020-12 schema fragment that validates a visible chapter record.
@@ -1295,6 +1303,12 @@ type SecretValue struct {
 	ProviderId *string `json:"providerId,omitempty"`
 	Value      string  `json:"value"`
 	Version    *string `json:"version,omitempty"`
+}
+
+// SelectedSubmitJobRequest defines model for SelectedSubmitJobRequest.
+type SelectedSubmitJobRequest struct {
+	GoalId     string           `json:"goalId"`
+	Submission SubmitJobRequest `json:"submission"`
 }
 
 // SetConfigurationBody defines model for SetConfigurationBody.
@@ -1816,6 +1830,9 @@ type RescheduleJobWithLeaseJSONRequestBody = RescheduleExecutionRequest
 
 // ResolveSecretsWithLeaseJSONRequestBody defines body for ResolveSecretsWithLease for application/json ContentType.
 type ResolveSecretsWithLeaseJSONRequestBody = ResolveSecretsBody
+
+// SubmitJobWithPrimaryGoalJSONRequestBody defines body for SubmitJobWithPrimaryGoal for application/json ContentType.
+type SubmitJobWithPrimaryGoalJSONRequestBody = SelectedSubmitJobRequest
 
 // PutRestartJobJSONRequestBody defines body for PutRestartJob for application/json ContentType.
 type PutRestartJobJSONRequestBody = SubmitRestartJobRequest
@@ -2508,6 +2525,9 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+	// GetPrimaryGoalSelectionCapability request
+	GetPrimaryGoalSelectionCapability(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// PollWorkWithBody request with any body
 	PollWorkWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -2666,6 +2686,11 @@ type ClientInterface interface {
 
 	ResolveSecretsWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *ResolveSecretsWithLeaseParams, body ResolveSecretsWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// SubmitJobWithPrimaryGoalWithBody request with any body
+	SubmitJobWithPrimaryGoalWithBody(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	SubmitJobWithPrimaryGoal(ctx context.Context, tenantId TenantId, jobId JobId, body SubmitJobWithPrimaryGoalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// PutRestartJobWithBody request with any body
 	PutRestartJobWithBody(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -2762,6 +2787,18 @@ type ClientInterface interface {
 
 	// ArchiveJobSchema request
 	ArchiveJobSchema(ctx context.Context, tenantId TenantId, schemaHash JobSchemaHash, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+func (c *Client) GetPrimaryGoalSelectionCapability(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetPrimaryGoalSelectionCapabilityRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 func (c *Client) PollWorkWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -3484,6 +3521,30 @@ func (c *Client) ResolveSecretsWithLease(ctx context.Context, tenantId TenantId,
 	return c.Client.Do(req)
 }
 
+func (c *Client) SubmitJobWithPrimaryGoalWithBody(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSubmitJobWithPrimaryGoalRequestWithBody(c.Server, tenantId, jobId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SubmitJobWithPrimaryGoal(ctx context.Context, tenantId TenantId, jobId JobId, body SubmitJobWithPrimaryGoalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSubmitJobWithPrimaryGoalRequest(c.Server, tenantId, jobId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) PutRestartJobWithBody(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPutRestartJobRequestWithBody(c.Server, tenantId, jobId, contentType, body)
 	if err != nil {
@@ -3938,6 +3999,33 @@ func (c *Client) ArchiveJobSchema(ctx context.Context, tenantId TenantId, schema
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewGetPrimaryGoalSelectionCapabilityRequest generates requests for GetPrimaryGoalSelectionCapability
+func NewGetPrimaryGoalSelectionCapabilityRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/capabilities/primary-goal-selection")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
 }
 
 // NewPollWorkRequest calls the generic PollWork builder with application/json body
@@ -6140,6 +6228,60 @@ func NewResolveSecretsWithLeaseRequestWithBody(server string, tenantId TenantId,
 	return req, nil
 }
 
+// NewSubmitJobWithPrimaryGoalRequest calls the generic SubmitJobWithPrimaryGoal builder with application/json body
+func NewSubmitJobWithPrimaryGoalRequest(server string, tenantId TenantId, jobId JobId, body SubmitJobWithPrimaryGoalJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSubmitJobWithPrimaryGoalRequestWithBody(server, tenantId, jobId, "application/json", bodyReader)
+}
+
+// NewSubmitJobWithPrimaryGoalRequestWithBody generates requests for SubmitJobWithPrimaryGoal with any type of body
+func NewSubmitJobWithPrimaryGoalRequestWithBody(server string, tenantId TenantId, jobId JobId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "jobId", runtime.ParamLocationPath, jobId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs/%s/primary-goal", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PUT", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewPutRestartJobRequest calls the generic PutRestartJob builder with application/json body
 func NewPutRestartJobRequest(server string, tenantId TenantId, jobId JobId, body PutRestartJobJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -7413,6 +7555,9 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
+	// GetPrimaryGoalSelectionCapabilityWithResponse request
+	GetPrimaryGoalSelectionCapabilityWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetPrimaryGoalSelectionCapabilityHTTPResponse, error)
+
 	// PollWorkWithBodyWithResponse request with any body
 	PollWorkWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PollWorkHTTPResponse, error)
 
@@ -7571,6 +7716,11 @@ type ClientWithResponsesInterface interface {
 
 	ResolveSecretsWithLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *ResolveSecretsWithLeaseParams, body ResolveSecretsWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*ResolveSecretsWithLeaseHTTPResponse, error)
 
+	// SubmitJobWithPrimaryGoalWithBodyWithResponse request with any body
+	SubmitJobWithPrimaryGoalWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SubmitJobWithPrimaryGoalHTTPResponse, error)
+
+	SubmitJobWithPrimaryGoalWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, body SubmitJobWithPrimaryGoalJSONRequestBody, reqEditors ...RequestEditorFn) (*SubmitJobWithPrimaryGoalHTTPResponse, error)
+
 	// PutRestartJobWithBodyWithResponse request with any body
 	PutRestartJobWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutRestartJobHTTPResponse, error)
 
@@ -7667,6 +7817,28 @@ type ClientWithResponsesInterface interface {
 
 	// ArchiveJobSchemaWithResponse request
 	ArchiveJobSchemaWithResponse(ctx context.Context, tenantId TenantId, schemaHash JobSchemaHash, reqEditors ...RequestEditorFn) (*ArchiveJobSchemaHTTPResponse, error)
+}
+
+type GetPrimaryGoalSelectionCapabilityHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *PrimaryGoalSelectionCapability
+}
+
+// Status returns HTTPResponse.Status
+func (r GetPrimaryGoalSelectionCapabilityHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetPrimaryGoalSelectionCapabilityHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
 }
 
 type PollWorkHTTPResponse struct {
@@ -8568,6 +8740,34 @@ func (r ResolveSecretsWithLeaseHTTPResponse) StatusCode() int {
 	return 0
 }
 
+type SubmitJobWithPrimaryGoalHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *JobHandle
+	JSON400      *ErrorResponse
+	JSON403      *ErrorResponse
+	JSON404      *ErrorResponse
+	JSON409      *ErrorResponse
+	JSON501      *ErrorResponse
+	JSON503      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r SubmitJobWithPrimaryGoalHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SubmitJobWithPrimaryGoalHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type PutRestartJobHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -9059,6 +9259,15 @@ func (r ArchiveJobSchemaHTTPResponse) StatusCode() int {
 		return r.HTTPResponse.StatusCode
 	}
 	return 0
+}
+
+// GetPrimaryGoalSelectionCapabilityWithResponse request returning *GetPrimaryGoalSelectionCapabilityHTTPResponse
+func (c *ClientWithResponses) GetPrimaryGoalSelectionCapabilityWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetPrimaryGoalSelectionCapabilityHTTPResponse, error) {
+	rsp, err := c.GetPrimaryGoalSelectionCapability(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetPrimaryGoalSelectionCapabilityHTTPResponse(rsp)
 }
 
 // PollWorkWithBodyWithResponse request with arbitrary body returning *PollWorkHTTPResponse
@@ -9579,6 +9788,23 @@ func (c *ClientWithResponses) ResolveSecretsWithLeaseWithResponse(ctx context.Co
 	return ParseResolveSecretsWithLeaseHTTPResponse(rsp)
 }
 
+// SubmitJobWithPrimaryGoalWithBodyWithResponse request with arbitrary body returning *SubmitJobWithPrimaryGoalHTTPResponse
+func (c *ClientWithResponses) SubmitJobWithPrimaryGoalWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SubmitJobWithPrimaryGoalHTTPResponse, error) {
+	rsp, err := c.SubmitJobWithPrimaryGoalWithBody(ctx, tenantId, jobId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSubmitJobWithPrimaryGoalHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) SubmitJobWithPrimaryGoalWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, body SubmitJobWithPrimaryGoalJSONRequestBody, reqEditors ...RequestEditorFn) (*SubmitJobWithPrimaryGoalHTTPResponse, error) {
+	rsp, err := c.SubmitJobWithPrimaryGoal(ctx, tenantId, jobId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSubmitJobWithPrimaryGoalHTTPResponse(rsp)
+}
+
 // PutRestartJobWithBodyWithResponse request with arbitrary body returning *PutRestartJobHTTPResponse
 func (c *ClientWithResponses) PutRestartJobWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutRestartJobHTTPResponse, error) {
 	rsp, err := c.PutRestartJobWithBody(ctx, tenantId, jobId, contentType, body, reqEditors...)
@@ -9902,6 +10128,32 @@ func (c *ClientWithResponses) ArchiveJobSchemaWithResponse(ctx context.Context, 
 		return nil, err
 	}
 	return ParseArchiveJobSchemaHTTPResponse(rsp)
+}
+
+// ParseGetPrimaryGoalSelectionCapabilityHTTPResponse parses an HTTP response from a GetPrimaryGoalSelectionCapabilityWithResponse call
+func ParseGetPrimaryGoalSelectionCapabilityHTTPResponse(rsp *http.Response) (*GetPrimaryGoalSelectionCapabilityHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetPrimaryGoalSelectionCapabilityHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest PrimaryGoalSelectionCapability
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParsePollWorkHTTPResponse parses an HTTP response from a PollWorkWithResponse call
@@ -11309,6 +11561,74 @@ func ParseResolveSecretsWithLeaseHTTPResponse(rsp *http.Response) (*ResolveSecre
 	return response, nil
 }
 
+// ParseSubmitJobWithPrimaryGoalHTTPResponse parses an HTTP response from a SubmitJobWithPrimaryGoalWithResponse call
+func ParseSubmitJobWithPrimaryGoalHTTPResponse(rsp *http.Response) (*SubmitJobWithPrimaryGoalHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SubmitJobWithPrimaryGoalHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest JobHandle
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 501:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON501 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParsePutRestartJobHTTPResponse parses an HTTP response from a PutRestartJobWithResponse call
 func ParsePutRestartJobHTTPResponse(rsp *http.Response) (*PutRestartJobHTTPResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -12074,6 +12394,9 @@ func ParseArchiveJobSchemaHTTPResponse(rsp *http.Response) (*ArchiveJobSchemaHTT
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// Discover complete primary-goal selection support
+	// (GET /v1/capabilities/primary-goal-selection)
+	GetPrimaryGoalSelectionCapability(w http.ResponseWriter, r *http.Request)
 	// Poll work
 	// (POST /v1/jobs/poll)
 	PollWork(w http.ResponseWriter, r *http.Request)
@@ -12188,6 +12511,9 @@ type ServerInterface interface {
 	// Resolve the allowed subset of requested job secrets
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/secrets/resolve)
 	ResolveSecretsWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params ResolveSecretsWithLeaseParams)
+	// Submit fresh instructions under an existing primary goal
+	// (PUT /v1/tenants/{tenantId}/jobs/{jobId}/primary-goal)
+	SubmitJobWithPrimaryGoal(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId)
 	// Submit restart job with explicit job ID
 	// (PUT /v1/tenants/{tenantId}/jobs/{jobId}/restart)
 	PutRestartJob(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId)
@@ -12256,6 +12582,12 @@ type ServerInterface interface {
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// Discover complete primary-goal selection support
+// (GET /v1/capabilities/primary-goal-selection)
+func (_ Unimplemented) GetPrimaryGoalSelectionCapability(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // Poll work
 // (POST /v1/jobs/poll)
@@ -12479,6 +12811,12 @@ func (_ Unimplemented) ResolveSecretsWithLease(w http.ResponseWriter, r *http.Re
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Submit fresh instructions under an existing primary goal
+// (PUT /v1/tenants/{tenantId}/jobs/{jobId}/primary-goal)
+func (_ Unimplemented) SubmitJobWithPrimaryGoal(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Submit restart job with explicit job ID
 // (PUT /v1/tenants/{tenantId}/jobs/{jobId}/restart)
 func (_ Unimplemented) PutRestartJob(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId) {
@@ -12612,6 +12950,26 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// GetPrimaryGoalSelectionCapability operation middleware
+func (siw *ServerInterfaceWrapper) GetPrimaryGoalSelectionCapability(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPrimaryGoalSelectionCapability(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // PollWork operation middleware
 func (siw *ServerInterfaceWrapper) PollWork(w http.ResponseWriter, r *http.Request) {
@@ -14627,6 +14985,46 @@ func (siw *ServerInterfaceWrapper) ResolveSecretsWithLease(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
+// SubmitJobWithPrimaryGoal operation middleware
+func (siw *ServerInterfaceWrapper) SubmitJobWithPrimaryGoal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "jobId" -------------
+	var jobId JobId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobId", chi.URLParam(r, "jobId"), &jobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SubmitJobWithPrimaryGoal(w, r, tenantId, jobId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // PutRestartJob operation middleware
 func (siw *ServerInterfaceWrapper) PutRestartJob(w http.ResponseWriter, r *http.Request) {
 
@@ -15837,6 +16235,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/capabilities/primary-goal-selection", wrapper.GetPrimaryGoalSelectionCapability)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/jobs/poll", wrapper.PollWork)
 	})
 	r.Group(func(r chi.Router) {
@@ -15949,6 +16350,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/secrets/resolve", wrapper.ResolveSecretsWithLease)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/primary-goal", wrapper.SubmitJobWithPrimaryGoal)
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/restart", wrapper.PutRestartJob)
@@ -16109,6 +16513,22 @@ type UnauthorizedJSONResponse struct {
 	Body ErrorResponse
 
 	Headers UnauthorizedResponseHeaders
+}
+
+type GetPrimaryGoalSelectionCapabilityRequestObject struct {
+}
+
+type GetPrimaryGoalSelectionCapabilityResponseObject interface {
+	VisitGetPrimaryGoalSelectionCapabilityResponse(w http.ResponseWriter) error
+}
+
+type GetPrimaryGoalSelectionCapability200JSONResponse PrimaryGoalSelectionCapability
+
+func (response GetPrimaryGoalSelectionCapability200JSONResponse) VisitGetPrimaryGoalSelectionCapabilityResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type PollWorkRequestObject struct {
@@ -17882,6 +18302,79 @@ func (response ResolveSecretsWithLeasedefaultJSONResponse) VisitResolveSecretsWi
 	return json.NewEncoder(w).Encode(response.Body)
 }
 
+type SubmitJobWithPrimaryGoalRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	JobId    JobId    `json:"jobId"`
+	Body     *SubmitJobWithPrimaryGoalJSONRequestBody
+}
+
+type SubmitJobWithPrimaryGoalResponseObject interface {
+	VisitSubmitJobWithPrimaryGoalResponse(w http.ResponseWriter) error
+}
+
+type SubmitJobWithPrimaryGoal200JSONResponse JobHandle
+
+func (response SubmitJobWithPrimaryGoal200JSONResponse) VisitSubmitJobWithPrimaryGoalResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type SubmitJobWithPrimaryGoal400JSONResponse ErrorResponse
+
+func (response SubmitJobWithPrimaryGoal400JSONResponse) VisitSubmitJobWithPrimaryGoalResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type SubmitJobWithPrimaryGoal403JSONResponse ErrorResponse
+
+func (response SubmitJobWithPrimaryGoal403JSONResponse) VisitSubmitJobWithPrimaryGoalResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type SubmitJobWithPrimaryGoal404JSONResponse ErrorResponse
+
+func (response SubmitJobWithPrimaryGoal404JSONResponse) VisitSubmitJobWithPrimaryGoalResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type SubmitJobWithPrimaryGoal409JSONResponse ErrorResponse
+
+func (response SubmitJobWithPrimaryGoal409JSONResponse) VisitSubmitJobWithPrimaryGoalResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type SubmitJobWithPrimaryGoal501JSONResponse ErrorResponse
+
+func (response SubmitJobWithPrimaryGoal501JSONResponse) VisitSubmitJobWithPrimaryGoalResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(501)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type SubmitJobWithPrimaryGoal503JSONResponse ErrorResponse
+
+func (response SubmitJobWithPrimaryGoal503JSONResponse) VisitSubmitJobWithPrimaryGoalResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type PutRestartJobRequestObject struct {
 	TenantId TenantId `json:"tenantId"`
 	JobId    JobId    `json:"jobId"`
@@ -18657,6 +19150,9 @@ func (response ArchiveJobSchema200JSONResponse) VisitArchiveJobSchemaResponse(w 
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// Discover complete primary-goal selection support
+	// (GET /v1/capabilities/primary-goal-selection)
+	GetPrimaryGoalSelectionCapability(ctx context.Context, request GetPrimaryGoalSelectionCapabilityRequestObject) (GetPrimaryGoalSelectionCapabilityResponseObject, error)
 	// Poll work
 	// (POST /v1/jobs/poll)
 	PollWork(ctx context.Context, request PollWorkRequestObject) (PollWorkResponseObject, error)
@@ -18771,6 +19267,9 @@ type StrictServerInterface interface {
 	// Resolve the allowed subset of requested job secrets
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/secrets/resolve)
 	ResolveSecretsWithLease(ctx context.Context, request ResolveSecretsWithLeaseRequestObject) (ResolveSecretsWithLeaseResponseObject, error)
+	// Submit fresh instructions under an existing primary goal
+	// (PUT /v1/tenants/{tenantId}/jobs/{jobId}/primary-goal)
+	SubmitJobWithPrimaryGoal(ctx context.Context, request SubmitJobWithPrimaryGoalRequestObject) (SubmitJobWithPrimaryGoalResponseObject, error)
 	// Submit restart job with explicit job ID
 	// (PUT /v1/tenants/{tenantId}/jobs/{jobId}/restart)
 	PutRestartJob(ctx context.Context, request PutRestartJobRequestObject) (PutRestartJobResponseObject, error)
@@ -18863,6 +19362,30 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// GetPrimaryGoalSelectionCapability operation middleware
+func (sh *strictHandler) GetPrimaryGoalSelectionCapability(w http.ResponseWriter, r *http.Request) {
+	var request GetPrimaryGoalSelectionCapabilityRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetPrimaryGoalSelectionCapability(ctx, request.(GetPrimaryGoalSelectionCapabilityRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetPrimaryGoalSelectionCapability")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetPrimaryGoalSelectionCapabilityResponseObject); ok {
+		if err := validResponse.VisitGetPrimaryGoalSelectionCapabilityResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // PollWork operation middleware
@@ -20057,6 +20580,40 @@ func (sh *strictHandler) ResolveSecretsWithLease(w http.ResponseWriter, r *http.
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ResolveSecretsWithLeaseResponseObject); ok {
 		if err := validResponse.VisitResolveSecretsWithLeaseResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SubmitJobWithPrimaryGoal operation middleware
+func (sh *strictHandler) SubmitJobWithPrimaryGoal(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId) {
+	var request SubmitJobWithPrimaryGoalRequestObject
+
+	request.TenantId = tenantId
+	request.JobId = jobId
+
+	var body SubmitJobWithPrimaryGoalJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SubmitJobWithPrimaryGoal(ctx, request.(SubmitJobWithPrimaryGoalRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SubmitJobWithPrimaryGoal")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SubmitJobWithPrimaryGoalResponseObject); ok {
+		if err := validResponse.VisitSubmitJobWithPrimaryGoalResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

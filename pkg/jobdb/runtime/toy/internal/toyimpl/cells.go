@@ -118,6 +118,32 @@ func (e *ToyEngine) cellParentLocked(ctx context.Context, tenant string) (*jobdb
 	return &c, nil
 }
 func (e *ToyEngine) prepareCellLocked(ctx context.Context, req goalstate.Preparation) (jobdb.ResolvedCell, error) {
+	if req.SelectedGoalID != "" {
+		if _, ok := cellstate.Lease(ctx); ok {
+			return jobdb.ResolvedCell{}, jobdb.ErrPrimaryGoalSelectionUnsupported
+		}
+		c, ok := e.cellsLocked(req.Key.TenantId).ByName(req.Cell)
+		if !ok {
+			return jobdb.ResolvedCell{}, jobdb.ErrCellNotFound
+		}
+		if c.State != jobdb.CellActive {
+			return jobdb.ResolvedCell{}, jobdb.ErrCellRetired
+		}
+		if req.CellRepo != "" {
+			repo, err := jobdb.NormalizeCellRepo(req.CellRepo)
+			if err != nil {
+				return jobdb.ResolvedCell{}, err
+			}
+			if repo != c.Repo {
+				return jobdb.ResolvedCell{}, jobdb.ErrCellRepoMismatch
+			}
+		}
+		target := jobdb.ResolvedCell{Cell: c.Name, CellID: c.ID, CellRepo: c.Repo}
+		if err := jobdb.AuthorizePrimaryGoalSelection(ctx, jobdb.GoalKey{TenantId: req.Key.TenantId, GoalID: req.SelectedGoalID}, target); err != nil {
+			return jobdb.ResolvedCell{}, err
+		}
+		return target, nil
+	}
 	parent, err := e.cellParentLocked(ctx, req.Key.TenantId)
 	if key, ok := cellstate.Schedule(ctx); ok {
 		if key.TenantId != req.Key.TenantId {

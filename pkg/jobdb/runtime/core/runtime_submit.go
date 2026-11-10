@@ -30,6 +30,17 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 }
 
 func (r *Runtime) submitJobWithSchedule(ctx context.Context, req jobdb.SubmitJobRequest, parentJobID string, occurrence *jobdb.ScheduleOccurrenceMetadata) (handle jobdb.JobHandle, retErr error) {
+	var normalizeErr error
+	req.Job, normalizeErr = goalstate.CanonicalSelectedJob(req.Job)
+	if normalizeErr != nil {
+		return jobdb.JobHandle{}, normalizeErr
+	}
+	if err := jobdb.ValidatePrimaryGoalSelection(req.Job); err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	if req.Job.GoalID != "" && !r.SupportsPrimaryGoalSelection() {
+		return jobdb.JobHandle{}, jobdb.ErrPrimaryGoalSelectionUnsupported
+	}
 	if err := jobdb.ValidateIdentifier(req.Job.JobType); err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -57,7 +68,7 @@ func (r *Runtime) submitJobWithSchedule(ctx context.Context, req jobdb.SubmitJob
 	}()
 	req.Job.JobID = reserved.Key.JobId
 	if reserved.Published {
-		return reserved.Target.Handle(reserved.Key, reserved.GoalID), nil
+		return reserved.AcceptedHandle(req.Job.GoalID != "")
 	}
 	jobID := req.Job.JobID
 	if jobID == "" {
@@ -152,7 +163,7 @@ func (r *Runtime) submitJobWithSchedule(ctx context.Context, req jobdb.SubmitJob
 		})
 		_ = artifact.Cleanup()
 	}
-	if existingChapter {
+	if existingChapter && req.Job.GoalID == "" {
 		stored, err := r.scheduler.GetJob(ctx, key)
 		if err == nil {
 			if stored.InitialPayloadDigest != initialDigest {
@@ -168,7 +179,7 @@ func (r *Runtime) submitJobWithSchedule(ctx context.Context, req jobdb.SubmitJob
 			return jobdb.JobHandle{}, err
 		}
 	}
-	created, err := r.scheduler.CreateJob(ctx, CreateJobRequest{Cell: reserved.Target, GoalID: reserved.GoalID, ShareGoal: preparation.ShareGoal, Dependencies: preparation.Dependencies,
+	created, err := r.scheduler.CreateJob(ctx, CreateJobRequest{Cell: reserved.Target, GoalID: reserved.GoalID, SelectedGoalID: preparation.SelectedGoalID, ShareGoal: preparation.ShareGoal, Dependencies: preparation.Dependencies,
 		JobKey: key, JobType: req.Job.JobType, ParentJobID: parentJobID, RunPolicy: policy,
 		ClientPayload: initialPayload, ClientPayloadRevision: initialRevision, InitialPayloadDigest: initialDigest,
 		AppMetadata: metadata, SchemaHash: schemaHash, Schedule: occurrence,
@@ -181,6 +192,13 @@ func (r *Runtime) submitJobWithSchedule(ctx context.Context, req jobdb.SubmitJob
 	if err := validateStoredJobFacts(created, key, req.Job.JobType,
 		schemaHash, parentJobID, metadata, policy, occurrence); err != nil {
 		return jobdb.JobHandle{}, err
+	}
+	if req.Job.GoalID != "" {
+		published, err := r.scheduler.PrepareJob(ctx, preparation)
+		if err != nil {
+			return jobdb.JobHandle{}, err
+		}
+		return published.AcceptedHandle(true)
 	}
 	return created.Cell.Handle(key, created.GoalID), nil
 }

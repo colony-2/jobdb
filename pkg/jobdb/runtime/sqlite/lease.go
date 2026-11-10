@@ -91,6 +91,9 @@ func (l *executionLease) Reschedule(ctx context.Context, req jobdb.RescheduleExe
 }
 
 func (l *executionLease) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {
+	if req.Job.GoalID != "" {
+		return jobdb.JobHandle{}, jobdb.ErrPrimaryGoalSelectionUnsupported
+	}
 	if err := l.checkExpiry(); err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -309,6 +312,9 @@ WHERE tenant_id = ? AND job_id = ?`,
 }
 
 func (r *Runtime) SubmitJobWithLeaseByID(ctx context.Context, parentJobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {
+	if req.Job.GoalID != "" {
+		return jobdb.JobHandle{}, jobdb.ErrPrimaryGoalSelectionUnsupported
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}

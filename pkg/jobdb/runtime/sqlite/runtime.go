@@ -33,6 +33,11 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 }
 
 func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRequest, parentJobID string) (handle jobdb.JobHandle, retErr error) {
+	var normalizeErr error
+	req.Job, normalizeErr = goalstate.CanonicalSelectedJob(req.Job)
+	if normalizeErr != nil {
+		return jobdb.JobHandle{}, normalizeErr
+	}
 	if err := jobdb.ValidateIdentifier(req.Job.JobType); err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -60,7 +65,7 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	}()
 	req.Job.JobID = reserved.Key.JobId
 	if reserved.Published {
-		return reserved.Target.Handle(reserved.Key, reserved.GoalID), nil
+		return reserved.AcceptedHandle(req.Job.GoalID != "")
 	}
 	jobID := req.Job.JobID
 	if jobID == "" {
@@ -119,6 +124,15 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	}
 	if _, err := r.chapterStore.CreateStory(sctx, storyKeyForJob(jobKey), story.CreateOptions{RequestID: uuid.New().String(), InitialChapter: initialChapter}); err != nil {
 		if req.Job.JobID != "" && errors.Is(err, core.ErrConflict) {
+			if req.Job.GoalID != "" {
+				// Story identity and chapter zero are separate writes. An
+				// identical reserved submit may finish the staged first chapter
+				// if its peer was interrupted between them. Append is atomic;
+				// an existing chapter is compared by reconciliation below.
+				if appendErr := r.chapterStore.SaveChapter(sctx, storyKeyForJob(jobKey), initialChapter); appendErr != nil && !errors.Is(appendErr, core.ErrConflict) {
+					return jobdb.JobHandle{}, appendErr
+				}
+			}
 			if handle, handled, reconcileErr := r.reconcileExistingSubmitJob(ctx, req, jobKey, inputHash, prereqs, waitFor, jobPolicy, schemaHash, parentJobID); handled || reconcileErr != nil {
 				return handle, reconcileErr
 			}
@@ -131,6 +145,13 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	}
 	if err := r.ensureSubmittedJobRecord(ctx, jobKey, req.Job.JobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, req.Job.AvailableAt, req.Job.ClientPayloadUpdate); err != nil {
 		return jobdb.JobHandle{}, err
+	}
+	if req.Job.GoalID != "" {
+		published, err := r.PrepareJob(ctx, prep)
+		if err != nil {
+			return jobdb.JobHandle{}, err
+		}
+		return published.AcceptedHandle(true)
 	}
 	return r.goalHandle(ctx, jobKey)
 }

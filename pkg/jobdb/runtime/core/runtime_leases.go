@@ -304,6 +304,9 @@ func (l *executionLease) Reschedule(ctx context.Context, req jobdb.RescheduleExe
 }
 
 func (l *executionLease) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {
+	if req.Job.GoalID != "" {
+		return jobdb.JobHandle{}, jobdb.ErrPrimaryGoalSelectionUnsupported
+	}
 	if err := l.requireCurrent(ctx); err != nil {
 		return jobdb.JobHandle{}, err
 	}

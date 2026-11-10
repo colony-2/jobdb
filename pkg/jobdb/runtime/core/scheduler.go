@@ -48,6 +48,9 @@ type Scheduler interface {
 // CreateJobRequest contains the immutable job facts and initial route written
 // after runtime core has validated and encoded the first chapter.
 type CreateJobRequest struct {
+	// SelectedGoalID requires the scheduler to atomically validate authority,
+	// ownership, openness and cycles and retain the immutable accepted receipt.
+	SelectedGoalID        string
 	Cell                  jobdb.ResolvedCell
 	GoalID                string
 	ShareGoal             bool

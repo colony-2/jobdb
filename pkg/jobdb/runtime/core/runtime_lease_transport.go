@@ -85,6 +85,9 @@ func (r *Runtime) RescheduleJobWithLeaseByID(ctx context.Context, key jobdb.JobK
 
 // SubmitJobWithLeaseByID starts a child through a live parent lease.
 func (r *Runtime) SubmitJobWithLeaseByID(ctx context.Context, parent jobdb.JobKey, leaseID, workerID string, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {
+	if req.Job.GoalID != "" {
+		return jobdb.JobHandle{}, jobdb.ErrPrimaryGoalSelectionUnsupported
+	}
 	lease, err := r.leaseForTransport(ctx, parent, leaseID, workerID)
 	if err != nil {
 		return jobdb.JobHandle{}, err

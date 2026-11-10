@@ -111,6 +111,9 @@ var goalErrors = []struct {
 	code   string
 	status int
 }{
+	{jobdb.ErrPrimaryGoalSelectionUnsupported, "primary_goal_selection_unsupported", 501},
+	{jobdb.ErrPrimaryGoalSelectionForbidden, "primary_goal_selection_forbidden", 403},
+	{jobdb.ErrSubmissionReceiptUnavailable, "submission_receipt_unavailable", 503},
 	{jobdb.ErrJobNotFound, "job_not_found", 404},
 	{jobdb.ErrGoalNotFound, "goal_not_found", 404},
 	{jobdb.ErrGoalConflict, "goal_conflict", 409},

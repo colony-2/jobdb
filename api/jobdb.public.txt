@@ -66,6 +66,7 @@ type ArtifactUpload struct
 func AsDuration func(t time.Duration) *Duration
 func AssignArtifactKey func(art Artifact, key ArtifactKey)
 func AuthorizeCell func(ctx context.Context, tenant string, id string, permission string) error
+func AuthorizePrimaryGoalSelection func(ctx context.Context, goal GoalKey, target ResolvedCell) error
 func BuildJobMetadataEnvelope func(appMetadata encoding/json.RawMessage, internal RuntimeJobMetadata) (encoding/json.RawMessage, error)
 type CancelJob struct
   field JobKey JobKey
@@ -364,9 +365,12 @@ var ErrLeasePermissionDenied error
 var ErrLeaseRenewalUnsupported error
 var ErrMissingInputHash error
 var ErrNoSecretProvider error
+var ErrPrimaryGoalSelectionForbidden error
+var ErrPrimaryGoalSelectionUnsupported error
 var ErrSecretRequestTooLarge error
 var ErrSecretResolutionFailed error
 var ErrSecretsUnavailable error
+var ErrSubmissionReceiptUnavailable error
 var ErrWorkflowNotDeterministic error
 type ExecutionArtifact struct
   field Key *ArtifactKey `json:"key,omitempty"`
@@ -528,6 +532,7 @@ type GoalSummary struct
   field NonTerminalCandidateCount int64 `json:"nonTerminalCandidateCount"`
   field TerminalCandidateCount int64 `json:"terminalCandidateCount"`
   field UnavailableCandidateCount int64 `json:"unavailableCandidateCount"`
+func HasPrimaryGoalSelectionAuthorizer func(ctx context.Context) bool
 func InitialScheduleFire func(trigger ScheduleTrigger, now time.Time) (*time.Time, error)
 type InputReference struct
   field Ordinal int64 `json:"ordinal"`
@@ -897,6 +902,9 @@ type PollWorkRequest struct
   field LongPollUntil *time.Time
   field LeaseDuration time.Duration
   field MetadataEquals []MetadataPredicate
+type PrimaryGoalSelectionAuthorizer func(context.Context, GoalKey, ResolvedCell) error
+type PrimaryGoalSelectionCapability interface
+  method SupportsPrimaryGoalSelection func() bool
 type PutChapterRequest struct
   field LeaseID string
   field LeaseToken string
@@ -1098,6 +1106,7 @@ type StoredArtifact struct
   field Size int64
 func StripRuntimeMetadata func(raw encoding/json.RawMessage) encoding/json.RawMessage
 type SubmitJob struct
+  field GoalID string `json:",omitempty"`
   field Cell string
   field CellRepo string
   field Dependencies []Dependency
@@ -1269,8 +1278,10 @@ func ValidateDependencyReschedule func(r RescheduleExecutionRequest) error
 func ValidateDependencyWait func(w *DependencyWait, submission bool) error
 func ValidateIdentifier func(value string) error
 func ValidateJobSchemaHash func(hash string) error
+func ValidatePrimaryGoalSelection func(job SubmitJob) error
 func ValidateScheduleRequest func(req UpsertScheduleRequest) error
 func WithCellAuthority func(ctx context.Context, a CellAuthority) context.Context
+func WithPrimaryGoalSelectionAuthorizer func(ctx context.Context, authorize PrimaryGoalSelectionAuthorizer) context.Context
 func WithTx func(ctx context.Context, tx *gorm.io/gorm.DB) context.Context
 type WorkflowRuntime interface
   embedded LeaseEventReader
@@ -1341,12 +1352,15 @@ const MissingTaskName untyped string = "missing"
 func MustDecodeNumberTaskData func(t testing.TB, data github.com/colony-2/jobdb/pkg/jobdb.TaskData) int
 func MustWorkSet func(t testing.TB, job github.com/colony-2/jobdb/pkg/workflow.JobWorker, tasks ...github.com/colony-2/jobdb/pkg/workflow.TaskWorker) github.com/colony-2/jobdb/pkg/workflow.WorkSet
 func NumberTaskData func(n int) github.com/colony-2/jobdb/pkg/jobdb.TaskData
+func PrimaryGoalContext func(ctx context.Context) context.Context
 func RunAvailableRoutesConformance func(t *testing.T, harnesses ...Harness)
 func RunCellConformance func(t *testing.T, rt github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime)
 func RunClientPayloadConformance func(t *testing.T, harnesses ...Harness)
 func RunCompactListConformance func(t *testing.T, harnesses ...Harness)
 func RunConfigurationConformance func(t *testing.T, rt github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime)
 func RunLeaseEventConformance func(t *testing.T, harnesses ...Harness)
+func RunPrimaryGoalSelectionBoundaries func(t *testing.T, r github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime)
+func RunPrimaryGoalSelectionConformance func(t *testing.T, r github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime)
 func RunRouteConformance func(t *testing.T, harnesses ...Harness)
 func RunWorkflowRuntimeConformance func(t *testing.T, harnesses ...Harness)
 const SequenceJobName untyped string = "seq"
@@ -1417,6 +1431,7 @@ type Config struct
   field Schemas SchemaStore
   field Now func() time.Time
 type CreateJobRequest struct
+  field SelectedGoalID string
   field Cell github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell
   field GoalID string
   field ShareGoal bool
@@ -1602,6 +1617,7 @@ method Runtime.SubmitJob func(ctx context.Context, req github.com/colony-2/jobdb
 method Runtime.SubmitJobWithLeaseByID func(ctx context.Context, parent github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.SubmitJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.SubmitRestartJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.SubmitRestartJobWithLeaseByID func(ctx context.Context, parent github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
+method Runtime.SupportsPrimaryGoalSelection func() bool
 method Runtime.TriggerSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.TriggerScheduleRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.UpdateCell func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.UpdateCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method Runtime.UpsertSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.UpsertScheduleRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
@@ -2466,6 +2482,7 @@ method Runtime.SubmitJob func(ctx context.Context, req github.com/colony-2/jobdb
 method Runtime.SubmitJobWithLeaseByID func(ctx context.Context, parentJobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.SubmitJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.SubmitRestartJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.SubmitRestartJobWithLeaseByID func(ctx context.Context, parentJobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
+method Runtime.SupportsPrimaryGoalSelection func() bool
 method Runtime.TriggerSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.TriggerScheduleRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.UpdateCell func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.UpdateCellRequest) (out github.com/colony-2/jobdb/pkg/jobdb.Cell, err error)
 method Runtime.UpsertSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.UpsertScheduleRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)

@@ -35,6 +35,82 @@ tags:
 security:
   - bearerAuth: []
 paths:
+  /v1/capabilities/primary-goal-selection:
+    get:
+      operationId: getPrimaryGoalSelectionCapability
+      tags: [jobs]
+      summary: Discover complete primary-goal selection support
+      responses:
+        '200':
+          description: Positive support is required before selected submission
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrimaryGoalSelectionCapability'
+  /v1/tenants/{tenantId}/jobs/{jobId}/primary-goal:
+    put:
+      operationId: submitJobWithPrimaryGoal
+      tags: [jobs]
+      summary: Submit fresh instructions under an existing primary goal
+      description: |
+        Requires explicit destination identity, authenticated tenant, current goal
+        access, explicit selection authority and destination submission authority.
+        Publishes atomically with goal closure and cycle validation. Authorized
+        identical retries return the immutable complete accepted receipt even
+        after closure or soft deletion. Never use ordinary submission as fallback.
+        Execution-lease and delegated credentials are unsupported on this route.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SelectedSubmitJobRequest'
+      responses:
+        '200':
+          description: Original complete accepted identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobHandle'
+        '400':
+          description: Invalid selected request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Missing current goal access, selection or submission authority
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Goal or destination is missing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Closed goal, dependency cycle or immutable request conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '501':
+          description: Backend or credential route does not support selection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Committed receipt is unavailable; do not replace destination identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/tenants/{tenantId}/lease-events/query:
     post:
       operationId: listLeaseEvents
@@ -2714,6 +2790,9 @@ components:
         - job_schema_archived
         - job_schema_validation_failed
         - workflow_not_deterministic
+        - primary_goal_selection_unsupported
+        - primary_goal_selection_forbidden
+        - submission_receipt_unavailable
         - goal_not_found
         - goal_conflict
         - invalid_dependency
@@ -3454,6 +3533,23 @@ components:
           $ref: '#/components/schemas/CellName'
         cellRepo:
           $ref: '#/components/schemas/CellRepo'
+    PrimaryGoalSelectionCapability:
+      type: object
+      additionalProperties: false
+      required: [supported]
+      properties:
+        supported:
+          type: boolean
+    SelectedSubmitJobRequest:
+      type: object
+      additionalProperties: false
+      required: [goalId, submission]
+      properties:
+        goalId:
+          type: string
+          minLength: 1
+        submission:
+          $ref: '#/components/schemas/SubmitJobRequest'
     SubmitJobRequest:
       type: object
       required: [job]

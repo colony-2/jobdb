@@ -22,6 +22,7 @@ type Preparation struct {
 	RequestID      string
 	PriorJobID     string
 	ShareGoal      bool
+	SelectedGoalID string
 	Descriptor     string
 	Dependencies   []jobdb.Dependency
 }
@@ -30,9 +31,20 @@ type Prepared struct {
 	Key       jobdb.JobKey
 	GoalID    string
 	Published bool
+	// Receipt is the immutable complete handle captured at publication. It must
+	// survive job hiding/deletion and must not be reconstructed from live state.
+	Receipt *jobdb.JobHandle
 }
 
 func SubmitPreparation(ctx context.Context, req jobdb.SubmitJobRequest, parent string) (Preparation, error) {
+	var normalizeErr error
+	req.Job, normalizeErr = CanonicalSelectedJob(req.Job)
+	if normalizeErr != nil {
+		return Preparation{}, normalizeErr
+	}
+	if err := jobdb.ValidatePrimaryGoalSelection(req.Job); err != nil {
+		return Preparation{}, err
+	}
 	if len(req.Job.Prerequisites) > 0 && len(req.Job.Dependencies) > 0 {
 		return Preparation{}, jobdb.ErrInvalidDependency
 	}
@@ -59,7 +71,7 @@ func SubmitPreparation(ctx context.Context, req jobdb.SubmitJobRequest, parent s
 		Job          jobdb.SubmitJob
 		Data         string
 	}{"submit", parent, job, data})
-	return Preparation{Cell: req.Job.Cell, CellRepo: req.Job.CellRepo, ParentJobID: parent, Key: jobdb.JobKey{TenantId: req.Job.TenantId, JobId: req.Job.JobID}, Descriptor: descriptor, Dependencies: req.Job.Dependencies}, err
+	return Preparation{Cell: req.Job.Cell, CellRepo: req.Job.CellRepo, ParentJobID: parent, SelectedGoalID: req.Job.GoalID, Key: jobdb.JobKey{TenantId: req.Job.TenantId, JobId: req.Job.JobID}, Descriptor: descriptor, Dependencies: req.Job.Dependencies}, err
 }
 func RestartPreparation(ctx context.Context, req jobdb.SubmitRestartJobRequest, parent string) (Preparation, error) {
 	if req.Job.ShareGoal && req.Job.JobID == "" && req.RequestID == "" {

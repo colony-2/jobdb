@@ -8,6 +8,9 @@ import (
 // SubmitJob defines the parameters for starting a new workflow job.
 // If JobID is provided, it will be used as the job identifier; otherwise, a new unique ID will be generated.
 type SubmitJob struct {
+	// GoalID selects an existing primary goal. It requires an explicit JobID and
+	// backend support; omission preserves independent goal creation.
+	GoalID              string `json:",omitempty"`
 	Cell                string
 	CellRepo            string
 	Dependencies        []Dependency

@@ -9,7 +9,11 @@ import (
 
 // JobPreparation reserves destination and goal identities across interrupted
 // history creation. Publication through CreateJob must atomically create the
-// goal (if new), job and submission wait; it validates an existing goal is open.
+// goal (if new), job and submission wait. SelectedGoalID requires current goal
+// access/selection and destination authority, matching stable ownership, an open
+// goal and acyclic prospective dependencies. Published selected retries must
+// return their captured Receipt before fresh eligibility/visibility checks.
+// DiscardJobPreparation must preserve committed reconciliation identity.
 type JobPreparation = goalstate.Preparation
 type PreparedJob = goalstate.Prepared
 
@@ -42,4 +46,10 @@ func (r *Runtime) ListGoals(ctx context.Context, req jobdb.ListGoalsRequest) (jo
 }
 func (r *Runtime) ListDependencyWaits(ctx context.Context, req jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error) {
 	return r.scheduler.ListDependencyWaits(ctx, req)
+}
+
+// SupportsPrimaryGoalSelection forwards positive scheduler support only.
+func (r *Runtime) SupportsPrimaryGoalSelection() bool {
+	capability, ok := r.scheduler.(jobdb.PrimaryGoalSelectionCapability)
+	return ok && capability.SupportsPrimaryGoalSelection()
 }

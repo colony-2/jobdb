@@ -52,6 +52,9 @@ func New(baseURL string, httpClient *http.Client, options ...Option) (*Runtime, 
 }
 
 func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {
+	if req.Job.GoalID != "" {
+		return r.submitJobWithPrimaryGoal(ctx, req)
+	}
 	if req.Job.TenantId == "" {
 		return jobdb.JobHandle{}, fmt.Errorf("tenantId is required")
 	}
@@ -80,6 +83,14 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 }
 
 func submitJobRequestToAPI(ctx context.Context, req jobdb.SubmitJobRequest) (runtimeapi.SubmitJobRequest, error) {
+	if err := jobdb.ValidatePrimaryGoalSelection(req.Job); err != nil {
+		return runtimeapi.SubmitJobRequest{}, err
+	}
+	// Selection must never reach ordinary submit, including lease routes: older
+	// servers may silently ignore unknown fields and create an independent goal.
+	if req.Job.GoalID != "" {
+		return runtimeapi.SubmitJobRequest{}, jobdb.ErrPrimaryGoalSelectionUnsupported
+	}
 	if err := jobdb.ValidateIdentifier(req.Job.JobType); err != nil {
 		return runtimeapi.SubmitJobRequest{}, err
 	}

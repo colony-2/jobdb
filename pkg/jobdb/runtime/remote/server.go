@@ -164,6 +164,13 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 	handler := runtimeapi.HandlerFromMux(strict, router)
 	devHandler := server.devSecretHandler()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isPrimaryGoalSelectionPath(r.URL.EscapedPath()) {
+			w.Header().Set("Cache-Control", "no-store")
+			if r.Header.Get("X-JobDB-Lease-Token") != "" || isDelegationToken(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")) {
+				writeGoalError(w, jobdb.ErrPrimaryGoalSelectionUnsupported)
+				return
+			}
+		}
 		if isLeaseEventsPath(r.URL.EscapedPath()) {
 			w.Header().Set("Cache-Control", "no-store")
 			if r.Header.Get("X-JobDB-Lease-Token") != "" || isDelegationToken(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")) {

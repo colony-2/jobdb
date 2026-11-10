@@ -11,6 +11,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/core"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate"
 )
 
 func (r *Runtime) reconcileExistingSubmitJob(ctx context.Context, req jobdb.SubmitJobRequest, jobKey jobdb.JobKey, inputHash string, prereqs []jobdb.JobPrerequisite, waitFor []string, jobPolicy jobdb.RunPolicy, schemaHash string, parentJobID string) (jobdb.JobHandle, bool, error) {
@@ -33,6 +34,18 @@ func (r *Runtime) reconcileExistingSubmitJob(ctx context.Context, req jobdb.Subm
 	}
 	if err := r.ensureSubmittedJobRecord(ctx, jobKey, req.Job.JobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, req.Job.AvailableAt, req.Job.ClientPayloadUpdate); err != nil {
 		return jobdb.JobHandle{}, true, err
+	}
+	if req.Job.GoalID != "" {
+		prep, err := goalstate.SubmitPreparation(ctx, req, parentJobID)
+		if err != nil {
+			return jobdb.JobHandle{}, true, err
+		}
+		published, err := r.PrepareJob(ctx, prep)
+		if err != nil {
+			return jobdb.JobHandle{}, true, err
+		}
+		h, err := published.AcceptedHandle(true)
+		return h, true, err
 	}
 	handle, err := r.goalHandle(ctx, jobKey)
 	return handle, true, err

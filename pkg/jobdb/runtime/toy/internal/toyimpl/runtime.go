@@ -56,6 +56,11 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 }
 
 func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRequest, parentJobID string) (handle jobdb.JobHandle, retErr error) {
+	var normalizeErr error
+	req.Job, normalizeErr = goalstate.CanonicalSelectedJob(req.Job)
+	if normalizeErr != nil {
+		return jobdb.JobHandle{}, normalizeErr
+	}
 	if err := jobdb.ValidateIdentifier(req.Job.JobType); err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -91,7 +96,7 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	}()
 	req.Job.JobID = reserved.Key.JobId
 	if reserved.Published {
-		return reserved.Target.Handle(reserved.Key, reserved.GoalID), nil
+		return reserved.AcceptedHandle(req.Job.GoalID != "")
 	}
 	var jobKey jobdb.JobKey
 	if req.Job.JobID != "" {
@@ -117,7 +122,7 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
-	if req.Job.JobID != "" {
+	if req.Job.JobID != "" && req.Job.GoalID == "" {
 		inputHash, err := jobdbInputHash(ctx, req.Job.Data)
 		if err != nil {
 			return jobdb.JobHandle{}, err
@@ -203,8 +208,19 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 
 	r.engine.mu.Lock()
 	if existing := r.engine.jobRecords[jobKey]; existing != nil {
+		if req.Job.GoalID != "" {
+			p := r.engine.preparedGoals[jobKey]
+			err := jobdb.AuthorizePrimaryGoalSelection(ctx, jobdb.GoalKey{TenantId: jobKey.TenantId, GoalID: p.GoalID}, p.Request.Target)
+			h, herr := (goalstate.Prepared{Key: jobKey, GoalID: p.GoalID, Receipt: p.Receipt}).AcceptedHandle(true)
+			r.engine.mu.Unlock()
+			if err != nil {
+				return jobdb.JobHandle{}, err
+			}
+			return h, herr
+		}
+		h := r.engine.cellHandleLocked(jobKey, existing)
 		r.engine.mu.Unlock()
-		return r.engine.cellHandleLocked(jobKey, existing), nil
+		return h, nil
 	}
 	r.engine.jobRecords[jobKey] = record
 	if err := r.engine.publishGoalLocked(ctx, jobKey, record); err != nil {
@@ -218,6 +234,13 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	r.engine.runtimeChapters[jobKey][0] = stored
 	r.engine.mu.Unlock()
 
+	if req.Job.GoalID != "" {
+		published, err := r.PrepareJob(ctx, prep)
+		if err != nil {
+			return jobdb.JobHandle{}, err
+		}
+		return published.AcceptedHandle(true)
+	}
 	return record.cell.Handle(jobKey, record.goalID), nil
 }
 
@@ -1504,6 +1527,9 @@ func (l *runtimeLease) Reschedule(ctx context.Context, req jobdb.RescheduleExecu
 	return l.runtime.rescheduleLease(l.jobKey, l.leaseID, l.workerID, req)
 }
 func (l *runtimeLease) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {
+	if req.Job.GoalID != "" {
+		return jobdb.JobHandle{}, jobdb.ErrPrimaryGoalSelectionUnsupported
+	}
 	if err := l.checkExpiry(); err != nil {
 		return jobdb.JobHandle{}, err
 	}

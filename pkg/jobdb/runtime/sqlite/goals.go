@@ -300,6 +300,12 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (ou
 				return err
 			}
 		}
+		if receipt, found, e := selectedReceipt(ctx, tx, req); e != nil {
+			return e
+		} else if found {
+			out = receipt
+			return nil
+		}
 		target, e := r.prepareCell(ctx, tx, &req)
 		if e != nil {
 			return e
@@ -326,6 +332,18 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (ou
 			if e = tx.QueryRowContext(ctx, `SELECT count(*) FROM jobdb_jobs WHERE tenant_id=? AND job_id=?`, out.Key.TenantId, id).Scan(&count); e != nil {
 				return e
 			}
+			if req.SelectedGoalID != "" {
+				if count != 0 {
+					return jobdb.ErrSubmissionReceiptUnavailable
+				}
+				g, e := (goalStore{ctx, tx}).Goal(jobdb.GoalKey{TenantId: req.Key.TenantId, GoalID: req.SelectedGoalID})
+				if e != nil {
+					return e
+				}
+				if e = goalstate.ValidateSelectedGoal(ctx, req, target, g); e != nil {
+					return e
+				}
+			}
 			out.Published = count != 0
 			return nil
 		}
@@ -349,6 +367,17 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (ou
 			}
 		}
 		goalID = ksuid.New().String()
+		if req.SelectedGoalID != "" {
+			goalID = req.SelectedGoalID
+			g, e := (goalStore{ctx, tx}).Goal(jobdb.GoalKey{TenantId: req.Key.TenantId, GoalID: goalID})
+			if e != nil {
+				return e
+			}
+			if e = goalstate.ValidateSelectedGoal(ctx, req, target, g); e != nil {
+				return e
+			}
+		}
+
 		if req.ShareGoal {
 			j, e := (goalStore{ctx, tx}).Job(jobdb.JobKey{TenantId: req.Key.TenantId, JobId: req.PriorJobID})
 			if e != nil {
@@ -371,7 +400,7 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (ou
 		if req.RequestID != "" {
 			requestID = req.RequestID
 		}
-		_, e = tx.ExecContext(ctx, `INSERT INTO jobdb_goal_preparations(tenant_id,job_id,request_id,goal_id,share_goal,descriptor,requested_cell,requested_repo,cell_id,cell_name,cell_repo,parent_job_id,prior_job_id,dependencies) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, req.Key.TenantId, req.Key.JobId, requestID, goalID, req.ShareGoal, req.Descriptor, req.Cell, req.CellRepo, target.CellID, target.Cell, target.CellRepo, req.ParentJobID, req.PriorJobID, deps)
+		_, e = tx.ExecContext(ctx, `INSERT INTO jobdb_goal_preparations(tenant_id,job_id,request_id,goal_id,share_goal,descriptor,requested_cell,requested_repo,cell_id,cell_name,cell_repo,parent_job_id,prior_job_id,dependencies) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, req.Key.TenantId, req.Key.JobId, requestID, goalID, req.ShareGoal || req.SelectedGoalID != "", req.Descriptor, req.Cell, req.CellRepo, target.CellID, target.Cell, target.CellRepo, req.ParentJobID, req.PriorJobID, deps)
 		if e != nil {
 			return e
 		}
@@ -381,10 +410,10 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (ou
 	return
 }
 func publishGoal(ctx context.Context, tx *sql.Tx, key jobdb.JobKey, target jobdb.ResolvedCell, now time.Time) (string, []jobdb.Dependency, error) {
-	var goalID string
+	var goalID, descriptor string
 	var shared bool
 	var raw []byte
-	err := tx.QueryRowContext(ctx, `SELECT goal_id,share_goal,dependencies FROM jobdb_goal_preparations WHERE tenant_id=? AND job_id=?`, key.TenantId, key.JobId).Scan(&goalID, &shared, &raw)
+	err := tx.QueryRowContext(ctx, `SELECT goal_id,share_goal,dependencies,descriptor FROM jobdb_goal_preparations WHERE tenant_id=? AND job_id=?`, key.TenantId, key.JobId).Scan(&goalID, &shared, &raw, &descriptor)
 	if err != nil {
 		return "", nil, err
 	}
@@ -400,6 +429,15 @@ func publishGoal(ctx context.Context, tx *sql.Tx, key jobdb.JobKey, target jobdb
 		g, err := s.Goal(gk)
 		if err != nil {
 			return "", nil, err
+		}
+		selected, err := goalstate.SelectedGoal(descriptor)
+		if err != nil {
+			return "", nil, err
+		}
+		if selected != "" {
+			if err = goalstate.ValidateSelectedGoal(ctx, goalstate.Preparation{Key: key, SelectedGoalID: selected}, target, g); err != nil {
+				return "", nil, err
+			}
 		}
 		if g.State != jobdb.GoalOpen {
 			return "", nil, jobdb.ErrGoalConflict
