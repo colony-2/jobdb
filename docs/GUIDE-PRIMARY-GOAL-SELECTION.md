@@ -29,7 +29,10 @@ consult current grants rather than an old cached approval.
 
 For HTTP, upstream authentication middleware installs these trusted context
 values. Neither request bodies nor job metadata can grant authority. The default
-server provides no selection authorizer. This hook does not introduce general
+reusable server provides no selection authorizer. The bundled toy and SQLite
+servers adapt their existing trusted local-administrator policy to this hook,
+with no additional permission or configuration. Capability discovery reports
+backend support, not caller authorization. This hook does not introduce general
 RBAC or replace an application's end-user authorization. Native and HTTP
 execution-lease/delegated submission routes currently reject selection with
 `ErrPrimaryGoalSelectionUnsupported`, including for otherwise authorized callers.

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -74,6 +75,9 @@ func newCellCmd() *cobra.Command {
 func localCellAdministration(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := jobdb.WithCellAuthority(r.Context(), jobdb.CellAuthority{Principal: "local-administrator", TenantID: "*", Permissions: map[string]bool{"cells.create": true, "cells.get": true, "cells.list": true, "cells.update": true, "cells.retire": true, "jobs.submit": true, "jobs.get": true, "jobs.list": true, "jobs.acquire": true}})
+		// Selection uses the same trusted local-administrator policy. Stored
+		// goal eligibility and destination authority remain runtime checks.
+		ctx = jobdb.WithPrimaryGoalSelectionAuthorizer(ctx, func(context.Context, jobdb.GoalKey, jobdb.ResolvedCell) error { return nil })
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

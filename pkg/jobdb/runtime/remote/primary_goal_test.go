@@ -238,3 +238,47 @@ func TestPrimaryGoalIncompleteSuccessIsAmbiguous(t *testing.T) {
 	require.ErrorIs(t, err, jobdb.ErrSubmissionReceiptUnavailable)
 	require.Equal(t, "/v1/tenants/tenant/jobs/dest/primary-goal", destination)
 }
+
+func TestPrimaryGoalGenericAuthorizationBoundaries(t *testing.T) {
+	for _, mode := range []string{"missing-hook", "submit-only", "denying-hook", "no-destination-authority"} {
+		t.Run(mode, func(t *testing.T) {
+			backend := toy.New()
+			ctx := celltest.Context(context.Background())
+			source, err := celltest.Submit(backend, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "source", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
+			require.NoError(t, err)
+			handler := NewServer(backend)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				auth := r.Context()
+				if mode == "submit-only" {
+					auth = jobdb.WithCellAuthority(auth, jobdb.CellAuthority{Principal: "submitter", TenantID: "tenant", Permissions: map[string]bool{"jobs.submit": true}})
+				}
+				if mode == "denying-hook" {
+					auth = celltest.Context(auth)
+				}
+				if mode == "denying-hook" || mode == "no-destination-authority" {
+					auth = jobdb.WithPrimaryGoalSelectionAuthorizer(auth, func(context.Context, jobdb.GoalKey, jobdb.ResolvedCell) error {
+						if mode == "denying-hook" {
+							return jobdb.ErrPrimaryGoalSelectionForbidden
+						}
+						return nil
+					})
+				}
+				handler.ServeHTTP(w, r.WithContext(auth))
+			}))
+			defer server.Close()
+			rt, err := New(server.URL, server.Client())
+			require.NoError(t, err)
+			_, err = rt.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "denied", GoalID: source.GoalID, Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
+			require.ErrorIs(t, err, jobdb.ErrPrimaryGoalSelectionForbidden)
+			_, err = backend.GetJob(ctx, jobdb.JobKey{TenantId: "tenant", JobId: "denied"})
+			require.ErrorIs(t, err, jobdb.ErrJobNotFound)
+			jobs, err := backend.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}})
+			require.NoError(t, err)
+			require.Len(t, jobs.Jobs, 1)
+			goals, err := backend.ListGoals(ctx, jobdb.ListGoalsRequest{TenantId: "tenant"})
+			require.NoError(t, err)
+			require.Len(t, goals.Goals, 1)
+			require.Equal(t, int64(1), goals.Goals[0].CandidateCount)
+		})
+	}
+}

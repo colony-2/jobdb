@@ -144,7 +144,10 @@ func goalResponseError(body []byte) error {
 	}
 	for _, entry := range goalErrors {
 		if entry.code == payload.Code {
-			return fmt.Errorf("%w: %s", entry.err, payload.Message)
+			if payload.Message == "" || payload.Message == entry.err.Error() {
+				return entry.err
+			}
+			return goalMessageError{message: payload.Message, cause: entry.err}
 		}
 	}
 	return nil
@@ -200,3 +203,12 @@ func (s *proxyServer) ListDependencyWaits(ctx context.Context, req runtimeapi.Li
 	out, err := s.runtime.ListDependencyWaits(ctx, request)
 	return runtimeapi.ListDependencyWaits200JSONResponse(out), err
 }
+
+// goalMessageError preserves wire detail without adding the sentinel text again.
+type goalMessageError struct {
+	message string
+	cause   error
+}
+
+func (e goalMessageError) Error() string { return e.message }
+func (e goalMessageError) Unwrap() error { return e.cause }
