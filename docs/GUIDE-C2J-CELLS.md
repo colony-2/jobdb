@@ -47,9 +47,8 @@ keep Git refs separate from cell names and repository locators.
 
 On PATCH, stable IDs survive name changes and previous names remain aliases.
 New jobs use the current repo, while existing jobs and restarts keep their repo
-snapshot. Schedules bind existing active cells and pause after repo mismatch;
-update their targets explicitly before resuming. Arbitrary cell metadata is
-application-owned and can be replaced through conditional PATCH.
+snapshot. Arbitrary cell metadata is application-owned and can be replaced
+through conditional PATCH.
 
 This is a hard break: reset old execution state, explicitly register configured
 cells, and use compatible JobDB clients and workers. Test missing-cell rejection,

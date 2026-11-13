@@ -15,7 +15,7 @@ var (
 )
 
 // JobDeletionRuntime is the optional administration capability for deleting jobs.
-// Deletion hides jobs from ListJobs and ListScheduleRuns, revokes leases, and
+// Deletion hides jobs from ListJobs, revokes leases, and
 // cancels unfinished jobs. Completed outcomes, direct reads, history, and
 // artifacts remain available, preserving thin clones and other references.
 // This does not reclaim storage or implicitly delete children. IDs continue

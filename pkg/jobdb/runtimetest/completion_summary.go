@@ -122,29 +122,6 @@ func runCompletionSummaries(t *testing.T, harnesses []Harness) {
 				}
 			}
 			require.Len(t, seen, 5)
-			if h.Capabilities.Schedules {
-				info, err := celltest.Schedule(ctx, r, jobdb.UpsertScheduleRequest{
-					TenantId: tenant, ScheduleId: "completion-schedule", RequestTime: time.Now().Add(-2 * time.Hour),
-					Trigger: jobdb.ScheduleTrigger{Kind: jobdb.ScheduleTriggerInterval, Interval: time.Hour},
-					Target:  jobdb.ScheduleTarget{Cell: "test", CellRepo: "example.test/test", JobType: "completion", Data: NumberTaskData(1)},
-				})
-				require.NoError(t, err)
-				require.NotNil(t, info.NextJobKey)
-				lease := claim(*info.NextJobKey)
-				final := chapter(1)
-				require.NoError(t, lease.Complete(ctx, jobdb.CompleteExecutionRequest{Status: "failed_system", Detail: "scheduled failure", Chapter: &final}))
-				runs, err := r.ListScheduleRuns(ctx, jobdb.ListScheduleRunsRequest{ScheduleKey: info.ScheduleKey})
-				require.NoError(t, err)
-				found := false
-				for _, run := range runs.Runs {
-					if run.JobKey == *info.NextJobKey {
-						found = true
-						require.Equal(t, "failed_system", run.CompletionStatus)
-						require.Equal(t, "scheduled failure", run.CompletionDetail)
-					}
-				}
-				require.True(t, found)
-			}
 		})
 	}
 }

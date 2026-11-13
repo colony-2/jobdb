@@ -28,7 +28,7 @@ See [named cells](../../docs/SPEC-Tenant-Cells.md) for root bootstrap and policy
   `ArtifactRef`, and artifact constructors.
 - Durable run history: chapters, job-run read models, task attempts, outcomes,
   and runtime error payloads.
-- Schedules and list-jobs request/response types.
+- List-jobs request/response types.
 
 ## Runtime Packages
 
@@ -234,13 +234,10 @@ including whitespace and newlines; an empty reason stays empty. `Error()` includ
 a nonempty reason and otherwise returns `"job cancelled"`. Cancellation remains
 distinct from `JobFailedError` and takes precedence over prior attempt failures.
 
-## Schedules And Listing
+## Job Listing
 
-The runtime API includes first-class schedule and job listing types:
-
-- `UpsertScheduleRequest`, `ScheduleSpec`, `ScheduleTarget`, and schedule
-  mutation/list request types.
-- `ListJobsRequest`, `ListJobsResponse`, `JobSummary`, and metadata filters.
+The runtime API includes `ListJobsRequest`, `ListJobsResponse`, `JobSummary`,
+and metadata filters.
 
 The server exposes these through the same remote runtime API used for job
 lifecycle and leasing.
@@ -251,6 +248,5 @@ categories are `success`, `failed_app`, `failed_system`, `failed_timeout`, and
 `cancelled`; other values are preserved. Empty status means unavailable, and empty
 detail is valid. Scheduler `Status` and its filters are unchanged: `COMPLETED`
 alone does not imply success. Retry attempts and cancellation requests alone do
-not establish a final outcome. The fields also appear in schedule-run summaries
-and `GetJobRun`'s job summary. Remote JSON uses optional `completionStatus` and
+not establish a final outcome. The fields also appear in `GetJobRun`'s job summary. Remote JSON uses optional `completionStatus` and
 `completionDetail` fields; older servers may omit them.

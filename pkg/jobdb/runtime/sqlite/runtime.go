@@ -411,33 +411,21 @@ func (r *Runtime) pollOnce(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 		return nil, nil
 	}
 	var out []jobdb.ExecutionLease
-	attemptBudget := limit * 4
-	if attemptBudget < 8 {
-		attemptBudget = 8
-	}
-	for len(out) < limit && attemptBudget > 0 {
-		attemptBudget--
-		lease, metadata, err := r.acquireOneLease(ctx, req, capSet, metadataPredicates)
+	for len(out) < limit {
+		lease, err := r.acquireOneLease(ctx, req, capSet, metadataPredicates)
 		if err != nil {
 			return nil, err
 		}
 		if lease == nil {
 			break
 		}
-		ok, err := r.preflightScheduleLease(ctx, lease, metadata)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			out = append(out, lease)
-		}
+		out = append(out, lease)
 	}
 	return out, nil
 }
 
-func (r *Runtime) acquireOneLease(ctx context.Context, req jobdb.PollWorkRequest, capSet map[jobdb.Route]struct{}, metadataPredicates []normalizedMetadataPredicate) (*executionLease, json.RawMessage, error) {
+func (r *Runtime) acquireOneLease(ctx context.Context, req jobdb.PollWorkRequest, capSet map[jobdb.Route]struct{}, metadataPredicates []normalizedMetadataPredicate) (*executionLease, error) {
 	var lease *executionLease
-	var leaseMetadata json.RawMessage
 	err := r.withTx(ctx, func(tx *sql.Tx) error {
 		state, err := loadCells(ctx, tx, req.TenantId)
 		if err != nil {
@@ -540,12 +528,11 @@ WHERE tenant_id = ? AND job_id = ?`,
 				expiresAt:  expires,
 				schemaHash: jobmetadata.SchemaHashFromStoredMetadata(row.metadata),
 			}
-			leaseMetadata = cloneJSON(row.metadata)
 			break
 		}
 		return nil
 	})
-	return lease, leaseMetadata, err
+	return lease, err
 }
 
 func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
@@ -573,7 +560,6 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 		return nil, fmt.Errorf("at least one route is required")
 	}
 	var lease *executionLease
-	var leaseMetadata json.RawMessage
 	err := r.withTx(ctx, func(tx *sql.Tx) error {
 		row, err := r.loadJobRowTx(ctx, tx, req.JobKey)
 		if errors.Is(err, jobdb.ErrJobNotFound) {
@@ -638,18 +624,10 @@ WHERE tenant_id = ? AND job_id = ?`,
 			expiresAt:  expires,
 			schemaHash: jobmetadata.SchemaHashFromStoredMetadata(row.metadata),
 		}
-		leaseMetadata = cloneJSON(row.metadata)
 		return nil
 	})
 	if err != nil || lease == nil {
 		return nil, err
-	}
-	ok, err := r.preflightScheduleLease(ctx, lease, leaseMetadata)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, nil
 	}
 	return lease, nil
 }

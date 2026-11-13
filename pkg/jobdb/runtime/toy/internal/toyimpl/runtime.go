@@ -644,22 +644,7 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 		}
 	}
 	r.engine.mu.Unlock()
-	filtered := out[:0]
-	for _, item := range out {
-		lease, ok := item.(*runtimeLease)
-		if !ok {
-			filtered = append(filtered, item)
-			continue
-		}
-		ok, err := r.preflightScheduleLease(ctx, lease)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			filtered = append(filtered, lease)
-		}
-	}
-	return filtered, nil
+	return out, nil
 }
 
 func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
@@ -744,13 +729,6 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 	}
 	record.mu.Unlock()
 	r.engine.mu.Unlock()
-	ok, err := r.preflightScheduleLease(ctx, lease)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, nil
-	}
 	return lease, nil
 }
 

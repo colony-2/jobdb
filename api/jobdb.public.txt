@@ -17,7 +17,6 @@ type AppErrorPayload struct
   field InputRef *InputReference `json:"input_ref,omitempty"`
   field Stacktrace []string `json:"stacktrace,omitempty"`
 func AppMetadataFromStoredMetadata func(raw encoding/json.RawMessage) encoding/json.RawMessage
-func AppendScheduleFailureBit func(bits string, success bool, windowSize int) string
 type ApplicationInputBytes struct
   field Data []byte
 type ApplicationOutputBytes struct
@@ -441,7 +440,6 @@ type ExecutionVersions struct
   field JobDBVersion string `json:"jobdb_version"`
   field ConsumerVersions map[string]string `json:"consumer_versions,omitempty"`
 func ExtractParentJobID func(raw encoding/json.RawMessage) (string, bool, error)
-func ExtractScheduleOccurrenceMetadata func(raw encoding/json.RawMessage) (ScheduleOccurrenceMetadata, bool, error)
 func ExtractTaskDataResult func(data TaskData) (TaskData, error)
 type FailGoalRequest struct
   field GoalKey GoalKey `json:"-"`
@@ -533,7 +531,6 @@ type GoalSummary struct
   field TerminalCandidateCount int64 `json:"terminalCandidateCount"`
   field UnavailableCandidateCount int64 `json:"unavailableCandidateCount"`
 func HasPrimaryGoalSelectionAuthorizer func(ctx context.Context) bool
-func InitialScheduleFire func(trigger ScheduleTrigger, now time.Time) (*time.Time, error)
 type InputReference struct
   field Ordinal int64 `json:"ordinal"`
   field Hash string `json:"hash,omitempty"`
@@ -839,28 +836,7 @@ method ListLeaseEventsRequest.UnmarshalJSON func(raw []byte) error
 type ListLeaseEventsResponse struct
   field Events []LeaseEvent `json:"events"`
   field NextPageToken string `json:"nextPageToken,omitempty"`
-type ListScheduleRunsRequest struct
-  field ScheduleKey ScheduleKey
-  field ScheduledAfter *time.Time
-  field ScheduledBefore *time.Time
-  field Statuses []JobStatus
-  field PageSize int
-  field PageToken string
-type ListScheduleRunsResponse struct
-  field Runs []ScheduleRunSummary
-  field NextPageToken string
-type ListSchedulesRequest struct
-  field TenantId string
-  field ScheduleIds []string
-  field States []ScheduleState
-  field TargetJobTypes []string
-  field PageSize int
-  field PageToken string
-type ListSchedulesResponse struct
-  field Schedules []ScheduleInfo
-  field NextPageToken string
 const MaxListJobsPageSize untyped int = 200
-func MergeScheduleOccurrenceMetadata func(appMetadata encoding/json.RawMessage, occurrence ScheduleOccurrenceMetadata, manual bool) (encoding/json.RawMessage, error)
 func Metadata func() MetadataFilter
 type MetadataFilter interface
   method AndFilter func(MetadataFilter) (MetadataFilter, error)
@@ -880,13 +856,11 @@ func NewSystemError func(payload SystemErrorPayload) error
 func NewTaskData func(data any, artifacts ...Artifact) (TaskData, error)
 func NewTaskDataOrPanic func(data any, artifacts ...Artifact) TaskData
 func NewTimeoutError func(kind string, after time.Duration, scope string, inputRef *InputReference, retryable bool) error
-func NextScheduleFire func(trigger ScheduleTrigger, after time.Time) (*time.Time, error)
 type NonRetryableError interface
   method NonRetryable func() bool
 func NormalizeCellRepo func(s string) (string, error)
 func NormalizeJSON func(raw encoding/json.RawMessage) encoding/json.RawMessage
 func NormalizeLeaseEventRequest func(r ListLeaseEventsRequest) (ListLeaseEventsRequest, error)
-func NormalizeScheduleOverlapPolicy func(policy ScheduleOverlapPolicy) ScheduleOverlapPolicy
 func ParseJobKey func(s string) (JobKey, error)
 type PayloadContribution struct
   field Location string `json:"location"`
@@ -967,96 +941,8 @@ type RunPolicy struct
   field InvocationTimeout *Duration `yaml:"invocation_timeout,omitempty"`
   field TotalTimeout *Duration `yaml:"total_timeout,omitempty"`
 type RuntimeJobMetadata struct
-  field Schedule *ScheduleOccurrenceMetadata `json:"schedule,omitempty"`
   field SchemaHash string `json:"schemaHash,omitempty"`
   field ParentJobID string `json:"parentJobId,omitempty"`
-type ScheduleFailureHistory struct
-  field Bits string `json:"bits,omitempty"`
-  field WindowSize int `json:"windowSize,omitempty"`
-type ScheduleFailurePolicy struct
-  field MinSuccessPercent int `json:"minSuccessPercent,omitempty"`
-  field WindowSize int `json:"windowSize,omitempty"`
-  field MaxSequentialFailures int `json:"maxSequentialFailures,omitempty"`
-func ScheduleFailurePolicyViolated func(bits string, policy ScheduleFailurePolicy) bool
-type ScheduleInfo struct
-  field PauseReason string
-  field TenantId string
-  field ScheduleId string
-  field ScheduleKey ScheduleKey
-  field State ScheduleState
-  field EffectiveState ScheduleState
-  field Generation int64
-  field SpecHash string
-  field Trigger ScheduleTrigger
-  field Target ScheduleTarget
-  field OverlapPolicy ScheduleOverlapPolicy
-  field FailurePolicy ScheduleFailurePolicy
-  field NextFireAt *time.Time
-  field NextJobKey *JobKey
-  field CreatedAt time.Time
-  field UpdatedAt time.Time
-type ScheduleKey struct
-  field TenantId string `json:"tenantId"`
-  field ScheduleId string `json:"scheduleId"`
-method ScheduleKey.Validate func() error
-func ScheduleManualJobID func(scheduleID string, requestID string) string
-const ScheduleMetadataKind untyped string = "schedule_tick"
-type ScheduleMutationRequest struct
-  field ScheduleKey ScheduleKey
-  field ExpectedGeneration *int64
-  field RequestTime time.Time
-  field WorkerID string
-type ScheduleOccurrenceMetadata struct
-  field ScheduleId string `json:"scheduleId"`
-  field Kind string `json:"kind"`
-  field Generation int64 `json:"generation"`
-  field SpecHash string `json:"specHash"`
-  field ScheduledAt time.Time `json:"scheduledAt"`
-  field RunId string `json:"runId"`
-  field Manual bool `json:"manual"`
-  field BackfillId string `json:"backfillId,omitempty"`
-  field PreviousJobId string `json:"previousJobId,omitempty"`
-  field FailureHistory ScheduleFailureHistory `json:"failureHistory,omitempty"`
-type ScheduleOverlapPolicy string
-const ScheduleOverlapSerial ScheduleOverlapPolicy = "serial"
-func ScheduleRunID func(t time.Time) string
-func ScheduleRunJobID func(scheduleID string, generation int64, scheduledAt time.Time) string
-type ScheduleRunSummary struct
-  embedded JobSummary JobSummary
-  field ScheduleId string
-  field ScheduledAt time.Time
-  field ReasonCode string
-type ScheduleSpec struct
-  field Trigger ScheduleTrigger `json:"trigger"`
-  field Target ScheduleTarget `json:"-"`
-  field OverlapPolicy ScheduleOverlapPolicy `json:"overlapPolicy,omitempty"`
-  field FailurePolicy ScheduleFailurePolicy `json:"failurePolicy,omitempty"`
-  field Paused bool `json:"paused,omitempty"`
-func ScheduleSpecHash func(trigger ScheduleTrigger, target ScheduleTarget, overlap ScheduleOverlapPolicy, failure ScheduleFailurePolicy) (string, error)
-type ScheduleState string
-const ScheduleStateActive ScheduleState = "ACTIVE"
-const ScheduleStateArchived ScheduleState = "ARCHIVED"
-const ScheduleStateFailurePaused ScheduleState = "FAILURE_PAUSED"
-const ScheduleStatePaused ScheduleState = "PAUSED"
-type ScheduleTarget struct
-  field Cell string `json:"cell"`
-  field CellID string `json:"cellId"`
-  field CellRepo string `json:"cellRepo"`
-  field ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
-  field JobType string `json:"jobType"`
-  field Data JobData `json:"-"`
-  field RunPolicy RunPolicy `json:"runPolicy,omitempty"`
-  field Metadata encoding/json.RawMessage `json:"metadata,omitempty"`
-type ScheduleTrigger struct
-  field Kind ScheduleTriggerKind `json:"kind"`
-  field Expression string `json:"expression,omitempty"`
-  field Timezone string `json:"timezone,omitempty"`
-  field StartAt *time.Time `json:"startAt,omitempty"`
-  field EndAt *time.Time `json:"endAt,omitempty"`
-  field Interval time.Duration `json:"interval,omitempty"`
-const ScheduleTriggerCron ScheduleTriggerKind = "cron"
-const ScheduleTriggerInterval ScheduleTriggerKind = "interval"
-type ScheduleTriggerKind string
 type SecretLeaseContext struct
   field Cell ResolvedCell
   field LeaseID string
@@ -1244,11 +1130,6 @@ type TimeoutPayload struct
   field Message string `json:"message,omitempty"`
 const TimeoutScopeInvocation untyped string = "invocation"
 const TimeoutScopeTotal untyped string = "total"
-type TriggerScheduleRequest struct
-  field ScheduleKey ScheduleKey
-  field RequestID string
-  field RequestTime time.Time
-  field WorkerID string
 func TxFromCtx func(ctx context.Context) (*gorm.io/gorm.DB, bool)
 type UpdateCellRequest struct
   embedded CellKey CellKey `json:"-"`
@@ -1257,17 +1138,6 @@ type UpdateCellRequest struct
   field Repo *string `json:"repo,omitempty"`
   field Description *string `json:"description,omitempty"`
   field Metadata *map[string]encoding/json.RawMessage `json:"metadata,omitempty"`
-type UpsertScheduleRequest struct
-  field TenantId string
-  field ScheduleId string
-  field Trigger ScheduleTrigger
-  field Target ScheduleTarget
-  field OverlapPolicy ScheduleOverlapPolicy
-  field FailurePolicy ScheduleFailurePolicy
-  field Paused bool
-  field ExpectedGeneration *int64
-  field RequestTime time.Time
-  field WorkerID string
 func ValidateAlternateRoute func(route *Route, after *time.Duration, task *TaskWait) error
 func ValidateApplicationMetadata func(raw encoding/json.RawMessage) error
 func ValidateCellName func(s string) error
@@ -1279,7 +1149,6 @@ func ValidateDependencyWait func(w *DependencyWait, submission bool) error
 func ValidateIdentifier func(value string) error
 func ValidateJobSchemaHash func(hash string) error
 func ValidatePrimaryGoalSelection func(job SubmitJob) error
-func ValidateScheduleRequest func(req UpsertScheduleRequest) error
 func WithCellAuthority func(ctx context.Context, a CellAuthority) context.Context
 func WithPrimaryGoalSelectionAuthorizer func(ctx context.Context, authorize PrimaryGoalSelectionAuthorizer) context.Context
 func WithTx func(ctx context.Context, tx *gorm.io/gorm.DB) context.Context
@@ -1287,7 +1156,6 @@ type WorkflowRuntime interface
   embedded LeaseEventReader
   embedded CellRuntime
   embedded GoalRuntime
-  method ArchiveSchedule func(ctx context.Context, req ScheduleMutationRequest) (ScheduleInfo, error)
   method CancelJob func(ctx context.Context, req CancelJobRequest) error
   method ClearCrashConcern func(ctx context.Context, req ClearCrashConcernRequest) error
   method CompleteTaskIfWaiting func(ctx context.Context, req CompleteTaskIfWaitingRequest) error
@@ -1295,21 +1163,14 @@ type WorkflowRuntime interface
   method GetConfiguration func(context.Context, GetConfigurationRequest) (ConfigurationSnapshot, error)
   method GetJob func(ctx context.Context, jobKey JobKey) (JobInfo, error)
   method GetJobLease func(ctx context.Context, req GetJobLeaseRequest) (ExecutionLease, error)
-  method GetSchedule func(ctx context.Context, key ScheduleKey) (ScheduleInfo, error)
   method ListChapters func(ctx context.Context, req ListChaptersRequest) ([]Chapter, error)
   method ListJobs func(ctx context.Context, req ListJobsRequest) (ListJobsResponse, error)
-  method ListScheduleRuns func(ctx context.Context, req ListScheduleRunsRequest) (ListScheduleRunsResponse, error)
-  method ListSchedules func(ctx context.Context, req ListSchedulesRequest) (ListSchedulesResponse, error)
   method OpenArtifact func(ctx context.Context, ref ArtifactRef) (ArtifactReader, error)
-  method PauseSchedule func(ctx context.Context, req ScheduleMutationRequest) (ScheduleInfo, error)
   method PollWork func(ctx context.Context, req PollWorkRequest) ([]ExecutionLease, error)
   method PutChapter func(ctx context.Context, req PutChapterRequest) error
   method ResolveSecrets func(context.Context, ResolveSecretsRequest) (SecretResolveResult, error)
-  method ResumeSchedule func(ctx context.Context, req ScheduleMutationRequest) (ScheduleInfo, error)
   method SubmitJob func(ctx context.Context, req SubmitJobRequest) (JobHandle, error)
   method SubmitRestartJob func(ctx context.Context, req SubmitRestartJobRequest) (JobHandle, error)
-  method TriggerSchedule func(ctx context.Context, req TriggerScheduleRequest) (JobHandle, error)
-  method UpsertSchedule func(ctx context.Context, req UpsertScheduleRequest) (ScheduleInfo, error)
 
 package github.com/colony-2/jobdb/pkg/jobdb/chapterstore/postgres
 type Config struct
@@ -1332,7 +1193,6 @@ package github.com/colony-2/jobdb/pkg/jobdb/runtimetest
 const AddOneTaskName untyped string = "add"
 type Capabilities struct
   field Leases bool
-  field Schedules bool
   field SchemaRegistry bool
   field RuntimeStorage bool
   field LongPoll bool
@@ -1444,7 +1304,6 @@ type CreateJobRequest struct
   field ParentJobID string
   field RunPolicy github.com/colony-2/jobdb/pkg/jobdb.RunPolicy
   field AppMetadata encoding/json.RawMessage
-  field Schedule *github.com/colony-2/jobdb/pkg/jobdb.ScheduleOccurrenceMetadata
   field SchemaHash string
   field WaitForJobIDs []string
   field AvailableAt *time.Time
@@ -1533,26 +1392,6 @@ type ListJobsRequest struct
 type ListJobsResponse struct
   field Jobs []StoredJob
   field NextPageToken string
-type ListScheduleRunsRequest struct
-  field ScheduleKey github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey
-  field ScheduledAfter *time.Time
-  field ScheduledBefore *time.Time
-  field Statuses []github.com/colony-2/jobdb/pkg/jobdb.JobStatus
-  field PageSize int
-  field PageToken string
-type ListScheduleRunsResponse struct
-  field Runs []StoredJob
-  field NextPageToken string
-type ListSchedulesRequest struct
-  field TenantId string
-  field ScheduleIDs []string
-  field States []github.com/colony-2/jobdb/pkg/jobdb.ScheduleState
-  field TargetJobTypes []string
-  field PageSize int
-  field PageToken string
-type ListSchedulesResponse struct
-  field Schedules []StoredSchedule
-  field NextPageToken string
 func NewRuntime func(cfg Config) (*Runtime, error)
 func NewSchemaRegistry func(cfg SchemaRegistryConfig) (*SchemaRegistry, error)
 type PreparedJob = github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate.Prepared
@@ -1573,7 +1412,6 @@ func ResolveExecutionRestart func(ctx context.Context, r executionHistoryReader,
 type Runtime struct
   embedded Service *github.com/colony-2/jobdb/pkg/jobdb/configuration.Service
 method Runtime.AddGoalCandidate func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.AddGoalCandidateRequest) (github.com/colony-2/jobdb/pkg/jobdb.GoalCandidateInfo, error)
-method Runtime.ArchiveSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ScheduleMutationRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.CancelJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CancelJobRequest) error
 method Runtime.ChapterApplicationPayloadLimit func() int64
 method Runtime.ClearCrashConcern func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ClearCrashConcernRequest) error
@@ -1590,7 +1428,6 @@ method Runtime.GetDependencyWait func(ctx context.Context, k github.com/colony-2
 method Runtime.GetGoal func(ctx context.Context, k github.com/colony-2/jobdb/pkg/jobdb.GoalKey) (github.com/colony-2/jobdb/pkg/jobdb.GoalInfo, error)
 method Runtime.GetJob func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey) (github.com/colony-2/jobdb/pkg/jobdb.JobInfo, error)
 method Runtime.GetJobLease func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.GetJobLeaseRequest) (github.com/colony-2/jobdb/pkg/jobdb.ExecutionLease, error)
-method Runtime.GetSchedule func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.KeepAliveLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, duration time.Duration) error
 method Runtime.KeepAliveLeaseByIDWithExpiry func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, duration time.Duration) (time.Time, error)
 method Runtime.ListCells func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.ListCellsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListCellsResponse, error)
@@ -1599,18 +1436,14 @@ method Runtime.ListDependencyWaits func(ctx context.Context, req github.com/colo
 method Runtime.ListGoals func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListGoalsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListGoalsResponse, error)
 method Runtime.ListJobs func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListJobsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListJobsResponse, error)
 method Runtime.ListLeaseEvents func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListLeaseEventsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListLeaseEventsResponse, error)
-method Runtime.ListScheduleRuns func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListScheduleRunsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListScheduleRunsResponse, error)
-method Runtime.ListSchedules func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListSchedulesRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListSchedulesResponse, error)
 method Runtime.LookupCellWithLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, name string) (github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, error)
 method Runtime.OpenArtifact func(ctx context.Context, ref github.com/colony-2/jobdb/pkg/jobdb.ArtifactRef) (github.com/colony-2/jobdb/pkg/jobdb.ArtifactReader, error)
-method Runtime.PauseSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ScheduleMutationRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.PollWork func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.PollWorkRequest) ([]github.com/colony-2/jobdb/pkg/jobdb.ExecutionLease, error)
 method Runtime.PutChapter func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.PutChapterRequest) error
 method Runtime.RenewExecutionLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, duration time.Duration) (github.com/colony-2/jobdb/pkg/jobdb.RenewableExecutionLease, error)
 method Runtime.RescheduleJobWithLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.RescheduleExecutionRequest) error
 method Runtime.ResolveCellWithLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, name string) (github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, error)
 method Runtime.ResolveSecrets func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ResolveSecretsRequest) (github.com/colony-2/jobdb/pkg/jobdb.SecretResolveResult, error)
-method Runtime.ResumeSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ScheduleMutationRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.RetireCell func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.RetireCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method Runtime.SecretResolutionLimits func() github.com/colony-2/jobdb/pkg/jobdb.SecretLimits
 method Runtime.SubmitJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SubmitJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
@@ -1618,18 +1451,8 @@ method Runtime.SubmitJobWithLeaseByID func(ctx context.Context, parent github.co
 method Runtime.SubmitRestartJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.SubmitRestartJobWithLeaseByID func(ctx context.Context, parent github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.SupportsPrimaryGoalSelection func() bool
-method Runtime.TriggerSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.TriggerScheduleRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.UpdateCell func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.UpdateCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
-method Runtime.UpsertSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.UpsertScheduleRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.ValidateExecutionLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string) (github.com/colony-2/jobdb/pkg/jobdb.LeaseValidity, error)
-type ScheduleStateMutation struct
-  field ScheduleKey github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey
-  field State github.com/colony-2/jobdb/pkg/jobdb.ScheduleState
-  field NextFireAt *time.Time
-  field NextJobKey *github.com/colony-2/jobdb/pkg/jobdb.JobKey
-  field ExpectedGeneration *int64
-  field RequestTime time.Time
-  field WorkerID string
 type Scheduler interface
   embedded github.com/colony-2/jobdb/pkg/jobdb.LeaseEventReader
   embedded github.com/colony-2/jobdb/pkg/jobdb.CellRuntime
@@ -1643,18 +1466,12 @@ type Scheduler interface
   method CreateCellWithLeaseByID func(context.Context, github.com/colony-2/jobdb/pkg/jobdb.JobKey, string, string, github.com/colony-2/jobdb/pkg/jobdb.CreateCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
   method CreateJob func(ctx context.Context, req CreateJobRequest) (StoredJob, error)
   method GetJob func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey) (StoredJob, error)
-  method GetSchedule func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey) (StoredSchedule, error)
   method GetWaitingTask func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey) (WaitingTaskSnapshot, error)
   method KeepAliveLease func(ctx context.Context, mutation LeaseMutation) (LeaseSnapshot, error)
   method ListJobs func(ctx context.Context, req ListJobsRequest) (ListJobsResponse, error)
-  method ListScheduleRuns func(ctx context.Context, req ListScheduleRunsRequest) (ListScheduleRunsResponse, error)
-  method ListSchedules func(ctx context.Context, req ListSchedulesRequest) (ListSchedulesResponse, error)
   method LookupCellWithLeaseByID func(context.Context, github.com/colony-2/jobdb/pkg/jobdb.JobKey, string, string, string) (github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, error)
-  method MutateSchedule func(ctx context.Context, mutation ScheduleStateMutation) (StoredSchedule, error)
   method RescheduleLease func(ctx context.Context, mutation RescheduleMutation) (StoredJob, error)
   method ResolveCellWithLeaseByID func(context.Context, github.com/colony-2/jobdb/pkg/jobdb.JobKey, string, string, string) (github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, error)
-  method ResolveScheduleCell func(context.Context, string, string, string) (github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, error)
-  method UpsertSchedule func(ctx context.Context, mutation StoredScheduleMutation) (StoredSchedule, error)
   method ValidateLease func(ctx context.Context, identity LeaseIdentity) (LeaseSnapshot, error)
 type SchemaRegistry struct
 method SchemaRegistry.ArchiveJobSchema func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey) (github.com/colony-2/jobdb/pkg/jobdb.JobSchemaInfo, error)
@@ -1690,7 +1507,6 @@ type StoredJob struct
   field AppMetadata encoding/json.RawMessage
   field SchemaHash string
   field ParentJobID string
-  field Schedule *github.com/colony-2/jobdb/pkg/jobdb.ScheduleOccurrenceMetadata
   field WaitForJobIDs []string
   field AvailableAt time.Time
   field ExpiresAt *time.Time
@@ -1709,35 +1525,6 @@ type StoredJobSchema struct
   field State github.com/colony-2/jobdb/pkg/jobdb.JobSchemaState
   field CreatedAt time.Time
   field ArchivedAt *time.Time
-type StoredSchedule struct
-  field PauseReason string
-  field ScheduleKey github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey
-  field State github.com/colony-2/jobdb/pkg/jobdb.ScheduleState
-  field Generation int64
-  field SpecHash string
-  field TriggerSnapshot encoding/json.RawMessage
-  field TargetJobType string
-  field TargetSnapshot encoding/json.RawMessage
-  field OverlapPolicy github.com/colony-2/jobdb/pkg/jobdb.ScheduleOverlapPolicy
-  field FailurePolicySnapshot encoding/json.RawMessage
-  field NextFireAt *time.Time
-  field NextJobKey *github.com/colony-2/jobdb/pkg/jobdb.JobKey
-  field CreatedAt time.Time
-  field UpdatedAt time.Time
-type StoredScheduleMutation struct
-  field ScheduleKey github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey
-  field State github.com/colony-2/jobdb/pkg/jobdb.ScheduleState
-  field SpecHash string
-  field TriggerSnapshot encoding/json.RawMessage
-  field TargetJobType string
-  field TargetSnapshot encoding/json.RawMessage
-  field OverlapPolicy github.com/colony-2/jobdb/pkg/jobdb.ScheduleOverlapPolicy
-  field FailurePolicySnapshot encoding/json.RawMessage
-  field NextFireAt *time.Time
-  field NextJobKey *github.com/colony-2/jobdb/pkg/jobdb.JobKey
-  field ExpectedGeneration *int64
-  field RequestTime time.Time
-  field WorkerID string
 type TaskWork struct
   field TaskType string
   field ResumeJobType string
@@ -1904,7 +1691,6 @@ type Engine interface
   embedded jobLeaseApi
   embedded loopWorkerApi
   embedded jobsListApi
-  embedded schedulesApi
   method GetArtifact func(tenantId string, key ArtifactKey) (Artifact, error)
   method RegisterWorkers func(workset *WorkSet) error
 type EngineBuilder struct
@@ -2077,10 +1863,6 @@ type ListJobsRequest = github.com/colony-2/jobdb/pkg/jobdb.ListJobsRequest
 type ListJobsResponse = github.com/colony-2/jobdb/pkg/jobdb.ListJobsResponse
 type ListLeaseEventsRequest = github.com/colony-2/jobdb/pkg/jobdb.ListLeaseEventsRequest
 type ListLeaseEventsResponse = github.com/colony-2/jobdb/pkg/jobdb.ListLeaseEventsResponse
-type ListScheduleRunsRequest = github.com/colony-2/jobdb/pkg/jobdb.ListScheduleRunsRequest
-type ListScheduleRunsResponse = github.com/colony-2/jobdb/pkg/jobdb.ListScheduleRunsResponse
-type ListSchedulesRequest = github.com/colony-2/jobdb/pkg/jobdb.ListSchedulesRequest
-type ListSchedulesResponse = github.com/colony-2/jobdb/pkg/jobdb.ListSchedulesResponse
 const MaxListJobsPageSize untyped int = 200
 func Metadata func() MetadataFilter
 type MetadataFilter = github.com/colony-2/jobdb/pkg/jobdb.MetadataFilter
@@ -2135,17 +1917,6 @@ type RuntimeBuildOptions struct
   field MaxActive int
   field AwaitRecycleThreshold time.Duration
   field PollTenantId string
-type ScheduleFailurePolicy = github.com/colony-2/jobdb/pkg/jobdb.ScheduleFailurePolicy
-type ScheduleInfo = github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo
-type ScheduleKey = github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey
-type ScheduleMutationRequest = github.com/colony-2/jobdb/pkg/jobdb.ScheduleMutationRequest
-type ScheduleOverlapPolicy = github.com/colony-2/jobdb/pkg/jobdb.ScheduleOverlapPolicy
-type ScheduleRunSummary = github.com/colony-2/jobdb/pkg/jobdb.ScheduleRunSummary
-type ScheduleSpec = github.com/colony-2/jobdb/pkg/jobdb.ScheduleSpec
-type ScheduleState = github.com/colony-2/jobdb/pkg/jobdb.ScheduleState
-type ScheduleTarget = github.com/colony-2/jobdb/pkg/jobdb.ScheduleTarget
-type ScheduleTrigger = github.com/colony-2/jobdb/pkg/jobdb.ScheduleTrigger
-type ScheduleTriggerKind = github.com/colony-2/jobdb/pkg/jobdb.ScheduleTriggerKind
 type ScopeOptions struct
   field TotalTimeout time.Duration
   field AttemptTimeout time.Duration
@@ -2296,9 +2067,7 @@ type TimeoutOutcome = github.com/colony-2/jobdb/pkg/jobdb.TimeoutOutcome
 type TimeoutPayload = github.com/colony-2/jobdb/pkg/jobdb.TimeoutPayload
 const TimeoutScopeInvocation untyped string = "invocation"
 const TimeoutScopeTotal untyped string = "total"
-type TriggerScheduleRequest = github.com/colony-2/jobdb/pkg/jobdb.TriggerScheduleRequest
 func UnexpectedChapter func(err error) (TaskInputMismatchError, bool)
-type UpsertScheduleRequest = github.com/colony-2/jobdb/pkg/jobdb.UpsertScheduleRequest
 func WaitForJobToComplete func(ctx context.Context, timeout time.Duration, jobKey JobKey, engine Engine) error
 type WorkRegistrationOptions struct
   field ConsumerVersions map[string]string
@@ -2359,7 +2128,6 @@ type Option func(*Runtime)
 type Runtime struct
 method Runtime.AddGoalCandidate func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.AddGoalCandidateRequest) (github.com/colony-2/jobdb/pkg/jobdb.GoalCandidateInfo, error)
 method Runtime.ArchiveJobSchema func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey) (github.com/colony-2/jobdb/pkg/jobdb.JobSchemaInfo, error)
-method Runtime.ArchiveSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ScheduleMutationRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.CancelJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CancelJobRequest) error
 method Runtime.ClearCrashConcern func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ClearCrashConcernRequest) error
 method Runtime.CompleteTaskIfWaiting func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CompleteTaskIfWaitingRequest) error
@@ -2375,7 +2143,6 @@ method Runtime.GetGoal func(ctx context.Context, k github.com/colony-2/jobdb/pkg
 method Runtime.GetJob func(ctx context.Context, jobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey) (github.com/colony-2/jobdb/pkg/jobdb.JobInfo, error)
 method Runtime.GetJobLease func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.GetJobLeaseRequest) (github.com/colony-2/jobdb/pkg/jobdb.ExecutionLease, error)
 method Runtime.GetJobSchema func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey) (github.com/colony-2/jobdb/pkg/jobdb.JobSchemaInfo, error)
-method Runtime.GetSchedule func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.GetTenantConfiguration func(ctx context.Context, tenant string) (github.com/colony-2/jobdb/pkg/jobdb.ConfigurationSnapshot, error)
 method Runtime.ImportLease func(ctx context.Context, capability LeaseCapability) (github.com/colony-2/jobdb/pkg/jobdb.RenewableExecutionLease, error)
 method Runtime.ListCells func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.ListCellsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListCellsResponse, error)
@@ -2385,23 +2152,17 @@ method Runtime.ListGoals func(ctx context.Context, req github.com/colony-2/jobdb
 method Runtime.ListJobSchemas func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListJobSchemasRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListJobSchemasResponse, error)
 method Runtime.ListJobs func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListJobsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListJobsResponse, error)
 method Runtime.ListLeaseEvents func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListLeaseEventsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListLeaseEventsResponse, error)
-method Runtime.ListScheduleRuns func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListScheduleRunsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListScheduleRunsResponse, error)
-method Runtime.ListSchedules func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListSchedulesRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListSchedulesResponse, error)
 method Runtime.OpenArtifact func(ctx context.Context, ref github.com/colony-2/jobdb/pkg/jobdb.ArtifactRef) (github.com/colony-2/jobdb/pkg/jobdb.ArtifactReader, error)
-method Runtime.PauseSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ScheduleMutationRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.PollWork func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.PollWorkRequest) ([]github.com/colony-2/jobdb/pkg/jobdb.ExecutionLease, error)
 method Runtime.PutChapter func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.PutChapterRequest) error
 method Runtime.RegisterJobSchema func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.RegisterJobSchemaRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobSchemaInfo, error)
 method Runtime.RemoveTenantConfigurationValue func(ctx context.Context, in github.com/colony-2/jobdb/pkg/jobdb.RemoveTenantConfigurationValueRequest) (string, error)
 method Runtime.ResolveSecrets func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ResolveSecretsRequest) (github.com/colony-2/jobdb/pkg/jobdb.SecretResolveResult, error)
-method Runtime.ResumeSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ScheduleMutationRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.RetireCell func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.RetireCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method Runtime.SetTenantConfigurationValue func(ctx context.Context, in github.com/colony-2/jobdb/pkg/jobdb.SetTenantConfigurationValueRequest) (string, error)
 method Runtime.SubmitJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SubmitJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.SubmitRestartJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
-method Runtime.TriggerSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.TriggerScheduleRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.UpdateCell func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.UpdateCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
-method Runtime.UpsertSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.UpsertScheduleRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 type ServerOptions struct
   field LeaseTokenSigningKey []byte
   field LeaseTokenAudience string
@@ -2430,7 +2191,6 @@ type Runtime struct
   embedded Service *github.com/colony-2/jobdb/pkg/jobdb/configuration.Service
 method Runtime.AddGoalCandidate func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.AddGoalCandidateRequest) (out github.com/colony-2/jobdb/pkg/jobdb.GoalCandidateInfo, err error)
 method Runtime.ArchiveJobSchema func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey) (github.com/colony-2/jobdb/pkg/jobdb.JobSchemaInfo, error)
-method Runtime.ArchiveSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ScheduleMutationRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.CancelJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CancelJobRequest) error
 method Runtime.ChapterApplicationPayloadLimit func() int64
 method Runtime.ClearCrashConcern func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ClearCrashConcernRequest) error
@@ -2450,7 +2210,6 @@ method Runtime.GetGoal func(ctx context.Context, key github.com/colony-2/jobdb/p
 method Runtime.GetJob func(ctx context.Context, jobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey) (github.com/colony-2/jobdb/pkg/jobdb.JobInfo, error)
 method Runtime.GetJobLease func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.GetJobLeaseRequest) (github.com/colony-2/jobdb/pkg/jobdb.ExecutionLease, error)
 method Runtime.GetJobSchema func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey) (github.com/colony-2/jobdb/pkg/jobdb.JobSchemaInfo, error)
-method Runtime.GetSchedule func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.KeepAliveLeaseByID func(ctx context.Context, jobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, leaseDuration time.Duration) error
 method Runtime.KeepAliveLeaseByIDWithExpiry func(ctx context.Context, jobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, leaseDuration time.Duration) (time.Time, error)
 method Runtime.ListCells func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListCellsRequest) (out github.com/colony-2/jobdb/pkg/jobdb.ListCellsResponse, err error)
@@ -2460,11 +2219,8 @@ method Runtime.ListGoals func(ctx context.Context, req github.com/colony-2/jobdb
 method Runtime.ListJobSchemas func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListJobSchemasRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListJobSchemasResponse, error)
 method Runtime.ListJobs func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListJobsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListJobsResponse, error)
 method Runtime.ListLeaseEvents func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListLeaseEventsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListLeaseEventsResponse, error)
-method Runtime.ListScheduleRuns func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListScheduleRunsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListScheduleRunsResponse, error)
-method Runtime.ListSchedules func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListSchedulesRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListSchedulesResponse, error)
 method Runtime.LookupCellWithLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, name string) (out github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, err error)
 method Runtime.OpenArtifact func(ctx context.Context, ref github.com/colony-2/jobdb/pkg/jobdb.ArtifactRef) (github.com/colony-2/jobdb/pkg/jobdb.ArtifactReader, error)
-method Runtime.PauseSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ScheduleMutationRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.PollWork func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.PollWorkRequest) ([]github.com/colony-2/jobdb/pkg/jobdb.ExecutionLease, error)
 method Runtime.PrepareJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate.Preparation) (out github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate.Prepared, err error)
 method Runtime.PutChapter func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.PutChapterRequest) error
@@ -2474,7 +2230,6 @@ method Runtime.RenewExecutionLeaseByID func(ctx context.Context, key github.com/
 method Runtime.RescheduleJobWithLeaseByID func(ctx context.Context, jobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.RescheduleExecutionRequest) error
 method Runtime.ResolveCellWithLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, name string) (out github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, err error)
 method Runtime.ResolveSecrets func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ResolveSecretsRequest) (github.com/colony-2/jobdb/pkg/jobdb.SecretResolveResult, error)
-method Runtime.ResumeSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ScheduleMutationRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.RetireCell func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.RetireCellRequest) (out github.com/colony-2/jobdb/pkg/jobdb.Cell, err error)
 method Runtime.SecretResolutionLimits func() github.com/colony-2/jobdb/pkg/jobdb.SecretLimits
 method Runtime.SetDevSecret func(ctx context.Context, tenant string, name string, value string) error
@@ -2483,9 +2238,7 @@ method Runtime.SubmitJobWithLeaseByID func(ctx context.Context, parentJobKey git
 method Runtime.SubmitRestartJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.SubmitRestartJobWithLeaseByID func(ctx context.Context, parentJobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.SupportsPrimaryGoalSelection func() bool
-method Runtime.TriggerSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.TriggerScheduleRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.UpdateCell func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.UpdateCellRequest) (out github.com/colony-2/jobdb/pkg/jobdb.Cell, err error)
-method Runtime.UpsertSchedule func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.UpsertScheduleRequest) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleInfo, error)
 method Runtime.ValidateExecutionLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string) (github.com/colony-2/jobdb/pkg/jobdb.LeaseValidity, error)
 func StartEmbeddedRuntime func(ctx context.Context) (*EmbeddedRuntime, error)
 func WithBlobStoreURI func(uri string) Option
@@ -2557,7 +2310,6 @@ type LeaseProof struct
   field LeaseID string
   field WorkerID string
 func New func() *State
-func Schedule func(ctx context.Context) (github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey, bool)
 type State struct
   field CursorKey []byte
   field Cells map[string]github.com/colony-2/jobdb/pkg/jobdb.Cell
@@ -2575,5 +2327,4 @@ method State.Select func(ctx context.Context, tenant string, names []string, per
 method State.Update func(ctx context.Context, r github.com/colony-2/jobdb/pkg/jobdb.UpdateCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 func UnwrapJobCursor func(token string, binding string) (string, error)
 func WithLease func(ctx context.Context, p LeaseProof) context.Context
-func WithSchedule func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.ScheduleKey) context.Context
 func WrapJobCursor func(position string, binding string) string

@@ -1,0 +1,20 @@
+diff --git a/internal/localruntime/runtime.go b/internal/localruntime/runtime.go
+index 7fe5fa0..ac6dd55 100644
+--- a/internal/localruntime/runtime.go
++++ b/internal/localruntime/runtime.go
+@@ -57,15 +57,6 @@ func (r Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobdb
+ func (r Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
+ 	return r.WorkflowRuntime.GetJobLease(Context(ctx), req)
+ }
+-func (r Runtime) UpsertSchedule(ctx context.Context, req jobdb.UpsertScheduleRequest) (jobdb.ScheduleInfo, error) {
+-	return r.WorkflowRuntime.UpsertSchedule(Context(ctx), req)
+-}
+-func (r Runtime) ResumeSchedule(ctx context.Context, req jobdb.ScheduleMutationRequest) (jobdb.ScheduleInfo, error) {
+-	return r.WorkflowRuntime.ResumeSchedule(Context(ctx), req)
+-}
+-func (r Runtime) TriggerSchedule(ctx context.Context, req jobdb.TriggerScheduleRequest) (jobdb.JobHandle, error) {
+-	return r.WorkflowRuntime.TriggerSchedule(Context(ctx), req)
+-}
+ func (r Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jobdb.ExecutionLease, error) {
+ 	return r.WorkflowRuntime.PollWork(Context(ctx), req)
+ }

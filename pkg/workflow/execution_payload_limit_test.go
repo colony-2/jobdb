@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
@@ -143,11 +142,6 @@ func TestConfiguredApplicationLimitRejectsWithoutPublishing(t *testing.T) {
 			restart.Job.ExtraTaskOutput = jobdb.NewTaskDataOrPanic("small")
 			_, err = rt.SubmitRestartJob(ctx, restart)
 			require.NoError(t, err)
-			schedule := jobdb.UpsertScheduleRequest{TenantId: "tenant", ScheduleId: "schedule", Trigger: jobdb.ScheduleTrigger{Kind: jobdb.ScheduleTriggerInterval, Interval: time.Hour}, Target: jobdb.ScheduleTarget{Cell: "test", CellRepo: "example.test/test", JobType: "test", Data: jobdb.NewTaskDataOrPanic(strings.Repeat("x", 63))}}
-			_, err = celltest.Schedule(ctx, rt, schedule)
-			require.ErrorIs(t, err, jobdb.ErrChapterApplicationPayloadTooLarge)
-			_, err = rt.GetSchedule(ctx, jobdb.ScheduleKey{TenantId: "tenant", ScheduleId: "schedule"})
-			require.ErrorIs(t, err, jobdb.ErrJobNotFound)
 
 		})
 	}

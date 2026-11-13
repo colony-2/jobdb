@@ -59,7 +59,6 @@ type ToyEngine struct {
 	mu                                sync.Mutex
 	jobRecords                        map[jobdb.JobKey]*jobRecord
 	schemas                           map[jobdb.JobSchemaKey]*toySchemaRecord
-	schedules                         map[jobdb.ScheduleKey]*toyScheduleRecord
 	runtimeChapters                   map[jobdb.JobKey]map[int64]jobdb.Chapter
 	runtimeArtifacts                  map[runtimeArtifactKey][]byte
 	idGenerator                       JobIDGenerator
@@ -120,10 +119,6 @@ func (r *jobRecord) currentStatus(now time.Time) jobdb.JobStatus {
 		return jobdb.JobStatusReady
 	}
 	return r.status
-}
-
-type toyScheduleRecord struct {
-	info jobdb.ScheduleInfo
 }
 
 type toySchemaRecord struct {
@@ -259,7 +254,6 @@ func NewToyEngine(opts ...Option) *ToyEngine {
 	engine := &ToyEngine{
 		jobRecords:       make(map[jobdb.JobKey]*jobRecord),
 		schemas:          make(map[jobdb.JobSchemaKey]*toySchemaRecord),
-		schedules:        make(map[jobdb.ScheduleKey]*toyScheduleRecord),
 		runtimeChapters:  make(map[jobdb.JobKey]map[int64]jobdb.Chapter),
 		runtimeArtifacts: make(map[runtimeArtifactKey][]byte),
 		idGenerator: func(tenantId string) (jobdb.JobKey, error) {

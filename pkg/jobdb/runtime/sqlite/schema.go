@@ -53,32 +53,6 @@ CREATE INDEX IF NOT EXISTS jobdb_jobs_poll_idx
 CREATE INDEX IF NOT EXISTS jobdb_jobs_list_idx
 	ON jobdb_jobs (tenant_id, created_at_ns DESC, job_id DESC);
 
-CREATE TABLE IF NOT EXISTS jobdb_schedules (
- pause_reason TEXT NOT NULL DEFAULT '',
-	tenant_id TEXT NOT NULL,
-	schedule_id TEXT NOT NULL,
-	state TEXT NOT NULL,
-	generation INTEGER NOT NULL,
-	spec_hash TEXT NOT NULL,
-	trigger_json BLOB NOT NULL,
-	target_json BLOB NOT NULL,
- cell_id TEXT NOT NULL,
- cell_name TEXT NOT NULL,
- cell_repo TEXT NOT NULL,
-	target_job_type TEXT NOT NULL,
-	overlap_policy TEXT NOT NULL,
-	failure_policy_json BLOB NOT NULL,
-	next_fire_at_ns INTEGER,
-	next_job_id TEXT,
-	created_at_ns INTEGER NOT NULL,
-	updated_at_ns INTEGER NOT NULL,
- FOREIGN KEY(tenant_id,cell_id) REFERENCES jobdb_cells(tenant_id,cell_id),
-	PRIMARY KEY (tenant_id, schedule_id)
-);
-
-CREATE INDEX IF NOT EXISTS jobdb_schedules_list_idx
-	ON jobdb_schedules (tenant_id, state, updated_at_ns DESC, schedule_id DESC);
-
 CREATE TABLE IF NOT EXISTS jobdb_schemas (
 	tenant_id TEXT NOT NULL,
 	schema_hash TEXT NOT NULL,
@@ -110,7 +84,6 @@ CREATE INDEX IF NOT EXISTS jobdb_dependency_targets_lookup ON jobdb_dependency_t
 CREATE TABLE IF NOT EXISTS jobdb_goal_preparations(tenant_id TEXT NOT NULL,job_id TEXT NOT NULL,request_id TEXT,goal_id TEXT NOT NULL,share_goal INTEGER NOT NULL,descriptor BLOB NOT NULL,requested_cell TEXT NOT NULL,requested_repo TEXT NOT NULL,cell_id TEXT NOT NULL,cell_name TEXT NOT NULL,cell_repo TEXT NOT NULL,parent_job_id TEXT NOT NULL,prior_job_id TEXT NOT NULL,dependencies BLOB NOT NULL,PRIMARY KEY(tenant_id,job_id),UNIQUE(tenant_id,request_id),FOREIGN KEY(tenant_id,cell_id) REFERENCES jobdb_cells(tenant_id,cell_id));
  CREATE INDEX jobdb_goals_cell_idx ON jobdb_goals(tenant_id,cell_id,state);
  CREATE INDEX jobdb_preparations_cell_idx ON jobdb_goal_preparations(tenant_id,cell_id);
- CREATE INDEX jobdb_schedules_cell_idx ON jobdb_schedules(tenant_id,cell_id,state);
  CREATE INDEX jobdb_goals_state_idx ON jobdb_goals(tenant_id,state,goal_id);
  CREATE INDEX jobdb_goals_created_idx ON jobdb_goals(tenant_id,created_at_ns,goal_id);
  CREATE INDEX jobdb_goals_updated_idx ON jobdb_goals(tenant_id,updated_at_ns,goal_id);

@@ -13,7 +13,6 @@ type Engine interface {
 	jobLeaseApi
 	loopWorkerApi
 	jobsListApi
-	schedulesApi
 
 	RegisterWorkers(workset *WorkSet) error
 	GetArtifact(tenantId string, key ArtifactKey) (Artifact, error)
@@ -25,17 +24,6 @@ type jobsListApi interface {
 
 type jobLeaseApi interface {
 	GetJobLease(ctx context.Context, req GetJobLeaseRequest) (ExecutionLease, error)
-}
-
-type schedulesApi interface {
-	UpsertSchedule(ctx context.Context, req UpsertScheduleRequest) (ScheduleInfo, error)
-	GetSchedule(ctx context.Context, key ScheduleKey) (ScheduleInfo, error)
-	ListSchedules(ctx context.Context, req ListSchedulesRequest) (ListSchedulesResponse, error)
-	PauseSchedule(ctx context.Context, req ScheduleMutationRequest) (ScheduleInfo, error)
-	ResumeSchedule(ctx context.Context, req ScheduleMutationRequest) (ScheduleInfo, error)
-	ArchiveSchedule(ctx context.Context, req ScheduleMutationRequest) (ScheduleInfo, error)
-	TriggerSchedule(ctx context.Context, req TriggerScheduleRequest) (JobHandle, error)
-	ListScheduleRuns(ctx context.Context, req ListScheduleRunsRequest) (ListScheduleRunsResponse, error)
 }
 
 func WaitForJobToComplete(ctx context.Context, timeout time.Duration, jobKey JobKey, engine Engine) error {

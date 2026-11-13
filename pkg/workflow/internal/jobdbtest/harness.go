@@ -559,84 +559,6 @@ func (r *tenantNamespacedRuntime) ListJobs(ctx context.Context, req jobdb.ListJo
 	return resp, nil
 }
 
-func (r *tenantNamespacedRuntime) UpsertSchedule(ctx context.Context, req jobdb.UpsertScheduleRequest) (jobdb.ScheduleInfo, error) {
-	req.TenantId = r.prefixTenant(req.TenantId)
-	info, err := r.runtime.UpsertSchedule(ctx, req)
-	if err != nil {
-		return jobdb.ScheduleInfo{}, err
-	}
-	return r.stripScheduleInfo(info), nil
-}
-
-func (r *tenantNamespacedRuntime) GetSchedule(ctx context.Context, key jobdb.ScheduleKey) (jobdb.ScheduleInfo, error) {
-	info, err := r.runtime.GetSchedule(ctx, r.prefixScheduleKey(key))
-	if err != nil {
-		return jobdb.ScheduleInfo{}, err
-	}
-	return r.stripScheduleInfo(info), nil
-}
-
-func (r *tenantNamespacedRuntime) ListSchedules(ctx context.Context, req jobdb.ListSchedulesRequest) (jobdb.ListSchedulesResponse, error) {
-	req.TenantId = r.prefixTenant(req.TenantId)
-	resp, err := r.runtime.ListSchedules(ctx, req)
-	if err != nil {
-		return jobdb.ListSchedulesResponse{}, err
-	}
-	for i := range resp.Schedules {
-		resp.Schedules[i] = r.stripScheduleInfo(resp.Schedules[i])
-	}
-	return resp, nil
-}
-
-func (r *tenantNamespacedRuntime) PauseSchedule(ctx context.Context, req jobdb.ScheduleMutationRequest) (jobdb.ScheduleInfo, error) {
-	req.ScheduleKey = r.prefixScheduleKey(req.ScheduleKey)
-	info, err := r.runtime.PauseSchedule(ctx, req)
-	if err != nil {
-		return jobdb.ScheduleInfo{}, err
-	}
-	return r.stripScheduleInfo(info), nil
-}
-
-func (r *tenantNamespacedRuntime) ResumeSchedule(ctx context.Context, req jobdb.ScheduleMutationRequest) (jobdb.ScheduleInfo, error) {
-	req.ScheduleKey = r.prefixScheduleKey(req.ScheduleKey)
-	info, err := r.runtime.ResumeSchedule(ctx, req)
-	if err != nil {
-		return jobdb.ScheduleInfo{}, err
-	}
-	return r.stripScheduleInfo(info), nil
-}
-
-func (r *tenantNamespacedRuntime) ArchiveSchedule(ctx context.Context, req jobdb.ScheduleMutationRequest) (jobdb.ScheduleInfo, error) {
-	req.ScheduleKey = r.prefixScheduleKey(req.ScheduleKey)
-	info, err := r.runtime.ArchiveSchedule(ctx, req)
-	if err != nil {
-		return jobdb.ScheduleInfo{}, err
-	}
-	return r.stripScheduleInfo(info), nil
-}
-
-func (r *tenantNamespacedRuntime) TriggerSchedule(ctx context.Context, req jobdb.TriggerScheduleRequest) (jobdb.JobHandle, error) {
-	req.ScheduleKey = r.prefixScheduleKey(req.ScheduleKey)
-	handle, err := r.runtime.TriggerSchedule(ctx, req)
-	if err != nil {
-		return jobdb.JobHandle{}, err
-	}
-	handle.JobKey = r.stripJobKey(handle.JobKey)
-	return handle, nil
-}
-
-func (r *tenantNamespacedRuntime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRunsRequest) (jobdb.ListScheduleRunsResponse, error) {
-	req.ScheduleKey = r.prefixScheduleKey(req.ScheduleKey)
-	resp, err := r.runtime.ListScheduleRuns(ctx, req)
-	if err != nil {
-		return jobdb.ListScheduleRunsResponse{}, err
-	}
-	for i := range resp.Runs {
-		resp.Runs[i].JobSummary.JobKey = r.stripJobKey(resp.Runs[i].JobSummary.JobKey)
-	}
-	return resp, nil
-}
-
 func (r *tenantNamespacedRuntime) GetChapter(ctx context.Context, ref jobdb.ChapterRef) (jobdb.Chapter, error) {
 	ref.JobKey = r.prefixJobKey(ref.JobKey)
 	return r.runtime.GetChapter(ctx, ref)
@@ -684,24 +606,9 @@ func (r *tenantNamespacedRuntime) prefixJobKey(jobKey jobdb.JobKey) jobdb.JobKey
 	return jobKey
 }
 
-func (r *tenantNamespacedRuntime) prefixScheduleKey(key jobdb.ScheduleKey) jobdb.ScheduleKey {
-	key.TenantId = r.prefixTenant(key.TenantId)
-	return key
-}
-
 func (r *tenantNamespacedRuntime) stripJobKey(jobKey jobdb.JobKey) jobdb.JobKey {
 	jobKey.TenantId = r.stripTenant(jobKey.TenantId)
 	return jobKey
-}
-
-func (r *tenantNamespacedRuntime) stripScheduleInfo(info jobdb.ScheduleInfo) jobdb.ScheduleInfo {
-	info.TenantId = r.stripTenant(info.TenantId)
-	info.ScheduleKey.TenantId = r.stripTenant(info.ScheduleKey.TenantId)
-	if info.NextJobKey != nil {
-		key := r.stripJobKey(*info.NextJobKey)
-		info.NextJobKey = &key
-	}
-	return info
 }
 
 func (r *tenantNamespacedRuntime) prefixTenant(tenantID string) string {

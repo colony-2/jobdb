@@ -5,10 +5,11 @@ package remote
 import (
 	"context"
 	"encoding/json"
-	"github.com/colony-2/jobdb/pkg/jobdb"
 	"io"
 	"testing"
 	"time"
+
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 var _ = json.RawMessage{}
@@ -77,30 +78,7 @@ func (legacyRuntime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseReque
 func (legacyRuntime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteTaskIfWaitingRequest) error {
 	panic("compile-only historical fixture")
 }
-func (legacyRuntime) UpsertSchedule(ctx context.Context, req jobdb.UpsertScheduleRequest) (jobdb.ScheduleInfo, error) {
-	panic("compile-only historical fixture")
-}
-func (legacyRuntime) GetSchedule(ctx context.Context, key jobdb.ScheduleKey) (jobdb.ScheduleInfo, error) {
-	panic("compile-only historical fixture")
-}
-func (legacyRuntime) ListSchedules(ctx context.Context, req jobdb.ListSchedulesRequest) (jobdb.ListSchedulesResponse, error) {
-	panic("compile-only historical fixture")
-}
-func (legacyRuntime) PauseSchedule(ctx context.Context, req jobdb.ScheduleMutationRequest) (jobdb.ScheduleInfo, error) {
-	panic("compile-only historical fixture")
-}
-func (legacyRuntime) ResumeSchedule(ctx context.Context, req jobdb.ScheduleMutationRequest) (jobdb.ScheduleInfo, error) {
-	panic("compile-only historical fixture")
-}
-func (legacyRuntime) ArchiveSchedule(ctx context.Context, req jobdb.ScheduleMutationRequest) (jobdb.ScheduleInfo, error) {
-	panic("compile-only historical fixture")
-}
-func (legacyRuntime) TriggerSchedule(ctx context.Context, req jobdb.TriggerScheduleRequest) (jobdb.JobHandle, error) {
-	panic("compile-only historical fixture")
-}
-func (legacyRuntime) ListScheduleRuns(ctx context.Context, req jobdb.ListScheduleRunsRequest) (jobdb.ListScheduleRunsResponse, error) {
-	panic("compile-only historical fixture")
-}
+
 func (legacyRuntime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInfo, error) {
 	panic("compile-only historical fixture")
 }

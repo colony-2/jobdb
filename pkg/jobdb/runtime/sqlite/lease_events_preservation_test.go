@@ -33,7 +33,6 @@ func TestLeaseEventStartupPreservesSavedState(t *testing.T) {
 			lease, e := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "saved-worker", Routes: []jobdb.Route{{JobType: "job"}}, LeaseDuration: time.Hour})
 			require.NoError(t, e)
 			require.NoError(t, lease.KeepAlive(ctx))
-			schedule := upsertScheduleForTest(t, ctx, r, "saved-schedule", time.Now().UTC(), time.Hour)
 			_, e = r.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "tenant", Name: "saved", Value: json.RawMessage(`{"bytes":[0,1,255]}`)})
 			require.NoError(t, e)
 			cell, e := r.GetCell(ctx, jobdb.CellKey{TenantID: "tenant", CellID: h.CellID})
@@ -89,9 +88,6 @@ func TestLeaseEventStartupPreservesSavedState(t *testing.T) {
 				actualConfig, err := r.GetTenantConfiguration(ctx, "tenant")
 				require.NoError(t, err)
 				require.Equal(t, config, actualConfig)
-				actualSchedule, err := r.GetSchedule(ctx, schedule.ScheduleKey)
-				require.NoError(t, err)
-				require.Equal(t, schedule, actualSchedule)
 
 				actualCell, err := r.GetCell(ctx, jobdb.CellKey{TenantID: "tenant", CellID: h.CellID})
 				require.NoError(t, err)
@@ -100,7 +96,7 @@ func TestLeaseEventStartupPreservesSavedState(t *testing.T) {
 				actualChapter, err := r.GetChapter(ctx, jobdb.ChapterRef{JobKey: h.JobKey, Ordinal: 0})
 				require.NoError(t, err)
 				require.Equal(t, chapter, actualChapter)
-				assertScheduleStartArtifact(t, ctx, r, h.JobKey, "input.txt", []byte("saved artifact bytes\x00"))
+				assertStartArtifact(t, ctx, r, h.JobKey, "input.txt", []byte("saved artifact bytes\x00"))
 				actualEvents, err := r.ListLeaseEvents(ctx, jobdb.ListLeaseEventsRequest{TenantID: "tenant"})
 				require.NoError(t, err)
 				if format == 12 {

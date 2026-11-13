@@ -135,7 +135,6 @@ func TestRuntimeConformance(t *testing.T) {
         Name: "pgjobdb",
         Capabilities: runtimetest.Capabilities{
             Leases:         true,
-            Schedules:      true,
             SchemaRegistry: true,
             RuntimeStorage: true,
             LongPoll:       true,
@@ -174,8 +173,6 @@ pgjobdb should implement its Postgres scheduler around the
 - `AcquireWork` and `AcquireJobLease`
 - `ValidateLease`, `KeepAliveLease`, `CompleteLease`, and `RescheduleLease`
 - `GetWaitingTask` and `ClaimTask`
-- `UpsertSchedule`, `GetSchedule`, `ListSchedules`, `MutateSchedule`, and
-  `ListScheduleRuns`
 
 The scheduler side should own only database facts and atomic mutations:
 
@@ -185,15 +182,14 @@ The scheduler side should own only database facts and atomic mutations:
 - renewing, completing, and rescheduling only the currently live lease;
 - guarding task completion against the expected waiting slot;
 - recording cancel requests and terminal states;
-- storing schedule definitions, generations, next-fire state, and run rows;
-- listing jobs, schedules, and schedule runs with stable pagination.
+- listing jobs with stable pagination.
 
 The runtime facade should own public API conversion and call `runtimecore`
 for reusable workflow semantics. The pgjobdb adapter only implements the
 Postgres ports and constructs the public runtime core.
 
 Do not create a second set of pgjobdb-specific workflow semantics for retry
-policy, prerequisite interpretation, schedule occurrence metadata, lease
+policy, prerequisite interpretation, lease
 authorization, chapter format, or schema interpretation. If conformance
 requires behavior that is only available privately in JobDB, promote the
 smallest useful public helper in `runtimecore`.
@@ -334,34 +330,6 @@ Long polling should be implemented through pgjobdb's own notification or
 wait-loop strategy, but the public behavior must match `PollWorkRequest`:
 return as soon as work is available or once `LongPollUntil` is reached.
 
-## Request 6: Schedules
-
-All schedule APIs are part of the required runtime surface:
-
-- `UpsertSchedule`
-- `GetSchedule`
-- `ListSchedules`
-- `PauseSchedule`
-- `ResumeSchedule`
-- `ArchiveSchedule`
-- `TriggerSchedule`
-- `ListScheduleRuns`
-
-Keep schedule rows in pgjobdb, but preserve JobDB semantics:
-
-- schedule keys are tenant-scoped;
-- generation checks enforce optimistic concurrency;
-- target data, run policy, and app metadata are snapshotted;
-- `SpecHash` changes when the effective schedule spec changes;
-- archived schedules stop future runs;
-- pause and resume preserve the schedule record and generation behavior;
-- manual triggers create schedule-associated jobs;
-- schedule runs list jobs associated with that schedule and preserve stable
-  pagination.
-
-Schedule metadata is JobDB runtime metadata, not app metadata. Job listing
-metadata filters should apply to application metadata only.
-
 ## Public Runtime API Checklist
 
 pgjobdb is complete only when `pgjobdb.Runtime` supports every
@@ -369,9 +337,6 @@ pgjobdb is complete only when `pgjobdb.Runtime` supports every
 
 - lifecycle: `SubmitJob`, `SubmitRestartJob`, `CancelJob`;
 - worker loop: `PollWork`, `GetJobLease`, `CompleteTaskIfWaiting`;
-- schedules: `UpsertSchedule`, `GetSchedule`, `ListSchedules`,
-  `PauseSchedule`, `ResumeSchedule`, `ArchiveSchedule`, `TriggerSchedule`,
-  `ListScheduleRuns`;
 - reads: `GetJob`, `ListJobs`;
 - chapters: `GetChapter`, `ListChapters`, `PutChapter`;
 - artifacts: `OpenArtifact`.
@@ -401,8 +366,7 @@ disabled only while development is in progress.
    lease loss guards.
 6. Implement `PutChapter`, `SubmitRestartJob`, and restart prefix cloning.
 7. Implement `CompleteTaskIfWaiting` with waiting-slot guards.
-8. Implement schedules and schedule-run listing.
-9. Enable all conformance capabilities in CI.
+8. Enable all conformance capabilities in CI.
 
 At each step, prefer adding a small public helper to JobDB core over copying a
 private package into pgjobdb.
@@ -417,6 +381,5 @@ pgjobdb is aligned with the JobDB core design when:
 - schema registration and chapter validation go through `runtimecore`;
 - chapter payloads are stored opaquely;
 - all lease mutations are guarded atomically in Postgres;
-- all schedule APIs are implemented;
 - existing pgjobdb consumers receive a normal `jobdb.WorkflowRuntime` without
   needing to know about runtimecore internals.

@@ -963,40 +963,6 @@ Task-wait projection fields may remain for convenience only if their derivation
 from `payload.taskWait` is documented. A conforming server must keep projection
 fields and `payload.taskWait` consistent.
 
-## Schedules
-
-Schedules are first-class runtime resources. `ScheduleTarget` has the same
-application start shape as `SubmitJob`: target job type, `TaskDataWrite`, run
-policy, and app metadata.
-
-```yaml
-ScheduleTarget:
-  type: object
-  additionalProperties: false
-  required: [jobType, data]
-  properties:
-    jobType:
-      type: string
-      minLength: 1
-    data:
-      $ref: '#/components/schemas/TaskDataWrite'
-    runPolicy:
-      $ref: '#/components/schemas/RunPolicy'
-    metadata:
-      $ref: '#/components/schemas/Metadata'
-```
-
-`upsertSchedule` stores a durable target start spec. The server snapshots target
-artifact bytes/descriptors at schedule mutation time, and each occurrence is
-materialized as a normal job with an ordinary start chapter. Later occurrences
-must not depend on client-local files, handles, or request bodies from the
-original schedule mutation.
-
-REST schedule APIs expose app metadata and target data. Runtime-owned
-`internal.schedule` metadata is stored only in the scheduler job metadata
-envelope and is not accepted from clients or returned through public app-facing
-job metadata fields.
-
 ## Endpoint Contract Updates
 
 The current path layout can remain, but each operation must use the structured
@@ -1016,7 +982,6 @@ schemas:
 | `commitChapterIfWaiting` | completion data is `TaskDataWrite`; ordinal guards use `integer/int64`. |
 | `listChapters`, `getChapter` | responses are `ChapterRecord`; no `chapterType`/`payloadKind`/`data` triple. |
 | `openArtifact` | remains `application/octet-stream`; artifact metadata comes from descriptors. |
-| `upsertSchedule`, `getSchedule`, `listSchedules`, `pauseSchedule`, `resumeSchedule`, `archiveSchedule`, `triggerSchedule`, `listScheduleRuns` | schedule targets use `ScheduleTarget` with `TaskDataWrite`; public metadata is app metadata; runtime-owned schedule metadata is hidden from app APIs. |
 
 ## Deterministic Input Hash
 

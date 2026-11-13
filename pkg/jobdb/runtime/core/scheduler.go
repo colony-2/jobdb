@@ -8,7 +8,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
-// Scheduler persists job and schedule state and performs atomic lease
+// Scheduler persists job state and performs atomic lease
 // mutations for runtime core.
 type Scheduler interface {
 	jobdb.LeaseEventReader
@@ -17,9 +17,6 @@ type Scheduler interface {
 	ResolveCellWithLeaseByID(context.Context, jobdb.JobKey, string, string, string) (jobdb.ResolvedCell, error)
 	LookupCellWithLeaseByID(context.Context, jobdb.JobKey, string, string, string) (jobdb.ResolvedCell, error)
 	GoalScheduler
-	// ResolveScheduleCell resolves an existing active target with jobs.submit authority.
-	// UpsertSchedule and active-state mutations must recheck its ID/repo in the commit transaction.
-	ResolveScheduleCell(context.Context, string, string, string) (jobdb.ResolvedCell, error)
 	CreateJob(ctx context.Context, req CreateJobRequest) (StoredJob, error)
 	GetJob(ctx context.Context, key jobdb.JobKey) (StoredJob, error)
 	ListJobs(ctx context.Context, req ListJobsRequest) (ListJobsResponse, error)
@@ -37,12 +34,6 @@ type Scheduler interface {
 
 	GetWaitingTask(ctx context.Context, key jobdb.JobKey) (WaitingTaskSnapshot, error)
 	ClaimTask(ctx context.Context, req ClaimTaskRequest) (LeaseIdentity, error)
-
-	UpsertSchedule(ctx context.Context, mutation StoredScheduleMutation) (StoredSchedule, error)
-	GetSchedule(ctx context.Context, key jobdb.ScheduleKey) (StoredSchedule, error)
-	ListSchedules(ctx context.Context, req ListSchedulesRequest) (ListSchedulesResponse, error)
-	MutateSchedule(ctx context.Context, mutation ScheduleStateMutation) (StoredSchedule, error)
-	ListScheduleRuns(ctx context.Context, req ListScheduleRunsRequest) (ListScheduleRunsResponse, error)
 }
 
 // CreateJobRequest contains the immutable job facts and initial route written
@@ -63,7 +54,6 @@ type CreateJobRequest struct {
 	ParentJobID           string
 	RunPolicy             jobdb.RunPolicy
 	AppMetadata           json.RawMessage
-	Schedule              *jobdb.ScheduleOccurrenceMetadata
 	SchemaHash            string
 	WaitForJobIDs         []string
 	AvailableAt           *time.Time
@@ -109,7 +99,6 @@ type StoredJob struct {
 	AppMetadata           json.RawMessage
 	SchemaHash            string
 	ParentJobID           string
-	Schedule              *jobdb.ScheduleOccurrenceMetadata
 	WaitForJobIDs         []string
 	AvailableAt           time.Time
 	ExpiresAt             *time.Time
@@ -262,84 +251,4 @@ type CancelJobMutation struct {
 	Reason   string
 	WorkerID string
 	Now      time.Time
-}
-
-// StoredScheduleMutation is the scheduler-side schedule upsert payload after
-// runtime core has validated and snapshotted the target.
-type StoredScheduleMutation struct {
-	ScheduleKey           jobdb.ScheduleKey
-	State                 jobdb.ScheduleState
-	SpecHash              string
-	TriggerSnapshot       json.RawMessage
-	TargetJobType         string
-	TargetSnapshot        json.RawMessage
-	OverlapPolicy         jobdb.ScheduleOverlapPolicy
-	FailurePolicySnapshot json.RawMessage
-	NextFireAt            *time.Time
-	NextJobKey            *jobdb.JobKey
-
-	ExpectedGeneration *int64
-	RequestTime        time.Time
-	WorkerID           string
-}
-
-// ScheduleStateMutation changes a schedule's lifecycle state.
-type ScheduleStateMutation struct {
-	ScheduleKey        jobdb.ScheduleKey
-	State              jobdb.ScheduleState
-	NextFireAt         *time.Time
-	NextJobKey         *jobdb.JobKey
-	ExpectedGeneration *int64
-	RequestTime        time.Time
-	WorkerID           string
-}
-
-// StoredSchedule is the scheduler's logical view of a schedule.
-type StoredSchedule struct {
-	PauseReason           string
-	ScheduleKey           jobdb.ScheduleKey
-	State                 jobdb.ScheduleState
-	Generation            int64
-	SpecHash              string
-	TriggerSnapshot       json.RawMessage
-	TargetJobType         string
-	TargetSnapshot        json.RawMessage
-	OverlapPolicy         jobdb.ScheduleOverlapPolicy
-	FailurePolicySnapshot json.RawMessage
-	NextFireAt            *time.Time
-	NextJobKey            *jobdb.JobKey
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
-}
-
-// ListSchedulesRequest is the scheduler-side form of schedule listing.
-type ListSchedulesRequest struct {
-	TenantId       string
-	ScheduleIDs    []string
-	States         []jobdb.ScheduleState
-	TargetJobTypes []string
-	PageSize       int
-	PageToken      string
-}
-
-// ListSchedulesResponse is the scheduler-side schedule list result.
-type ListSchedulesResponse struct {
-	Schedules     []StoredSchedule
-	NextPageToken string
-}
-
-// ListScheduleRunsRequest is the scheduler-side form of schedule-run listing.
-type ListScheduleRunsRequest struct {
-	ScheduleKey     jobdb.ScheduleKey
-	ScheduledAfter  *time.Time
-	ScheduledBefore *time.Time
-	Statuses        []jobdb.JobStatus
-	PageSize        int
-	PageToken       string
-}
-
-// ListScheduleRunsResponse is the scheduler-side schedule-run list result.
-type ListScheduleRunsResponse struct {
-	Runs          []StoredJob
-	NextPageToken string
 }

@@ -24,7 +24,6 @@ func adaptHarnesses(in []jobdbtest.RuntimeHarness) []runtimetest.Harness {
 			Name: item.Name,
 			Capabilities: runtimetest.Capabilities{
 				Leases:         item.SupportsLeases,
-				Schedules:      true,
 				SchemaRegistry: true,
 				RuntimeStorage: item.SupportsRuntimeStorage,
 			},

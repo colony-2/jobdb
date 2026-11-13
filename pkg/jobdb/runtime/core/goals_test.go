@@ -35,7 +35,7 @@ func (s *goalCaptureScheduler) CreateJob(_ context.Context, req runtimecore.Crea
 	}
 	s.created = req
 	s.published = true
-	return runtimecore.StoredJob{JobKey: req.JobKey, GoalID: req.GoalID, JobType: req.JobType, SchemaHash: req.SchemaHash, ParentJobID: req.ParentJobID, AppMetadata: req.AppMetadata, RunPolicy: req.RunPolicy, Schedule: req.Schedule}, nil
+	return runtimecore.StoredJob{JobKey: req.JobKey, GoalID: req.GoalID, JobType: req.JobType, SchemaHash: req.SchemaHash, ParentJobID: req.ParentJobID, AppMetadata: req.AppMetadata, RunPolicy: req.RunPolicy}, nil
 }
 
 type goalCaptureHistory struct {

@@ -161,11 +161,7 @@ func (r *Runtime) ListCells(ctx context.Context, req jobdb.ListCellsRequest) (ou
 func (r *Runtime) UpdateCell(ctx context.Context, req jobdb.UpdateCellRequest) (out jobdb.Cell, err error) {
 	err = r.cellMutation(ctx, req.TenantID, func(tx *sql.Tx, s *cellstate.State) error {
 		var e error
-		old := s.Cells[req.CellID]
 		out, e = s.Update(ctx, req)
-		if e == nil && old.Repo != out.Repo {
-			_, e = tx.ExecContext(ctx, `UPDATE jobdb_schedules SET state='PAUSED',pause_reason='cell_repo_mismatch' WHERE tenant_id=? AND state='ACTIVE' AND cell_id=?`, req.TenantID, req.CellID)
-		}
 		return e
 	})
 	return
@@ -179,7 +175,7 @@ func (r *Runtime) RetireCell(ctx context.Context, req jobdb.RetireCellRequest) (
 			if e != nil || n > 0 {
 				return n > 0, e
 			}
-			// Preparations, open goals, and active schedules also prevent retirement.
+			// Preparations and open goals also prevent retirement.
 			e = tx.QueryRowContext(ctx, `SELECT count(*) FROM jobdb_goal_preparations p WHERE p.tenant_id=? AND p.cell_id=? AND NOT EXISTS(SELECT 1 FROM jobdb_jobs j WHERE j.tenant_id=p.tenant_id AND j.job_id=p.job_id)`, req.TenantID, id).Scan(&n)
 			if e != nil || n > 0 {
 				return n > 0, e
@@ -188,7 +184,6 @@ func (r *Runtime) RetireCell(ctx context.Context, req jobdb.RetireCellRequest) (
 			if e != nil || n > 0 {
 				return n > 0, e
 			}
-			e = tx.QueryRowContext(ctx, `SELECT count(*) FROM jobdb_schedules WHERE tenant_id=? AND state='ACTIVE' AND cell_id=?`, req.TenantID, id).Scan(&n)
 			return n > 0, e
 		})
 		return e
@@ -248,26 +243,6 @@ func (r *Runtime) prepareCell(ctx context.Context, tx *sql.Tx, req *goalstate.Pr
 		return target, nil
 	}
 	parent, e := r.cellParent(ctx, tx, s, req.Key.TenantId)
-	if key, ok := cellstate.Schedule(ctx); ok {
-		if key.TenantId != req.Key.TenantId {
-			return jobdb.ResolvedCell{}, jobdb.ErrCellForbidden
-		}
-		schedule, found, err := r.loadScheduleRowTx(ctx, tx, key)
-		if err != nil {
-			return jobdb.ResolvedCell{}, err
-		}
-		if !found || schedule.state == jobdb.ScheduleStateArchived {
-			return jobdb.ResolvedCell{}, jobdb.ErrCellNotFound
-		}
-		c, found := s.Cells[schedule.target.CellID]
-		if !found {
-			return jobdb.ResolvedCell{}, jobdb.ErrCellNotFound
-		}
-		if c.Repo != schedule.target.CellRepo || req.CellRepo != schedule.target.CellRepo {
-			return jobdb.ResolvedCell{}, jobdb.ErrCellRepoMismatch
-		}
-		parent = &c
-	}
 	if e != nil {
 		return jobdb.ResolvedCell{}, e
 	}

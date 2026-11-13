@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
@@ -23,11 +22,8 @@ func TestCellColumnsAndCreationReplaySurviveReopen(t *testing.T) {
 	require.NoError(t, err)
 	h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "t", Cell: "root", JobID: "job", JobType: "work", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, err)
-	_, err = r.UpsertSchedule(ctx, jobdb.UpsertScheduleRequest{TenantId: "t", ScheduleId: "schedule", Trigger: jobdb.ScheduleTrigger{Kind: jobdb.ScheduleTriggerInterval, Interval: time.Hour}, Target: jobdb.ScheduleTarget{Cell: "root", JobType: "work", Data: jobdb.NewTaskDataOrPanic(1)}})
-	require.NoError(t, err)
 	for _, q := range []string{
 		`SELECT cell_id,cell_name,cell_repo,payload FROM jobdb_goals WHERE tenant_id='t'`,
-		`SELECT cell_id,cell_name,cell_repo,target_json FROM jobdb_schedules WHERE tenant_id='t'`,
 	} {
 		var id, name, repo string
 		var raw []byte

@@ -232,38 +232,6 @@ func (r *claimsCapturingRuntime) CompleteTaskIfWaiting(context.Context, jobdb.Co
 	return errors.New("unexpected CompleteTaskIfWaiting")
 }
 
-func (r *claimsCapturingRuntime) UpsertSchedule(context.Context, jobdb.UpsertScheduleRequest) (jobdb.ScheduleInfo, error) {
-	return jobdb.ScheduleInfo{}, errors.New("unexpected UpsertSchedule")
-}
-
-func (r *claimsCapturingRuntime) GetSchedule(context.Context, jobdb.ScheduleKey) (jobdb.ScheduleInfo, error) {
-	return jobdb.ScheduleInfo{}, errors.New("unexpected GetSchedule")
-}
-
-func (r *claimsCapturingRuntime) ListSchedules(context.Context, jobdb.ListSchedulesRequest) (jobdb.ListSchedulesResponse, error) {
-	return jobdb.ListSchedulesResponse{}, errors.New("unexpected ListSchedules")
-}
-
-func (r *claimsCapturingRuntime) PauseSchedule(context.Context, jobdb.ScheduleMutationRequest) (jobdb.ScheduleInfo, error) {
-	return jobdb.ScheduleInfo{}, errors.New("unexpected PauseSchedule")
-}
-
-func (r *claimsCapturingRuntime) ResumeSchedule(context.Context, jobdb.ScheduleMutationRequest) (jobdb.ScheduleInfo, error) {
-	return jobdb.ScheduleInfo{}, errors.New("unexpected ResumeSchedule")
-}
-
-func (r *claimsCapturingRuntime) ArchiveSchedule(context.Context, jobdb.ScheduleMutationRequest) (jobdb.ScheduleInfo, error) {
-	return jobdb.ScheduleInfo{}, errors.New("unexpected ArchiveSchedule")
-}
-
-func (r *claimsCapturingRuntime) TriggerSchedule(context.Context, jobdb.TriggerScheduleRequest) (jobdb.JobHandle, error) {
-	return jobdb.JobHandle{}, errors.New("unexpected TriggerSchedule")
-}
-
-func (r *claimsCapturingRuntime) ListScheduleRuns(context.Context, jobdb.ListScheduleRunsRequest) (jobdb.ListScheduleRunsResponse, error) {
-	return jobdb.ListScheduleRunsResponse{}, errors.New("unexpected ListScheduleRuns")
-}
-
 func (r *claimsCapturingRuntime) GetJob(context.Context, jobdb.JobKey) (jobdb.JobInfo, error) {
 	return jobdb.JobInfo{}, errors.New("unexpected GetJob")
 }

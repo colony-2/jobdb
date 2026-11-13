@@ -37,14 +37,14 @@ state. There is no interactive confirmation prompt.
 
 ## Semantics
 
-- Matching jobs disappear from normal job and schedule-run listings, before
+- Matching jobs disappear from normal job listings, before
   pagination. Repeating deletion does not count already-hidden jobs again.
 - Leases are revoked. Unfinished jobs become cancelled and cannot be picked up
   again. Completed outcomes are preserved.
 - Direct job and history reads remain available. Chapters, artifact bytes, and
   dependency facts remain stored, so thin clones and restarted jobs retain
   their shared history. Restarting from a hidden source is supported.
-- There is no implicit cascade to child jobs, clones, or schedules. IDs continue
+- There is no implicit cascade to child jobs or clones. IDs continue
   to identify the same jobs; idempotent submission does not unhide them.
 - This does not reclaim disk space. `ListJobs` can explicitly opt into
   `includeHidden` for inspection; direct history lookup does this internally.

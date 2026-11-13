@@ -98,24 +98,6 @@ const (
 	MaxListJobsPageSize     = jobdb.MaxListJobsPageSize
 )
 
-type ScheduleKey = jobdb.ScheduleKey
-type ScheduleState = jobdb.ScheduleState
-type ScheduleOverlapPolicy = jobdb.ScheduleOverlapPolicy
-type ScheduleTriggerKind = jobdb.ScheduleTriggerKind
-type ScheduleTrigger = jobdb.ScheduleTrigger
-type ScheduleTarget = jobdb.ScheduleTarget
-type ScheduleFailurePolicy = jobdb.ScheduleFailurePolicy
-type ScheduleSpec = jobdb.ScheduleSpec
-type UpsertScheduleRequest = jobdb.UpsertScheduleRequest
-type ScheduleMutationRequest = jobdb.ScheduleMutationRequest
-type TriggerScheduleRequest = jobdb.TriggerScheduleRequest
-type ScheduleInfo = jobdb.ScheduleInfo
-type ListSchedulesRequest = jobdb.ListSchedulesRequest
-type ListSchedulesResponse = jobdb.ListSchedulesResponse
-type ListScheduleRunsRequest = jobdb.ListScheduleRunsRequest
-type ScheduleRunSummary = jobdb.ScheduleRunSummary
-type ListScheduleRunsResponse = jobdb.ListScheduleRunsResponse
-
 type GetJobRunRequest = jobdb.GetJobRunRequest
 type GetJobRunResponse = jobdb.GetJobRunResponse
 type JobRunSummary = jobdb.JobRunSummary

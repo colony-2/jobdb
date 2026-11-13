@@ -176,28 +176,6 @@ func RunCellConformance(t *testing.T, rt jobdb.WorkflowRuntime) {
 		_, err = rt.ListCells(ctx, jobdb.ListCellsRequest{TenantID: tenant, PageToken: "corrupt." + first.NextPageToken})
 		require.ErrorIs(t, err, jobdb.ErrInvalidCellPageToken)
 	})
-	t.Run("schedules pin repository", func(t *testing.T) {
-		c, err := rt.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: tenant, Name: "scheduled", Repo: "github.com/org/scheduled"})
-		require.NoError(t, err)
-		req := jobdb.UpsertScheduleRequest{TenantId: tenant, ScheduleId: "schedule", Trigger: jobdb.ScheduleTrigger{Kind: jobdb.ScheduleTriggerInterval, Interval: time.Hour}, Target: jobdb.ScheduleTarget{Cell: c.Name, JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(1)}}
-		before, err := rt.UpsertSchedule(ctx, req)
-		require.NoError(t, err)
-		require.Equal(t, c.ID, before.Target.CellID)
-		require.Equal(t, c.Repo, before.Target.CellRepo)
-		repo := "github.com/org/scheduled-v2"
-		_, err = rt.UpdateCell(ctx, jobdb.UpdateCellRequest{CellKey: jobdb.CellKey{TenantID: tenant, CellID: c.ID}, IfMatch: fmt.Sprintf("%q", c.Revision), Repo: &repo})
-		require.NoError(t, err)
-		paused, err := rt.GetSchedule(ctx, before.ScheduleKey)
-		require.NoError(t, err)
-		require.Equal(t, jobdb.ScheduleStatePaused, paused.State)
-		require.Equal(t, "cell_repo_mismatch", paused.PauseReason)
-		_, err = rt.ResumeSchedule(ctx, jobdb.ScheduleMutationRequest{ScheduleKey: before.ScheduleKey})
-		require.ErrorIs(t, err, jobdb.ErrCellRepoMismatch)
-		after, err := rt.UpsertSchedule(ctx, req)
-		require.NoError(t, err)
-		require.Equal(t, repo, after.Target.CellRepo)
-		require.Empty(t, after.PauseReason)
-	})
 
 	t.Run("failed submission publishes nothing", func(t *testing.T) {
 		req := submit("invalid-cell", "github.com/org/invalid", "invalid-child")

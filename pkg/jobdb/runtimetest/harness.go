@@ -17,7 +17,6 @@ import (
 
 type Capabilities struct {
 	Leases         bool
-	Schedules      bool
 	SchemaRegistry bool
 	RuntimeStorage bool
 	LongPoll       bool

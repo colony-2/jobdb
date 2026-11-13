@@ -139,7 +139,7 @@ transaction. Metadata, workspace labels, client headers, and serialized context
 cannot establish authority. Lease validation runs again at publication, after
 preparation and chapter writes. Expired/replaced leases cannot publish.
 
-Job handles and leases carry resolved cell ID/name/repo. Jobs, goals, schedules,
+Job handles and leases carry resolved cell ID/name/repo. Jobs, goals,
 and preparations have stable cell ownership. Job reads report the current name;
 existing leases retain their issued snapshot. Existing-job confirmation and
 restart preserve the original repository snapshot, even after a repo edit.
@@ -152,14 +152,12 @@ but never cell identities; its cell foreign key must already exist. Failed
 publication leaves no visible job/goal/history and discards an unpublished
 preparation when the runtime can do so safely.
 
-## Updates, schedules, and retirement
+## Updates and retirement
 
 Repo PATCH affects fresh submissions. Existing jobs retain their recorded repo
-for execution, retries, and restarts. Schedules pin a cell ID and repo snapshot;
-repo changes pause active schedules with `cell_repo_mismatch`. Rebuild the target
-explicitly before resuming. Schedule creation never registers a cell.
+for execution, retries, and restarts.
 
-Retirement requires no nonterminal jobs, live leases, active schedules, open
+Retirement requires no nonterminal jobs, live leases, open
 goals, or unpublished preparations. Otherwise return `cell_busy`. Serialize
 retirement with admission, acquisition, scheduling, and repo edits. Pending
 preparations block retirement by cell ID, including after rename.
@@ -174,13 +172,13 @@ current ETag returns the retired record.
 Use ordinary columns for every cell field except arbitrary metadata. Store
 aliases in a related name table and idempotency replays in rows with ordinary
 result fields and a descriptor hash. Store the cursor signing key as bytes.
-Jobs, preparations, goals, and schedules have ordinary cell ID/name/repo columns.
+Jobs, preparations, and goals have ordinary cell ID/name/repo columns.
 Preparations additionally have requested name/repo and parent/prior job columns.
 Use tenant/cell foreign keys, unique tenant/name and tenant/repo constraints,
 and indexes for ownership checks. Do not serialize whole cells or preparations,
 extract cell identities from JSON, or derive relational columns from JSON.
 
-Existing non-cell structured JSON in goals, waits, schedules, and run policies
+Existing non-cell structured JSON in goals, waits, and run policies
 is outside this change and is to be normalized separately. Application metadata,
 schemas, and other unstructured values supplied from above may remain JSON.
 
@@ -206,7 +204,7 @@ an alternative identity authority.
 
 Conformance covers direct and HTTP runtimes: explicit creation, missing-cell
 rejection, ordinary root rename/retirement, lease ceilings, aliases, property
-updates, idempotency, repo snapshots, tenant-wide IDs, schedule mismatch,
+updates, idempotency, repo snapshots, tenant-wide IDs,
 authorized pagination/acquisition, retirement versus pending admission, and
 concurrent mutations. Storage tests check that cell ownership is relational and
 is not duplicated inside legacy JSON snapshots.

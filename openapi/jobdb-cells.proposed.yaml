@@ -188,7 +188,6 @@ paths:
 
         serialize with PATCH; obsolete repo assertions fail with cell_repo_mismatch.
 
-        Schedules retain expected repo and pause on mismatch until explicitly updated.
 
 
         Atomically validate all properties, revision and uniqueness;
@@ -245,7 +244,7 @@ paths:
       - cells
       operationId: retireCell
       summary: Retire an idle cell while retaining its identity and history
-      description: "Requires cells.get and cells.retire, and current strong If-Match (missing 428,\nstale 412, malformed 400). \nAtomically require no nonterminal jobs (including hidden/waiting/retrying), live\nleases, active schedules, open goals, or pending submission reservations;\notherwise 409 cell_busy, without cancelling or draining work.\n\nSerialize against submission/registration, scheduling, and acquisition. Set\nRETIRED state and server retiredAt/updatedAt and advance revision. Preserve ID,\nname/aliases, repo, metadata, jobs, and artifacts. Authorized reads continue.\nAll new work, acquisitions, schedule changes, and cell updates are denied.\nExisting-job idempotent confirmation may return the already committed job after\ncurrent authorization checks; it creates no new work. There is no delete or\nautomatic resurrection. A repeat with current ETag returns the retired record;\nan old ETag returns 412. Retirement has no Git archive/delete side effect."
+      description: "Requires cells.get and cells.retire, and current strong If-Match (missing 428,\nstale 412, malformed 400). \nAtomically require no nonterminal jobs (including hidden/waiting/retrying), live\nleases, open goals, or pending submission reservations;\notherwise 409 cell_busy, without cancelling or draining work.\n\nSerialize against submission/registration and acquisition. Set\nRETIRED state and server retiredAt/updatedAt and advance revision. Preserve ID,\nname/aliases, repo, metadata, jobs, and artifacts. Authorized reads continue.\nAll new work, acquisitions and cell updates are denied.\nExisting-job idempotent confirmation may return the already committed job after\ncurrent authorization checks; it creates no new work. There is no delete or\nautomatic resurrection. A repeat with current ETag returns the retired record;\nan old ETag returns 412. Retirement has no Git archive/delete side effect."
       x-jobdb-authorization:
         permissions:
         - cells.get
@@ -1238,7 +1237,7 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     RetirementConflict:
-      description: cell_busy for unfinished work/live leases/active schedules/open goals/pending reservations. No state change.
+      description: cell_busy for unfinished work/live leases/open goals/pending reservations. No state change.
       headers:
         Cache-Control:
           $ref: '#/components/headers/NoStore'

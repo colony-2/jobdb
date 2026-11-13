@@ -70,7 +70,7 @@ func (s *coreEventScheduler) CreateJob(ctx context.Context, req runtimecore.Crea
 	}
 	// The conformance submissions have no client payload or dependencies. Reject
 	// unsupported fixture inputs explicitly rather than losing their semantics.
-	if req.ClientPayloadRevision != 0 || len(req.Dependencies) != 0 || req.Schedule != nil || req.ExpiresAt != nil {
+	if req.ClientPayloadRevision != 0 || len(req.Dependencies) != 0 || req.ExpiresAt != nil {
 		return runtimecore.StoredJob{}, fmt.Errorf("unsupported core event fixture submission")
 	}
 	err = s.r.ensureSubmittedJobRecord(ctx, req.JobKey, req.JobType, metadata, req.WaitForJobIDs, jobPayload{RunPolicy: req.RunPolicy}, req.WorkerID, req.AvailableAt, nil)

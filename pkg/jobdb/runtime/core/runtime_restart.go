@@ -231,7 +231,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 			if stored.InitialPayloadDigest != digest {
 				return jobdb.JobHandle{}, jobdb.NewExistingJobMismatchError("initial client payload differs")
 			}
-			if err := validateStoredJobFacts(stored, key, jobType, schemaHash, parentJobID, metadata, policy, nil); err != nil {
+			if err := validateStoredJobFacts(stored, key, jobType, schemaHash, parentJobID, metadata, policy); err != nil {
 				return jobdb.JobHandle{}, err
 			}
 			return stored.Cell.Handle(key, stored.GoalID), nil
@@ -252,7 +252,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if stored.InitialPayloadDigest != digest {
 		return jobdb.JobHandle{}, jobdb.NewExistingJobMismatchError("initial client payload differs")
 	}
-	if err := validateStoredJobFacts(stored, key, jobType, schemaHash, parentJobID, metadata, policy, nil); err != nil {
+	if err := validateStoredJobFacts(stored, key, jobType, schemaHash, parentJobID, metadata, policy); err != nil {
 		return jobdb.JobHandle{}, err
 	}
 	return stored.Cell.Handle(key, stored.GoalID), nil

@@ -22,8 +22,6 @@ tags:
     description: Tenant configuration administration and lease-authorized reads.
   - name: jobs
     description: Job lifecycle and job-level read APIs.
-  - name: schedules
-    description: Schedule lifecycle, projection, and run APIs.
   - name: schemas
     description: Tenant-local JSON Schema registry for optional job validation.
   - name: leases
@@ -973,7 +971,7 @@ paths:
       operationId: deleteJobs
       summary: Delete jobs selected by age, IDs, and application metadata
       description: |
-        Hides matching jobs from job and schedule-run listings and revokes leases.
+        Hides matching jobs from job listings and revokes leases.
         Unfinished jobs are cancelled and cannot be picked up again. Completed
         outcomes are preserved. Direct job reads remain available. All selectors intersect; jobIds are ORed.
         createdBefore is exclusive and uses job creation time, not completion time.
@@ -1023,186 +1021,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ListJobsResponse'
-  /v1/tenants/{tenantId}/schedules/{scheduleId}:
-    put:
-      tags: [schedules]
-      operationId: upsertSchedule
-      summary: Upsert schedule
-      parameters:
-        - $ref: '#/components/parameters/TenantId'
-        - $ref: '#/components/parameters/ScheduleId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpsertScheduleRequest'
-      responses:
-        '413':
-          description: Chapter application payload exceeds the configured byte budget
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '200':
-          description: Schedule created or updated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ScheduleInfo'
-        '409':
-          description: Schedule generation or state conflict
-    get:
-      tags: [schedules]
-      operationId: getSchedule
-      summary: Get schedule
-      parameters:
-        - $ref: '#/components/parameters/TenantId'
-        - $ref: '#/components/parameters/ScheduleId'
-      responses:
-        '200':
-          description: Schedule loaded
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ScheduleInfo'
-  /v1/tenants/{tenantId}/schedules/query:
-    post:
-      tags: [schedules]
-      operationId: listSchedules
-      summary: List schedules
-      parameters:
-        - $ref: '#/components/parameters/TenantId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ListSchedulesRequest'
-      responses:
-        '200':
-          description: Schedules listed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ListSchedulesResponse'
-  /v1/tenants/{tenantId}/schedules/{scheduleId}/pause:
-    post:
-      tags: [schedules]
-      operationId: pauseSchedule
-      summary: Pause schedule
-      parameters:
-        - $ref: '#/components/parameters/TenantId'
-        - $ref: '#/components/parameters/ScheduleId'
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ScheduleMutationRequest'
-      responses:
-        '200':
-          description: Schedule paused
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ScheduleInfo'
-  /v1/tenants/{tenantId}/schedules/{scheduleId}/resume:
-    post:
-      tags: [schedules]
-      operationId: resumeSchedule
-      summary: Resume schedule
-      parameters:
-        - $ref: '#/components/parameters/TenantId'
-        - $ref: '#/components/parameters/ScheduleId'
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ScheduleMutationRequest'
-      responses:
-        '413':
-          description: Chapter application payload exceeds the configured byte budget
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '200':
-          description: Schedule resumed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ScheduleInfo'
-  /v1/tenants/{tenantId}/schedules/{scheduleId}/archive:
-    post:
-      tags: [schedules]
-      operationId: archiveSchedule
-      summary: Archive schedule
-      parameters:
-        - $ref: '#/components/parameters/TenantId'
-        - $ref: '#/components/parameters/ScheduleId'
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ScheduleMutationRequest'
-      responses:
-        '200':
-          description: Schedule archived
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ScheduleInfo'
-  /v1/tenants/{tenantId}/schedules/{scheduleId}/trigger:
-    post:
-      tags: [schedules]
-      operationId: triggerSchedule
-      summary: Trigger schedule now
-      parameters:
-        - $ref: '#/components/parameters/TenantId'
-        - $ref: '#/components/parameters/ScheduleId'
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/TriggerScheduleRequest'
-      responses:
-        '413':
-          description: Chapter application payload exceeds the configured byte budget
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '200':
-          description: Manual occurrence submitted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/JobHandle'
-  /v1/tenants/{tenantId}/schedules/{scheduleId}/runs/query:
-    post:
-      tags: [schedules]
-      operationId: listScheduleRuns
-      summary: List schedule runs
-      parameters:
-        - $ref: '#/components/parameters/TenantId'
-        - $ref: '#/components/parameters/ScheduleId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ListScheduleRunsRequest'
-      responses:
-        '200':
-          description: Schedule runs listed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ListScheduleRunsResponse'
   /v1/tenants/{tenantId}/schemas:
     post:
       tags: [schemas]
@@ -1898,7 +1716,6 @@ paths:
 
         serialize with PATCH; obsolete repo assertions fail with cell_repo_mismatch.
 
-        Schedules retain expected repo and pause on mismatch until explicitly updated.
 
 
         Atomically validate all properties, revision and uniqueness;
@@ -1955,7 +1772,7 @@ paths:
         - cells
       operationId: retireCell
       summary: Retire an idle cell while retaining its identity and history
-      description: "Requires cells.get and cells.retire, and current strong If-Match (missing 428,\nstale 412, malformed 400). \nAtomically require no nonterminal jobs (including hidden/waiting/retrying), live\nleases, active schedules, open goals, or pending submission reservations;\notherwise 409 cell_busy, without cancelling or draining work.\n\nSerialize against submission/registration, scheduling, and acquisition. Set\nRETIRED state and server retiredAt/updatedAt and advance revision. Preserve ID,\nname/aliases, repo, metadata, jobs, and artifacts. Authorized reads continue.\nAll new work, acquisitions, schedule changes, and cell updates are denied.\nExisting-job idempotent confirmation may return the already committed job after\ncurrent authorization checks; it creates no new work. There is no delete or\nautomatic resurrection. A repeat with current ETag returns the retired record;\nan old ETag returns 412. Retirement has no Git archive/delete side effect."
+      description: "Requires cells.get and cells.retire, and current strong If-Match (missing 428,\nstale 412, malformed 400). \nAtomically require no nonterminal jobs (including hidden/waiting/retrying), live\nleases, open goals, or pending submission reservations;\notherwise 409 cell_busy, without cancelling or draining work.\n\nSerialize against submission/registration and acquisition. Set\nRETIRED state and server retiredAt/updatedAt and advance revision. Preserve ID,\nname/aliases, repo, metadata, jobs, and artifacts. Authorized reads continue.\nAll new work, acquisitions and cell updates are denied.\nExisting-job idempotent confirmation may return the already committed job after\ncurrent authorization checks; it creates no new work. There is no delete or\nautomatic resurrection. A repeat with current ETag returns the retired record;\nan old ETag returns 412. Retirement has no Git archive/delete side effect."
       x-jobdb-authorization:
         permissions:
           - cells.get
@@ -2202,12 +2019,6 @@ components:
         type: string
     LeaseId:
       name: leaseId
-      in: path
-      required: true
-      schema:
-        type: string
-    ScheduleId:
-      name: scheduleId
       in: path
       required: true
       schema:
@@ -3084,268 +2895,6 @@ components:
           $ref: '#/components/schemas/CellRepo'
         cellId:
           $ref: '#/components/schemas/CellId'
-    ScheduleState:
-      type: string
-      enum:
-        - ACTIVE
-        - PAUSED
-        - ARCHIVED
-        - FAILURE_PAUSED
-    ScheduleOverlapPolicy:
-      type: string
-      enum:
-        - serial
-    ScheduleTriggerKind:
-      type: string
-      enum:
-        - cron
-        - interval
-    ScheduleTrigger:
-      type: object
-      required: [kind]
-      additionalProperties: false
-      properties:
-        kind:
-          $ref: '#/components/schemas/ScheduleTriggerKind'
-        expression:
-          type: string
-        timezone:
-          type: string
-        startAt:
-          type: string
-          format: date-time
-        endAt:
-          type: string
-          format: date-time
-        interval:
-          type: string
-          description: Duration string for interval schedules.
-    ScheduleTarget:
-      type: object
-      required:
-        - jobType
-        - data
-        - cell
-      additionalProperties: false
-      properties:
-        clientPayloadUpdate:
-          $ref: '#/components/schemas/ClientPayloadUpdate'
-        jobType:
-          type: string
-        data:
-          $ref: '#/components/schemas/TaskDataWrite'
-        runPolicy:
-          $ref: '#/components/schemas/RunPolicy'
-        metadata:
-          $ref: '#/components/schemas/Metadata'
-        cell:
-          $ref: '#/components/schemas/CellName'
-        cellRepo:
-          $ref: '#/components/schemas/CellRepo'
-          x-go-type-skip-optional-pointer: true
-        cellId:
-          $ref: '#/components/schemas/CellId'
-          x-go-type-skip-optional-pointer: true
-    ScheduleFailurePolicy:
-      type: object
-      additionalProperties: false
-      properties:
-        minSuccessPercent:
-          type: integer
-          format: int32
-        windowSize:
-          type: integer
-          format: int32
-        maxSequentialFailures:
-          type: integer
-          format: int32
-    UpsertScheduleRequest:
-      type: object
-      required: [trigger, target]
-      additionalProperties: false
-      properties:
-        trigger:
-          $ref: '#/components/schemas/ScheduleTrigger'
-        target:
-          $ref: '#/components/schemas/ScheduleTarget'
-        overlapPolicy:
-          $ref: '#/components/schemas/ScheduleOverlapPolicy'
-        failurePolicy:
-          $ref: '#/components/schemas/ScheduleFailurePolicy'
-        paused:
-          type: boolean
-        expectedGeneration:
-          type: integer
-          format: int64
-        requestTime:
-          type: string
-          format: date-time
-        workerId:
-          type: string
-    ScheduleMutationRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        expectedGeneration:
-          type: integer
-          format: int64
-        requestTime:
-          type: string
-          format: date-time
-        workerId:
-          type: string
-    TriggerScheduleRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        requestId:
-          type: string
-        requestTime:
-          type: string
-          format: date-time
-        workerId:
-          type: string
-    ScheduleInfo:
-      type: object
-      required:
-        - tenantId
-        - scheduleId
-        - scheduleKey
-        - state
-        - effectiveState
-        - generation
-        - specHash
-        - trigger
-        - target
-        - overlapPolicy
-        - failurePolicy
-        - createdAt
-        - updatedAt
-      additionalProperties: false
-      properties:
-        tenantId:
-          type: string
-        scheduleId:
-          type: string
-        scheduleKey:
-          $ref: '#/components/schemas/ScheduleKey'
-        state:
-          $ref: '#/components/schemas/ScheduleState'
-        effectiveState:
-          $ref: '#/components/schemas/ScheduleState'
-        generation:
-          type: integer
-          format: int64
-        specHash:
-          type: string
-        trigger:
-          $ref: '#/components/schemas/ScheduleTrigger'
-        target:
-          $ref: '#/components/schemas/ScheduleTarget'
-        overlapPolicy:
-          $ref: '#/components/schemas/ScheduleOverlapPolicy'
-        failurePolicy:
-          $ref: '#/components/schemas/ScheduleFailurePolicy'
-        nextFireAt:
-          type: string
-          format: date-time
-        nextJobKey:
-          $ref: '#/components/schemas/JobKey'
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-        pauseReason:
-          type: string
-    ScheduleKey:
-      type: object
-      required: [tenantId, scheduleId]
-      additionalProperties: false
-      properties:
-        tenantId:
-          type: string
-        scheduleId:
-          type: string
-    ListSchedulesRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        scheduleIds:
-          type: array
-          items:
-            type: string
-        states:
-          type: array
-          items:
-            $ref: '#/components/schemas/ScheduleState'
-        targetJobTypes:
-          type: array
-          items:
-            type: string
-        pageSize:
-          type: integer
-          minimum: 1
-          maximum: 200
-        pageToken:
-          type: string
-    ListSchedulesResponse:
-      type: object
-      required: [schedules]
-      additionalProperties: false
-      properties:
-        schedules:
-          type: array
-          items:
-            $ref: '#/components/schemas/ScheduleInfo'
-        nextPageToken:
-          type: string
-    ListScheduleRunsRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        scheduledAfter:
-          type: string
-          format: date-time
-        scheduledBefore:
-          type: string
-          format: date-time
-        statuses:
-          type: array
-          items:
-            $ref: '#/components/schemas/JobStatus'
-        pageSize:
-          type: integer
-          minimum: 1
-          maximum: 200
-        pageToken:
-          type: string
-    ScheduleRunSummary:
-      type: object
-      required: [job, scheduleId, scheduledAt]
-      additionalProperties: false
-      properties:
-        job:
-          $ref: '#/components/schemas/JobSummary'
-        scheduleId:
-          type: string
-        scheduledAt:
-          type: string
-          format: date-time
-        reasonCode:
-          type: string
-    ListScheduleRunsResponse:
-      type: object
-      required: [runs]
-      additionalProperties: false
-      properties:
-        runs:
-          type: array
-          items:
-            $ref: '#/components/schemas/ScheduleRunSummary'
-        nextPageToken:
-          type: string
     JobPrerequisite:
       type: object
       required: [jobId, condition]
@@ -4721,7 +4270,7 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     RetirementConflict:
-      description: cell_busy for unfinished work/live leases/active schedules/open goals/pending reservations. No state change.
+      description: cell_busy for unfinished work/live leases/open goals/pending reservations. No state change.
       headers:
         Cache-Control:
           $ref: '#/components/headers/NoStore'

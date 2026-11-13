@@ -9,7 +9,7 @@ import (
 
 // JobDeletionScheduler optionally supports atomic tenant-scoped deletion.
 // Implementations must match selectors atomically and hide matching visible
-// jobs from ListJobs and ListScheduleRuns before pagination, revoke leases,
+// jobs from ListJobs before pagination, revoke leases,
 // and cancel unfinished jobs so acquisition cannot restart them. Preserve
 // terminal outcomes, GetJob, dependency facts, and chapter logs for references.
 // DryRun must not mutate state. Already-hidden jobs do not count as matches.

@@ -196,7 +196,7 @@ func TestLeaseEventsHistoricalMixedWriter(t *testing.T) {
 	config, e := r.GetTenantConfiguration(ctx, "tenant")
 	require.NoError(t, e)
 	require.JSONEq(t, `{"historical":true}`, string(config.Values["saved"]))
-	assertScheduleStartArtifact(t, ctx, r, jobdb.JobKey{TenantId: "tenant", JobId: "historical-live"}, "saved.bin", []byte("historical artifact bytes\x00"))
+	assertStartArtifact(t, ctx, r, jobdb.JobKey{TenantId: "tenant", JobId: "historical-live"}, "saved.bin", []byte("historical artifact bytes\x00"))
 	h, e := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "new", Cell: "test", CellRepo: "example.test/test", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, e)
 	l, e := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "new", Routes: []jobdb.Route{{JobType: "job"}}})
@@ -217,7 +217,7 @@ func TestLeaseEventsHistoricalMixedWriter(t *testing.T) {
 	require.NoError(t, e)
 	require.GreaterOrEqual(t, len(jobs.Jobs), 5)
 	require.Equal(t, old["jobdb_cell_catalog"], compatibilitySnapshot(t, r.db)["jobdb_cell_catalog"])
-	assertScheduleStartArtifact(t, ctx, r, jobdb.JobKey{TenantId: "tenant", JobId: "historical-live"}, "saved.bin", []byte("historical artifact bytes\x00"))
+	assertStartArtifact(t, ctx, r, jobdb.JobKey{TenantId: "tenant", JobId: "historical-live"}, "saved.bin", []byte("historical artifact bytes\x00"))
 	for _, id := range []string{"historical-before", "historical-after"} {
 		info, e := r.GetJob(ctx, jobdb.JobKey{TenantId: "tenant", JobId: id})
 		require.NoError(t, e)

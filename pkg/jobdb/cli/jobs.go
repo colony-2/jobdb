@@ -25,7 +25,7 @@ func newJobsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete [JOB_ID...]",
 		Short: "Delete jobs selected by creation age, IDs, and application metadata",
-		Long: `Hide matching jobs from job and schedule-run listings.
+		Long: `Hide matching jobs from job listings.
 Selectors intersect. Metadata values are strings and repeated filters are ANDed.
 Direct reads, history, and artifacts remain available, including to thin clones.
 Unfinished jobs are cancelled and leases revoked; completed outcomes are preserved.

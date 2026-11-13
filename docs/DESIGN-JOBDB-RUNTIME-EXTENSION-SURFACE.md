@@ -110,7 +110,7 @@ into a grab bag.
   Consider that later only if multiple external runtimes need the same storage
   implementation.
 - A complete external runtime should support all `jobdb.WorkflowRuntime` APIs.
-  Schedules, schema registry, list/read APIs, chapter APIs, artifact APIs, and
+  Schema registry, list/read APIs, chapter APIs, artifact APIs, and
   lease/task mutation APIs are in scope for a conforming runtime.
 
 ## Request 1: Public Runtime Conformance Harness
@@ -128,7 +128,6 @@ package runtimetest
 
 type Capabilities struct {
     Leases         bool
-    Schedules      bool
     SchemaRegistry bool
     RuntimeStorage bool
     LongPoll        bool
@@ -160,7 +159,7 @@ Acceptance criteria:
 
 - Built-in runtimes run through this public harness or a wrapper around it.
 - An external runtime can run the same lease, chapter, artifact, idempotency,
-  schedule, metadata, schema, and conflict tests from its own module.
+  metadata, schema, and conflict tests from its own module.
 - The public harness imports no JobDB `internal` package from the consumer's
   perspective.
 
@@ -183,10 +182,8 @@ Runtime core should own these workflows end to end:
 - `Complete`, including final chapter validation before scheduler completion;
 - `CompleteTaskIfWaiting`, including waiting-slot guard checks and task output
   chapter construction;
-- schedule target snapshotting, spec hashes, deterministic occurrence IDs,
-  occurrence metadata, preflight decisions, and cancellation chapters;
 - conversion from backend snapshots to public `jobdb.JobInfo`,
-  `jobdb.JobSummary`, `jobdb.ScheduleInfo`, and schedule-run summaries.
+  `jobdb.JobSummary`.
 
 The scheduler driver should own only backend-specific durable state and
 concurrency:
@@ -197,7 +194,6 @@ concurrency:
 - completing or rescheduling a live lease atomically;
 - completing waiting task work atomically against its guards;
 - cancel requests;
-- storing and listing schedule records;
 - storing and listing active/archive job state;
 - returning typed snapshots needed by runtime core.
 
@@ -231,11 +227,6 @@ type Scheduler interface {
     GetWaitingTask(context.Context, jobdb.JobKey) (WaitingTaskSnapshot, error)
     ClaimTask(context.Context, ClaimTaskRequest) (LeaseIdentity, error)
 
-    UpsertSchedule(context.Context, StoredScheduleMutation) (StoredSchedule, error)
-    GetSchedule(context.Context, jobdb.ScheduleKey) (StoredSchedule, error)
-    ListSchedules(context.Context, ListSchedulesRequest) (ListSchedulesResponse, error)
-    MutateSchedule(context.Context, StoredScheduleMutation) (StoredSchedule, error)
-    ListScheduleRuns(context.Context, ListScheduleRunsRequest) (ListScheduleRunsResponse, error)
 }
 ```
 
@@ -245,7 +236,7 @@ changes and typed persistence.
 
 The scheduler DTOs should avoid private JobDB encodings. For example, a stored
 job should expose first-class fields such as job type, parent job ID, app
-metadata, schema hash, schedule occurrence fields, current route, task-wait
+metadata, schema hash, current route, task-wait
 coordinates, lease identity, availability, completion status, and timestamps.
 It should not require a backend to understand chapter envelope bytes or the old
 encoded runtime metadata envelope.
@@ -307,7 +298,7 @@ surface.
    has a smaller backend-specific surface than the current direct runtime.
 4. Adapt another concrete backend next, using typed scheduler fields instead of
    old generic payload and metadata encodings. The implementation should cover
-   the full `jobdb.WorkflowRuntime` surface, including schedules and list/read
+   the full `jobdb.WorkflowRuntime` surface, including list/read
    APIs, before it is considered complete.
 5. Only after the `ChapterLog` contract stabilizes, decide whether to publish a
    reusable chapter-log implementation package.

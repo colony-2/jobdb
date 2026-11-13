@@ -45,19 +45,3 @@ func Lease(ctx context.Context) (LeaseProof, bool) {
 	p, ok := ctx.Value(leaseKey{}).(LeaseProof)
 	return p, ok
 }
-
-type scheduleKey struct{}
-
-func WithSchedule(ctx context.Context, key jobdb.ScheduleKey) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return context.WithValue(ctx, scheduleKey{}, key)
-}
-func Schedule(ctx context.Context) (jobdb.ScheduleKey, bool) {
-	if ctx == nil {
-		return jobdb.ScheduleKey{}, false
-	}
-	key, ok := ctx.Value(scheduleKey{}).(jobdb.ScheduleKey)
-	return key, ok
-}

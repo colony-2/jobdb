@@ -40,12 +40,7 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 		limit = 1
 	}
 	out := make([]jobdb.ExecutionLease, 0, limit)
-	attemptBudget := limit * 4
-	if attemptBudget < 8 {
-		attemptBudget = 8
-	}
-	for len(out) < limit && attemptBudget > 0 {
-		attemptBudget--
+	for len(out) < limit {
 		snapshots, err := r.scheduler.AcquireWork(ctx, WorkRequest{CellNames: req.CellNames,
 			TenantId: req.TenantId, WorkerID: workerID, Selector: selector,
 			Limit: limit - len(out), LeaseDuration: req.LeaseDuration,
@@ -62,13 +57,7 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 			if err != nil {
 				return nil, err
 			}
-			ok, err := r.preflightScheduleLease(ctx, lease)
-			if err != nil {
-				return nil, err
-			}
-			if ok {
-				out = append(out, lease)
-			}
+			out = append(out, lease)
 		}
 	}
 	return out, nil
@@ -102,10 +91,6 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 	}
 	lease, err := r.wrapLease(*snapshot)
 	if err != nil {
-		return nil, err
-	}
-	ok, err := r.preflightScheduleLease(ctx, lease)
-	if err != nil || !ok {
 		return nil, err
 	}
 	return lease, nil

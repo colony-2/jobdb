@@ -17,21 +17,6 @@ func Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { next.ServeHTTP(w, r.WithContext(Context(r.Context()))) })
 }
 
-// Schedule prepares the existing target required by schedule fixtures. Production
-// UpsertSchedule never registers a missing cell.
-func Schedule(ctx context.Context, rt interface {
-	jobdb.CellRuntime
-	UpsertSchedule(context.Context, jobdb.UpsertScheduleRequest) (jobdb.ScheduleInfo, error)
-}, req jobdb.UpsertScheduleRequest) (jobdb.ScheduleInfo, error) {
-	if req.Target.Cell != "" && req.Target.CellRepo != "" {
-		_, err := rt.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: req.TenantId, Name: req.Target.Cell, Repo: req.Target.CellRepo})
-		if err != nil && !errors.Is(err, jobdb.ErrCellConflict) {
-			return jobdb.ScheduleInfo{}, err
-		}
-	}
-	return rt.UpsertSchedule(ctx, req)
-}
-
 // Submit registers a fixture's cell before submitting its job. Tests of missing
 // cells and authorization must call SubmitJob directly instead.
 func Submit(rt interface {

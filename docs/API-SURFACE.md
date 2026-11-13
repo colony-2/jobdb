@@ -17,7 +17,7 @@ longer contains the worker SDK or engine builder.
 
 This includes task/job data APIs, artifact APIs, runtime request/response
 types, job lifecycle APIs, job-run inspection APIs, list-jobs APIs, first-class
-schedule APIs, tenant configuration requests/snapshots and administration,
+tenant configuration requests/snapshots and administration,
 error types, and the `WorkflowRuntime` interface used by runtime
 adapters and advanced consumers.
 
@@ -44,11 +44,6 @@ See [clearing crash concern](GUIDE-CRASH-CONCERN.md) for CLI, REST, and Go usage
 Routing uses `Route{JobType, TaskType}` throughout the public API. See the
 [consumer migration guide](MIGRATION-TYPED-ROUTES.md) for the breaking changes.
 
-The schedule surface includes `UpsertSchedule`, `GetSchedule`,
-`ListSchedules`, `PauseSchedule`, `ResumeSchedule`, `ArchiveSchedule`,
-`TriggerSchedule`, `ListScheduleRuns`, and their request/response structs.
-`ScheduleTarget` is intentionally job-start-like: it carries target job type,
-input `TaskData` including artifacts, run policy, and app metadata.
 
 ### `github.com/colony-2/jobdb/pkg/jobdb/runtimetest`
 
@@ -89,9 +84,7 @@ state, artifact persistence, and atomic lease mutations. The schema registry
 adapter in this package owns schema canonicalization and validation before it
 delegates persistence to a `SchemaStore`.
 The scheduler port carries typed job routes, task coordinates, run policy,
-application metadata, schedule occurrence, and client payload with its revision.
-Schedule target, trigger, and failure policy snapshots cross the port as
-opaque JSON after JobDB core has serialized them.
+application metadata and client payload with its revision.
 Client state is separate from typed `ExecutionState`; scheduler mutations accept
 explicit client patch/reset updates.
 `NewRuntime` composes the backend ports. Its chapter read and artifact methods

@@ -39,17 +39,7 @@ func (r *Runtime) UpdateCell(ctx context.Context, req jobdb.UpdateCellRequest) (
 	r.engine.mu.Lock()
 	defer r.engine.mu.Unlock()
 	state := r.engine.cellsLocked(req.TenantID)
-	old := state.Cells[req.CellID]
 	c, err := state.Update(ctx, req)
-	if err == nil && old.Repo != c.Repo {
-		for key, rec := range r.engine.schedules {
-			if key.TenantId == req.TenantID && rec.info.Target.CellID == c.ID && rec.info.State == jobdb.ScheduleStateActive {
-				rec.info.State = jobdb.ScheduleStatePaused
-				rec.info.EffectiveState = jobdb.ScheduleStatePaused
-				rec.info.PauseReason = "cell_repo_mismatch"
-			}
-		}
-	}
 	return c, err
 }
 func (r *Runtime) RetireCell(ctx context.Context, req jobdb.RetireCellRequest) (jobdb.Cell, error) {
@@ -83,11 +73,6 @@ func (r *Runtime) RetireCell(ctx context.Context, req jobdb.RetireCellRequest) (
 		}
 		for key, p := range e.preparedGoals {
 			if key.TenantId == req.TenantID && p.Request.Target.CellID == id && e.jobRecords[key] == nil {
-				return true, nil
-			}
-		}
-		for key, rec := range e.schedules {
-			if key.TenantId == req.TenantID && rec.info.State == jobdb.ScheduleStateActive && rec.info.Target.CellID == id {
 				return true, nil
 			}
 		}
@@ -145,23 +130,6 @@ func (e *ToyEngine) prepareCellLocked(ctx context.Context, req goalstate.Prepara
 		return target, nil
 	}
 	parent, err := e.cellParentLocked(ctx, req.Key.TenantId)
-	if key, ok := cellstate.Schedule(ctx); ok {
-		if key.TenantId != req.Key.TenantId {
-			return jobdb.ResolvedCell{}, jobdb.ErrCellForbidden
-		}
-		schedule := e.schedules[key]
-		if schedule == nil || schedule.info.State == jobdb.ScheduleStateArchived {
-			return jobdb.ResolvedCell{}, jobdb.ErrCellNotFound
-		}
-		c, found := e.cellsLocked(key.TenantId).Cells[schedule.info.Target.CellID]
-		if !found {
-			return jobdb.ResolvedCell{}, jobdb.ErrCellNotFound
-		}
-		if c.Repo != schedule.info.Target.CellRepo || req.CellRepo != schedule.info.Target.CellRepo {
-			return jobdb.ResolvedCell{}, jobdb.ErrCellRepoMismatch
-		}
-		parent = &c
-	}
 	if err != nil {
 		return jobdb.ResolvedCell{}, err
 	}

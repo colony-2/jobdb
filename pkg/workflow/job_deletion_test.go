@@ -126,33 +126,6 @@ func TestJobDeletionBeyondListingPage(t *testing.T) {
 	}
 }
 
-func TestJobDeletionHidesScheduleRuns(t *testing.T) {
-	for _, backend := range []string{"toy", "sqlite", "remote"} {
-		t.Run(backend, func(t *testing.T) {
-			ctx := celltest.Context(context.Background())
-			rt := alternateRuntime(t, backend)
-			schedule := jobdb.ScheduleKey{TenantId: "tenant", ScheduleId: "cleanup"}
-			_, err := celltest.Schedule(ctx, rt, jobdb.UpsertScheduleRequest{TenantId: schedule.TenantId, ScheduleId: schedule.ScheduleId,
-				Trigger: jobdb.ScheduleTrigger{Kind: jobdb.ScheduleTriggerInterval, Interval: time.Hour},
-				Target:  jobdb.ScheduleTarget{Cell: "test", CellRepo: "example.test/test", JobType: "job", Data: jobdb.NewTaskDataOrPanic(nil)}, Paused: true})
-			require.NoError(t, err)
-			h, err := rt.TriggerSchedule(ctx, jobdb.TriggerScheduleRequest{ScheduleKey: schedule, RequestID: "manual"})
-			require.NoError(t, err)
-			runs, err := rt.ListScheduleRuns(ctx, jobdb.ListScheduleRunsRequest{ScheduleKey: schedule})
-			require.NoError(t, err)
-			require.Len(t, runs.Runs, 1)
-			_, err = rt.(jobdb.JobDeletionRuntime).DeleteJobs(ctx, jobdb.DeleteJobsRequest{TenantID: "tenant", JobIDs: []string{h.JobKey.JobId}})
-			require.NoError(t, err)
-			runs, err = rt.ListScheduleRuns(ctx, jobdb.ListScheduleRunsRequest{ScheduleKey: schedule})
-			require.NoError(t, err)
-			require.Empty(t, runs.Runs)
-			info, err := rt.GetSchedule(ctx, schedule)
-			require.NoError(t, err)
-			require.Equal(t, jobdb.ScheduleStatePaused, info.State)
-		})
-	}
-}
-
 func TestJobDeletionPreservesThinCloneReplayAndArtifacts(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
