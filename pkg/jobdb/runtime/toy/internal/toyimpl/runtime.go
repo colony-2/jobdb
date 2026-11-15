@@ -10,6 +10,7 @@ import (
 	"io"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -361,6 +362,14 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if err := jobKey.Validate(); err != nil {
 		return jobdb.JobHandle{}, err
 	}
+	for _, prerequisite := range req.Job.Prerequisites {
+		if strings.TrimSpace(prerequisite.JobID) == "" || prerequisite.JobID == jobKey.JobId {
+			return jobdb.JobHandle{}, fmt.Errorf("prerequisite job id must be nonempty and distinct from job id")
+		}
+		if prerequisite.Condition != "" && prerequisite.Condition != jobdb.JobPrereqComplete && prerequisite.Condition != jobdb.JobPrereqSuccess {
+			return jobdb.JobHandle{}, fmt.Errorf("invalid prerequisite condition %q", prerequisite.Condition)
+		}
+	}
 	schemaHash, err := runtimecore.ResolveActiveSchemaForNewJob(ctx, r, req.Job.PriorJobKey.TenantId, req.Job.Schema)
 	if err != nil {
 		return jobdb.JobHandle{}, err
@@ -383,20 +392,18 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	nextOrdinal := req.Job.LastStepToKeep + 1
 	nextChapter, ok := sourceChapters[nextOrdinal]
 	if !ok {
-		return jobdb.JobHandle{}, fmt.Errorf("LastStepToKeep %d invalid: no chapter at ordinal %d", req.Job.LastStepToKeep, nextOrdinal)
-	}
-	nextAttempt, err := extractAttemptFromMetadata(nextChapter.Metadata)
-	if err != nil {
-		return jobdb.JobHandle{}, err
-	}
-	if executionRestart == nil && nextAttempt > 1 {
-		taskType := nextChapter.TaskType
-		if taskType == "" {
-			if chap0, ok := sourceChapters[0]; ok {
-				taskType = chap0.TaskType
-			}
+		if req.Job.LastStepToKeep != 0 || executionRestart != nil || len(sourceChapters) != 1 ||
+			!runtimecodec.ChapterIs(sourceChapters[0], runtimecodec.ChapterTypeJobStart) || sourceChapters[0].TaskType == "" {
+			return jobdb.JobHandle{}, fmt.Errorf("LastStepToKeep %d invalid: no chapter at ordinal %d", req.Job.LastStepToKeep, nextOrdinal)
 		}
-		return jobdb.JobHandle{}, fmt.Errorf("LastStepToKeep %d cuts into retry chain: next ordinal %d is attempt %d of %s", req.Job.LastStepToKeep, nextOrdinal, nextAttempt, taskType)
+	} else {
+		nextAttempt, err := extractAttemptFromMetadata(nextChapter.Metadata)
+		if err != nil {
+			return jobdb.JobHandle{}, err
+		}
+		if executionRestart == nil && nextAttempt > 1 {
+			return jobdb.JobHandle{}, fmt.Errorf("LastStepToKeep %d cuts into retry chain: next ordinal %d is attempt %d of %s", req.Job.LastStepToKeep, nextOrdinal, nextAttempt, nextChapter.TaskType)
+		}
 	}
 	targetChapters := make(map[int64]jobdb.Chapter)
 	for ordinal, chapter := range sourceChapters {
@@ -422,6 +429,20 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if req.Job.JobID != "" {
 		if handle, ok, err := r.existingEquivalentRestartJob(jobKey, req.Job, targetChapters, storedMetadata); ok || err != nil {
 			return handle, err
+		}
+	}
+
+	// Stage every retained artifact before publishing any destination state.
+	// Descriptors stay unchanged; readers resolve them using destination keys.
+	targetArtifacts := make(map[runtimeArtifactKey][]byte)
+	for ordinal, chapter := range targetChapters {
+		for _, artifact := range chapter.Artifacts {
+			sourceKey := runtimeArtifactKey{jobKey: req.Job.PriorJobKey, ordinal: ordinal, name: artifact.Name}
+			data, ok := r.engine.runtimeArtifacts[sourceKey]
+			if !ok {
+				return jobdb.JobHandle{}, fmt.Errorf("retained artifact %q at ordinal %d is missing", artifact.Name, ordinal)
+			}
+			targetArtifacts[runtimeArtifactKey{jobKey: jobKey, ordinal: ordinal, name: artifact.Name}] = bytes.Clone(data)
 		}
 	}
 
@@ -466,6 +487,9 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		return jobdb.JobHandle{}, err
 	}
 	r.engine.runtimeChapters[jobKey] = targetChapters
+	for key, data := range targetArtifacts {
+		r.engine.runtimeArtifacts[key] = data
+	}
 	return record.cell.Handle(jobKey, record.goalID), nil
 }
 

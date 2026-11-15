@@ -54,6 +54,17 @@ func TestExecutionNestedDeadlinesAndHandlerBudget(t *testing.T) {
 					require.NoError(t, err)
 					out, err := run.Run(nil)
 					require.NoError(t, err)
+					if out.Status == wf.JobRunSuspended {
+						// A handler can durably wait before the parent deadline.
+						// Resume that wait and require the terminal timeout below.
+						require.Eventually(t, func() bool {
+							run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "nested-recovery", LeaseDuration: time.Second})
+							require.NoError(t, err)
+							out, err = run.Run(nil)
+							require.NoError(t, err)
+							return out.Status != wf.JobRunSuspended && out.Status != wf.JobRunNotLeaseable
+						}, 5*time.Second, 20*time.Millisecond)
+					}
 					require.Equal(t, wf.JobRunFailed, out.Status)
 					var timeout jobdb.TimeoutError
 					require.ErrorAs(t, out.JobError, &timeout)

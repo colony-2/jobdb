@@ -482,7 +482,7 @@ func translateRowError(err error) error {
 	case err == nil:
 		return nil
 	case errors.Is(err, storage.ErrStoryNotFound), errors.Is(err, storage.ErrChapterNotFound):
-		return fmt.Errorf("%w: %v", core.ErrNotFound, err)
+		return fmt.Errorf("%w: %w", core.ErrNotFound, err)
 	case errors.Is(err, storage.ErrStoryExists), errors.Is(err, storage.ErrChapterExists), errors.Is(err, storage.ErrStoryFinalized), errors.Is(err, storage.ErrInvalidRecord):
 		return fmt.Errorf("%w: %v", core.ErrConflict, err)
 	default:

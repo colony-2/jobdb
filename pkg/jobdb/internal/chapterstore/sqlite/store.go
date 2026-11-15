@@ -21,6 +21,7 @@ const storyColumns = "anthology_id, story_id, created_at_ns, updated_at_ns, fina
 // Store persists JobDB chapter rows using SQLite.
 type Store struct {
 	db      *sql.DB
+	tx      *sql.Tx
 	closeFn func() error
 }
 
@@ -79,8 +80,11 @@ func (s *Store) Close() error {
 
 // Health verifies the database is reachable.
 func (s *Store) Health(ctx context.Context) error {
-	if s == nil || s.db == nil {
+	if s == nil || (s.db == nil && s.tx == nil) {
 		return fmt.Errorf("sqlite chapterstore: store not initialized")
+	}
+	if s.tx != nil {
+		return nil
 	}
 	return s.db.PingContext(ctx)
 }
@@ -90,7 +94,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if s == nil || s.db == nil {
 		return fmt.Errorf("sqlite chapterstore: store not initialized")
 	}
-	if _, err := s.db.ExecContext(ctx, schemaSQL); err != nil {
+	if _, err := s.connection().ExecContext(ctx, schemaSQL); err != nil {
 		return fmt.Errorf("sqlite chapterstore: migrate: %w", err)
 	}
 	if err := s.ensureStoryColumn(ctx, "deleted", "deleted INTEGER NOT NULL DEFAULT 0 CHECK (deleted IN (0, 1))"); err != nil {
@@ -119,14 +123,14 @@ func (s *Store) ensureStoryColumn(ctx context.Context, name, definition string) 
 	if exists {
 		return nil
 	}
-	if _, err := s.db.ExecContext(ctx, "ALTER TABLE jobdb_chapter_stories ADD COLUMN "+definition); err != nil {
+	if _, err := s.connection().ExecContext(ctx, "ALTER TABLE jobdb_chapter_stories ADD COLUMN "+definition); err != nil {
 		return fmt.Errorf("sqlite chapterstore: add %s column: %w", name, err)
 	}
 	return nil
 }
 
 func (s *Store) storyColumnExists(ctx context.Context, name string) (bool, error) {
-	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(jobdb_chapter_stories)`)
+	rows, err := s.connection().QueryContext(ctx, `PRAGMA table_info(jobdb_chapter_stories)`)
 	if err != nil {
 		return false, fmt.Errorf("sqlite chapterstore: inspect story columns: %w", err)
 	}
@@ -162,7 +166,7 @@ func (s *Store) configureOwned(ctx context.Context) error {
 		"PRAGMA synchronous = NORMAL",
 	}
 	for _, pragma := range pragmas {
-		if _, err := s.db.ExecContext(ctx, pragma); err != nil {
+		if _, err := s.connection().ExecContext(ctx, pragma); err != nil {
 			return fmt.Errorf("sqlite chapterstore: %s: %w", pragma, err)
 		}
 	}
@@ -183,7 +187,7 @@ func (s *Store) CreateStory(ctx context.Context, key storage.StoryKey, now time.
 	if err := storage.ValidateStoryRecord(rec); err != nil {
 		return storage.StoryRecord{}, err
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.connection().ExecContext(ctx, `
 INSERT INTO jobdb_chapter_stories (
 	anthology_id, story_id, created_at_ns, updated_at_ns, finalized, deleted, deleted_at_ns,
 	base_anthology_id, base_story_id, base_fork_ordinal, chapter_count, latest_ordinal
@@ -263,7 +267,7 @@ func (s *Store) GetStory(ctx context.Context, key storage.StoryKey) (storage.Sto
 	if err := s.Health(ctx); err != nil {
 		return storage.StoryRecord{}, err
 	}
-	return scanStory(s.db.QueryRowContext(ctx, `
+	return scanStory(s.connection().QueryRowContext(ctx, `
 SELECT `+storyColumns+`
 FROM jobdb_chapter_stories
 WHERE anthology_id = ? AND story_id = ? AND deleted = 0`,
@@ -276,7 +280,7 @@ func (s *Store) GetStoryIncludingDeleted(ctx context.Context, key storage.StoryK
 	if err := s.Health(ctx); err != nil {
 		return storage.StoryRecord{}, err
 	}
-	return scanStory(s.db.QueryRowContext(ctx, `
+	return scanStory(s.connection().QueryRowContext(ctx, `
 SELECT `+storyColumns+`
 FROM jobdb_chapter_stories
 WHERE anthology_id = ? AND story_id = ?`,
@@ -492,7 +496,7 @@ func (s *Store) readChapter(ctx context.Context, key storage.StoryKey, ordinal i
 	}
 	var body []byte
 	var createdNS int64
-	err := s.db.QueryRowContext(ctx, `
+	err := s.connection().QueryRowContext(ctx, `
 SELECT body, created_at_ns
 FROM jobdb_chapter_chapters
 WHERE anthology_id = ? AND story_id = ? AND ordinal = ?`,
@@ -537,7 +541,7 @@ ORDER BY ordinal`
 		args = append(args, limit+1)
 	}
 
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := s.connection().QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, false, fmt.Errorf("sqlite chapterstore: list chapter ordinals: %w", err)
 	}
@@ -581,7 +585,7 @@ WHERE anthology_id = ? AND deleted = 0`
 		args = append(args, limit+1)
 	}
 
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := s.connection().QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, false, fmt.Errorf("sqlite chapterstore: list stories: %w", err)
 	}
@@ -659,7 +663,7 @@ func scanStory(scanner storyScanner) (storage.StoryRecord, error) {
 }
 
 func (s *Store) readArtifacts(ctx context.Context, key storage.StoryKey, ordinal int64) ([]storage.ArtifactRecord, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.connection().QueryContext(ctx, `
 SELECT id, name, content_type, size_bytes, sha256, inline_data, blob_path
 FROM jobdb_chapter_artifacts
 WHERE anthology_id = ? AND story_id = ? AND ordinal = ?
@@ -728,7 +732,7 @@ func boolToInt(value bool) int {
 	return 0
 }
 
-func rollback(tx *sql.Tx) {
+func rollback(tx *writeTransaction) {
 	if tx != nil {
 		_ = tx.Rollback()
 	}
@@ -744,7 +748,10 @@ func isConstraint(err error) bool {
 
 // Reserve the writer before reading chapter metadata. A deferred read snapshot
 // cannot safely upgrade after another connection commits, even with busy_timeout.
-func (s *Store) beginWrite(ctx context.Context) (*sql.Tx, error) {
+func (s *Store) beginWrite(ctx context.Context) (*writeTransaction, error) {
+	if s.tx != nil {
+		return &writeTransaction{Tx: s.tx, borrowed: true}, nil
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -753,5 +760,44 @@ func (s *Store) beginWrite(ctx context.Context) (*sql.Tx, error) {
 		_ = tx.Rollback()
 		return nil, err
 	}
-	return tx, nil
+	return &writeTransaction{Tx: tx}, nil
+}
+
+// InTransaction borrows an existing transaction over the migrated chapter tables.
+// The caller owns its writer reservation, commit and rollback. Nested rowstore
+// writes never commit or roll back the caller's transaction.
+func InTransaction(tx *sql.Tx) *Store {
+	return &Store{tx: tx}
+}
+
+type connection interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func (s *Store) connection() connection {
+	if s.tx != nil {
+		return s.tx
+	}
+	return s.db
+}
+
+type writeTransaction struct {
+	*sql.Tx
+	borrowed bool
+}
+
+func (tx *writeTransaction) Commit() error {
+	if tx.borrowed {
+		return nil
+	}
+	return tx.Tx.Commit()
+}
+
+func (tx *writeTransaction) Rollback() error {
+	if tx.borrowed {
+		return nil
+	}
+	return tx.Tx.Rollback()
 }

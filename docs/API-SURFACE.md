@@ -97,7 +97,21 @@ policy normalization, prerequisite validation, and explicit job ID recovery.
 `PutChapter` checks the current scheduler lease before validating and appending
 chapter data and uploaded artifacts.
 `SubmitRestartJob` clones a validated chapter prefix, checks retry boundaries,
-and optionally appends a cached restart output.
+and optionally appends a cached restart output. An ordinary `LastStepToKeep: 0`
+with nil `ExecutionRestart` also accepts a source containing only its valid stored
+submission, whether ready or cancelled. Only a specific missing-chapter result
+permits this case; other read errors and holes in longer histories still fail.
+Present chapter one retains its decode and retry-boundary checks, and other cuts
+and logical scope selection keep their existing validation.
+
+The retained submission, original input, metadata, run policy and artifact
+contents remain unchanged. Ordinary restart writes no execution header; the
+worker loads the retained input and artifacts and writes a fresh header at one.
+All retained artifacts remain readable under the destination, including later
+retained ordinals. Inherited chapters are not revalidated against a new schema or
+payload limit; new extra output and logical restart records still are.
+The Go request and HTTP wire shape are unchanged. HTTP users need a repaired
+server build; upgrading a client alone does not repair server behavior.
 `PollWork` and `GetJobLease` return leases backed by typed scheduler routes;
 lease methods expose separate client/framework snapshots and validate ownership before
 child submission, reschedule, completion, and chapter writes.

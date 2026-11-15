@@ -13,6 +13,8 @@ import (
 	"github.com/colony-2/jobdb/pkg/internal/executionmeta"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/core"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/storage"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/stretchr/testify/require"
 
@@ -127,4 +129,21 @@ func TestRestartLinksLegacyHistoryWithoutRevalidation(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestRestartSubmissionMissingChapterIdentity(t *testing.T) {
+	ctx := celltest.Context(context.Background())
+	rt, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "identity.db")})
+	require.NoError(t, err)
+	defer rt.Close(ctx)
+	source, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic("original")}})
+	require.NoError(t, err)
+	_, err = rt.chapterStore.Chapter(chapterContext(ctx), storyKeyForJob(source.JobKey), 1)
+	require.ErrorIs(t, err, storage.ErrChapterNotFound)
+	require.ErrorIs(t, err, core.ErrNotFound)
+	_, err = rt.chapterStore.Chapter(chapterContext(ctx), storyKeyForJob(jobdb.JobKey{TenantId: "tenant", JobId: "absent"}), 1)
+	require.ErrorIs(t, err, core.ErrNotFound)
+	require.NotErrorIs(t, err, storage.ErrChapterNotFound)
+	_, err = rt.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: source.JobKey}})
+	require.NoError(t, err)
 }

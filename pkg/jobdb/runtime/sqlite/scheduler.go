@@ -115,6 +115,12 @@ func (r *Runtime) loadJobRowTx(ctx context.Context, tx *sql.Tx, jobKey jobdb.Job
 }
 
 func (r *Runtime) insertJobRecord(ctx context.Context, jobKey jobdb.JobKey, jobType string, metadata json.RawMessage, waitFor []string, payload jobPayload, workerID string, availableAt *time.Time, update *jobdb.ClientPayloadUpdate) error {
+	return r.withTx(ctx, func(tx *sql.Tx) error {
+		return r.insertJobRecordTx(ctx, tx, jobKey, jobType, metadata, waitFor, payload, workerID, availableAt, update)
+	})
+}
+
+func (r *Runtime) insertJobRecordTx(ctx context.Context, tx *sql.Tx, jobKey jobdb.JobKey, jobType string, metadata json.RawMessage, waitFor []string, payload jobPayload, workerID string, availableAt *time.Time, update *jobdb.ClientPayloadUpdate) error {
 	initial, revision, err := clientpayload.Initial(update)
 	if err != nil {
 		return err
@@ -136,57 +142,55 @@ func (r *Runtime) insertJobRecord(ctx context.Context, jobKey jobdb.JobKey, jobT
 	if availableAt != nil {
 		leaseableAt = availableAt.UTC()
 	}
-	return r.withTx(ctx, func(tx *sql.Tx) error {
-		// Never overwrite a published goal during equivalent submission recovery.
-		var count int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM jobdb_jobs WHERE tenant_id=? AND job_id=?", jobKey.TenantId, jobKey.JobId).Scan(&count); err != nil {
-			return err
-		}
-		if count > 0 {
-			return jobdb.ErrConflict
-		}
-		target, err := r.publishCell(ctx, tx, jobKey)
-		if err != nil {
-			return err
-		}
-		goalID, deps, err := publishGoal(ctx, tx, jobKey, target, now)
-		if err != nil {
-			return err
-		}
-		waitID := ""
-		if len(deps) > 0 {
-			waitID = "submission"
-		}
-		_, err = tx.ExecContext(ctx, `
+	// Never overwrite a published goal during equivalent submission recovery.
+	var count int
+	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM jobdb_jobs WHERE tenant_id=? AND job_id=?", jobKey.TenantId, jobKey.JobId).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return jobdb.ErrConflict
+	}
+	target, err := r.publishCell(ctx, tx, jobKey)
+	if err != nil {
+		return err
+	}
+	goalID, deps, err := publishGoal(ctx, tx, jobKey, target, now)
+	if err != nil {
+		return err
+	}
+	waitID := ""
+	if len(deps) > 0 {
+		waitID = "submission"
+	}
+	_, err = tx.ExecContext(ctx, `
 INSERT INTO jobdb_jobs (
 	tenant_id, job_id, cell_id, cell_name, cell_repo, goal_id, dependency_wait_id, job_type, route_job_type, route_task_type, payload, client_payload, client_payload_revision, initial_payload_digest, metadata, parent_job_id, wait_for,
 	available_at_ns, created_at_ns, updated_at_ns
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			jobKey.TenantId,
-			jobKey.JobId, target.CellID, target.Cell, target.CellRepo, goalID, waitID,
-			jobType,
-			jobType, "",
-			payloadBytes, nullableJSON(initial), revision, digest,
-			cloneJSON(metadata),
-			parentJobIDFromMetadata(metadata),
-			waitBytes,
-			timeToNS(leaseableAt),
-			timeToNS(now),
-			timeToNS(now),
-		)
-		if err != nil {
-			return fmt.Errorf("sqlite runtime: insert job: %w", err)
-		}
-		if len(deps) > 0 {
-			if _, err = goalEngine(ctx, tx).Register(jobKey, jobdb.DependencyWait{WaitID: "submission", Dependencies: deps}, true); err != nil {
-				return err
-			}
-		}
-		if err = goalEngine(ctx, tx).CheckCycle(jobKey.TenantId, jobdb.DependencyTarget{GoalID: goalID}); err != nil {
+		jobKey.TenantId,
+		jobKey.JobId, target.CellID, target.Cell, target.CellRepo, goalID, waitID,
+		jobType,
+		jobType, "",
+		payloadBytes, nullableJSON(initial), revision, digest,
+		cloneJSON(metadata),
+		parentJobIDFromMetadata(metadata),
+		waitBytes,
+		timeToNS(leaseableAt),
+		timeToNS(now),
+		timeToNS(now),
+	)
+	if err != nil {
+		return fmt.Errorf("sqlite runtime: insert job: %w", err)
+	}
+	if len(deps) > 0 {
+		if _, err = goalEngine(ctx, tx).Register(jobKey, jobdb.DependencyWait{WaitID: "submission", Dependencies: deps}, true); err != nil {
 			return err
 		}
-		return saveSelectedReceipt(ctx, tx, jobKey, target, goalID)
-	})
+	}
+	if err = goalEngine(ctx, tx).CheckCycle(jobKey.TenantId, jobdb.DependencyTarget{GoalID: goalID}); err != nil {
+		return err
+	}
+	return saveSelectedReceipt(ctx, tx, jobKey, target, goalID)
 }
 
 func parentJobIDFromMetadata(metadata json.RawMessage) any {

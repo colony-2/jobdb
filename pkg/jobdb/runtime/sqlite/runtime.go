@@ -19,6 +19,8 @@ import (
 	chapterartifact "github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/artifact"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/core"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/pagination"
+	sqliterowstore "github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/sqlite"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/storage"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
@@ -244,18 +246,28 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	nextOrdinal := job.LastStepToKeep + 1
 	nextChap, err := r.chapterStore.Chapter(sctx, sourceJob, nextOrdinal)
 	if err != nil {
-		return jobdb.JobHandle{}, fmt.Errorf("LastStepToKeep %d invalid: no chapter at ordinal %d: %w", job.LastStepToKeep, nextOrdinal, err)
-	}
-	nextEnv, err := decodeChapterEnvelope(nextChap.Body())
-	if err != nil {
-		return jobdb.JobHandle{}, fmt.Errorf("decode source chapter %d: %w", nextOrdinal, err)
-	}
-	nextAttempt := nextEnv.Meta.Attempt
-	if nextAttempt == 0 {
-		nextAttempt = 1
-	}
-	if executionRestart == nil && nextAttempt > 1 {
-		return jobdb.JobHandle{}, fmt.Errorf("LastStepToKeep %d cuts into retry chain: next ordinal %d is attempt %d of %s", job.LastStepToKeep, nextOrdinal, nextAttempt, nextEnv.Meta.TaskType)
+		if job.LastStepToKeep != 0 || executionRestart != nil || !errors.Is(err, storage.ErrChapterNotFound) {
+			return jobdb.JobHandle{}, fmt.Errorf("LastStepToKeep %d invalid: no chapter at ordinal %d: %w", job.LastStepToKeep, nextOrdinal, err)
+		}
+		source, err := r.chapterStore.Story(sctx, sourceJob)
+		if err != nil {
+			return jobdb.JobHandle{}, err
+		}
+		if source.ChapterCount() != 1 || env0.ChapterType != chapterTypeJobStart || jobType == "" {
+			return jobdb.JobHandle{}, fmt.Errorf("source is not a submission-only history")
+		}
+	} else {
+		nextEnv, err := decodeChapterEnvelope(nextChap.Body())
+		if err != nil {
+			return jobdb.JobHandle{}, fmt.Errorf("decode source chapter %d: %w", nextOrdinal, err)
+		}
+		nextAttempt := nextEnv.Meta.Attempt
+		if nextAttempt == 0 {
+			nextAttempt = 1
+		}
+		if executionRestart == nil && nextAttempt > 1 {
+			return jobdb.JobHandle{}, fmt.Errorf("LastStepToKeep %d cuts into retry chain: next ordinal %d is attempt %d of %s", job.LastStepToKeep, nextOrdinal, nextAttempt, nextEnv.Meta.TaskType)
+		}
 	}
 
 	extra, err := buildRestartExtraExpectation(ctx, job, prereqs)
@@ -300,12 +312,29 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		}
 	}
 
-	if _, err := r.chapterStore.CloneStory(sctx, sourceJob, story.CloneOptions{
+	// Publish the linked history and scheduler/goal facts in one transaction.
+	// A failed append or publication must not leave a destination story behind.
+	staged, err := r.chapterStore.StageClone(sctx, sourceJob, story.CloneOptions{
 		DestinationKey: targetJob,
 		LastOrdinal:    job.LastStepToKeep,
 		CreateOptions:  createOptions,
-	}); err != nil {
-		if job.JobID != "" && errors.Is(err, core.ErrConflict) {
+	})
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	var cloneConflict bool
+	err = r.withTx(ctx, func(tx *sql.Tx) error {
+		if err := staged.Publish(sctx, sqliterowstore.InTransaction(tx)); err != nil {
+			cloneConflict = errors.Is(err, core.ErrConflict)
+			return err
+		}
+		return r.insertJobRecordTx(ctx, tx, jobKey, jobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, nil, req.Job.ClientPayloadUpdate)
+	})
+	if err != nil {
+		if cleanupErr := staged.Discard(); cleanupErr != nil {
+			return jobdb.JobHandle{}, errors.Join(err, fmt.Errorf("discard restart blobs: %w", cleanupErr))
+		}
+		if job.JobID != "" && cloneConflict {
 			if handle, handled, reconcileErr := r.reconcileExistingRestartJob(ctx, req, jobKey, prereqs, waitFor, jobType, jobPolicy, extra, storedMetadata); handled || reconcileErr != nil {
 				return handle, reconcileErr
 			}
@@ -317,9 +346,6 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 			assignArtifactKeys(artifacts, jobKey.JobId, job.LastStepToKeep+1)
 			cleanupArtifacts(artifacts, r.logger)
 		}
-	}
-	if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, nil, req.Job.ClientPayloadUpdate); err != nil {
-		return jobdb.JobHandle{}, err
 	}
 	return r.goalHandle(ctx, jobKey)
 }

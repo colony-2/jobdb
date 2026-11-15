@@ -581,7 +581,9 @@ func TestExecutionExternalDeadlineAndReplacement(t *testing.T) {
 			rt := alternateRuntime(t, backend)
 			var builds atomic.Int32
 			call := invocation("external")
-			call.Policy.InvocationTimeout = jobdb.AsDuration(80 * time.Millisecond)
+			// Real SQLite/HTTP work must reach suspension before this budget
+			// expires, including under the race detector.
+			call.Policy.InvocationTimeout = jobdb.AsDuration(2 * time.Second)
 			call.Policy.Retry.MaximumAttempts = 2
 			w := wf.ExecutionWorker{JobType: "external-timeout", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
 				return c.DoTask(call, func(context.Context) (jobdb.TaskData, error) { builds.Add(1); return in, nil })
@@ -589,17 +591,19 @@ func TestExecutionExternalDeadlineAndReplacement(t *testing.T) {
 			key := submitExecutionTest(t, rt, w)
 			out, err := runExecutionTest(t, rt, key, w)
 			require.NoError(t, err)
-			require.Equal(t, wf.JobRunSuspended, out.Status)
+			require.Equal(t, wf.JobRunSuspended, out.Status, "%v", out.JobError)
 			engine, err := wf.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("tenant").PlusWorkers(w).BuildEngine()
 			require.NoError(t, err)
 			stale, err := engine.GetWaitingTask(celltest.Context(context.Background()), key)
 			require.NoError(t, err)
-			time.Sleep(100 * time.Millisecond)
+			wait := executionWait(t, rt, key)
+			require.False(t, wait.Deadline.IsZero())
+			waitAlternate(wait.Deadline.Add(time.Millisecond))
 			// Let timeout processing replace the waiting generation before
 			// attempting the stale answer; expiry alone leaves the slot open.
 			out, err = runExecutionTest(t, rt, key, w)
 			require.NoError(t, err)
-			require.Equal(t, wf.JobRunSuspended, out.Status)
+			require.Equal(t, wf.JobRunSuspended, out.Status, "%v", out.JobError)
 			require.EqualValues(t, 1, builds.Load())
 			fresh, err := engine.GetWaitingTask(celltest.Context(context.Background()), key)
 			require.NoError(t, err)
@@ -647,7 +651,7 @@ func TestExecutionRecoveryDuringHandler(t *testing.T) {
 		})
 	}}
 	key := submitExecutionTest(t, rt, w)
-	run, err := wf.GetJobForRun(ctx, fault, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "first", LeaseDuration: 50 * time.Millisecond})
+	run, err := wf.GetJobForRun(ctx, fault, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "first", LeaseDuration: 2 * time.Second})
 	require.NoError(t, err)
 	_, err = run.Run(nil)
 	require.Error(t, err)
@@ -658,7 +662,7 @@ func TestExecutionRecoveryDuringHandler(t *testing.T) {
 		out, err = runExecutionTest(t, rt, key, w, task)
 		require.NoError(t, err)
 		return out.Status != wf.JobRunNotLeaseable
-	}, 2*time.Second, 20*time.Millisecond)
+	}, 10*time.Second, 20*time.Millisecond)
 	require.Equal(t, wf.JobRunCompleted, out.Status)
 	require.EqualValues(t, 1, first.Load())
 	require.EqualValues(t, 2, second.Load())

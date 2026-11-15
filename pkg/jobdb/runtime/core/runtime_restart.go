@@ -129,18 +129,30 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	nextOrdinal := job.LastStepToKeep + 1
 	nextEncoded, err := r.chapters.Get(ctx, source, nextOrdinal)
 	if err != nil {
-		return jobdb.JobHandle{}, fmt.Errorf("LastStepToKeep %d has no following chapter: %w", job.LastStepToKeep, err)
-	}
-	nextChapter, err := DecodeChapter(nextEncoded)
-	if err != nil {
-		return jobdb.JobHandle{}, err
-	}
-	nextMeta, err := initialChapterMetadata(nextChapter.Metadata)
-	if err != nil {
-		return jobdb.JobHandle{}, err
-	}
-	if executionRestart == nil && nextMeta.Attempt > 1 {
-		return jobdb.JobHandle{}, fmt.Errorf("LastStepToKeep %d cuts into retry chain", job.LastStepToKeep)
+		if job.LastStepToKeep != 0 || executionRestart != nil || !errors.Is(err, jobdb.ErrChapterNotFound) {
+			return jobdb.JobHandle{}, fmt.Errorf("LastStepToKeep %d has no following chapter: %w", job.LastStepToKeep, err)
+		}
+		// Only a stored submission may stand alone. A hole in a longer log
+		// must not turn a damaged history into a fresh execution.
+		count, err := r.chapters.Count(ctx, source)
+		if err != nil {
+			return jobdb.JobHandle{}, err
+		}
+		if count != 1 || !runtimecodec.ChapterIs(first, runtimecodec.ChapterTypeJobStart) {
+			return jobdb.JobHandle{}, fmt.Errorf("source is not a submission-only history")
+		}
+	} else {
+		nextChapter, err := DecodeChapter(nextEncoded)
+		if err != nil {
+			return jobdb.JobHandle{}, err
+		}
+		nextMeta, err := initialChapterMetadata(nextChapter.Metadata)
+		if err != nil {
+			return jobdb.JobHandle{}, err
+		}
+		if executionRestart == nil && nextMeta.Attempt > 1 {
+			return jobdb.JobHandle{}, fmt.Errorf("LastStepToKeep %d cuts into retry chain", job.LastStepToKeep)
+		}
 	}
 	workerID := req.WorkerID
 	if workerID == "" {

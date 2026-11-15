@@ -102,6 +102,8 @@ func RunWorkflowRuntimeConformance(t *testing.T, harnesses ...Harness) {
 	t.Run("execution_lease_submit_job_tracks_parent", func(t *testing.T) {
 		runExecutionLeaseSubmitJobTracksParent(t, harnesses)
 	})
+	t.Run("submission_restart_boundaries", func(t *testing.T) { runSubmissionRestartBoundaries(t, harnesses) })
+	t.Run("submission_restart_execution", func(t *testing.T) { runSubmissionRestart(t, harnesses) })
 	t.Run("restart_clones_metadata", func(t *testing.T) {
 		runRestartClonesMetadata(t, harnesses)
 	})
