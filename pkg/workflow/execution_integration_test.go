@@ -668,33 +668,55 @@ func TestExecutionRecoveryDuringHandler(t *testing.T) {
 }
 
 func TestExecutionScopeDeadlineSurvivesRecovery(t *testing.T) {
-	rt := alternateRuntime(t, "sqlite")
-	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
-	defer cancel()
-	fault := &executionFaultRuntime{WorkflowRuntime: rt, cancel: cancel, fail: func(r jobdb.ExecutionRecord) bool {
-		return r.Kind == "result" && r.ID == `/scope:"$job"#1/attempt:1`
-	}}
-	var runs atomic.Int32
-	task := executionTestTask{"echo", func(c wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) { runs.Add(1); return in, nil }}
-	w := wf.ExecutionWorker{JobType: "durable-timeout", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
-		return c.DoScope("timed", wf.ScopeOptions{TotalTimeout: 70 * time.Millisecond}, func(s wf.ExecutionContext) (jobdb.JobData, error) {
-			return s.DoTask(invocation("completed"), func(context.Context) (jobdb.TaskData, error) { return in, nil })
-		})
-	}}
-	key := submitExecutionTest(t, rt, w)
-	run, err := wf.GetJobForRun(ctx, fault, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "first", LeaseDuration: 40 * time.Millisecond})
-	require.NoError(t, err)
-	_, err = run.Run(nil)
-	require.Error(t, err)
-	require.True(t, fault.fired.Load())
-	time.Sleep(90 * time.Millisecond)
-	out, err := runExecutionTest(t, rt, key, w, task)
-	require.NoError(t, err)
-	require.Equal(t, wf.JobRunFailed, out.Status)
-	require.EqualValues(t, 1, runs.Load())
-	_, err = replayExecutionTest(t, rt, key, w, task)
-	require.Error(t, err)
-	require.EqualValues(t, 1, runs.Load())
+	// SQLite work must reach the injected failure before time advances. Virtual
+	// time separates recovery semantics from storage speed under the race detector.
+	synctest.Test(t, func(t *testing.T) {
+		rt := alternateRuntime(t, "sqlite")
+		ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
+		defer cancel()
+		fault := &executionFaultRuntime{WorkflowRuntime: rt, cancel: cancel, fail: func(r jobdb.ExecutionRecord) bool {
+			return r.Kind == "result" && r.ID == `/scope:"$job"#1/attempt:1`
+		}}
+		var runs atomic.Int32
+		task := executionTestTask{"echo", func(c wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) { runs.Add(1); return in, nil }}
+		w := wf.ExecutionWorker{JobType: "durable-timeout", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
+			return c.DoScope("timed", wf.ScopeOptions{TotalTimeout: 70 * time.Millisecond}, func(s wf.ExecutionContext) (jobdb.JobData, error) {
+				return s.DoTask(invocation("completed"), func(context.Context) (jobdb.TaskData, error) { return in, nil })
+			})
+		}}
+		key := submitExecutionTest(t, rt, w)
+		run, err := wf.GetJobForRun(ctx, fault, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "first", LeaseDuration: 40 * time.Millisecond})
+		require.NoError(t, err)
+		_, err = run.Run(nil)
+		require.Error(t, err)
+		require.True(t, fault.fired.Load(), "root append fault not reached: err=%v, task runs=%d", err, runs.Load())
+		require.EqualValues(t, 1, runs.Load())
+		before := executionRecords(t, rt, key)
+		var deadline time.Time
+		for _, rec := range before {
+			if rec.Kind == "scope" && strings.HasSuffix(rec.ID, `scope:"timed"#1`) {
+				deadline = rec.TotalDeadline
+			}
+		}
+		require.True(t, deadline.After(time.Now()), "persist the scope budget before it expires")
+		time.Sleep(90 * time.Millisecond)
+		require.True(t, time.Now().After(deadline))
+		out, err := runExecutionTest(t, rt, key, w, task)
+		require.NoError(t, err)
+		require.Equal(t, wf.JobRunFailed, out.Status)
+		var timeout jobdb.TimeoutError
+		require.ErrorAs(t, out.JobError, &timeout)
+		require.Equal(t, jobdb.TimeoutScopeTotal, timeout.Payload.Scope)
+		require.EqualValues(t, 1, runs.Load())
+		after := executionRecords(t, rt, key)
+		require.GreaterOrEqual(t, len(after), len(before))
+		require.Equal(t, before, after[:len(before)], "recovery must preserve recorded deadlines and work")
+		_, err = replayExecutionTest(t, rt, key, w, task)
+		require.ErrorAs(t, err, &timeout)
+		require.Equal(t, jobdb.TimeoutScopeTotal, timeout.Payload.Scope)
+		require.EqualValues(t, 1, runs.Load())
+		require.Equal(t, after, executionRecords(t, rt, key), "replay must not rewrite history")
+	})
 }
 
 func executionRestartTarget(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, site string) string {

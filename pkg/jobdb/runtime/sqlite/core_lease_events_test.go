@@ -22,12 +22,18 @@ import (
 // scheduler mutations and chapter/schema/configuration stores. In particular,
 // the leases under test are core handles, not SQLite handles or mock snapshots.
 func TestLeaseEventCoreConformance(t *testing.T) {
+	runCoreSQLiteConformance(t, runtimetest.RunLeaseEventConformance)
+}
+func TestParentIdentityCoreConformance(t *testing.T) {
+	runCoreSQLiteConformance(t, runtimetest.RunParentIdentityConformance)
+}
+func runCoreSQLiteConformance(t *testing.T, run func(*testing.T, ...runtimetest.Harness)) {
 	for _, overHTTP := range []bool{false, true} {
 		name := "core-sqlite"
 		if overHTTP {
 			name = "remote-" + name
 		}
-		runtimetest.RunLeaseEventConformance(t, runtimetest.Harness{Name: name, New: func(tb testing.TB) runtimetest.Fixture {
+		run(t, runtimetest.Harness{Name: name, New: func(tb testing.TB) runtimetest.Fixture {
 			ctx := celltest.Context(context.Background())
 			storage, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(tb.TempDir(), "core.db")})
 			require.NoError(tb, err)
@@ -78,6 +84,25 @@ func (s *coreEventScheduler) CreateJob(ctx context.Context, req runtimecore.Crea
 		return runtimecore.StoredJob{}, err
 	}
 	return s.GetJob(ctx, req.JobKey)
+}
+func (s *coreEventScheduler) ListJobs(ctx context.Context, req runtimecore.ListJobsRequest) (runtimecore.ListJobsResponse, error) {
+	if len(req.MetadataEquals) != 0 {
+		return runtimecore.ListJobsResponse{}, fmt.Errorf("unsupported metadata predicates in core fixture")
+	}
+	list, err := s.r.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: req.TenantIds, CellNames: req.CellNames, GoalIDs: req.GoalIDs, IncludeHidden: req.IncludeHidden, Statuses: req.Statuses, Stores: req.Stores, JobTypes: req.JobTypes, JobTasks: req.JobTasks, AvailableRoutes: req.AvailableRoutes, JobKeys: req.JobKeys, ParentJobIDs: req.ParentJobIDs, RootOnly: req.RootOnly, CreatedAfter: req.CreatedAfter, CreatedBefore: req.CreatedBefore, PageSize: req.PageSize, PageToken: req.PageToken})
+	if err != nil {
+		return runtimecore.ListJobsResponse{}, err
+	}
+	out := runtimecore.ListJobsResponse{NextPageToken: list.NextPageToken}
+	for _, summary := range list.Jobs {
+		row, err := s.GetJob(ctx, summary.JobKey)
+		if err != nil {
+			return runtimecore.ListJobsResponse{}, err
+		}
+		row.Status = summary.Status
+		out.Jobs = append(out.Jobs, row)
+	}
+	return out, nil
 }
 func (s *coreEventScheduler) GetJob(ctx context.Context, key jobdb.JobKey) (runtimecore.StoredJob, error) {
 	row, err := s.r.loadJobRow(ctx, key)
@@ -261,6 +286,17 @@ func (c coreEventChapters) Append(ctx context.Context, key runtimecore.ChapterLo
 		return fmt.Errorf("artifact uploads outside core event fixture scope")
 	}
 	return c.r.chapterStore.SaveChapter(chapterContext(ctx), storyKeyForJob(key.JobKey), story.NewChapter().WithOrdinal(ch.Ordinal).WithBytes(ch.Payload))
+}
+func (c coreEventChapters) ClonePrefix(ctx context.Context, req runtimecore.ClonePrefixRequest) error {
+	options := story.CloneOptions{DestinationKey: storyKeyForJob(req.DestinationKey.JobKey), LastOrdinal: req.LastOrdinal}
+	if req.Append != nil {
+		if len(req.Append.ArtifactUploads) != 0 {
+			return fmt.Errorf("artifact uploads outside core fixture scope")
+		}
+		options.CreateOptions.InitialChapter = story.NewChapter().WithOrdinal(req.Append.Ordinal).WithBytes(req.Append.Payload)
+	}
+	_, err := c.r.chapterStore.CloneStory(chapterContext(ctx), storyKeyForJob(req.SourceKey.JobKey), options)
+	return err
 }
 func (c coreEventChapters) Count(ctx context.Context, key runtimecore.ChapterLogKey) (int64, error) {
 	return c.r.storyChapterCount(ctx, key.JobKey)

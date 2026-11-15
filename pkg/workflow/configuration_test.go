@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -270,19 +271,23 @@ func (w *catchesConfigurationTaskTimeout) Run(ctx ExecutionContext, input JobDat
 }
 
 func TestTaskConfigurationContextExpiresWhileJobLeaseRemainsLive(t *testing.T) {
-	ctx := celltest.Context(context.Background())
-	provider := &configurationCountingStore{Store: &configuration.MemoryStore{}}
-	runtime := toy.New()
-	runtime.Service.Store = provider
-	task := &expiredConfigurationTask{captured: make(chan TaskContext, 1), release: make(chan struct{})}
-	job := &catchesConfigurationTaskTimeout{task: task}
-	ws := mustWorkSetForRunnerTest(t, job, task)
-	handle, err := celltest.Submit(runtime, ctx, SubmitJobRequest{Job: SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: job.Name(), Data: NewTaskDataOrPanic("input")}})
-	require.NoError(t, err)
-	lease, err := runtime.GetJobLease(ctx, GetJobLeaseRequest{JobKey: handle.JobKey, WorkerID: "worker", Routes: []Route{{JobType: job.Name()}}, LeaseDuration: time.Minute})
-	require.NoError(t, err)
-	runner := newWorkerRunner(runtime, ws, lease, workerRunnerOptions{})
-	_, err = runner.DoJob(ctx)
-	require.NoError(t, err)
-	require.Equal(t, int32(1), provider.calls.Load())
+	// Let the task capture its context before advancing to its timeout. Real
+	// scheduling delays could otherwise expire admission and strand the receiver.
+	synctest.Test(t, func(t *testing.T) {
+		ctx := celltest.Context(context.Background())
+		provider := &configurationCountingStore{Store: &configuration.MemoryStore{}}
+		runtime := toy.New()
+		runtime.Service.Store = provider
+		task := &expiredConfigurationTask{captured: make(chan TaskContext, 1), release: make(chan struct{})}
+		job := &catchesConfigurationTaskTimeout{task: task}
+		ws := mustWorkSetForRunnerTest(t, job, task)
+		handle, err := celltest.Submit(runtime, ctx, SubmitJobRequest{Job: SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: job.Name(), Data: NewTaskDataOrPanic("input")}})
+		require.NoError(t, err)
+		lease, err := runtime.GetJobLease(ctx, GetJobLeaseRequest{JobKey: handle.JobKey, WorkerID: "worker", Routes: []Route{{JobType: job.Name()}}, LeaseDuration: time.Minute})
+		require.NoError(t, err)
+		runner := newWorkerRunner(runtime, ws, lease, workerRunnerOptions{})
+		_, err = runner.DoJob(ctx)
+		require.NoError(t, err)
+		require.Equal(t, int32(1), provider.calls.Load())
+	})
 }

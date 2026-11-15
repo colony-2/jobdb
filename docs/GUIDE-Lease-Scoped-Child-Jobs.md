@@ -142,3 +142,10 @@ callers must send `X-JobDB-Lease-Token`.
 Parent tracking is stored as JobDB internal metadata and exposed through
 `JobSummary.ParentJobID` plus `ListJobsRequest.ParentJobIDs` and `RootOnly`.
 Consumers should not read or write the internal metadata envelope directly.
+
+
+The shared HTTP server and runtime core require a current matching submitting
+lease, including on retries. A saved preparation cannot replace lease authority.
+See [parent identity compatibility](MIGRATION-Live-Lease-Parent-Identity.md) for
+upgrade guidance and the trusted native-storage boundary. Application metadata
+is untrusted; use the dedicated parent output even when it is empty.

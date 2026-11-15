@@ -889,7 +889,7 @@ func (s *proxyServer) SubmitJobWithLease(ctx context.Context, request runtimeapi
 		return nil, badRequest("submit job body is required")
 	}
 	jobKey := jobdb.JobKey{TenantId: request.TenantId, JobId: request.ParentJobId}
-	claims, err := s.validatedLeaseClaims(ctx, request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
+	claims, err := s.validatedSubmissionLeaseClaims(ctx, request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
 	if err != nil {
 		return nil, err
 	}
@@ -914,7 +914,7 @@ func (s *proxyServer) PutJobWithLease(ctx context.Context, request runtimeapi.Pu
 		return nil, badRequest("submit job body is required")
 	}
 	jobKey := jobdb.JobKey{TenantId: request.TenantId, JobId: request.ParentJobId}
-	claims, err := s.validatedLeaseClaims(ctx, request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
+	claims, err := s.validatedSubmissionLeaseClaims(ctx, request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
 	if err != nil {
 		return nil, err
 	}
@@ -939,7 +939,7 @@ func (s *proxyServer) SubmitRestartJobWithLease(ctx context.Context, request run
 		return nil, badRequest("submit restart job body is required")
 	}
 	jobKey := jobdb.JobKey{TenantId: request.TenantId, JobId: request.ParentJobId}
-	claims, err := s.validatedLeaseClaims(ctx, request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
+	claims, err := s.validatedSubmissionLeaseClaims(ctx, request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
 	if err != nil {
 		return nil, err
 	}
@@ -964,7 +964,7 @@ func (s *proxyServer) PutRestartJobWithLease(ctx context.Context, request runtim
 		return nil, badRequest("submit restart job body is required")
 	}
 	jobKey := jobdb.JobKey{TenantId: request.TenantId, JobId: request.ParentJobId}
-	claims, err := s.validatedLeaseClaims(ctx, request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
+	claims, err := s.validatedSubmissionLeaseClaims(ctx, request.Params.XJobDBLeaseToken, jobKey, request.LeaseId)
 	if err != nil {
 		return nil, err
 	}
@@ -1111,6 +1111,37 @@ func (s *proxyServer) validatedLeaseClaims(ctx context.Context, token string, jo
 	claims, err := s.tokens.validateAndParse(token, jobKey, leaseID, time.Now().UTC())
 	if err != nil {
 		return leaseTokenClaims{}, leaseTokenValidationError(err)
+	}
+	return claims, nil
+}
+
+// A signed token binds the requested parent, but cannot establish that its lease
+// is still live. Enforce that boundary here for every provider, before dispatching
+// child creation or an idempotent retry to its submission implementation.
+func (s *proxyServer) validatedSubmissionLeaseClaims(ctx context.Context, token string, parent jobdb.JobKey, leaseID string) (leaseTokenClaims, error) {
+	claims, err := s.validatedLeaseClaims(ctx, token, parent, leaseID)
+	if err != nil {
+		return leaseTokenClaims{}, err
+	}
+	if parent.Validate() != nil || leaseID == "" || claims.WorkerID == "" {
+		return leaseTokenClaims{}, jobdb.ErrExecutionLeaseLost
+	}
+	checker, ok := s.runtime.(interface {
+		ValidateExecutionLeaseByID(context.Context, jobdb.JobKey, string, string) (jobdb.LeaseValidity, error)
+	})
+	if !ok {
+		return leaseTokenClaims{}, &httpStatusError{status: http.StatusNotImplemented, err: errors.New("runtime does not support live submission lease validation")}
+	}
+	validity, err := checker.ValidateExecutionLeaseByID(ctx, parent, leaseID, claims.WorkerID)
+	if errors.Is(err, jobdb.ErrJobNotFound) {
+		err = jobdb.ErrExecutionLeaseLost
+	}
+	if err != nil {
+		return leaseTokenClaims{}, err
+	}
+	if !validity.ExpiresAt.After(time.Now()) || claims.Cell.CellID == "" ||
+		claims.Cell.CellID != validity.Cell.CellID || claims.Cell.CellRepo != validity.Cell.CellRepo {
+		return leaseTokenClaims{}, jobdb.ErrExecutionLeaseLost
 	}
 	return claims, nil
 }

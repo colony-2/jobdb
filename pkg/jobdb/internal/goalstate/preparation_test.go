@@ -7,12 +7,13 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/cellstate"
 	"github.com/stretchr/testify/require"
 )
 
 func descriptor(t *testing.T, job jobdb.SubmitJob) Preparation {
 	t.Helper()
-	p, err := SubmitPreparation(context.Background(), jobdb.SubmitJobRequest{Job: job}, "parent")
+	p, err := SubmitPreparation(descriptorLease(job.TenantId, "parent", "lease", "worker"), jobdb.SubmitJobRequest{Job: job}, "parent")
 	require.NoError(t, err)
 	return p
 }
@@ -82,10 +83,10 @@ func TestSelectedSubmitDescriptorSemanticIdentity(t *testing.T) {
 	equivalent.Data = jobdb.NewTaskDataOrPanic(json.RawMessage(`{ "b":2, "a":1 }`), jobdb.NewArtifactFromBytes("input", []byte("original")))
 	require.Equal(t, original.Descriptor, descriptor(t, equivalent).Descriptor)
 	request := jobdb.SubmitJobRequest{Job: base(), WorkerID: "different", RequestTime: time.Now()}
-	p, err := SubmitPreparation(context.Background(), request, "parent")
+	p, err := SubmitPreparation(descriptorLease(request.Job.TenantId, "parent", "lease", "worker"), request, "parent")
 	require.NoError(t, err)
 	require.Equal(t, original.Descriptor, p.Descriptor)
-	p, err = SubmitPreparation(context.Background(), request, "other-parent")
+	p, err = SubmitPreparation(descriptorLease(request.Job.TenantId, "other-parent", "lease", "worker"), request, "other-parent")
 	require.NoError(t, err)
 	require.NotEqual(t, original.Descriptor, p.Descriptor)
 }
@@ -123,4 +124,43 @@ func TestSelectedPrerequisiteDefaultsCanonicalize(t *testing.T) {
 	same := base
 	same.Prerequisites = []jobdb.JobPrerequisite{{JobID: "a", Condition: jobdb.JobPrereqSuccess}, {JobID: "b", Condition: jobdb.JobPrereqComplete}}
 	require.Equal(t, descriptor(t, base).Descriptor, descriptor(t, same).Descriptor)
+}
+
+func descriptorLease(tenant, parent, lease, worker string) context.Context {
+	return cellstate.WithLease(context.Background(), cellstate.LeaseProof{JobKey: jobdb.JobKey{TenantId: tenant, JobId: parent}, LeaseID: lease, WorkerID: worker})
+}
+
+func TestParentIdentityDescriptorNormalization(t *testing.T) {
+	a := descriptorLease("tenant", "A", "first", "worker-1")
+	later := descriptorLease("tenant", "A", "second", "worker-2")
+	b := descriptorLease("tenant", "B", "third", "worker-3")
+	submit := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: "work", Data: jobdb.NewTaskDataOrPanic(1)}}
+	restart := jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: jobdb.JobKey{TenantId: "tenant", JobId: "source"}, LastStepToKeep: 0}}
+	for _, build := range []func(context.Context, string) (Preparation, error){
+		func(ctx context.Context, claim string) (Preparation, error) {
+			return SubmitPreparation(ctx, submit, claim)
+		},
+		func(ctx context.Context, claim string) (Preparation, error) {
+			return RestartPreparation(ctx, restart, claim)
+		},
+	} {
+		omitted, err := build(a, "")
+		require.NoError(t, err)
+		explicit, err := build(a, "A")
+		require.NoError(t, err)
+		retry, err := build(later, "")
+		require.NoError(t, err)
+		other, err := build(b, "")
+		require.NoError(t, err)
+		require.Equal(t, omitted.Descriptor, explicit.Descriptor)
+		require.Equal(t, omitted.Descriptor, retry.Descriptor)
+		require.NotEqual(t, omitted.Descriptor, other.Descriptor)
+		require.Equal(t, "A", omitted.ParentJobID)
+	}
+	old, err := SubmitPreparation(a, submit, "")
+	require.NoError(t, err)
+	submit.Job.Data = jobdb.NewTaskDataOrPanic(2)
+	changed, err := SubmitPreparation(a, submit, "")
+	require.NoError(t, err)
+	require.NotEqual(t, old.Descriptor, changed.Descriptor)
 }

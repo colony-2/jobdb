@@ -34,8 +34,15 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if err := ValidateRestartApplicationPayload(ctx, req.Job, r.ChapterApplicationPayloadLimit()); err != nil {
 		return jobdb.JobHandle{}, err
 	}
+	parentJobID, parentErr := r.submissionParent(ctx, req.Job.PriorJobKey.TenantId, parentJobID)
+	if parentErr != nil {
+		return jobdb.JobHandle{}, parentErr
+	}
 	preparation, err := goalstate.RestartPreparation(ctx, req, parentJobID)
 	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	if _, err := r.submissionParent(ctx, preparation.Key.TenantId, parentJobID); err != nil {
 		return jobdb.JobHandle{}, err
 	}
 	reserved, err := r.scheduler.PrepareJob(ctx, preparation)
@@ -43,12 +50,17 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		return jobdb.JobHandle{}, err
 	}
 	defer func() {
-		if retErr != nil {
+		// Keep stable retry identity if authority is lost after staging. The
+		// reservation may predate this call and cannot be safely discarded here.
+		if retErr != nil && !errors.Is(retErr, jobdb.ErrExecutionLeaseLost) {
 			_ = r.scheduler.DiscardJobPreparation(context.WithoutCancel(ctx), reserved.Key)
 		}
 	}()
 	req.Job.JobID = reserved.Key.JobId
 	if reserved.Published {
+		if _, err := r.submissionParent(ctx, reserved.Key.TenantId, parentJobID); err != nil {
+			return jobdb.JobHandle{}, err
+		}
 		return reserved.Target.Handle(reserved.Key, reserved.GoalID), nil
 	}
 	job, executionRestart, err := ResolveExecutionRestart(ctx, r, req.Job)
@@ -234,11 +246,17 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 			if err := validateStoredJobFacts(stored, key, jobType, schemaHash, parentJobID, metadata, policy); err != nil {
 				return jobdb.JobHandle{}, err
 			}
+			if _, err := r.submissionParent(ctx, key.TenantId, parentJobID); err != nil {
+				return jobdb.JobHandle{}, err
+			}
 			return stored.Cell.Handle(key, stored.GoalID), nil
 		}
 		if !errors.Is(err, jobdb.ErrJobNotFound) {
 			return jobdb.JobHandle{}, err
 		}
+	}
+	if _, err := r.submissionParent(ctx, key.TenantId, parentJobID); err != nil {
+		return jobdb.JobHandle{}, err
 	}
 	stored, err := r.scheduler.CreateJob(ctx, CreateJobRequest{Cell: reserved.Target, GoalID: reserved.GoalID, ShareGoal: preparation.ShareGoal, Dependencies: preparation.Dependencies,
 		ClientPayload: initial, ClientPayloadRevision: revision, InitialPayloadDigest: digest,

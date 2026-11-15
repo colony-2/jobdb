@@ -10,6 +10,7 @@ import (
 	"sort"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/cellstate"
 )
 
 // Preparation reserves stable identities before history is written. The owning
@@ -17,6 +18,7 @@ import (
 type Preparation struct {
 	Cell, CellRepo string
 	Target         jobdb.ResolvedCell
+	// ParentJobID is a compatibility claim, checked against live lease context.
 	ParentJobID    string
 	Key            jobdb.JobKey
 	RequestID      string
@@ -38,6 +40,10 @@ type Prepared struct {
 
 func SubmitPreparation(ctx context.Context, req jobdb.SubmitJobRequest, parent string) (Preparation, error) {
 	var normalizeErr error
+	parent, normalizeErr = cellstate.ParentJobID(ctx, req.Job.TenantId, parent)
+	if normalizeErr != nil {
+		return Preparation{}, normalizeErr
+	}
 	req.Job, normalizeErr = CanonicalSelectedJob(req.Job)
 	if normalizeErr != nil {
 		return Preparation{}, normalizeErr
@@ -74,6 +80,11 @@ func SubmitPreparation(ctx context.Context, req jobdb.SubmitJobRequest, parent s
 	return Preparation{Cell: req.Job.Cell, CellRepo: req.Job.CellRepo, ParentJobID: parent, SelectedGoalID: req.Job.GoalID, Key: jobdb.JobKey{TenantId: req.Job.TenantId, JobId: req.Job.JobID}, Descriptor: descriptor, Dependencies: req.Job.Dependencies}, err
 }
 func RestartPreparation(ctx context.Context, req jobdb.SubmitRestartJobRequest, parent string) (Preparation, error) {
+	var parentErr error
+	parent, parentErr = cellstate.ParentJobID(ctx, req.Job.PriorJobKey.TenantId, parent)
+	if parentErr != nil {
+		return Preparation{}, parentErr
+	}
 	if req.Job.ShareGoal && req.Job.JobID == "" && req.RequestID == "" {
 		return Preparation{}, fmt.Errorf("%w: shareGoal with generated job ID requires requestId", jobdb.ErrInvalidDependency)
 	}

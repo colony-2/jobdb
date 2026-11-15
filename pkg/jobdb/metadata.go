@@ -95,6 +95,9 @@ func runtimeJobMetadataEmpty(meta RuntimeJobMetadata) bool {
 	return strings.TrimSpace(meta.SchemaHash) == "" && strings.TrimSpace(meta.ParentJobID) == ""
 }
 
+// ExtractParentJobID reads a compatibility metadata value, not authoritative
+// ancestry. Application metadata may contain arbitrary parent-like claims. Use
+// JobSummary.ParentJobID (including its empty root value) for recorded identity.
 func ExtractParentJobID(raw json.RawMessage) (string, bool, error) {
 	if len(strings.TrimSpace(string(raw))) == 0 {
 		return "", false, nil

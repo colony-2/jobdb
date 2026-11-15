@@ -54,6 +54,7 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
+	parentJobID = prep.ParentJobID
 	reserved, err := r.PrepareJob(ctx, prep)
 	if err != nil {
 		return jobdb.JobHandle{}, err
@@ -177,6 +178,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
+	parentJobID = prep.ParentJobID
 	reserved, err := r.PrepareJob(ctx, prep)
 	if err != nil {
 		return jobdb.JobHandle{}, err
