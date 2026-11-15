@@ -17,6 +17,40 @@ import (
 type ExecutionWorker struct {
 	JobType string
 	Execute func(ExecutionContext, JobData) (JobData, error)
+	// ObserveTaskResults optionally creates invocation-local task-result state.
+	// See TaskResultObserverProvider for context, ordering and lifetime requirements.
+	ObserveTaskResults func(context.Context) (context.Context, func(TaskEndEvent))
+}
+
+// TaskResultObserverProvider optionally observes accepted task-attempt results.
+// The runner calls NewTaskResultObserver once per execution or replay invocation,
+// before orchestration and outside whole-job retries. The returned nonnil context
+// must derive from the input, preserving cancellation, lease authority and values;
+// every attempt inherits it even when the returned callback is nil.
+//
+// Callback delivery is synchronous and serialized within an invocation, before
+// existing task-end observers, catches, retries and subsequent orchestration on
+// that path. Concurrent branches gain no additional scheduling order. Events use
+// accepted stored results after reconciliation, including failed attempts, and
+// exclude synthetic catch/scope outputs and uncommitted work. Replay and resume
+// reconstruct fresh state only as retained results are consumed, not in advance.
+//
+// Allocate mutable state in the factory, not on a shared worker. Callbacks should
+// do prompt deterministic bookkeeping, avoid execution reentry and never wait on
+// asynchronous listeners. Synchronize any other concurrent access to that state.
+// This is not durable exactly-once external delivery and adds no panic recovery.
+// Worker wrappers must forward this optional capability to preserve it.
+type TaskResultObserverProvider interface {
+	NewTaskResultObserver(context.Context) (context.Context, func(TaskEndEvent))
+}
+
+// NewTaskResultObserver delegates to ObserveTaskResults. A nil factory returns
+// the incoming context unchanged and no callback.
+func (w ExecutionWorker) NewTaskResultObserver(ctx context.Context) (context.Context, func(TaskEndEvent)) {
+	if w.ObserveTaskResults == nil {
+		return ctx, nil
+	}
+	return w.ObserveTaskResults(ctx)
 }
 
 func (w ExecutionWorker) Name() string { return w.JobType }

@@ -117,6 +117,18 @@ This includes `Engine`, `EngineBuilder`, `JobWorker`, `TaskWorker`,
 `ExecutionContext`, `TaskContext`, worker loops, replay execution, task discovery,
 run-if-leaseable helpers, and worker-level determinism errors.
 
+`TaskResultObserverProvider` is an optional worker capability for synchronous
+accepted task-attempt notifications. `ExecutionWorker.ObserveTaskResults` supplies
+its factory, and `NewTaskResultObserver` forwards it (a nil factory is a no-op).
+The factory runs once per execution/replay invocation outside whole-job retries;
+its derived context reaches every attempt. Results notify as consumed after
+reconciliation, before task-end observers, catches, retries and later orchestration
+on that path. Replay and resume reconstruct fresh state incrementally. Wrappers
+must forward the capability. See the [workflow guide](../pkg/workflow/README.md)
+for context and callback obligations. Adding the field requires positional
+`ExecutionWorker` literals to change; keyed literals remain compatible.
+`JobWorker`, runtime interfaces, HTTP contracts and stored formats are unchanged.
+
 `ReadCatchHistory` and its catch history types/constants are supported read-only
 inspection APIs for committed v4 full/compact execution history. They expose
 opaque boundary/attempt identities, selection, accepted handling and retry

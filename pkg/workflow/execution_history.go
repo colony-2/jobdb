@@ -772,7 +772,11 @@ func (e *executionRun) emitTask(call TaskCall, id string, attempt int, start tim
 	defer e.observerMu.Unlock()
 	observer := e.r.observerOrNoop()
 	observer.OnTaskStart(TaskStartEvent{InvocationID: id, JobKey: e.r.jobKey, TaskType: call.TaskType, Ordinal: ordinal, AttemptNumber: attempt, Input: e.snapshotData(rec.Input), At: start})
-	observer.OnTaskEnd(TaskEndEvent{InvocationID: id, JobKey: e.r.jobKey, TaskType: call.TaskType, Ordinal: ordinal, AttemptNumber: attempt, Output: out, Err: err, At: rec.At})
+	event := TaskEndEvent{InvocationID: id, JobKey: e.r.jobKey, TaskType: call.TaskType, Ordinal: ordinal, AttemptNumber: attempt, Output: out, Err: err, At: rec.At}
+	if e.r.taskResultObserver != nil {
+		e.r.taskResultObserver(event)
+	}
+	observer.OnTaskEnd(event)
 }
 
 // unfinishedTask exposes the logical replay frontier without completing it.

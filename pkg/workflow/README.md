@@ -135,6 +135,45 @@ All job workers use the versioned execution engine and `workflow.ExecutionContex
 `workflow.ExecutionWorker{JobType: name, Execute: callback}` is an alternative
 to implementing `JobWorker` directly. See the [migration guide](../../docs/MIGRATION-EXECUTION-SCOPES.md).
 
+Workers can optionally implement `workflow.TaskResultObserverProvider`, or set
+`ExecutionWorker.ObserveTaskResults`, to reconstruct invocation-local state from
+accepted task-attempt results:
+
+```go
+NewTaskResultObserver(context.Context) (context.Context, func(workflow.TaskEndEvent))
+```
+
+The factory runs once per execution or replay invocation, before orchestration
+and outside whole-job retries. Allocate fresh mutable state inside it. Return a
+nonnil context derived from the input so cancellation, lease authority, secrets
+and caller values reach every attempt, nested scope, input builder and task.
+A nil callback still propagates that context. A nil factory preserves the input
+context and adds no callback. Worker wrappers must forward this optional
+capability, including replay-time worker overrides.
+
+The callback completes synchronously before existing task-end observers, catch
+matching/handling, retries and subsequent orchestration on that path. Delivery is
+serialized within an invocation; independent branches gain no additional
+scheduling order. Existing replay observers keep their start/end order and live
+listeners remain asynchronous. Callbacks should perform prompt deterministic
+bookkeeping, avoid execution reentry and never wait for an asynchronous listener.
+Synchronize other concurrent access to consumer state. There is no additional
+callback panic-recovery policy.
+
+Events describe the accepted stored winner after append reconciliation, including
+failed attempts. Catch replacement outputs, scope outputs, unfinished tasks,
+waits without results and uncommitted late work generate no task-result event.
+Resume, restart and replay create fresh state and rebuild it as retained results
+are reached; later history is never preloaded. Cached `JobRunnable.Run` returns,
+requests without a lease and pre-run handoffs do not initialize another factory.
+This intentionally reconstructs state and is not durable exactly-once external
+notification delivery. Consumers should avoid feeding one accumulator through
+both this callback and an existing observer.
+
+`JobWorker` is unchanged. The added `ExecutionWorker` field requires positional
+struct literals to be updated; keyed literals remain compatible. No storage or
+HTTP format changes are required.
+
 Jobs use `workflow.ExecutionContext`:
 
 ```go

@@ -1743,7 +1743,9 @@ type ExecutionState = github.com/colony-2/jobdb/pkg/jobdb.ExecutionState
 type ExecutionWorker struct
   field JobType string
   field Execute func(ExecutionContext, JobData) (JobData, error)
+  field ObserveTaskResults func(context.Context) (context.Context, func(TaskEndEvent))
 method ExecutionWorker.Name func() string
+method ExecutionWorker.NewTaskResultObserver func(ctx context.Context) (context.Context, func(TaskEndEvent))
 method ExecutionWorker.Run func(ctx ExecutionContext, input JobData) (JobData, error)
 func ExtractTaskDataResult func(data TaskData) (TaskData, error)
 type FieldName = github.com/colony-2/jobdb/pkg/jobdb.FieldName
@@ -2040,6 +2042,8 @@ func TaskInputStorageEnabled func() bool
 type TaskOutcome = github.com/colony-2/jobdb/pkg/jobdb.TaskOutcome
 const TaskOutcomeStatusFailed untyped string = "FAILED"
 const TaskOutcomeStatusSucceeded untyped string = "SUCCEEDED"
+type TaskResultObserverProvider interface
+  method NewTaskResultObserver func(context.Context) (context.Context, func(TaskEndEvent))
 type TaskRun = github.com/colony-2/jobdb/pkg/jobdb.TaskRun
 type TaskRuntime = github.com/colony-2/jobdb/pkg/jobdb.TaskRuntime
 type TaskStartEvent struct

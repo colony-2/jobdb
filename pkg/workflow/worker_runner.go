@@ -33,12 +33,13 @@ type workerRunner struct {
 	lease     ExecutionLease
 	logger    *slog.Logger
 
-	jobPolicy       RunPolicy
-	workerID        string
-	observer        ReplayObserver
-	replay          bool
-	replayJobStatus jobdb.JobStatus
-	awaitThreshold  time.Duration
+	jobPolicy          RunPolicy
+	workerID           string
+	observer           ReplayObserver
+	taskResultObserver func(TaskEndEvent)
+	replay             bool
+	replayJobStatus    jobdb.JobStatus
+	awaitThreshold     time.Duration
 
 	ctx                context.Context
 	jobKey             JobKey
@@ -350,6 +351,10 @@ func (r *workerRunner) DoJob(ctx context.Context) (output JobData, runErr error)
 	inputData, _, meta, err := r.loadInitialChapterAndPolicy(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if provider, ok := r.worker.JobWorker.(TaskResultObserverProvider); ok {
+		ctx, r.taskResultObserver = provider.NewTaskResultObserver(ctx)
+		r.ctx = ctx
 	}
 	return r.runExecution(ctx, r.worker.JobWorker, inputData, meta)
 }
