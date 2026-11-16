@@ -121,6 +121,9 @@ func (r *Runtime) insertJobRecord(ctx context.Context, jobKey jobdb.JobKey, jobT
 }
 
 func (r *Runtime) insertJobRecordTx(ctx context.Context, tx *sql.Tx, jobKey jobdb.JobKey, jobType string, metadata json.RawMessage, waitFor []string, payload jobPayload, workerID string, availableAt *time.Time, update *jobdb.ClientPayloadUpdate) error {
+	if err := validateSubmissionAvailability(availableAt); err != nil {
+		return err
+	}
 	initial, revision, err := clientpayload.Initial(update)
 	if err != nil {
 		return err
@@ -202,6 +205,9 @@ func parentJobIDFromMetadata(metadata json.RawMessage) any {
 }
 
 func (r *Runtime) ensureSubmittedJobRecord(ctx context.Context, jobKey jobdb.JobKey, jobType string, metadata json.RawMessage, waitFor []string, payload jobPayload, workerID string, availableAt *time.Time, update *jobdb.ClientPayloadUpdate) error {
+	if err := validateSubmissionAvailability(availableAt); err != nil {
+		return err
+	}
 	insertErr := r.insertJobRecord(ctx, jobKey, jobType, metadata, waitFor, payload, workerID, availableAt, update)
 	if insertErr == nil {
 		return nil
@@ -224,7 +230,7 @@ func (r *Runtime) ensureSubmittedJobRecord(ctx context.Context, jobKey jobdb.Job
 	if !jsonObjectsEqual(row.metadata, metadata) {
 		return jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different metadata", jobKey))
 	}
-	if availableAt != nil && !timeFromNS(row.availableAtNS).Equal(availableAt.UTC()) {
+	if availableAt != nil && !availabilityFromNS(row.availableAtNS).Equal(*availableAt) {
 		return jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s already exists with different availableAt", jobKey))
 	}
 	return nil
@@ -329,7 +335,7 @@ func statusFromRow(ctx context.Context, tx queryer, row jobRow, now time.Time) (
 	if !ready && (!row.waitDeadlineNS.Valid || timeFromNS(row.waitDeadlineNS.Int64).After(now)) {
 		return jobdb.JobStatusPendingJobs, nil
 	}
-	if available := timeFromNS(row.availableAtNS); !available.IsZero() && available.After(now) {
+	if availabilityFromNS(row.availableAtNS).After(now) {
 		return jobdb.JobStatusAwaitingFuture, nil
 	}
 	if row.consecutiveExpirations >= crashconcern.DefaultThreshold {

@@ -940,7 +940,7 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 			ExecutionState:        toyExecutionState(rec.payload),
 			JobType:               rec.jobType,
 			NextRoute:             jobdb.CloneRoute(&rec.route),
-			AvailableAt:           rec.createdAt,
+			AvailableAt:           rec.availableAt,
 			ExpiresAt:             nil,
 			LeaseExpiresAt:        nil,
 			CancelRequested:       rec.cancelled,

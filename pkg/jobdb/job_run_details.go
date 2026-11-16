@@ -28,6 +28,7 @@ type GetJobRunResponse struct {
 }
 
 type JobRunSummary struct {
+	AvailableAt      time.Time
 	GoalID           string
 	OtherGoalIDs     []string
 	BlockingWait     *DependencyWaitInfo

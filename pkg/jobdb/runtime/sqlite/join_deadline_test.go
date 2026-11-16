@@ -43,7 +43,16 @@ func TestJoinDeadlineSurvivesReopen(t *testing.T) {
 	}
 	check(deadline.Add(-time.Nanosecond), jobdb.JobStatusPendingJobs)
 	check(deadline, jobdb.JobStatusReady)
+
 	check(deadline.Add(time.Nanosecond), jobdb.JobStatusReady)
+	// A legacy deadline releases the join, but availability remains independent.
+	available := deadline.Add(time.Hour)
+	row.availableAtNS = available.UnixNano()
+	check(deadline, jobdb.JobStatusAwaitingFuture)
+	check(available.Add(-time.Nanosecond), jobdb.JobStatusAwaitingFuture)
+	check(available, jobdb.JobStatusReady)
+	row.availableAtNS = 0
+
 	require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: child}))
 	check(deadline.Add(-time.Minute), jobdb.JobStatusReady)
 	// Submission's AvailableAt remains a not-before restriction, even with dependencies.

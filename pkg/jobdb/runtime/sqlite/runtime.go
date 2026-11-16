@@ -52,6 +52,13 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	if err := runtimecore.ValidateSubmissionApplicationPayload(ctx, req.Job, r.ChapterApplicationPayloadLimit()); err != nil {
 		return jobdb.JobHandle{}, err
 	}
+	if err := validateSubmissionAvailability(req.Job.AvailableAt); err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	if req.Job.AvailableAt != nil {
+		available := req.Job.AvailableAt.UTC()
+		req.Job.AvailableAt = &available
+	}
 	prep, err := goalstate.SubmitPreparation(ctx, req, parentJobID)
 	if err != nil {
 		return jobdb.JobHandle{}, err

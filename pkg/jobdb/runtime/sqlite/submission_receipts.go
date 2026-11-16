@@ -33,7 +33,7 @@ func selectedReceipt(ctx context.Context, tx *sql.Tx, req goalstate.Preparation)
 	if err = jobdb.AuthorizePrimaryGoalSelection(ctx, jobdb.GoalKey{TenantId: req.Key.TenantId, GoalID: h.GoalID}, target); err != nil {
 		return goalstate.Prepared{}, true, err
 	}
-	if descriptor != req.Descriptor {
+	if !submissionDescriptorsEqual(descriptor, req.Descriptor) {
 		return goalstate.Prepared{}, true, goalstate.PreparationMismatch(descriptor, req.Descriptor)
 	}
 	if req.Cell != requestedCell {

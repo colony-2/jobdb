@@ -19,6 +19,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtimetest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -568,4 +569,46 @@ func TestDelegationRenewalIsCappedAtHardDeadline(t *testing.T) {
 			require.Equal(t, before, f.validity(t), "renewal must not extend the parent")
 		})
 	}
+}
+
+func TestDelegatedSubmissionAvailability(t *testing.T) {
+	for _, kind := range []string{"toy", "sqlite"} {
+		t.Run(kind, func(t *testing.T) {
+			f := newDelegationFixture(t, kind, nil)
+			// Submit-only delegated authority; all observations use the admin client.
+			delegated := f.create(t, jobdb.CreateDelegationRequest{Permissions: jobdb.DelegationPermissions{Submit: &jobdb.DelegationSubmitPermission{JobTypes: jobdb.DelegationNames{Names: []string{"child"}}, JobIDs: jobdb.DelegationNames{Any: true}}}})
+			runtimetest.RunSubmissionAvailabilityWithSubmit(t, f.client, delegated.SubmitJob, f.owner.Job().JobKey.JobId)
+		})
+	}
+}
+
+func TestDelegatedSubmissionAvailabilityRejection(t *testing.T) {
+	ctx := celltest.Context(context.Background())
+	f := newDelegationFixture(t, "sqlite", nil)
+	delegated := f.create(t, jobdb.CreateDelegationRequest{Permissions: jobdb.DelegationPermissions{Submit: &jobdb.DelegationSubmitPermission{JobTypes: jobdb.DelegationNames{Names: []string{"child"}}, JobIDs: jobdb.DelegationNames{Names: []string{"consumer"}}}}})
+	producer := goalSubmit(t, f.client, "producer")
+	bad := time.Date(2300, 1, 1, 0, 0, 0, 0, time.UTC)
+	req := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", Cell: "test", CellRepo: "example.test/test", JobID: "consumer", JobType: "child", AvailableAt: &bad, Data: jobdb.NewTaskDataOrPanic(nil), Dependencies: []jobdb.Dependency{{Target: jobdb.DependencyTarget{JobID: producer.JobKey.JobId}, Condition: jobdb.JobPrereqComplete}}}}
+	before, err := f.client.ListGoals(ctx, jobdb.ListGoalsRequest{TenantId: "tenant"})
+	require.NoError(t, err)
+	_, err = delegated.SubmitJob(ctx, req)
+	require.ErrorContains(t, err, "availableAt")
+	assertRemoteAvailabilityAbsent(t, f.client, req.Job.JobID)
+	after, err := f.client.ListGoals(ctx, jobdb.ListGoalsRequest{TenantId: "tenant"})
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+	req.Job.JobType = "forbidden"
+	_, err = delegated.SubmitJob(ctx, req)
+	require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
+	req.Job.JobType = "child"
+	req.Job.JobID = "forbidden"
+	_, err = delegated.SubmitJob(ctx, req)
+	require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
+	assertRemoteAvailabilityAbsent(t, f.client, "forbidden")
+	// Selected-goal submission is deliberately unsupported on lease routes.
+	req.Job.JobID = "consumer"
+	req.Job.GoalID = producer.GoalID
+	_, err = delegated.SubmitJob(ctx, req)
+	require.ErrorIs(t, err, jobdb.ErrPrimaryGoalSelectionUnsupported)
+	assertRemoteAvailabilityAbsent(t, f.client, "consumer")
 }

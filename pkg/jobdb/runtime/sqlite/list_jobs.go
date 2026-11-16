@@ -280,7 +280,7 @@ FROM projected p WHERE ` + strings.Join(where, " AND ") + ` ORDER BY created_at_
 			return jobdb.ListJobsResponse{}, err
 		}
 		s.NextRoute = &route
-		s.AvailableAt = timeFromNS(available)
+		s.AvailableAt = availabilityFromNS(available)
 		s.CreatedAt = timeFromNS(created)
 		s.ArchivedAt = nullTimeFromNS(archivedAt)
 		s.LeaseExpiresAt = nullTimeFromNS(leaseExpires)

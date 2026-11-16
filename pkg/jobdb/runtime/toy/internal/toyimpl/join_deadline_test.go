@@ -37,3 +37,20 @@ func TestJoinDeadlineBoundary(t *testing.T) {
 	rt.advanceRecordStateLocked("tenant", deadline, parent)
 	require.Equal(t, jobdb.JobStatusReady, parent.status)
 }
+
+func TestJoinDeadlineRetainsFutureAvailability(t *testing.T) {
+	deadline := time.Now().UTC().Add(time.Hour)
+	available := deadline.Add(time.Hour)
+	for _, complete := range []bool{false, true} {
+		rt := New()
+		child := &jobRecord{status: jobdb.JobStatusReady}
+		if complete {
+			child.status = jobdb.JobStatusCompleted
+		}
+		rt.engine.jobRecords[jobdb.JobKey{TenantId: "tenant", JobId: "child"}] = child
+		parent := &jobRecord{status: jobdb.JobStatusPendingJobs, waitFor: []string{"child"}, waitDeadline: deadline, availableAt: available}
+		require.Equal(t, jobdb.JobStatusAwaitingFuture, rt.engine.availableStatusLocked("tenant", deadline, parent))
+		require.Equal(t, jobdb.JobStatusAwaitingFuture, rt.engine.availableStatusLocked("tenant", available.Add(-time.Nanosecond), parent))
+		require.Equal(t, jobdb.JobStatusReady, rt.engine.availableStatusLocked("tenant", available, parent))
+	}
+}

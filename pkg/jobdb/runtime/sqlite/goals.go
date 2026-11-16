@@ -286,6 +286,9 @@ func structuredWaitReady(ctx context.Context, q queryer, row jobRow, now time.Ti
 
 // PrepareJob reserves identities without publishing a job or goal.
 func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (out goalstate.Prepared, err error) {
+	if req, err = normalizeSubmissionAvailability(req); err != nil {
+		return out, err
+	}
 	ctx = ctxOrBackground(ctx)
 	err = r.withTx(ctx, func(tx *sql.Tx) error {
 		if req.RequestID != "" {
@@ -324,7 +327,7 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (ou
 			if old.CellRepo != target.CellRepo || old.CellID != target.CellID {
 				return jobdb.NewExistingJobMismatchError("cell differs")
 			}
-			if descriptor != req.Descriptor || (req.Key.JobId != "" && id != req.Key.JobId) {
+			if !submissionDescriptorsEqual(descriptor, req.Descriptor) || (req.Key.JobId != "" && id != req.Key.JobId) {
 				return goalstate.PreparationMismatch(descriptor, req.Descriptor)
 			}
 			out = goalstate.Prepared{Target: target, Key: jobdb.JobKey{TenantId: req.Key.TenantId, JobId: id}, GoalID: goalID}

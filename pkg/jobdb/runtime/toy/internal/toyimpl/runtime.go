@@ -1211,7 +1211,11 @@ func (e *ToyEngine) availableStatusLocked(tenantId string, now time.Time, record
 			return jobdb.JobStatusPendingJobs
 		}
 		if record.dependencyWaitID != "" && status == jobdb.JobStatusPendingJobs {
-			status = jobdb.JobStatusReady
+			if record.availableAt.After(now) {
+				status = jobdb.JobStatusAwaitingFuture
+			} else {
+				status = jobdb.JobStatusReady
+			}
 		}
 	}
 	if status == jobdb.JobStatusAwaitingFuture && !record.availableAt.IsZero() && !record.availableAt.After(now) {
