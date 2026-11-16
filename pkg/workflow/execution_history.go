@@ -52,6 +52,8 @@ type executionRun struct {
 	fatal              error
 	live               bool
 	active             map[*executionContext]bool
+	terminal           error
+	terminalPosition   bool
 	final              *Chapter
 	restart            *jobdb.ExecutionRecord
 }
@@ -94,7 +96,7 @@ func (e *executionRun) control(err error) error {
 }
 func isExecutionControl(err error) bool {
 	var c *executionControlError
-	return errors.As(err, &c) || errors.Is(err, errExecutionSuspended) || errors.Is(err, errRecordedBoundary) || errors.Is(err, context.Canceled) || IsExecutionLeaseLost(err) || isReplayCacheMiss(err)
+	return errors.As(err, &c) || errors.Is(err, errExecutionSuspended) || errors.Is(err, errRecordedBoundary) || errors.Is(err, context.Canceled) || IsExecutionLeaseLost(err) || isReplayCacheMiss(err) || errors.Is(err, ErrReplayShouldNeverMutate)
 }
 func (e *executionRun) peekLocked() *executionEvent {
 	for e.cursor < len(e.events) && (e.events[e.cursor].record.Kind == "activation" || e.events[e.cursor].record.Kind == "restart" || e.events[e.cursor].record.Kind == "checkpoint" || e.events[e.cursor].record.Kind == "dependency_binding") {
@@ -249,7 +251,7 @@ func (c *executionContext) recordEvent(kind, id string, build func() *jobdb.Exec
 	// Compact history commits declarations with the following durable boundary.
 	// At the unfinished frontier they are reconstruction, not missing outcomes.
 	// Do not activate timers, allocate ordinals, or append pending history here.
-	if e.r.replay && e.final == nil {
+	if e.r.replay && (e.final == nil || e.terminal != nil) {
 		switch kind {
 		case "scope", "task", "attempt":
 			rec := build()
@@ -258,6 +260,9 @@ func (c *executionContext) recordEvent(kind, id string, build func() *jobdb.Exec
 			rec.At = time.Time{}
 			return *rec, nil
 		}
+	}
+	if err := c.terminalBoundaryLocked(kind, id, 0, nil, ""); err != nil {
+		return jobdb.ExecutionRecord{}, err
 	}
 	if err := c.liveLocked(); err != nil {
 		return jobdb.ExecutionRecord{}, err
@@ -579,7 +584,14 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 					return nil, err
 				}
 			}
-			return recorded, failure
+			if !r.replay {
+				return recorded, failure
+			}
+			e.terminal = failure
+			e.terminalPosition = e.final.Ordinal == int64(len(chapters)-1)
+			for i, ch := range chapters {
+				e.terminalPosition = e.terminalPosition && ch.Ordinal == int64(i)
+			}
 		}
 	}
 
@@ -681,6 +693,9 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 	}
 	if next := e.peek(); next != nil {
 		return nil, fmt.Errorf("%w: unconsumed execution record at %d", ErrWorkflowNotDeterministic, next.ordinal)
+	}
+	if boundaryErr := root.terminalJobCompletion(); boundaryErr != nil {
+		return nil, boundaryErr
 	}
 	if e.final != nil {
 		recorded, recordErr := chapterToTaskData(r.runtime, r.jobKey, *e.final)

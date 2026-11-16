@@ -70,7 +70,12 @@ func TestExecutionOversizedPayloadTerminatesJob(t *testing.T) {
 					require.EqualValues(t, 1, runs.Load())
 					_, err = replayExecutionTest(t, rt, key, w, task)
 					require.True(t, jobdb.IsChapterPayloadFailure(err))
-					require.EqualValues(t, 1, runs.Load())
+					if mode == "final" {
+						// Replay reconstructs orchestration; task callbacks never rerun.
+						require.EqualValues(t, 2, runs.Load())
+					} else {
+						require.EqualValues(t, 1, runs.Load())
+					}
 				}
 				chapters, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 				require.NoError(t, err)
@@ -143,6 +148,52 @@ func TestConfiguredApplicationLimitRejectsWithoutPublishing(t *testing.T) {
 			_, err = rt.SubmitRestartJob(ctx, restart)
 			require.NoError(t, err)
 
+		})
+	}
+}
+
+func TestConfiguredLimitRejectsExecutionRestartPayload(t *testing.T) {
+	for _, backend := range []string{"sqlite", "remote"} {
+		t.Run(backend, func(t *testing.T) {
+			ctx := celltest.Context(context.Background())
+			local, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "restart.db"), MaxChapterApplicationPayloadBytes: 64})
+			require.NoError(t, err)
+			defer local.Close(ctx)
+			var rt jobdb.WorkflowRuntime = local
+			if backend == "remote" {
+				server := httptest.NewServer(celltest.Handler(remote.NewServer(local)))
+				defer server.Close()
+				rt, err = remote.New(server.URL, server.Client())
+				require.NoError(t, err)
+			}
+			w := wf.ExecutionWorker{JobType: "restart-limit", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
+				return c.DoScope("target", wf.ScopeOptions{OnRestart: func(json.RawMessage) error { return nil }}, func(wf.ExecutionContext) (jobdb.JobData, error) { return in, nil })
+			}}
+			key := submitExecutionTest(t, rt, w)
+			out, err := runExecutionTest(t, rt, key, w)
+			require.NoError(t, err)
+			require.Equal(t, wf.JobRunCompleted, out.Status)
+			var target string
+			for _, rec := range executionRecords(t, rt, key) {
+				if rec.Kind == "scope" && strings.Contains(rec.ID, `/scope:"target"`) {
+					target = rec.ID
+				}
+			}
+			require.NotEmpty(t, target)
+			before, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: key})
+			require.NoError(t, err)
+			req := jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: key, JobID: "rejected-restart", ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: target, Payload: json.RawMessage(`"` + strings.Repeat("x", 63) + `"`)}}}
+			_, err = rt.SubmitRestartJob(ctx, req)
+			require.ErrorIs(t, err, jobdb.ErrChapterApplicationPayloadTooLarge)
+			_, err = rt.GetJob(ctx, jobdb.JobKey{TenantId: key.TenantId, JobId: "rejected-restart"})
+			require.ErrorIs(t, err, jobdb.ErrJobNotFound)
+			after, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: key})
+			require.NoError(t, err)
+			require.Equal(t, before, after)
+			req.Job.JobID = "valid-restart"
+			req.Job.ExecutionRestart.Payload = json.RawMessage(`null`)
+			_, err = rt.SubmitRestartJob(ctx, req)
+			require.NoError(t, err)
 		})
 	}
 }

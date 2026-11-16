@@ -158,6 +158,18 @@ func TestReplayReadOnlyRuntimeRejectsMutations(t *testing.T) {
 				return replayRuntime.PutChapter(ctx, PutChapterRequest{})
 			},
 		},
+		{name: "GetConfiguration", call: func() error {
+			_, err := replayRuntime.GetConfiguration(ctx, jobdb.GetConfigurationRequest{})
+			return err
+		}},
+		{name: "AddGoalCandidate", call: func() error {
+			_, err := replayRuntime.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{})
+			return err
+		}},
+		{name: "FailGoal", call: func() error { _, err := replayRuntime.FailGoal(ctx, jobdb.FailGoalRequest{}); return err }},
+		{name: "CreateCell", call: func() error { _, err := replayRuntime.CreateCell(ctx, jobdb.CreateCellRequest{}); return err }},
+		{name: "UpdateCell", call: func() error { _, err := replayRuntime.UpdateCell(ctx, jobdb.UpdateCellRequest{}); return err }},
+		{name: "RetireCell", call: func() error { _, err := replayRuntime.RetireCell(ctx, jobdb.RetireCellRequest{}); return err }},
 	}
 
 	for _, tt := range tests {

@@ -187,6 +187,9 @@ func (c *executionContext) finishOutcome(kind, id string, out TaskData, bodyErr 
 		}
 		return jobdb.ExecutionRecord{}, c.run.control(fmt.Errorf("%w: unexpected interrupted boundary %s", ErrWorkflowNotDeterministic, id))
 	}
+	if err := c.terminalBoundary(kind, id, 0, nil, ""); err != nil {
+		return jobdb.ExecutionRecord{}, err
+	}
 	rec, err := recordResult(c.ctx, out, bodyErr)
 	if err != nil {
 		return jobdb.ExecutionRecord{}, err
@@ -299,9 +302,18 @@ func (c *executionContext) DoScope(site string, opts ScopeOptions, body func(Exe
 			retryable = rec.Retryable
 		}
 		if site == "$job" {
-			c.run.observerMu.Lock()
-			c.run.r.emitJobEnd(attempt, out, bodyErr, rec.At)
-			c.run.observerMu.Unlock()
+			// Validate success before announcing it. Failed attempts must still
+			// consume their catch/retry history before checking final completion.
+			if bodyErr == nil {
+				if err := c.terminalJobCompletion(); err != nil {
+					return nil, err
+				}
+			}
+			if !c.run.r.replay || c.run.terminal == nil || c.run.peek() != nil {
+				c.run.observerMu.Lock()
+				c.run.r.emitJobEnd(attempt, out, bodyErr, rec.At)
+				c.run.observerMu.Unlock()
+			}
 		}
 		out, bodyErr, retry, err := c.handleFailure(aid, total, policy, opts.Catch, attempt, out, bodyErr, retryable)
 		if err != nil {

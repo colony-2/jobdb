@@ -67,6 +67,9 @@ func (c *executionContext) externalTask(call TaskCall, id string, input *jobdb.E
 		return c.event("result", id, func() *jobdb.ExecutionRecord { return nil })
 	}
 	if c.run.r.replay {
+		if err := c.terminalBoundary("result", id, 0, outputPositions, state.taskType); err != nil {
+			return jobdb.ExecutionRecord{}, err
+		}
 		return jobdb.ExecutionRecord{}, ReplayCacheMissError{JobKey: c.GetJobKey(), Ordinal: c.run.nextOrdinal(), Reason: ReplayCacheMissTaskResultMissing}
 	}
 	hash, hashErr := runtimecodec.ExecutionIdentity(rec)

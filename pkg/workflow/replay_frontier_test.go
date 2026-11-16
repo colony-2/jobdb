@@ -14,30 +14,36 @@ import (
 // Only declarations may be reconstructed beyond the committed prefix. A missing
 // outcome or control decision must never execute its live construction callback.
 func TestReplayFrontierDoesNotInventDurableEvents(t *testing.T) {
-	for _, kind := range []string{"scope", "task", "attempt", "result", "catch", "decision", "wait", "sleep", "join", "admission", "dispatch"} {
-		t.Run(kind, func(t *testing.T) {
-			ctx, cancel := context.WithCancelCause(celltest.Context(context.Background()))
-			defer cancel(context.Canceled)
-			e := &executionRun{r: &workerRunner{replay: true}, ordinal: 7, initialVersions: jobdb.ExecutionVersions{ExecutionPatternVersion: jobdb.ExecutionPatternVersion}, active: map[*executionContext]bool{}}
-			c := &executionContext{run: e, ctx: ctx, cancel: cancel, deadline: time.Now().Add(-time.Hour)}
-			calls := 0
-			rec, err := c.event(kind, "boundary", func() *jobdb.ExecutionRecord { calls++; return &jobdb.ExecutionRecord{Descriptor: []byte(`{}`)} })
-			if kind == "scope" || kind == "task" || kind == "attempt" {
-				require.NoError(t, err)
-				require.Equal(t, 1, calls)
-				require.Equal(t, "boundary", rec.ID)
-				require.True(t, rec.At.IsZero())
-			} else {
-				var miss ReplayCacheMissError
-				require.ErrorAs(t, err, &miss)
-				require.Zero(t, calls)
-			}
-			require.EqualValues(t, 7, e.ordinal)
-			require.Empty(t, e.pending)
-			require.False(t, e.live)
-			require.Nil(t, c.timer)
-			require.NoError(t, c.ctx.Err())
-		})
+	for _, terminal := range []bool{false, true} {
+		for _, kind := range []string{"scope", "task", "attempt", "result", "catch", "handled", "decision", "continuation", "wait", "sleep", "join", "join_result", "admission", "dispatch"} {
+			t.Run(kind, func(t *testing.T) {
+				ctx, cancel := context.WithCancelCause(celltest.Context(context.Background()))
+				defer cancel(context.Canceled)
+				e := &executionRun{r: &workerRunner{replay: true}, ordinal: 7, initialVersions: jobdb.ExecutionVersions{ExecutionPatternVersion: jobdb.ExecutionPatternVersion}, active: map[*executionContext]bool{}}
+				if terminal {
+					e.final = &Chapter{Ordinal: 6}
+					e.terminal = (&jobdb.ChapterApplicationPayloadError{Ordinal: 6}).AppError()
+				}
+				c := &executionContext{run: e, ctx: ctx, cancel: cancel, deadline: time.Now().Add(-time.Hour)}
+				calls := 0
+				rec, err := c.event(kind, "boundary", func() *jobdb.ExecutionRecord { calls++; return &jobdb.ExecutionRecord{Descriptor: []byte(`{}`)} })
+				if kind == "scope" || kind == "task" || kind == "attempt" {
+					require.NoError(t, err)
+					require.Equal(t, 1, calls)
+					require.Equal(t, "boundary", rec.ID)
+					require.True(t, rec.At.IsZero())
+				} else {
+					var miss ReplayCacheMissError
+					require.ErrorAs(t, err, &miss)
+					require.Zero(t, calls)
+				}
+				require.EqualValues(t, 7, e.ordinal)
+				require.Empty(t, e.pending)
+				require.False(t, e.live)
+				require.Nil(t, c.timer)
+				require.NoError(t, c.ctx.Err())
+			})
+		}
 	}
 }
 

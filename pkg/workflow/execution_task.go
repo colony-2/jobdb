@@ -99,6 +99,12 @@ func (c *executionContext) DoTask(call TaskCall, build func(context.Context) (Ta
 					return nil, c.run.control(err)
 				}
 			}
+			if err := c.terminalBoundary("result", aid, attempt, nil, ""); err != nil {
+				return nil, err
+			}
+			if err := c.terminalBoundary("wait", aid, attempt, nil, ""); err != nil {
+				return nil, err
+			}
 			return nil, c.run.unfinishedTask(call, aid, attempt, start.At, input)
 		} else {
 			// A local invocation with no committed outcome starts a fresh timer even

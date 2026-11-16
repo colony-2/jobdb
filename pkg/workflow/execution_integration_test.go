@@ -601,12 +601,22 @@ func TestExecutionExternalDeadlineAndReplacement(t *testing.T) {
 			waitAlternate(wait.Deadline.Add(time.Millisecond))
 			// Let timeout processing replace the waiting generation before
 			// attempting the stale answer; expiry alone leaves the slot open.
-			out, err = runExecutionTest(t, rt, key, w)
-			require.NoError(t, err)
-			require.Equal(t, wf.JobRunSuspended, out.Status, "%v", out.JobError)
+			// HTTP applies the relative reschedule delay after transport, so
+			// scheduler eligibility can lag the recorded invocation deadline.
+			fresh := stale
+			for replacementDeadline := time.Now().Add(time.Second); ; {
+				out, err = runExecutionTest(t, rt, key, w)
+				require.NoError(t, err)
+				require.Equal(t, wf.JobRunSuspended, out.Status, "%v", out.JobError)
+				fresh, err = engine.GetWaitingTask(celltest.Context(context.Background()), key)
+				require.NoError(t, err)
+				if stale.TaskOrdinalToComplete() != fresh.TaskOrdinalToComplete() {
+					break
+				}
+				require.True(t, time.Now().Before(replacementDeadline), "scheduler did not replace the expired waiting generation")
+				time.Sleep(10 * time.Millisecond)
+			}
 			require.EqualValues(t, 1, builds.Load())
-			fresh, err := engine.GetWaitingTask(celltest.Context(context.Background()), key)
-			require.NoError(t, err)
 			require.NotEqual(t, stale.TaskOrdinalToComplete(), fresh.TaskOrdinalToComplete())
 			require.Error(t, stale.Finish(celltest.Context(context.Background()), jobdb.NewTaskDataOrPanic("old-generation")))
 			require.NoError(t, fresh.Finish(celltest.Context(context.Background()), jobdb.NewTaskDataOrPanic("fresh")))

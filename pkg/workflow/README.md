@@ -316,6 +316,15 @@ unfinished attempt. `At` is zero when the start is unrecorded; `Ordinal` is a
 storage position, not a stable invocation identity. Use `InvocationID` to match
 the attempt when its outcome later arrives.
 
+A terminal payload-size rejection still permits inspection of earlier accepted
+history. A replay worker override can reconstruct prior state and cancel before
+an earlier scope body. At the identified rejected operation, replay stops with
+the stored payload failure and diagnostics, and returns no output. It never
+reconstructs rejected data or a missing durable outcome. Earlier cancellation,
+history mismatches, unavailable results and read-only errors retain their causes;
+ambiguous rejection provenance leaves missing history unavailable. Live execution
+keeps its terminal guard and cannot repeat work after this failure.
+
 `DoTask` input builders are replay-safe orchestration: they must be deterministic
 and side-effect-free. Inspection may invoke the builder for an unfinished local
 task. Stored external-wait input and input from completed attempts are reused;

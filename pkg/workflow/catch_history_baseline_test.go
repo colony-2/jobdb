@@ -59,6 +59,17 @@ func (o *catchBaselineObserver) add(s string, failed bool) {
 	}
 }
 
+func (o *catchBaselineObserver) waitForJobEnd(t *testing.T) {
+	t.Helper()
+	// Run returns before its asynchronous listener finishes draining. Job-end
+	// delivery follows all earlier events, so wait before inspecting the trace.
+	require.Eventually(t, func() bool {
+		o.mu.Lock()
+		defer o.mu.Unlock()
+		return len(o.trace) > 0 && o.trace[len(o.trace)-1] == "job-end"
+	}, 5*time.Second, time.Millisecond, "job-end listener delivery did not finish")
+}
+
 // This baseline deliberately does not reference ReadCatchHistory. Run it before
 // adding that API to preserve behavioral evidence, rather than a compile failure.
 func TestCatchHistoryBaseline(t *testing.T) {
@@ -124,6 +135,7 @@ func TestCatchHistoryBaseline(t *testing.T) {
 				}
 			}
 			require.Equal(t, 1, accepted)
+			observer.waitForJobEnd(t)
 			observer.mu.Lock()
 			defer observer.mu.Unlock()
 			require.Equal(t, 1, observer.failures, "task-end stays failed despite accepted handling")
@@ -167,6 +179,7 @@ func TestCatchHistoryBaselineCompactScopes(t *testing.T) {
 			}
 			require.Equal(t, 2, handled)
 			require.Len(t, ordinals, 1, "both handled episodes share a compact chapter")
+			o.waitForJobEnd(t)
 			o.mu.Lock()
 			defer o.mu.Unlock()
 			require.Equal(t, []string{"job-start", "job-end"}, o.trace)
