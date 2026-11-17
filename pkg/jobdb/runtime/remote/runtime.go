@@ -873,6 +873,10 @@ func cellResponseError(status int, body []byte) error {
 }
 
 func responseError(operation string, status int, body []byte, sentinel error) error {
+	var structured runtimeapi.ErrorResponse
+	if status == http.StatusNotFound && json.Unmarshal(body, &structured) == nil && structured.Code == runtimeapi.ErrorCodeJobSchemaNotFound {
+		return fmt.Errorf("%w: %s", jobdb.ErrJobSchemaNotFound, structured.Message)
+	}
 	if err := appendResponseError(body); err != nil {
 		return err
 	}

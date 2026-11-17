@@ -54,6 +54,7 @@ func GetJobRun(ctx context.Context, runtime WorkflowRuntime, req GetJobRunReques
 		jobType              = job.JobType
 		retryPolicy          = normalizeRunPolicy(RunPolicy{}).Retry
 		startSet             bool
+		inputPrefixOpen      bool
 		startInputRef        *InputReference
 		attempts             []JobAttempt
 		attemptIndex               = map[int]int{}
@@ -124,10 +125,24 @@ func GetJobRun(ctx context.Context, runtime WorkflowRuntime, req GetJobRunReques
 			} else if runPolicy, ok := runPolicyFromJobSummary(job); ok {
 				retryPolicy = normalizeRunPolicy(runPolicy).Retry
 			}
+			switch body := chapter.Body.(type) {
+			case JobStartChapter:
+				inputPrefixOpen = body.Append != nil
+			case *JobStartChapter:
+				inputPrefixOpen = body.Append != nil
+			}
 			startSet = true
 			_ = ensureAttempt(1)
 			continue
 		}
+
+		if chapterIs(chapter, "AdditionalInput") {
+			if !inputPrefixOpen {
+				return GetJobRunResponse{}, fmt.Errorf("%w: additional input outside grouped input prefix at ordinal %d", ErrWorkflowNotDeterministic, chapter.Ordinal)
+			}
+			continue
+		}
+		inputPrefixOpen = false
 
 		records, err := chapterExecutionRecords(chapter)
 		if err != nil {
@@ -150,7 +165,7 @@ func GetJobRun(ctx context.Context, runtime WorkflowRuntime, req GetJobRunReques
 			}
 			resp.Execution = append(resp.Execution, ExecutionHistoryEntry{Ordinal: chapter.Ordinal, Record: record})
 		}
-		if _, ok := chapter.Body.(ExecutionChapter); ok {
+		if chapterIs(chapter, "Execution") {
 			continue
 		}
 		isJobAttemptOutcome := chapterIs(chapter, chapterTypeJobAttemptOutcome)
@@ -693,8 +708,15 @@ func routeWorkType(route Route) string {
 func chapterExecutionRecords(chapter Chapter) ([]ExecutionRecord, error) {
 	prefixRaw := chapter.Metadata.Fields["metadata"].Map[executionmeta.Key].String
 	var record *ExecutionRecord
-	if body, ok := chapter.Body.(ExecutionChapter); ok {
-		r, err := DecodeExecutionRecord(body.Record)
+	var execution *ExecutionChapter
+	switch body := chapter.Body.(type) {
+	case ExecutionChapter:
+		execution = &body
+	case *ExecutionChapter:
+		execution = body
+	}
+	if execution != nil {
+		r, err := DecodeExecutionRecord(execution.Record)
 		if err != nil {
 			return nil, err
 		}

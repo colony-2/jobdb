@@ -682,8 +682,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: job_schema_not_found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: append_busy; retry the request
+          description: append_busy; callers may explicitly retry
           content:
             application/json:
               schema:
@@ -724,8 +730,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: job_schema_not_found (or a missing submission lease on the leased route)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: append_busy; retry the request
+          description: append_busy or a lost submission lease; callers may explicitly retry append_busy
           content:
             application/json:
               schema:

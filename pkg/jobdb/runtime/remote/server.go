@@ -127,6 +127,13 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 				})
 				return
 			}
+			if errors.Is(err, jobdb.ErrJobSchemaNotFound) {
+				writeAPIError(w, http.StatusNotFound, runtimeapi.ErrorResponse{
+					Code:    runtimeapi.ErrorCodeJobSchemaNotFound,
+					Message: err.Error(),
+				})
+				return
+			}
 			if writeAppendError(w, err) {
 				return
 			}
@@ -147,8 +154,6 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 				case errors.Is(err, jobdb.ErrJobDeletionUnsupported):
 					status = http.StatusNotImplemented
 				case errors.Is(err, jobdb.ErrJobNotFound), errors.Is(err, jobdb.ErrChapterNotFound):
-					status = http.StatusNotFound
-				case errors.Is(err, jobdb.ErrJobSchemaNotFound):
 					status = http.StatusNotFound
 				case errors.Is(err, jobdb.ErrExecutionLeaseLost), errors.Is(err, jobdb.ErrConflict):
 					status = http.StatusConflict

@@ -12,6 +12,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -62,7 +63,13 @@ func TestSubmissionAvailabilityFailedSuccessSettlement(t *testing.T) {
 						}
 						// Failed waits still have a settlement route under the availability gate.
 						if future {
-							waitAlternate(at)
+							// Observe scheduler readiness rather than assuming a wall-clock
+							// sleep has crossed the not-before gate when acquisition runs.
+							require.EventuallyWithT(t, func(c *assert.CollectT) {
+								ready, err := rt.GetJob(ctx, h.JobKey)
+								require.NoError(c, err)
+								require.Equal(c, jobdb.JobStatusReady, ready.Status)
+							}, 5*time.Second, 10*time.Millisecond)
 						}
 						out, err := runExecutionTest(t, rt, h.JobKey, consumer)
 						require.NoError(t, err)

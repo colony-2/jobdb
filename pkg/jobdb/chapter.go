@@ -198,7 +198,16 @@ func chapterType(chapter Chapter) (string, error) {
 	return chapterType, err
 }
 
+// Payload reads application bytes, independently of the durable grouped envelope.
 func chapterPayload(chapter Chapter) (string, json.RawMessage, error) {
+	switch body := chapter.Body.(type) {
+	case JobStartChapter:
+		return payloadKindApp, cloneRawMessage(body.Input.Data), nil
+	case *JobStartChapter:
+		if body != nil {
+			return payloadKindApp, cloneRawMessage(body.Input.Data), nil
+		}
+	}
 	_, payloadKind, data, err := chapterBodyToWire(chapter.Body)
 	return payloadKind, data, err
 }
@@ -215,7 +224,20 @@ func chapterBodyFromWire(chapterType string, payloadKind string, data json.RawMe
 			return nil, fmt.Errorf("invalid execution record")
 		}
 		return ExecutionChapter{Record: cloneRawMessage(data)}, nil
+	case "AdditionalInput":
+		var wire groupedInputWire
+		if err := json.Unmarshal(data, &wire); err != nil {
+			return nil, err
+		}
+		return AdditionalInputChapter{Input: ApplicationInputBytes{Data: wire.Input}, Artifacts: wire.Artifacts}, nil
 	case chapterTypeJobStart:
+		if payloadKind == "StartAppend" {
+			var wire groupedInputWire
+			if err := json.Unmarshal(data, &wire); err != nil {
+				return nil, err
+			}
+			return JobStartChapter{Input: ApplicationInputBytes{Data: wire.Input}, Append: &ApplicationInputBytes{Data: wire.Append}, AppendArtifacts: wire.Artifacts}, nil
+		}
 		if payloadKind != payloadKindApp {
 			return nil, fmt.Errorf("%s chapters require %s payloads", chapterType, payloadKindApp)
 		}
@@ -278,13 +300,25 @@ func chapterBodyToWire(body ChapterBody) (string, string, json.RawMessage, error
 			return "", "", nil, fmt.Errorf("chapter body is required")
 		}
 		return "Execution", "App", cloneRawMessage(body.Record), nil
+	case AdditionalInputChapter:
+		raw, err := json.Marshal(groupedInputWire{Input: body.Input.Data, Artifacts: body.Artifacts})
+		return "AdditionalInput", payloadKindApp, raw, err
+	case *AdditionalInputChapter:
+		if body == nil {
+			return "", "", nil, fmt.Errorf("chapter body is required")
+		}
+		return chapterBodyToWire(*body)
 	case JobStartChapter:
+		if body.Append != nil {
+			raw, err := json.Marshal(groupedInputWire{Input: body.Input.Data, Append: body.Append.Data, Artifacts: body.AppendArtifacts})
+			return chapterTypeJobStart, "StartAppend", raw, err
+		}
 		return chapterTypeJobStart, payloadKindApp, cloneRawMessage(body.Input.Data), nil
 	case *JobStartChapter:
 		if body == nil {
 			return "", "", nil, fmt.Errorf("chapter body is required")
 		}
-		return chapterTypeJobStart, payloadKindApp, cloneRawMessage(body.Input.Data), nil
+		return chapterBodyToWire(*body)
 	case JobAttemptOutcomeChapter:
 		payloadKind, data, err := chapterOutcomeToWire(body.Outcome)
 		return chapterTypeJobAttemptOutcome, payloadKind, data, err
@@ -526,15 +560,28 @@ func cloneChapterBody(body ChapterBody) ChapterBody {
 		copied := *body
 		copied.Record = cloneRawMessage(body.Record)
 		return &copied
+	case AdditionalInputChapter:
+		body.Input.Data = cloneRawMessage(body.Input.Data)
+		body.Artifacts = append([]ArtifactKey(nil), body.Artifacts...)
+		return body
+	case *AdditionalInputChapter:
+		if body == nil {
+			return nil
+		}
+		cloned := cloneChapterBody(*body).(AdditionalInputChapter)
+		return &cloned
 	case JobStartChapter:
+		body.AppendArtifacts = append([]ArtifactKey(nil), body.AppendArtifacts...)
+		if body.Append != nil {
+			body.Append = &ApplicationInputBytes{Data: cloneRawMessage(body.Append.Data)}
+		}
 		body.Input.Data = cloneRawMessage(body.Input.Data)
 		return body
 	case *JobStartChapter:
 		if body == nil {
 			return nil
 		}
-		cloned := *body
-		cloned.Input.Data = cloneRawMessage(body.Input.Data)
+		cloned := cloneChapterBody(*body).(JobStartChapter)
 		return &cloned
 	case JobAttemptOutcomeChapter:
 		body.Outcome = cloneChapterOutcome(body.Outcome)
@@ -678,4 +725,11 @@ func cloneStoredArtifacts(artifacts []StoredArtifact) []StoredArtifact {
 		return nil
 	}
 	return append([]StoredArtifact(nil), artifacts...)
+}
+
+// groupedInputWire matches the established runtimecodec encoding.
+type groupedInputWire struct {
+	Input     json.RawMessage `json:"input"`
+	Append    json.RawMessage `json:"append,omitempty"`
+	Artifacts []ArtifactKey   `json:"artifacts,omitempty"`
 }

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 )
 
 const (
@@ -100,7 +102,10 @@ func chapterType(chapter Chapter) (string, error) {
 
 func chapterPayload(chapter Chapter) (string, json.RawMessage, error) {
 	if b, ok := chapter.Body.(JobStartChapter); ok {
-		return payloadKindApp, b.Input.Data, nil
+		return payloadKindApp, cloneRawMessage(b.Input.Data), nil
+	}
+	if b, ok := chapter.Body.(*JobStartChapter); ok && b != nil {
+		return payloadKindApp, cloneRawMessage(b.Input.Data), nil
 	}
 	_, payloadKind, data, err := chapterBodyToWire(chapter.Body)
 	return payloadKind, data, err
@@ -112,37 +117,7 @@ func chapterIs(chapter Chapter, want string) bool {
 }
 
 func chapterBodyFromWire(chapterType string, payloadKind string, data json.RawMessage) (ChapterBody, error) {
-	switch chapterType {
-	case "Execution":
-		if payloadKind != "App" || !json.Valid(data) {
-			return nil, fmt.Errorf("invalid execution record")
-		}
-		return ExecutionChapter{Record: cloneRawMessage(data)}, nil
-	case chapterTypeJobStart:
-		if payloadKind != payloadKindApp {
-			return nil, fmt.Errorf("%s chapters require %s payloads", chapterType, payloadKindApp)
-		}
-		return JobStartChapter{Input: ApplicationInputBytes{Data: cloneRawMessage(data)}}, nil
-	case chapterTypeJobAttemptOutcome:
-		outcome, err := chapterOutcomeFromWire(payloadKind, data)
-		if err != nil {
-			return nil, err
-		}
-		return JobAttemptOutcomeChapter{Outcome: outcome}, nil
-	case chapterTypeTaskAttemptOutcome:
-		outcome, err := chapterOutcomeFromWire(payloadKind, data)
-		if err != nil {
-			return nil, err
-		}
-		return TaskAttemptOutcomeChapter{Outcome: outcome}, nil
-	case chapterTypeRestartExtra:
-		if payloadKind != payloadKindApp {
-			return nil, fmt.Errorf("%s chapters require %s payloads", chapterType, payloadKindApp)
-		}
-		return RestartExtraChapter{Output: ApplicationOutputBytes{Data: cloneRawMessage(data)}}, nil
-	default:
-		return nil, fmt.Errorf("unsupported chapter type %q", chapterType)
-	}
+	return runtimecodec.ChapterBodyFromWire(chapterType, payloadKind, data)
 }
 
 func chapterOutcomeFromWire(payloadKind string, data json.RawMessage) (ChapterOutcome, error) {
@@ -173,49 +148,7 @@ func chapterOutcomeFromWire(payloadKind string, data json.RawMessage) (ChapterOu
 }
 
 func chapterBodyToWire(body ChapterBody) (string, string, json.RawMessage, error) {
-	switch body := body.(type) {
-	case ExecutionChapter:
-		return "Execution", "App", cloneRawMessage(body.Record), nil
-	case *ExecutionChapter:
-		if body == nil {
-			return "", "", nil, fmt.Errorf("chapter body is required")
-		}
-		return "Execution", "App", cloneRawMessage(body.Record), nil
-	case JobStartChapter:
-		return chapterTypeJobStart, payloadKindApp, cloneRawMessage(body.Input.Data), nil
-	case *JobStartChapter:
-		if body == nil {
-			return "", "", nil, fmt.Errorf("chapter body is required")
-		}
-		return chapterTypeJobStart, payloadKindApp, cloneRawMessage(body.Input.Data), nil
-	case JobAttemptOutcomeChapter:
-		payloadKind, data, err := chapterOutcomeToWire(body.Outcome)
-		return chapterTypeJobAttemptOutcome, payloadKind, data, err
-	case *JobAttemptOutcomeChapter:
-		if body == nil {
-			return "", "", nil, fmt.Errorf("chapter body is required")
-		}
-		payloadKind, data, err := chapterOutcomeToWire(body.Outcome)
-		return chapterTypeJobAttemptOutcome, payloadKind, data, err
-	case TaskAttemptOutcomeChapter:
-		payloadKind, data, err := chapterOutcomeToWire(body.Outcome)
-		return chapterTypeTaskAttemptOutcome, payloadKind, data, err
-	case *TaskAttemptOutcomeChapter:
-		if body == nil {
-			return "", "", nil, fmt.Errorf("chapter body is required")
-		}
-		payloadKind, data, err := chapterOutcomeToWire(body.Outcome)
-		return chapterTypeTaskAttemptOutcome, payloadKind, data, err
-	case RestartExtraChapter:
-		return chapterTypeRestartExtra, payloadKindApp, cloneRawMessage(body.Output.Data), nil
-	case *RestartExtraChapter:
-		if body == nil {
-			return "", "", nil, fmt.Errorf("chapter body is required")
-		}
-		return chapterTypeRestartExtra, payloadKindApp, cloneRawMessage(body.Output.Data), nil
-	default:
-		return "", "", nil, fmt.Errorf("unsupported chapter body type %T", body)
-	}
+	return runtimecodec.ChapterBodyToWire(body)
 }
 
 func chapterOutcomeToWire(outcome ChapterOutcome) (string, json.RawMessage, error) {
@@ -442,60 +375,7 @@ func int64Ptr(v int64) *int64 {
 }
 
 func cloneChapterBody(body ChapterBody) ChapterBody {
-	switch body := body.(type) {
-	case ExecutionChapter:
-		body.Record = cloneRawMessage(body.Record)
-		return body
-	case *ExecutionChapter:
-		if body == nil {
-			return nil
-		}
-		copied := *body
-		copied.Record = cloneRawMessage(body.Record)
-		return &copied
-	case JobStartChapter:
-		body.Input.Data = cloneRawMessage(body.Input.Data)
-		return body
-	case *JobStartChapter:
-		if body == nil {
-			return nil
-		}
-		cloned := *body
-		cloned.Input.Data = cloneRawMessage(body.Input.Data)
-		return &cloned
-	case JobAttemptOutcomeChapter:
-		body.Outcome = cloneChapterOutcome(body.Outcome)
-		return body
-	case *JobAttemptOutcomeChapter:
-		if body == nil {
-			return nil
-		}
-		cloned := *body
-		cloned.Outcome = cloneChapterOutcome(body.Outcome)
-		return &cloned
-	case TaskAttemptOutcomeChapter:
-		body.Outcome = cloneChapterOutcome(body.Outcome)
-		return body
-	case *TaskAttemptOutcomeChapter:
-		if body == nil {
-			return nil
-		}
-		cloned := *body
-		cloned.Outcome = cloneChapterOutcome(body.Outcome)
-		return &cloned
-	case RestartExtraChapter:
-		body.Output.Data = cloneRawMessage(body.Output.Data)
-		return body
-	case *RestartExtraChapter:
-		if body == nil {
-			return nil
-		}
-		cloned := *body
-		cloned.Output.Data = cloneRawMessage(body.Output.Data)
-		return &cloned
-	default:
-		return body
-	}
+	return runtimecodec.CloneChapterBody(body)
 }
 
 func cloneChapterOutcome(outcome ChapterOutcome) ChapterOutcome {
