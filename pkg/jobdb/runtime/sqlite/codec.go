@@ -508,7 +508,7 @@ func toChapterArtifact(art jobdb.Artifact) chapterartifact.Artifact {
 
 type chapterArtifactAdapter struct {
 	art chapterartifact.Artifact
-	key atomic.Pointer[jobdb.ArtifactKey]
+	key atomic.Value // jobdb.ArtifactKey, owned by value
 }
 
 func (a *chapterArtifactAdapter) Name() string { return a.art.Name() }
@@ -531,11 +531,11 @@ func (a *chapterArtifactAdapter) Open() (io.ReadCloser, error) {
 }
 func (a *chapterArtifactAdapter) ArtifactKey() (jobdb.ArtifactKey, error) {
 	if value := a.key.Load(); value != nil {
-		return *value, nil
+		return value.(jobdb.ArtifactKey), nil
 	}
 	return jobdb.ArtifactKey{}, jobdb.ErrArtifactKeyUnavailable
 }
-func (a *chapterArtifactAdapter) setArtifactKey(key jobdb.ArtifactKey) { a.key.Store(&key) }
+func (a *chapterArtifactAdapter) setArtifactKey(key jobdb.ArtifactKey) { a.key.Store(key) }
 func (a *chapterArtifactAdapter) Cleanup() error {
 	if cleanup, ok := a.art.(interface{ Cleanup() error }); ok {
 		return cleanup.Cleanup()
@@ -583,12 +583,19 @@ func assignArtifactKeys(artifacts []jobdb.Artifact, jobID string, ordinal int64)
 		if art == nil || art.Name() == "" {
 			continue
 		}
-		jobdb.AssignArtifactKey(art, jobdb.ArtifactKey{
+		key := jobdb.ArtifactKey{
 			JobId:       jobID,
 			TaskOrdinal: ordinal,
 			Name:        art.Name(),
 			SizeBytes:   art.Size(),
-		})
+		}
+		if adapter, ok := art.(*chapterArtifactAdapter); ok {
+			// jobdb's private setter cannot be implemented across packages.
+			// The adapter's Size is the persisted chapter descriptor size.
+			adapter.setArtifactKey(key)
+		} else {
+			jobdb.AssignArtifactKey(art, key)
+		}
 	}
 }
 

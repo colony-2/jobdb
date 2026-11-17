@@ -86,7 +86,11 @@ func runSubmissionRestart(t *testing.T, harnesses []Harness) {
 					if state != "executed" {
 						require.Len(t, history, 1)
 					}
+					history, err = captureRestartChapters(history)
+					require.NoError(t, err)
 					info, err := rt.GetJob(ctx, source.JobKey)
+					require.NoError(t, err)
+					beforeSource, err := captureRestartSource(info)
 					require.NoError(t, err)
 					readArtifacts := func(key jobdb.JobKey) {
 						for name, want := range map[string][]byte{"submission.recipe.yaml": recipe, "empty": {}} {
@@ -133,7 +137,9 @@ func runSubmissionRestart(t *testing.T, harnesses []Harness) {
 					require.Equal(t, history, unchanged)
 					after, err := rt.GetJob(ctx, source.JobKey)
 					require.NoError(t, err)
-					require.Equal(t, info, after)
+					afterSource, err := captureRestartSource(after)
+					require.NoError(t, err)
+					require.Equal(t, beforeSource, afterSource)
 					readArtifacts(source.JobKey)
 					// A second generation must resolve artifacts independently as well.
 					next, err := rt.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: destination.JobKey}})
