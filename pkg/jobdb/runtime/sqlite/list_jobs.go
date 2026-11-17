@@ -163,6 +163,7 @@ func (r *Runtime) listCompactJobs(ctx context.Context, req jobdb.ListJobsRequest
 	}
 	in("list_status", statuses)
 	in("job_type", req.JobTypes)
+	in("append_key", req.AppendKeys)
 	if len(req.JobKeys) > 0 {
 		parts := []string{}
 		for _, key := range req.JobKeys {
@@ -255,7 +256,7 @@ func (r *Runtime) listCompactJobs(ctx context.Context, req jobdb.ListJobsRequest
  FROM jobdb_jobs j CROSS JOIN observation o LEFT JOIN jobdb_dependency_waits w
  ON w.tenant_id=j.tenant_id AND w.job_id=j.job_id AND w.wait_id=j.dependency_wait_id
 )
-SELECT tenant_id,job_id,cell_id,(SELECT name FROM jobdb_cells c WHERE c.tenant_id=p.tenant_id AND c.cell_id=p.cell_id),cell_repo,goal_id,job_type,route_job_type,route_task_type,
+SELECT COALESCE(append_key,''),tenant_id,job_id,cell_id,(SELECT name FROM jobdb_cells c WHERE c.tenant_id=p.tenant_id AND c.cell_id=p.cell_id),cell_repo,goal_id,job_type,route_job_type,route_task_type,
  client_payload_revision,client_payload,payload,wait_for,metadata,list_parent,available_at_ns,created_at_ns,archived_at_ns,
  cancel_requested,completion_status,completion_detail,lease_expires_at_ns,list_status,
  CASE WHEN pending_wait THEN dependency_wait_id ELSE '' END,
@@ -275,7 +276,7 @@ FROM projected p WHERE ` + strings.Join(where, " AND ") + ` ORDER BY created_at_
 		var archivedAt, leaseExpires sql.NullInt64
 		var completion, completionDetail, deadline sql.NullString
 		var waitID string
-		if err = rows.Scan(&s.JobKey.TenantId, &s.JobKey.JobId, &s.CellID, &s.Cell, &s.CellRepo, &s.GoalID, &s.JobType, &route.JobType, &route.TaskType,
+		if err = rows.Scan(&s.AppendKey, &s.JobKey.TenantId, &s.JobKey.JobId, &s.CellID, &s.Cell, &s.CellRepo, &s.GoalID, &s.JobType, &route.JobType, &route.TaskType,
 			&s.ClientPayloadRevision, &clientPayload, &payload, &waitFor, &metadata, &s.ParentJobID, &available, &created, &archivedAt, &s.CancelRequested, &completion, &completionDetail, &leaseExpires, &s.Status, &waitID, &deadline); err != nil {
 			return jobdb.ListJobsResponse{}, err
 		}

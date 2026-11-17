@@ -381,3 +381,7 @@ func (r *runJobIfLeaseableStubRuntime) ListDependencyWaits(context.Context, jobd
 func (r *runJobIfLeaseableStubRuntime) ListLeaseEvents(context.Context, ListLeaseEventsRequest) (ListLeaseEventsResponse, error) {
 	return ListLeaseEventsResponse{Events: []LeaseEvent{}}, nil
 }
+
+func (r *runJobIfLeaseableStubRuntime) StartOrAppendJob(context.Context, StartOrAppendJobRequest) (JobHandle, error) {
+	panic("unexpected StartOrAppendJob in test stub")
+}

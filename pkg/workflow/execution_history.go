@@ -503,6 +503,10 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 	if err != nil {
 		return nil, err
 	}
+	input, prefixEnd, err := r.assembleAppendInput(input, chapters)
+	if err != nil {
+		return nil, err
+	}
 	e := &executionRun{dependencyBindings: map[string]jobdb.DependencyWaitInfo{}, restarts: map[string]*jobdb.ExecutionRecord{}, r: r, ordinal: int64(len(chapters)), activation: ksuid.New().String(), active: map[*executionContext]bool{}, versions: jobdb.ExecutionVersions{ExecutionPatternVersion: jobdb.ExecutionPatternVersion, JobDBVersion: jobdbBuildVersion(), ConsumerVersions: maps.Clone(r.worker.Options.ConsumerVersions)}}
 	defer func() {
 		var sizeErr *jobdb.ChapterApplicationPayloadError
@@ -512,7 +516,7 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 	}()
 
 	for i, ch := range chapters {
-		if i == 0 {
+		if i < prefixEnd {
 			continue
 		}
 		switch body := ch.Body.(type) {
@@ -612,6 +616,11 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 		}
 		rec := jobdb.ExecutionRecord{Kind: "header", Versions: &e.versions}
 		if err = e.appendLocked(&rec); err != nil {
+			if errors.Is(err, jobdb.ErrConflict) && r.lease != nil {
+				// A stalled appender may have won the first worker ordinal.
+				// Release for a fresh history snapshot without spending a job attempt.
+				return nil, r.lease.Reschedule(ctx, RescheduleExecutionRequest{NextRoute: Route{JobType: w.Name()}})
+			}
 			return nil, err
 		}
 		e.anchor = rec.At

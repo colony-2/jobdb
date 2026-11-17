@@ -23,6 +23,7 @@ const (
 	LeaseAcquisitionPoll           LeaseAcquisitionSource = "poll"
 	LeaseAcquisitionTargeted       LeaseAcquisitionSource = "targeted"
 	LeaseAcquisitionTaskCompletion LeaseAcquisitionSource = "task_completion"
+	LeaseAcquisitionAppend         LeaseAcquisitionSource = "append"
 )
 
 type LeaseEvent struct {

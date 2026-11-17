@@ -458,3 +458,7 @@ func TestTaskDiscoveryRechecksDetailRoute(t *testing.T) {
 func (r *fakeWorkflowRuntime) ListLeaseEvents(context.Context, ListLeaseEventsRequest) (ListLeaseEventsResponse, error) {
 	return ListLeaseEventsResponse{Events: []LeaseEvent{}}, nil
 }
+
+func (r *fakeWorkflowRuntime) StartOrAppendJob(ctx context.Context, req StartOrAppendJobRequest) (JobHandle, error) {
+	panic("unexpected StartOrAppendJob in test stub")
+}

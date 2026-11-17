@@ -37,7 +37,20 @@ func ChapterBodyFromWire(chapterType string, payloadKind string, data json.RawMe
 			return nil, fmt.Errorf("invalid execution record")
 		}
 		return jobdb.ExecutionChapter{Record: cloneJSON(data)}, nil
+	case ChapterTypeAdditionalInput:
+		var wire appendWire
+		if err := json.Unmarshal(data, &wire); err != nil {
+			return nil, err
+		}
+		return jobdb.AdditionalInputChapter{Input: jobdb.ApplicationInputBytes{Data: wire.Input}, Artifacts: wire.Artifacts}, nil
 	case ChapterTypeJobStart:
+		if payloadKind == payloadKindStartAppend {
+			var wire appendWire
+			if err := json.Unmarshal(data, &wire); err != nil {
+				return nil, err
+			}
+			return jobdb.JobStartChapter{Input: jobdb.ApplicationInputBytes{Data: wire.Input}, Append: &jobdb.ApplicationInputBytes{Data: wire.Append}, AppendArtifacts: wire.Artifacts}, nil
+		}
 		if payloadKind != PayloadKindApp {
 			return nil, fmt.Errorf("%s chapters require %s payloads", chapterType, PayloadKindApp)
 		}
@@ -100,13 +113,25 @@ func ChapterBodyToWire(body jobdb.ChapterBody) (string, string, json.RawMessage,
 			return "", "", nil, fmt.Errorf("chapter body is required")
 		}
 		return "Execution", "App", cloneJSON(body.Record), nil
+	case jobdb.AdditionalInputChapter:
+		raw, err := json.Marshal(appendWire{Input: body.Input.Data, Artifacts: body.Artifacts})
+		return ChapterTypeAdditionalInput, PayloadKindApp, raw, err
+	case *jobdb.AdditionalInputChapter:
+		if body == nil {
+			return "", "", nil, fmt.Errorf("chapter body is required")
+		}
+		return ChapterBodyToWire(*body)
 	case jobdb.JobStartChapter:
+		if body.Append != nil {
+			raw, err := json.Marshal(appendWire{Input: body.Input.Data, Append: body.Append.Data, Artifacts: body.AppendArtifacts})
+			return ChapterTypeJobStart, payloadKindStartAppend, raw, err
+		}
 		return ChapterTypeJobStart, PayloadKindApp, cloneJSON(body.Input.Data), nil
 	case *jobdb.JobStartChapter:
 		if body == nil {
 			return "", "", nil, fmt.Errorf("chapter body is required")
 		}
-		return ChapterTypeJobStart, PayloadKindApp, cloneJSON(body.Input.Data), nil
+		return ChapterBodyToWire(*body)
 	case jobdb.JobAttemptOutcomeChapter:
 		payloadKind, data, err := ChapterOutcomeToWire(body.Outcome)
 		return ChapterTypeJobAttemptOutcome, payloadKind, data, err
@@ -240,15 +265,28 @@ func CloneChapterBody(body jobdb.ChapterBody) jobdb.ChapterBody {
 		copy := *body
 		copy.Record = cloneJSON(body.Record)
 		return &copy
+	case jobdb.AdditionalInputChapter:
+		body.Input.Data = cloneJSON(body.Input.Data)
+		body.Artifacts = append([]jobdb.ArtifactKey(nil), body.Artifacts...)
+		return body
+	case *jobdb.AdditionalInputChapter:
+		if body == nil {
+			return nil
+		}
+		v := CloneChapterBody(*body).(jobdb.AdditionalInputChapter)
+		return &v
 	case jobdb.JobStartChapter:
+		body.AppendArtifacts = append([]jobdb.ArtifactKey(nil), body.AppendArtifacts...)
+		if body.Append != nil {
+			body.Append = &jobdb.ApplicationInputBytes{Data: cloneJSON(body.Append.Data)}
+		}
 		body.Input.Data = cloneJSON(body.Input.Data)
 		return body
 	case *jobdb.JobStartChapter:
 		if body == nil {
 			return nil
 		}
-		cloned := *body
-		cloned.Input.Data = cloneJSON(body.Input.Data)
+		cloned := CloneChapterBody(*body).(jobdb.JobStartChapter)
 		return &cloned
 	case jobdb.JobAttemptOutcomeChapter:
 		body.Outcome = CloneChapterOutcome(body.Outcome)
@@ -557,4 +595,12 @@ func cloneAttrValue(value any) any {
 	default:
 		return value
 	}
+}
+
+const payloadKindStartAppend = "StartAppend"
+
+type appendWire struct {
+	Input     json.RawMessage     `json:"input"`
+	Append    json.RawMessage     `json:"append,omitempty"`
+	Artifacts []jobdb.ArtifactKey `json:"artifacts,omitempty"`
 }

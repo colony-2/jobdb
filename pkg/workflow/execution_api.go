@@ -96,6 +96,7 @@ type ExecutionContext interface {
 	ClientPayload() json.RawMessage
 	ClientPayloadRevision() int64
 	SubmitJob(context.Context, SubmitJob) (JobHandle, error)
+	StartOrAppendJob(context.Context, StartOrAppendJob) (JobHandle, error)
 	SubmitRestartJob(context.Context, SubmitRestartJobRequest) (JobHandle, error)
 	// Yield reschedules and stops execution. Read JobRunOutcome.Handoff after
 	// Run returns for confirmation. Orchestration must propagate the returned

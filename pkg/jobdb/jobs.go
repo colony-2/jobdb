@@ -84,6 +84,7 @@ const (
 )
 
 type JobInfo struct {
+	AppendKey             string
 	Cell                  string
 	CellID                string
 	CellRepo              string

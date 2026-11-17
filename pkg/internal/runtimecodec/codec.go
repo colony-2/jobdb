@@ -25,12 +25,14 @@ const (
 	PayloadKindTimeout     = "Timeout"
 
 	ChapterTypeJobStart           = "JobStart"
+	ChapterTypeAdditionalInput    = "AdditionalInput"
 	ChapterTypeJobAttemptOutcome  = "JobAttemptOutcome"
 	ChapterTypeTaskAttemptOutcome = "TaskAttemptOutcome"
 	ChapterTypeRestartExtra       = "RestartExtra"
 )
 
 type ChapterMeta struct {
+	AppendPublication    json.RawMessage         `json:"append_publication,omitempty"`
 	InitialPayloadDigest string                  `json:"initial_payload_digest,omitempty"`
 	Version              int                     `json:"version"`
 	Ordinal              int64                   `json:"ordinal"`
@@ -107,7 +109,29 @@ func EncodeChapter(meta ChapterMeta, chapterType string, payloadKind string, pay
 			return nil, err
 		}
 		builder.Execution = storagepb.ExecutionChapter_builder{Record: p}.Build()
+	case ChapterTypeAdditionalInput:
+		var wire appendWire
+		if err := json.Unmarshal(payload, &wire); err != nil {
+			return nil, err
+		}
+		refs, err := json.Marshal(wire.Artifacts)
+		if err != nil {
+			return nil, err
+		}
+		builder.AdditionalInput = storagepb.AdditionalInputChapter_builder{Input: applicationInputBytes(wire.Input), Artifacts: refs}.Build()
 	case ChapterTypeJobStart:
+		if payloadKind == payloadKindStartAppend {
+			var wire appendWire
+			if err := json.Unmarshal(payload, &wire); err != nil {
+				return nil, err
+			}
+			refs, err := json.Marshal(wire.Artifacts)
+			if err != nil {
+				return nil, err
+			}
+			builder.JobStart = storagepb.JobStartChapter_builder{Input: applicationInputBytes(wire.Input), Append: applicationInputBytes(wire.Append), AppendArtifacts: refs}.Build()
+			break
+		}
 		if payloadKind != PayloadKindApp {
 			return nil, fmt.Errorf("%s chapters require %s payloads", chapterType, PayloadKindApp)
 		}
@@ -168,8 +192,28 @@ func DecodeChapter(body []byte) (ChapterEnvelope, error) {
 			return ChapterEnvelope{}, err
 		}
 		return ChapterEnvelope{ChapterType: "Execution", Meta: meta, PayloadKind: PayloadKindApp, Payload: raw}, nil
+	case storagepb.ChapterRecord_AdditionalInput_case:
+		ch := record.GetAdditionalInput()
+		wire := appendWire{Input: ch.GetInput().GetData()}
+		if len(ch.GetArtifacts()) > 0 {
+			if err := json.Unmarshal(ch.GetArtifacts(), &wire.Artifacts); err != nil {
+				return ChapterEnvelope{}, err
+			}
+		}
+		raw, err := json.Marshal(wire)
+		return ChapterEnvelope{ChapterType: ChapterTypeAdditionalInput, Meta: meta, PayloadKind: PayloadKindApp, Payload: raw}, err
 	case storagepb.ChapterRecord_JobStart_case:
 		ch := record.GetJobStart()
+		if ch.HasAppend() {
+			wire := appendWire{Input: ch.GetInput().GetData(), Append: ch.GetAppend().GetData()}
+			if len(ch.GetAppendArtifacts()) > 0 {
+				if err := json.Unmarshal(ch.GetAppendArtifacts(), &wire.Artifacts); err != nil {
+					return ChapterEnvelope{}, err
+				}
+			}
+			raw, err := json.Marshal(wire)
+			return ChapterEnvelope{ChapterType: ChapterTypeJobStart, Meta: meta, PayloadKind: payloadKindStartAppend, Payload: raw}, err
+		}
 		return ChapterEnvelope{
 			ChapterType: ChapterTypeJobStart,
 			Meta:        meta,
@@ -261,6 +305,7 @@ func chapterRecordBuilder(meta ChapterMeta) (storagepb.ChapterRecord_builder, er
 	}
 	builder := storagepb.ChapterRecord_builder{
 		InitialPayloadDigest: ptr(versioned.InitialPayloadDigest),
+		AppendPublication:    versioned.AppendPublication,
 		Ordinal:              ptr(versioned.Ordinal),
 		TaskType:             ptr(versioned.TaskType),
 		WorkerId:             ptr(versioned.WorkerID),
@@ -307,6 +352,7 @@ func chapterMetaFromProto(record *storagepb.ChapterRecord) (ChapterMeta, error) 
 	}
 	meta := ChapterMeta{
 		InitialPayloadDigest: record.GetInitialPayloadDigest(),
+		AppendPublication:    record.GetAppendPublication(),
 		Version:              EnvelopeVersion,
 		Ordinal:              record.GetOrdinal(),
 		TaskType:             record.GetTaskType(),

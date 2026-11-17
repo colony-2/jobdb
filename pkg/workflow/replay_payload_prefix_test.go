@@ -430,3 +430,7 @@ func TestReplayPayloadAcceptedPrefix(t *testing.T) {
 		}
 	}
 }
+
+func (r *prefixRuntime) StartOrAppendJob(c context.Context, q jobdb.StartOrAppendJobRequest) (jobdb.JobHandle, error) {
+	panic("unexpected StartOrAppendJob in test stub")
+}

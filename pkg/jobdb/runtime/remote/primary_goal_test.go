@@ -282,3 +282,7 @@ func TestPrimaryGoalGenericAuthorizationBoundaries(t *testing.T) {
 		})
 	}
 }
+
+func (r *noPrimaryGoalRuntime) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAppendJobRequest) (jobdb.JobHandle, error) {
+	panic("unexpected StartOrAppendJob in test stub")
+}

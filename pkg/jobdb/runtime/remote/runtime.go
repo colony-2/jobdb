@@ -358,6 +358,9 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 		routes := routesToAPI(req.AvailableRoutes)
 		body.AvailableRoutes = &routes
 	}
+	if len(req.AppendKeys) > 0 {
+		body.AppendKeys = &req.AppendKeys
+	}
 	if len(req.JobTypes) > 0 {
 		jobTypes := append([]string(nil), req.JobTypes...)
 		body.JobTypes = &jobTypes
@@ -870,6 +873,9 @@ func cellResponseError(status int, body []byte) error {
 }
 
 func responseError(operation string, status int, body []byte, sentinel error) error {
+	if err := appendResponseError(body); err != nil {
+		return err
+	}
 
 	if err := cellResponseError(status, body); err != nil {
 		return err

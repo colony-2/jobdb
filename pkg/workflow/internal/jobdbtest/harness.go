@@ -802,3 +802,23 @@ func (r *tenantNamespacedRuntime) ListLeaseEvents(ctx context.Context, req jobdb
 }
 
 var _ jobdb.WorkflowRuntime = (*tenantNamespacedRuntime)(nil)
+
+func (r *tenantNamespacedRuntime) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAppendJobRequest) (jobdb.JobHandle, error) {
+	req.Job.Job.TenantId = r.prefixTenant(req.Job.Job.TenantId)
+	handle, err := r.runtime.StartOrAppendJob(ctx, req)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	handle.JobKey = r.stripJobKey(handle.JobKey)
+	return handle, nil
+}
+
+func (l *tenantNamespacedLease) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAppendJobRequest) (jobdb.JobHandle, error) {
+	req.Job.Job.TenantId = l.runtime.prefixTenant(req.Job.Job.TenantId)
+	handle, err := l.lease.StartOrAppendJob(ctx, req)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	handle.JobKey = l.runtime.stripJobKey(handle.JobKey)
+	return handle, nil
+}

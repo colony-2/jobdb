@@ -72,6 +72,8 @@ type runtimeArtifactKey struct {
 }
 
 type jobRecord struct {
+	appendKey             string
+	appendGeneration      int64
 	cell                  jobdb.ResolvedCell
 	key                   jobdb.JobKey
 	goalID                string
@@ -112,6 +114,22 @@ type jobRecord struct {
 // currentStatus projects lease expiry without counting it again on each read.
 // The caller holds the record lock.
 func (r *jobRecord) currentStatus(now time.Time) jobdb.JobStatus {
+	if r.appendKey != "" && r.archived == nil && !r.cancelled {
+		if r.leased && r.leaseExpiresAt.After(now) {
+			return jobdb.JobStatusActive
+		}
+		if r.consecutiveExpirations >= crashconcern.DefaultThreshold {
+			return jobdb.JobStatusCrashConcern
+		}
+		if len(r.waitFor) > 0 {
+			return jobdb.JobStatusPendingJobs
+		}
+		if r.availableAt.After(now) {
+			return jobdb.JobStatusAwaitingFuture
+		}
+		return jobdb.JobStatusReady
+	}
+
 	if r.leased && !r.leaseExpiresAt.After(now) && r.archived == nil && !r.cancelled {
 		if r.consecutiveExpirations >= crashconcern.DefaultThreshold {
 			return jobdb.JobStatusCrashConcern
@@ -834,7 +852,7 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 		}
 
 		// Filter by tenant - must match one of the requested tenants
-		if !tenantAllowed(key.TenantId) || !allowedCells[rec.cell.CellID] {
+		if !tenantAllowed(key.TenantId) || !allowedCells[rec.cell.CellID] || (len(req.AppendKeys) > 0 && !slices.Contains(req.AppendKeys, rec.appendKey)) {
 			rec.mu.Unlock()
 			continue
 		}
@@ -949,7 +967,7 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 			ClientPayloadRevision: rec.clientPayloadRevision,
 			Metadata:              metadataCopy,
 			SchemaHash:            jobmetadata.SchemaHashFromStoredMetadata(rec.metadata),
-			ParentJobID:           parentJobID,
+			ParentJobID:           parentJobID, AppendKey: rec.appendKey,
 		}
 		rec.mu.Unlock()
 		records = append(records, summary)

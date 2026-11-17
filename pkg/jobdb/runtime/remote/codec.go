@@ -986,12 +986,25 @@ func chapterBodyToAPI(body jobdb.ChapterBody) (runtimeapi.ChapterBody, error) {
 		}
 		return chapterBodyToAPI(*body)
 
+	case jobdb.AdditionalInputChapter:
+		err := out.FromAdditionalInputChapter(runtimeapi.AdditionalInputChapter{Input: json.RawMessage(body.Input.Data), Artifacts: &body.Artifacts})
+		return out, err
+	case *jobdb.AdditionalInputChapter:
+		if body == nil {
+			return out, fmt.Errorf("chapter body required")
+		}
+		return chapterBodyToAPI(*body)
 	case jobdb.JobStartChapter:
 		input, err := applicationPayloadRequired(body.Input.Data)
 		if err != nil {
 			return out, err
 		}
-		err = out.FromJobStartChapter(runtimeapi.JobStartChapter{Input: input})
+		value := runtimeapi.JobStartChapter{Input: input, AppendArtifacts: &body.AppendArtifacts}
+		if body.Append != nil {
+			raw := json.RawMessage(body.Append.Data)
+			value.Append = &raw
+		}
+		err = out.FromJobStartChapter(value)
 		return out, err
 	case *jobdb.JobStartChapter:
 		if body == nil {
@@ -1056,6 +1069,16 @@ func chapterBodyFromAPI(body runtimeapi.ChapterBody) (jobdb.ChapterBody, error) 
 		}
 		return jobdb.ExecutionChapter{Record: raw}, nil
 
+	case "additionalInput":
+		b, err := body.AsAdditionalInputChapter()
+		if err != nil {
+			return nil, err
+		}
+		out := jobdb.AdditionalInputChapter{Input: jobdb.ApplicationInputBytes{Data: b.Input}}
+		if b.Artifacts != nil {
+			out.Artifacts = *b.Artifacts
+		}
+		return out, nil
 	case "jobStart":
 		converted, err := body.AsJobStartChapter()
 		if err != nil {
@@ -1065,7 +1088,14 @@ func chapterBodyFromAPI(body runtimeapi.ChapterBody) (jobdb.ChapterBody, error) 
 		if err != nil {
 			return nil, err
 		}
-		return jobdb.JobStartChapter{Input: jobdb.ApplicationInputBytes{Data: raw}}, nil
+		out := jobdb.JobStartChapter{Input: jobdb.ApplicationInputBytes{Data: raw}}
+		if converted.Append != nil {
+			out.Append = &jobdb.ApplicationInputBytes{Data: *converted.Append}
+		}
+		if converted.AppendArtifacts != nil {
+			out.AppendArtifacts = *converted.AppendArtifacts
+		}
+		return out, nil
 	case "jobAttemptOutcome":
 		converted, err := body.AsJobAttemptOutcomeChapter()
 		if err != nil {
@@ -1411,7 +1441,7 @@ func jobInfoToAPI(ctx context.Context, info jobdb.JobInfo) (runtimeapi.JobInfo, 
 		return runtimeapi.JobInfo{Cell: info.Cell, CellId: info.CellID, CellRepo: info.CellRepo}, err
 	}
 	waitFor := nonNilStrings(info.WaitFor)
-	out := runtimeapi.JobInfo{Cell: info.Cell, CellId: info.CellID, CellRepo: info.CellRepo, NextRoute: routePtrToAPI(info.NextRoute), CompletionStatus: stringPtrOrNil(info.CompletionStatus), CompletionDetail: stringPtrOrNil(info.CompletionDetail), WaitFor: &waitFor, BlockingWait: info.BlockingWait, GoalId: info.GoalID, OtherGoalIds: nonNilStrings(info.OtherGoalIDs),
+	out := runtimeapi.JobInfo{AppendKey: stringPtrOrNil(info.AppendKey), Cell: info.Cell, CellId: info.CellID, CellRepo: info.CellRepo, NextRoute: routePtrToAPI(info.NextRoute), CompletionStatus: stringPtrOrNil(info.CompletionStatus), CompletionDetail: stringPtrOrNil(info.CompletionDetail), WaitFor: &waitFor, BlockingWait: info.BlockingWait, GoalId: info.GoalID, OtherGoalIds: nonNilStrings(info.OtherGoalIDs),
 		ExecutionState: state, ClientPayload: cloneRawMessage(info.ClientPayload), ClientPayloadRevision: strconv.FormatInt(info.ClientPayloadRevision, 10),
 		SchemaHash: schemaHashPtr(info.SchemaHash),
 		Status:     runtimeapi.JobStatus(info.Status),
@@ -1440,7 +1470,7 @@ func jobInfoFromAPI(runtime *Runtime, jobKey jobdb.JobKey, info runtimeapi.JobIn
 	if err != nil {
 		return jobdb.JobInfo{Cell: info.Cell, CellID: info.CellId, CellRepo: info.CellRepo}, err
 	}
-	out := jobdb.JobInfo{Cell: info.Cell, CellID: info.CellId, CellRepo: info.CellRepo, NextRoute: routePtrFromAPI(info.NextRoute), CompletionStatus: stringValue(info.CompletionStatus), CompletionDetail: stringValue(info.CompletionDetail), WaitFor: cloneStringSlice(info.WaitFor), BlockingWait: info.BlockingWait, GoalID: info.GoalId, OtherGoalIDs: info.OtherGoalIds,
+	out := jobdb.JobInfo{AppendKey: stringValue(info.AppendKey), Cell: info.Cell, CellID: info.CellId, CellRepo: info.CellRepo, NextRoute: routePtrFromAPI(info.NextRoute), CompletionStatus: stringValue(info.CompletionStatus), CompletionDetail: stringValue(info.CompletionDetail), WaitFor: cloneStringSlice(info.WaitFor), BlockingWait: info.BlockingWait, GoalID: info.GoalId, OtherGoalIDs: info.OtherGoalIds,
 		ExecutionState: state, ClientPayload: cloneRawMessage(info.ClientPayload), ClientPayloadRevision: revision,
 		Status:     jobdb.JobStatus(info.Status),
 		Data:       &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
@@ -1466,7 +1496,7 @@ func jobSummaryToAPI(summary jobdb.JobSummary) (runtimeapi.JobSummary, error) {
 	if err != nil {
 		return runtimeapi.JobSummary{Cell: summary.Cell, CellId: summary.CellID, CellRepo: summary.CellRepo}, err
 	}
-	out := runtimeapi.JobSummary{Cell: summary.Cell, CellId: summary.CellID, CellRepo: summary.CellRepo, BlockingWaitSummary: summary.BlockingWaitSummary, BlockingWait: summary.BlockingWait, GoalId: summary.GoalID, OtherGoalIds: nonNilStrings(summary.OtherGoalIDs),
+	out := runtimeapi.JobSummary{AppendKey: stringPtrOrNil(summary.AppendKey), Cell: summary.Cell, CellId: summary.CellID, CellRepo: summary.CellRepo, BlockingWaitSummary: summary.BlockingWaitSummary, BlockingWait: summary.BlockingWait, GoalId: summary.GoalID, OtherGoalIds: nonNilStrings(summary.OtherGoalIDs),
 		CompletionStatus:      stringPtrOrNil(summary.CompletionStatus),
 		CompletionDetail:      stringPtrOrNil(summary.CompletionDetail),
 		ArchivedAt:            summary.ArchivedAt,
@@ -1506,7 +1536,7 @@ func jobSummaryFromAPI(summary runtimeapi.JobSummary) (jobdb.JobSummary, error) 
 	if err != nil {
 		return jobdb.JobSummary{Cell: summary.Cell, CellID: summary.CellId, CellRepo: summary.CellRepo, BlockingWait: summary.BlockingWait, GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds}, err
 	}
-	return jobdb.JobSummary{Cell: summary.Cell, CellID: summary.CellId, CellRepo: summary.CellRepo, BlockingWaitSummary: summary.BlockingWaitSummary, BlockingWait: summary.BlockingWait, GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds,
+	return jobdb.JobSummary{AppendKey: stringValue(summary.AppendKey), Cell: summary.Cell, CellID: summary.CellId, CellRepo: summary.CellRepo, BlockingWaitSummary: summary.BlockingWaitSummary, BlockingWait: summary.BlockingWait, GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds,
 		CompletionStatus:      stringValue(summary.CompletionStatus),
 		CompletionDetail:      stringValue(summary.CompletionDetail),
 		JobKey:                fromAPIJobKey(summary.JobKey),

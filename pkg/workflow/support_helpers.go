@@ -99,6 +99,9 @@ func chapterType(chapter Chapter) (string, error) {
 }
 
 func chapterPayload(chapter Chapter) (string, json.RawMessage, error) {
+	if b, ok := chapter.Body.(JobStartChapter); ok {
+		return payloadKindApp, b.Input.Data, nil
+	}
 	_, payloadKind, data, err := chapterBodyToWire(chapter.Body)
 	return payloadKind, data, err
 }

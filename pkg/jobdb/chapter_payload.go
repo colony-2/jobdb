@@ -147,7 +147,16 @@ func ValidateChapterApplicationPayload(ctx context.Context, ch Chapter, limit in
 		switch b := b.(type) {
 		case JobStartChapter:
 			add("input.data", b.Input.Data)
+			if b.Append != nil {
+				add("append.data", b.Append.Data)
+			}
 		case *JobStartChapter:
+			if b != nil {
+				return body(*b)
+			}
+		case AdditionalInputChapter:
+			add("input.data", b.Input.Data)
+		case *AdditionalInputChapter:
 			if b != nil {
 				return body(*b)
 			}

@@ -253,14 +253,26 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	nextOrdinal := job.LastStepToKeep + 1
 	nextChap, err := r.chapterStore.Chapter(sctx, sourceJob, nextOrdinal)
 	if err != nil {
-		if job.LastStepToKeep != 0 || executionRestart != nil || !errors.Is(err, storage.ErrChapterNotFound) {
+		if executionRestart != nil || !errors.Is(err, storage.ErrChapterNotFound) {
 			return jobdb.JobHandle{}, fmt.Errorf("LastStepToKeep %d invalid: no chapter at ordinal %d: %w", job.LastStepToKeep, nextOrdinal, err)
 		}
 		source, err := r.chapterStore.Story(sctx, sourceJob)
 		if err != nil {
 			return jobdb.JobHandle{}, err
 		}
-		if source.ChapterCount() != 1 || env0.ChapterType != chapterTypeJobStart || jobType == "" {
+		prefixOnly := source.ChapterCount() == job.LastStepToKeep+1
+		if prefixOnly && source.ChapterCount() > 1 {
+			last, e := r.chapterStore.Chapter(sctx, sourceJob, source.ChapterCount()-1)
+			if e != nil {
+				return jobdb.JobHandle{}, e
+			}
+			env, e := decodeChapterEnvelope(last.Body())
+			if e != nil {
+				return jobdb.JobHandle{}, e
+			}
+			prefixOnly = env.ChapterType == runtimecodec.ChapterTypeAdditionalInput
+		}
+		if !prefixOnly || env0.ChapterType != chapterTypeJobStart || jobType == "" {
 			return jobdb.JobHandle{}, fmt.Errorf("source is not a submission-only history")
 		}
 	} else {
@@ -536,7 +548,7 @@ func (r *Runtime) acquireOneLease(ctx context.Context, req jobdb.PollWorkRequest
 			}
 			result, err := tx.ExecContext(ctx, `
 UPDATE jobdb_jobs
-SET consecutive_expirations = CASE WHEN lease_id IS NOT NULL THEN consecutive_expirations + 1 ELSE 0 END,
+SET consecutive_expirations = CASE WHEN substr(lease_worker_id,1,13) = 'jobdb-append-' THEN consecutive_expirations WHEN lease_id IS NOT NULL THEN consecutive_expirations + 1 ELSE consecutive_expirations END,
 	route_job_type = ?, route_task_type = ?, lease_id = ?, lease_worker_id = ?, lease_expires_at_ns = ?,
 	alternate_job_type = ?, alternate_task_type = ?, alternate_at_ns = ?, updated_at_ns = ?
 WHERE tenant_id = ? AND job_id = ?`,
@@ -636,7 +648,7 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 		}
 		_, err = tx.ExecContext(ctx, `
 UPDATE jobdb_jobs
-SET consecutive_expirations = CASE WHEN lease_id IS NOT NULL THEN consecutive_expirations + 1 ELSE 0 END,
+SET consecutive_expirations = CASE WHEN substr(lease_worker_id,1,13) = 'jobdb-append-' THEN consecutive_expirations WHEN lease_id IS NOT NULL THEN consecutive_expirations + 1 ELSE consecutive_expirations END,
 	route_job_type = ?, route_task_type = ?, lease_id = ?, lease_worker_id = ?, lease_expires_at_ns = ?,
 	alternate_job_type = ?, alternate_task_type = ?, alternate_at_ns = ?, updated_at_ns = ?
 WHERE tenant_id = ? AND job_id = ?`,
@@ -734,7 +746,7 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 	if err = r.db.QueryRowContext(ctx, "SELECT name FROM jobdb_cells WHERE tenant_id=? AND cell_id=?", jobKey.TenantId, row.cell.CellID).Scan(&currentCellName); err != nil {
 		return jobdb.JobInfo{}, err
 	}
-	job := jobdb.JobInfo{Cell: currentCellName, CellID: row.cell.CellID, CellRepo: row.cell.CellRepo, NextRoute: jobdb.CloneRoute(&row.nextRoute), WaitFor: waitFor, CompletionStatus: row.completionStatus.String, CompletionDetail: row.completionDetail.String, BlockingWait: blocking,
+	job := jobdb.JobInfo{AppendKey: row.appendKey.String, Cell: currentCellName, CellID: row.cell.CellID, CellRepo: row.cell.CellRepo, NextRoute: jobdb.CloneRoute(&row.nextRoute), WaitFor: waitFor, CompletionStatus: row.completionStatus.String, CompletionDetail: row.completionDetail.String, BlockingWait: blocking,
 		GoalID: row.goalID, OtherGoalIDs: otherGoals,
 		ClientPayload: cloneJSON(row.clientPayload), ClientPayloadRevision: row.clientPayloadRevision, ExecutionState: jobExecutionState(row.payload),
 		Status:     status,

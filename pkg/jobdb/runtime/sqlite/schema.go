@@ -143,6 +143,9 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	if _, err = tx.ExecContext(ctx, submissionReceiptSchemaSQL); err != nil {
 		return err
 	}
+	if err = migrateAppend(ctx, tx); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -161,7 +164,11 @@ func validateLeaseEventBaseSchema(ctx context.Context, tx *sql.Tx, requireEvents
 	}
 	defer rows.Close()
 	normalize := func(s string) string {
-		return strings.Join(strings.Fields(strings.ReplaceAll(s, "IF NOT EXISTS ", "")), " ")
+		s = strings.Join(strings.Fields(strings.ReplaceAll(s, "IF NOT EXISTS ", "")), " ")
+		s = strings.ReplaceAll(s, ", append_key TEXT", "")
+		s = strings.ReplaceAll(s, ", append_gen INTEGER", "")
+		s = strings.ReplaceAll(s, "'task_completion','append'", "'task_completion'")
+		return s
 	}
 	var eventTable int
 	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE name='jobdb_lease_events'").Scan(&eventTable); err != nil {
@@ -208,3 +215,59 @@ CREATE INDEX jobdb_lease_events_worker_id_idx ON jobdb_lease_events(tenant_id,wo
 CREATE INDEX jobdb_lease_events_lease_id_idx ON jobdb_lease_events(tenant_id,lease_id,occurred_at_ns DESC,event_id DESC);
 CREATE INDEX jobdb_lease_events_event_type_idx ON jobdb_lease_events(tenant_id,event_type,occurred_at_ns DESC,event_id DESC);
 `
+
+// The append columns and lease source are additive to the format-11 schema.
+func migrateAppend(ctx context.Context, tx *sql.Tx) error {
+	var count int
+	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM pragma_table_info('jobdb_jobs') WHERE name='append_key'").Scan(&count); err != nil {
+		return err
+	}
+	if count == 0 {
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE jobdb_jobs ADD COLUMN append_key TEXT; ALTER TABLE jobdb_jobs ADD COLUMN append_gen INTEGER;`); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS jobdb_jobs_append_idx ON jobdb_jobs(tenant_id,cell_id,job_type,append_key,append_gen) WHERE append_key IS NOT NULL;`); err != nil {
+		return err
+	}
+	var ddl string
+	if err := tx.QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE name='jobdb_lease_events'").Scan(&ddl); err != nil {
+		return err
+	}
+	if !strings.Contains(ddl, "'append'") {
+		// Rebuild only the event table to expand its CHECK constraint. Preserve IDs.
+		rows, err := tx.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='jobdb_lease_events' AND sql IS NOT NULL")
+		if err != nil {
+			return err
+		}
+		var names []string
+		for rows.Next() {
+			var name string
+			if err = rows.Scan(&name); err != nil {
+				rows.Close()
+				return err
+			}
+			names = append(names, name)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		for _, name := range names {
+			if _, err = tx.ExecContext(ctx, `DROP INDEX "`+strings.ReplaceAll(name, `"`, `""`)+`"`); err != nil {
+				return err
+			}
+		}
+		if _, err = tx.ExecContext(ctx, "ALTER TABLE jobdb_lease_events RENAME TO jobdb_lease_events_before_append"); err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, strings.ReplaceAll(leaseEventSchemaSQL, "'task_completion'", "'task_completion','append'")); err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, "INSERT INTO jobdb_lease_events SELECT * FROM jobdb_lease_events_before_append; DROP TABLE jobdb_lease_events_before_append"); err != nil {
+			return err
+		}
+	}
+	return nil
+}

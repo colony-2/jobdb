@@ -293,3 +293,15 @@ func (s *leaseSession) GetConfiguration(ctx context.Context) (jobdb.Configuratio
 	}
 	return result, nil
 }
+func (s *leaseSession) StartOrAppendJob(ctx context.Context, req StartOrAppendJobRequest) (JobHandle, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.check(); err != nil {
+		return JobHandle{}, err
+	}
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
+
+	handle, err := s.current.StartOrAppendJob(ctx, req)
+	return handle, s.mutationError(err)
+}

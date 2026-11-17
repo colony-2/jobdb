@@ -11,6 +11,7 @@ import (
 // Scheduler persists job state and performs atomic lease
 // mutations for runtime core.
 type Scheduler interface {
+	AppendScheduler
 	jobdb.LeaseEventReader
 	jobdb.CellRuntime
 	CreateCellWithLeaseByID(context.Context, jobdb.JobKey, string, string, jobdb.CreateCellRequest) (jobdb.Cell, error)
@@ -39,6 +40,8 @@ type Scheduler interface {
 // CreateJobRequest contains the immutable job facts and initial route written
 // after runtime core has validated and encoded the first chapter.
 type CreateJobRequest struct {
+	AppendKey        string
+	AppendGeneration int64
 	// SelectedGoalID requires the scheduler to atomically validate authority,
 	// ownership, openness and cycles and retain the immutable accepted receipt.
 	SelectedGoalID        string
@@ -79,6 +82,8 @@ type AlternateRoute struct {
 
 // StoredJob joins immutable facts with current or archived scheduler state.
 type StoredJob struct {
+	AppendKey             string
+	AppendGeneration      int64
 	Cell                  jobdb.ResolvedCell
 	BlockingWaitSummary   *jobdb.DependencyWaitSummary
 	BlockingWait          *jobdb.DependencyWaitInfo
@@ -122,8 +127,9 @@ type CompletionSnapshot struct {
 
 // ListJobsRequest is the scheduler-side form of job listing.
 type ListJobsRequest struct {
-	CellNames []string
-	GoalIDs   []string
+	AppendKeys []string
+	CellNames  []string
+	GoalIDs    []string
 	// IncludeHidden must be applied before pagination by deletion-capable stores.
 	IncludeHidden bool
 	TenantIds     []string

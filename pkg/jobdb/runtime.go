@@ -22,6 +22,7 @@ type WorkflowRuntime interface {
 
 	// Job lifecycle
 	SubmitJob(ctx context.Context, req SubmitJobRequest) (JobHandle, error)
+	StartOrAppendJob(ctx context.Context, req StartOrAppendJobRequest) (JobHandle, error)
 	SubmitRestartJob(ctx context.Context, req SubmitRestartJobRequest) (JobHandle, error)
 	CancelJob(ctx context.Context, req CancelJobRequest) error
 	ClearCrashConcern(ctx context.Context, req ClearCrashConcernRequest) error
@@ -81,6 +82,7 @@ type ExecutionLease interface {
 	Complete(ctx context.Context, req CompleteExecutionRequest) error
 	Reschedule(ctx context.Context, req RescheduleExecutionRequest) error
 	SubmitJob(ctx context.Context, req SubmitJobRequest) (JobHandle, error)
+	StartOrAppendJob(ctx context.Context, req StartOrAppendJobRequest) (JobHandle, error)
 	SubmitRestartJob(ctx context.Context, req SubmitRestartJobRequest) (JobHandle, error)
 }
 

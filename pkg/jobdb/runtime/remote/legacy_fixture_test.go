@@ -103,3 +103,7 @@ func TestHistoricalPortRequiresLeaseEvents(t *testing.T) {
 		t.Fatal("historical implementation without lease history satisfies mandatory port")
 	}
 }
+
+func (legacyRuntime) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAppendJobRequest) (jobdb.JobHandle, error) {
+	panic("unexpected StartOrAppendJob in test stub")
+}

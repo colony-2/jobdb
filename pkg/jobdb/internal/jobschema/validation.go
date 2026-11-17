@@ -44,15 +44,17 @@ func (r ChapterRole) String() string {
 }
 
 type ParsedJobSchema struct {
+	AppendShape       json.RawMessage
 	ChapterShape      json.RawMessage
 	FirstChapterShape json.RawMessage
 	LastChapterShape  json.RawMessage
 }
 
 type compiledJobSchema struct {
-	chapter *jsonschema.Schema
-	first   *jsonschema.Schema
-	last    *jsonschema.Schema
+	appendInput *jsonschema.Schema
+	chapter     *jsonschema.Schema
+	first       *jsonschema.Schema
+	last        *jsonschema.Schema
 }
 
 func (s *compiledJobSchema) validator(role ChapterRole) *jsonschema.Schema {
@@ -82,6 +84,39 @@ func ValidateChapter(ctx context.Context, registry jobdb.JobSchemaRegistry, key 
 	schema, err := defaultValidator.schema(ctx, registry, key)
 	if err != nil {
 		return err
+	}
+	validateAppend := func(raw []byte) error {
+		if schema.appendInput == nil {
+			return nil
+		}
+		value, err := jsonschema.UnmarshalJSON(bytes.NewReader(raw))
+		if err != nil {
+			return err
+		}
+		if err = schema.appendInput.Validate(value); err != nil {
+			return fmt.Errorf("%w: append schema rejected chapter %d: %v", jobdb.ErrJobSchemaValidation, chapter.Ordinal, err)
+		}
+		return nil
+	}
+	switch b := chapter.Body.(type) {
+	case jobdb.AdditionalInputChapter:
+		return validateAppend(b.Input.Data)
+	case *jobdb.AdditionalInputChapter:
+		if b != nil {
+			return validateAppend(b.Input.Data)
+		}
+	case jobdb.JobStartChapter:
+		if b.Append != nil {
+			if err := validateAppend(b.Append.Data); err != nil {
+				return err
+			}
+		}
+	case *jobdb.JobStartChapter:
+		if b != nil && b.Append != nil {
+			if err := validateAppend(b.Append.Data); err != nil {
+				return err
+			}
+		}
 	}
 	validator := schema.validator(role)
 	if validator == nil {
@@ -185,7 +220,7 @@ func ParseJobSchemaDocument(raw json.RawMessage) (ParsedJobSchema, error) {
 
 	for name := range decoded {
 		switch name {
-		case "$schema", "description", "chapterShape", "firstChapterShape", "lastChapterShape":
+		case "$schema", "description", "chapterShape", "firstChapterShape", "lastChapterShape", "appendShape":
 		default:
 			return ParsedJobSchema{}, fmt.Errorf("unknown schema field %q", name)
 		}
@@ -198,6 +233,7 @@ func ParseJobSchemaDocument(raw json.RawMessage) (ParsedJobSchema, error) {
 	}
 
 	parsed := ParsedJobSchema{
+		AppendShape:       cloneRaw(decoded["appendShape"]),
 		ChapterShape:      cloneRaw(decoded["chapterShape"]),
 		FirstChapterShape: cloneRaw(decoded["firstChapterShape"]),
 		LastChapterShape:  cloneRaw(decoded["lastChapterShape"]),
@@ -215,6 +251,11 @@ func ParseJobSchemaDocument(raw json.RawMessage) (ParsedJobSchema, error) {
 	}
 	if len(bytes.TrimSpace(parsed.LastChapterShape)) > 0 {
 		if err := validateShapeValue("lastChapterShape", parsed.LastChapterShape); err != nil {
+			return ParsedJobSchema{}, err
+		}
+	}
+	if len(parsed.AppendShape) > 0 {
+		if err := validateShapeValue("appendShape", parsed.AppendShape); err != nil {
 			return ParsedJobSchema{}, err
 		}
 	}
@@ -270,6 +311,12 @@ func compileJobSchema(schemaHash string, raw json.RawMessage) (*compiledJobSchem
 		return nil, err
 	}
 	out := &compiledJobSchema{chapter: chapter}
+	if len(parsed.AppendShape) > 0 {
+		out.appendInput, err = compileSchemaFragment(schemaHash, "append", parsed.AppendShape)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if len(bytes.TrimSpace(parsed.FirstChapterShape)) > 0 {
 		first, err := compileSchemaFragment(schemaHash, "first", parsed.FirstChapterShape)
 		if err != nil {

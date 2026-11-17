@@ -227,3 +227,7 @@ func (r replayReadOnlyRuntime) ListLeaseEvents(ctx context.Context, req ListLeas
 }
 
 var _ jobdb.WorkflowRuntime = replayReadOnlyRuntime{}
+
+func (r replayReadOnlyRuntime) StartOrAppendJob(context.Context, StartOrAppendJobRequest) (JobHandle, error) {
+	return JobHandle{}, replayMutationError("start or append job")
+}

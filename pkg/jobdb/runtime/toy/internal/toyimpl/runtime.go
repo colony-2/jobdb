@@ -392,7 +392,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	nextOrdinal := req.Job.LastStepToKeep + 1
 	nextChapter, ok := sourceChapters[nextOrdinal]
 	if !ok {
-		if req.Job.LastStepToKeep != 0 || executionRestart != nil || len(sourceChapters) != 1 ||
+		if executionRestart != nil || int64(len(sourceChapters)) != nextOrdinal || (nextOrdinal > 1 && !runtimecodec.ChapterIs(sourceChapters[nextOrdinal-1], runtimecodec.ChapterTypeAdditionalInput)) ||
 			!runtimecodec.ChapterIs(sourceChapters[0], runtimecodec.ChapterTypeJobStart) || sourceChapters[0].TaskType == "" {
 			return jobdb.JobHandle{}, fmt.Errorf("LastStepToKeep %d invalid: no chapter at ordinal %d", req.Job.LastStepToKeep, nextOrdinal)
 		}
@@ -643,10 +643,8 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 		}
 		record.leased = true
 		record.status = jobdb.JobStatusActive
-		if record.leaseID != "" {
+		if record.leaseID != "" && !runtimecore.IsAppendWorker(record.leaseWorkerID) {
 			record.consecutiveExpirations++
-		} else {
-			record.consecutiveExpirations = 0
 		}
 		previousLeaseID := record.leaseID
 		record.leaseID = ksuid.New().String()
@@ -733,10 +731,8 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 	}
 	record.leased = true
 	record.status = jobdb.JobStatusActive
-	if record.leaseID != "" {
+	if record.leaseID != "" && !runtimecore.IsAppendWorker(record.leaseWorkerID) {
 		record.consecutiveExpirations++
-	} else {
-		record.consecutiveExpirations = 0
 	}
 	previousLeaseID := record.leaseID
 	record.leaseID = ksuid.New().String()
@@ -807,7 +803,7 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 	if err != nil {
 		return jobdb.JobInfo{}, err
 	}
-	job := jobdb.JobInfo{Cell: r.engine.cellsLocked(jobKey.TenantId).Cells[record.cell.CellID].Name, CellID: record.cell.CellID, CellRepo: record.cell.CellRepo, NextRoute: jobdb.CloneRoute(&record.route), WaitFor: append([]string(nil), record.waitFor...), CompletionStatus: record.completionStatus, CompletionDetail: record.completionDetail, BlockingWait: blocking, GoalID: record.goalID, OtherGoalIDs: r.engine.otherGoalsLocked(jobKey),
+	job := jobdb.JobInfo{AppendKey: record.appendKey, Cell: r.engine.cellsLocked(jobKey.TenantId).Cells[record.cell.CellID].Name, CellID: record.cell.CellID, CellRepo: record.cell.CellRepo, NextRoute: jobdb.CloneRoute(&record.route), WaitFor: append([]string(nil), record.waitFor...), CompletionStatus: record.completionStatus, CompletionDetail: record.completionDetail, BlockingWait: blocking, GoalID: record.goalID, OtherGoalIDs: r.engine.otherGoalsLocked(jobKey),
 		ClientPayload: cloneJSON(record.clientPayload), ClientPayloadRevision: record.clientPayloadRevision, ExecutionState: toyExecutionState(record.payload),
 		Status:     r.engine.availableStatusLocked(jobKey.TenantId, time.Now(), record),
 		Data:       &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
@@ -1190,6 +1186,11 @@ func (r *Runtime) taskDataFromChapter(jobKey jobdb.JobKey, chapter jobdb.Chapter
 }
 
 func (r *Runtime) advanceRecordStateLocked(tenantId string, now time.Time, record *jobRecord) {
+	// An append claim only overlays the lease. Polling must not replace the
+	// underlying pending status or clear the predecessor wait while it is live.
+	if record.leased && runtimecore.IsAppendWorker(record.leaseWorkerID) && record.leaseExpiresAt.After(now) {
+		return
+	}
 	status := r.engine.availableStatusLocked(tenantId, now, record)
 	if record.leased && !record.leaseExpiresAt.After(now) && record.archived == nil && !record.cancelled {
 		record.leased = false
@@ -1205,6 +1206,9 @@ func (r *Runtime) advanceRecordStateLocked(tenantId string, now time.Time, recor
 // The caller holds the engine and record locks, as in lease acquisition.
 func (e *ToyEngine) availableStatusLocked(tenantId string, now time.Time, record *jobRecord) jobdb.JobStatus {
 	status := record.currentStatus(now)
+	if status == jobdb.JobStatusCrashConcern {
+		return status
+	}
 	if record.archived == nil && !record.cancelled && !(record.leased && record.leaseExpiresAt.After(now)) {
 		ready, err := e.dependencyReadyLocked(record, now)
 		if err != nil || !ready {
@@ -1221,7 +1225,8 @@ func (e *ToyEngine) availableStatusLocked(tenantId string, now time.Time, record
 	if status == jobdb.JobStatusAwaitingFuture && !record.availableAt.IsZero() && !record.availableAt.After(now) {
 		status = jobdb.JobStatusReady
 	}
-	if status == jobdb.JobStatusPendingJobs && len(record.waitFor) > 0 {
+	if (status == jobdb.JobStatusPendingJobs || (record.appendKey != "" && record.archived == nil && !record.cancelled && !(record.leased && record.leaseExpiresAt.After(now)))) && len(record.waitFor) > 0 {
+		status = jobdb.JobStatusPendingJobs
 		complete := true
 		for _, jobID := range record.waitFor {
 			dep := e.jobRecords[jobdb.JobKey{TenantId: tenantId, JobId: jobID}]

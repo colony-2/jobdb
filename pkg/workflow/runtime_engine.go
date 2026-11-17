@@ -114,3 +114,13 @@ func (e *runtimeEngine) GetArtifact(tenantId string, key ArtifactKey) (Artifact,
 func nowUTC() time.Time {
 	return time.Now().UTC()
 }
+func (e *runtimeEngine) StartOrAppendJob(ctx context.Context, submit StartOrAppendJob) (JobHandle, error) {
+	handle, err := e.runtime.StartOrAppendJob(ctx, StartOrAppendJobRequest{
+		Job:         submit,
+		RequestTime: nowUTC(),
+	})
+	if err != nil {
+		return JobHandle{}, err
+	}
+	return handle, nil
+}

@@ -267,3 +267,6 @@ const (
 
 var ErrInvalidLeaseEventRequest = jobdb.ErrInvalidLeaseEventRequest
 var ErrInvalidLeaseEventPageToken = jobdb.ErrInvalidLeaseEventPageToken
+
+type StartOrAppendJob = jobdb.StartOrAppendJob
+type StartOrAppendJobRequest = jobdb.StartOrAppendJobRequest

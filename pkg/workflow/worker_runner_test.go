@@ -1231,3 +1231,11 @@ func (l *fakeExecutionLease) CreateCell(context.Context, jobdb.CreateCellRequest
 func (r *runnerTestRuntime) ListLeaseEvents(context.Context, ListLeaseEventsRequest) (ListLeaseEventsResponse, error) {
 	return ListLeaseEventsResponse{Events: []LeaseEvent{}}, nil
 }
+
+func (r *runnerTestRuntime) StartOrAppendJob(context.Context, StartOrAppendJobRequest) (JobHandle, error) {
+	panic("unexpected StartOrAppendJob in test stub")
+}
+
+func (l *fakeExecutionLease) StartOrAppendJob(_ context.Context, req StartOrAppendJobRequest) (JobHandle, error) {
+	panic("unexpected StartOrAppendJob in test stub")
+}

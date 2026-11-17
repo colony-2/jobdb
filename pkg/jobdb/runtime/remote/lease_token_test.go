@@ -319,3 +319,11 @@ func (s *leaseTokenSigner) mintForLeaseExpiry(jobKey jobdb.JobKey, leaseID strin
 func (r *claimsCapturingRuntime) ListLeaseEvents(context.Context, jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error) {
 	return jobdb.ListLeaseEventsResponse{Events: []jobdb.LeaseEvent{}}, nil
 }
+
+func (l *testExecutionLease) StartOrAppendJob(context.Context, jobdb.StartOrAppendJobRequest) (jobdb.JobHandle, error) {
+	panic("unexpected StartOrAppendJob in test stub")
+}
+
+func (r *claimsCapturingRuntime) StartOrAppendJob(context.Context, jobdb.StartOrAppendJobRequest) (jobdb.JobHandle, error) {
+	panic("unexpected StartOrAppendJob in test stub")
+}

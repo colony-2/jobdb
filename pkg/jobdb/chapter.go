@@ -38,10 +38,20 @@ type ChapterBody interface {
 
 // JobStartChapter records the initial application input for a job.
 type JobStartChapter struct {
-	Input ApplicationInputBytes
+	Input           ApplicationInputBytes
+	Append          *ApplicationInputBytes
+	AppendArtifacts []ArtifactKey
 }
 
 func (JobStartChapter) chapterBody() {}
+
+// AdditionalInputChapter is an append in the initial input prefix.
+type AdditionalInputChapter struct {
+	Input     ApplicationInputBytes
+	Artifacts []ArtifactKey
+}
+
+func (AdditionalInputChapter) chapterBody() {}
 
 // JobAttemptOutcomeChapter records the final outcome for a job attempt.
 type JobAttemptOutcomeChapter struct {

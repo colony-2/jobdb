@@ -48,7 +48,7 @@ func (r *Runtime) claimWaitingTask(ctx context.Context, expected jobRow, resumeJ
 		lease.expiresAt = now.Add(lease.duration)
 		// Drop task coordinates to match the job-only route. Alternate routing must
 		// not redirect recovery to another task after this lease expires.
-		_, err = tx.ExecContext(ctx, `UPDATE jobdb_jobs SET consecutive_expirations=CASE WHEN lease_id IS NOT NULL THEN consecutive_expirations+1 ELSE 0 END,route_job_type=?,route_task_type='',payload=?,lease_id=?,lease_worker_id=?,lease_expires_at_ns=?,alternate_job_type=NULL,alternate_task_type=NULL,alternate_at_ns=NULL,updated_at_ns=? WHERE tenant_id=? AND job_id=?`,
+		_, err = tx.ExecContext(ctx, `UPDATE jobdb_jobs SET consecutive_expirations=CASE WHEN substr(lease_worker_id,1,13) = 'jobdb-append-' THEN consecutive_expirations WHEN lease_id IS NOT NULL THEN consecutive_expirations+1 ELSE consecutive_expirations END,route_job_type=?,route_task_type='',payload=?,lease_id=?,lease_worker_id=?,lease_expires_at_ns=?,alternate_job_type=NULL,alternate_task_type=NULL,alternate_at_ns=NULL,updated_at_ns=? WHERE tenant_id=? AND job_id=?`,
 			resumeJobType, payload, lease.leaseID, lease.workerID, timeToNS(lease.expiresAt), timeToNS(now), key.TenantId, key.JobId)
 		if err != nil {
 			return err

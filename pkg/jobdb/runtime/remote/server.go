@@ -127,6 +127,9 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 				})
 				return
 			}
+			if writeAppendError(w, err) {
+				return
+			}
 			if writePayloadSizeError(w, err) {
 				return
 			}
@@ -386,6 +389,9 @@ func (s *proxyServer) ListJobs(ctx context.Context, request runtimeapi.ListJobsR
 	}
 	if request.Body.AvailableRoutes != nil {
 		req.AvailableRoutes = routesFromAPI(*request.Body.AvailableRoutes)
+	}
+	if request.Body.AppendKeys != nil {
+		req.AppendKeys = *request.Body.AppendKeys
 	}
 	if request.Body.JobTypes != nil {
 		req.JobTypes = append(req.JobTypes, (*request.Body.JobTypes)...)

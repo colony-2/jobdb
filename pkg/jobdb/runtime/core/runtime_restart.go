@@ -129,7 +129,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	nextOrdinal := job.LastStepToKeep + 1
 	nextEncoded, err := r.chapters.Get(ctx, source, nextOrdinal)
 	if err != nil {
-		if job.LastStepToKeep != 0 || executionRestart != nil || !errors.Is(err, jobdb.ErrChapterNotFound) {
+		if executionRestart != nil || !errors.Is(err, jobdb.ErrChapterNotFound) {
 			return jobdb.JobHandle{}, fmt.Errorf("LastStepToKeep %d has no following chapter: %w", job.LastStepToKeep, err)
 		}
 		// Only a stored submission may stand alone. A hole in a longer log
@@ -138,7 +138,19 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		if err != nil {
 			return jobdb.JobHandle{}, err
 		}
-		if count != 1 || !runtimecodec.ChapterIs(first, runtimecodec.ChapterTypeJobStart) {
+		prefixOnly := count == job.LastStepToKeep+1
+		if prefixOnly && count > 1 {
+			last, e := r.chapters.Get(ctx, source, count-1)
+			if e != nil {
+				return jobdb.JobHandle{}, e
+			}
+			typed, e := DecodeChapter(last)
+			if e != nil {
+				return jobdb.JobHandle{}, e
+			}
+			prefixOnly = runtimecodec.ChapterIs(typed, runtimecodec.ChapterTypeAdditionalInput)
+		}
+		if !prefixOnly || !runtimecodec.ChapterIs(first, runtimecodec.ChapterTypeJobStart) {
 			return jobdb.JobHandle{}, fmt.Errorf("source is not a submission-only history")
 		}
 	} else {

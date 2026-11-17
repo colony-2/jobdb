@@ -170,6 +170,7 @@ func (c *executionContext) invokeTask(worker TaskWorker, input TaskData) (TaskDa
 
 func (c *executionContext) taskContext() TaskContext {
 	tc := newTaskContextWithLeaseActions(c.GetJobKey(), c.run.nextOrdinal(), c.Logger(), func(at time.Time) error { return c.waitUntil(at, c.deadline) }, c.awaitTaskJobs, c.SubmitJob, c.SubmitRestartJob, c.ClientPayload, c.ClientPayloadRevision, c.Yield, c.ResolveSecrets, c.ResolveSecretsFresh, c.GetConfiguration)
+	tc.startOrAppendJob = c.StartOrAppendJob
 	tc.executionContext = c.ctx
 	tc.goalID = c.run.r.goalID
 	tc.cell = c.run.r.cell
@@ -359,4 +360,15 @@ func (c *executionContext) Yield(ctx context.Context, req YieldRequest) error {
 
 func (c *executionContext) Job() JobHandle {
 	return JobHandle{JobKey: c.GetJobKey(), GoalID: c.run.r.goalID, Cell: c.run.r.cell.Cell, CellID: c.run.r.cell.CellID, CellRepo: c.run.r.cell.CellRepo}
+}
+func (c *executionContext) StartOrAppendJob(ctx context.Context, req StartOrAppendJob) (JobHandle, error) {
+	if err := context.Cause(c.ctx); err != nil {
+		return JobHandle{}, err
+	}
+	if c.run.r.replay {
+		return JobHandle{}, ErrReplayShouldNeverMutate
+	}
+	callCtx, cancel := invocationCallContext(ctx, c.ctx)
+	defer cancel()
+	return c.run.r.StartOrAppendJob(callCtx, req)
 }

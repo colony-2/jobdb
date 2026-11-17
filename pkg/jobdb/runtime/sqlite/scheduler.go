@@ -11,16 +11,19 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/crashconcern"
+	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 )
 
 const jobColumns = `
 tenant_id, job_id, cell_id, cell_name, cell_repo, goal_id, dependency_wait_id, job_type, route_job_type, route_task_type, payload, client_payload, client_payload_revision, initial_payload_digest, metadata, parent_job_id, wait_for,
 available_at_ns, wait_deadline_ns, created_at_ns, updated_at_ns, archived_at_ns,
 cancel_requested, completion_status, completion_detail,
-consecutive_expirations, lease_id, lease_worker_id, lease_expires_at_ns, alternate_job_type, alternate_task_type, alternate_at_ns
+consecutive_expirations, lease_id, lease_worker_id, lease_expires_at_ns, alternate_job_type, alternate_task_type, alternate_at_ns, append_key, append_gen
 `
 
 type jobRow struct {
+	appendKey             sql.NullString
+	appendGeneration      sql.NullInt64
 	cell                  jobdb.ResolvedCell
 	goalID                string
 	dependencyWaitID      string
@@ -83,7 +86,7 @@ func scanJobRow(scanner interface{ Scan(dest ...any) error }) (jobRow, error) {
 		&row.leaseWorkerID,
 		&row.leaseExpiresAtNS,
 		&alternateJob, &alternateTask,
-		&row.alternateAtNS,
+		&row.alternateAtNS, &row.appendKey, &row.appendGeneration,
 	); err != nil {
 		return jobRow{}, err
 	}
@@ -141,6 +144,11 @@ func (r *Runtime) insertJobRecordTx(ctx context.Context, tx *sql.Tx, jobKey jobd
 		return err
 	}
 	now := time.Now().UTC()
+	facts, _ := ctx.Value(appendFactsKey{}).(runtimecore.CreateJobRequest)
+	var appendKey, appendGen any
+	if facts.AppendKey != "" {
+		appendKey, appendGen = facts.AppendKey, facts.AppendGeneration
+	}
 	leaseableAt := now
 	if availableAt != nil {
 		leaseableAt = availableAt.UTC()
@@ -168,8 +176,8 @@ func (r *Runtime) insertJobRecordTx(ctx context.Context, tx *sql.Tx, jobKey jobd
 	_, err = tx.ExecContext(ctx, `
 INSERT INTO jobdb_jobs (
 	tenant_id, job_id, cell_id, cell_name, cell_repo, goal_id, dependency_wait_id, job_type, route_job_type, route_task_type, payload, client_payload, client_payload_revision, initial_payload_digest, metadata, parent_job_id, wait_for,
-	available_at_ns, created_at_ns, updated_at_ns
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	available_at_ns, created_at_ns, updated_at_ns, append_key, append_gen
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		jobKey.TenantId,
 		jobKey.JobId, target.CellID, target.Cell, target.CellRepo, goalID, waitID,
 		jobType,
@@ -180,7 +188,7 @@ INSERT INTO jobdb_jobs (
 		waitBytes,
 		timeToNS(leaseableAt),
 		timeToNS(now),
-		timeToNS(now),
+		timeToNS(now), appendKey, appendGen,
 	)
 	if err != nil {
 		return fmt.Errorf("sqlite runtime: insert job: %w", err)

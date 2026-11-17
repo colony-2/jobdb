@@ -16,6 +16,7 @@ type JobWorker interface {
 
 type jobRunApi interface {
 	SubmitJob(ctx context.Context, submit SubmitJob) (JobHandle, error)
+	StartOrAppendJob(context.Context, StartOrAppendJob) (JobHandle, error)
 	SubmitRestartJob(ctx context.Context, restart SubmitRestartJobRequest) (JobHandle, error)
 	CancelJob(ctx context.Context, cancel CancelJob) error
 	GetJob(ctx context.Context, jobKey JobKey) (JobInfo, error)

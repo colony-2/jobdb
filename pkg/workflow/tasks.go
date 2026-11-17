@@ -56,6 +56,7 @@ type TaskContext struct {
 	await             func(wakeAt time.Time) error
 	awaitJobs         func(jobIds ...string) error
 	awaitDependencies func(...jobdb.Dependency) ([]jobdb.DependencyResolution, error)
+	startOrAppendJob  func(context.Context, StartOrAppendJob) (JobHandle, error)
 	submitJob         func(context.Context, SubmitJob) (JobHandle, error)
 	submitRestartJob  func(context.Context, SubmitRestartJobRequest) (JobHandle, error)
 }
@@ -205,4 +206,12 @@ func (tc TaskContext) AwaitDependencies(deps ...jobdb.Dependency) ([]jobdb.Depen
 // Job returns the execution identity. Manually built contexts have no goal ID.
 func (tc TaskContext) Job() JobHandle {
 	return JobHandle{JobKey: tc.JobKey, GoalID: tc.goalID, Cell: tc.cell.Cell, CellID: tc.cell.CellID, CellRepo: tc.cell.CellRepo}
+}
+
+// StartOrAppendJob submits an append through the current job lease.
+func (tc TaskContext) StartOrAppendJob(ctx context.Context, req StartOrAppendJob) (JobHandle, error) {
+	if tc.startOrAppendJob == nil {
+		return JobHandle{}, fmt.Errorf("start-or-append requires an active lease")
+	}
+	return tc.startOrAppendJob(ctx, req)
 }

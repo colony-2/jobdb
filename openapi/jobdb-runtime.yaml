@@ -655,6 +655,87 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /v1/tenants/{tenantId}/jobs/start-or-append:
+    post:
+      tags: [jobs]
+      operationId: startOrAppendJob
+      summary: Start or append to a shared job generation
+      description: At-least-once append. The first creator chooses the template; shared jobs have no parent identity.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartOrAppendJobRequest'
+      responses:
+        '200':
+          description: Job accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobHandle'
+        '400':
+          description: invalid_append_request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: append_busy; retry the request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Chapter payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/jobs/start-or-append:
+    post:
+      tags: [jobs]
+      operationId: startOrAppendJobWithLease
+      summary: Start or append to a shared job generation
+      description: At-least-once append. The first creator chooses the template; shared jobs have no parent identity.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ParentJobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartOrAppendJobRequest'
+      responses:
+        '200':
+          description: Job accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobHandle'
+        '400':
+          description: invalid_append_request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: append_busy; retry the request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Chapter payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/tenants/{tenantId}/jobs:
     post:
       tags: [jobs]
@@ -2090,7 +2171,7 @@ components:
       enum: [lease_acquired, lease_renewed]
     LeaseAcquisitionSource:
       type: string
-      enum: [poll, targeted, task_completion]
+      enum: [poll, targeted, task_completion, append]
     ListLeaseEventsRequest:
       example: {jobIds: [job-1], eventTypes: [lease_acquired], pageSize: 1}
       type: object
@@ -2491,8 +2572,8 @@ components:
       required: [permissions]
       x-go-type: jobdb.CreateDelegationRequest
       x-go-type-import:
-        path: github.com/colony-2/jobdb/pkg/jobdb
         name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
       properties:
         permissions: {$ref: '#/components/schemas/DelegationPermissions'}
         notAfter: {type: string, format: date-time}
@@ -2502,8 +2583,8 @@ components:
       required: [id, permissions]
       x-go-type: jobdb.DelegationInfo
       x-go-type-import:
-        path: github.com/colony-2/jobdb/pkg/jobdb
         name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
       properties:
         id: {type: string}
         permissions: {$ref: '#/components/schemas/DelegationPermissions'}
@@ -2583,6 +2664,8 @@ components:
         - configuration_unavailable
         - configuration_failed
         - invalid_request
+        - invalid_append_request
+        - append_busy
         - not_found
         - conflict
         - execution_lease_lost
@@ -3047,6 +3130,75 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/StoredArtifact'
+    AppendArtifactReference:
+      type: object
+      required: [jobId, taskOrdinal, name, sizeBytes]
+      additionalProperties: false
+      x-go-type: jobdb.ArtifactKey
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
+      properties:
+        jobId:
+          type: string
+        taskOrdinal:
+          type: integer
+          format: int64
+        name:
+          type: string
+        sizeBytes:
+          type: integer
+          format: int64
+    StartOrAppendJobRequest:
+      type: object
+      required: [appendKey, job, append]
+      additionalProperties: false
+      properties:
+        appendKey:
+          type: string
+          minLength: 1
+          maxLength: 1024
+        maxInputs:
+          type: integer
+          minimum: 0
+          maximum: 1000
+          default: 50
+        job:
+          $ref: '#/components/schemas/AppendJobTemplate'
+        append:
+          $ref: '#/components/schemas/ApplicationPayload'
+        appendArtifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/AppendArtifactReference'
+        workerId:
+          type: string
+        requestTime:
+          type: string
+          format: date-time
+    AppendJobTemplate:
+      allOf:
+        - $ref: '#/components/schemas/SubmitJob'
+        - type: object
+          properties:
+            jobId:
+              type: string
+            goalId:
+              type: string
+    AdditionalInputChapter:
+      type: object
+      required: [kind, input]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [additionalInput]
+        input:
+          $ref: '#/components/schemas/ApplicationPayload'
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/AppendArtifactReference'
     SubmitJob:
       type: object
       required:
@@ -3443,6 +3595,7 @@ components:
     ChapterBody:
       oneOf:
         - $ref: '#/components/schemas/JobStartChapter'
+        - $ref: '#/components/schemas/AdditionalInputChapter'
         - $ref: '#/components/schemas/JobAttemptOutcomeChapter'
         - $ref: '#/components/schemas/TaskAttemptOutcomeChapter'
         - $ref: '#/components/schemas/RestartExtraChapter'
@@ -3451,6 +3604,7 @@ components:
         propertyName: kind
         mapping:
           jobStart: '#/components/schemas/JobStartChapter'
+          additionalInput: '#/components/schemas/AdditionalInputChapter'
           jobAttemptOutcome: '#/components/schemas/JobAttemptOutcomeChapter'
           taskAttemptOutcome: '#/components/schemas/TaskAttemptOutcomeChapter'
           restartExtra: '#/components/schemas/RestartExtraChapter'
@@ -3465,6 +3619,12 @@ components:
           enum: [jobStart]
         input:
           $ref: '#/components/schemas/ApplicationPayload'
+        append:
+          $ref: '#/components/schemas/ApplicationPayload'
+        appendArtifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/AppendArtifactReference'
     JobAttemptOutcomeChapter:
       type: object
       required: [kind, outcome]
@@ -3600,6 +3760,8 @@ components:
         - cellRepo
       additionalProperties: false
       properties:
+        appendKey:
+          type: string
         nextRoute:
           $ref: '#/components/schemas/Route'
         completionStatus:
@@ -3697,6 +3859,10 @@ components:
       type: object
       additionalProperties: false
       properties:
+        appendKeys:
+          type: array
+          items:
+            type: string
         goalIds:
           type: array
           items: {type: string}
@@ -3789,6 +3955,8 @@ components:
       description: List responses include stored completion detail, full opaque client payload and revision, execution state, prerequisites, and application metadata. Only additional memberships and evaluated dependency explanations require detail APIs.
       additionalProperties: false
       properties:
+        appendKey:
+          type: string
         blockingWaitSummary:
           $ref: '#/components/schemas/DependencyWaitSummary'
         blockingWait:
@@ -3886,8 +4054,8 @@ components:
       required: [mode]
       x-go-type: clientpayload.Update
       x-go-type-import:
-        path: github.com/colony-2/jobdb/pkg/jobdb/clientpayload
         name: clientpayload
+        path: github.com/colony-2/jobdb/pkg/jobdb/clientpayload
       properties:
         mode:
           type: string

@@ -458,3 +458,27 @@ type taskResult struct {
 	output TaskData
 	err    error
 }
+
+func (r *workerRunner) StartOrAppendJob(ctx context.Context, submit StartOrAppendJob) (JobHandle, error) {
+	if r.ctx != nil && context.Cause(r.ctx) != nil {
+		return JobHandle{}, context.Cause(r.ctx)
+	}
+	if r.lease == nil || r.replay {
+		return JobHandle{}, fmt.Errorf("submitting jobs requires an active execution lease")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if submit.Job.TenantId == "" {
+		submit.Job.TenantId = r.GetJobKey().TenantId
+	}
+	handle, err := r.lease.StartOrAppendJob(ctx, StartOrAppendJobRequest{
+		Job:         submit,
+		RequestTime: nowUTC(),
+		WorkerID:    r.workerID,
+	})
+	if err != nil {
+		return JobHandle{}, err
+	}
+	return handle, nil
+}

@@ -29,6 +29,11 @@ const (
 	LeaseTokenScopes = "leaseToken.Scopes"
 )
 
+// Defines values for AdditionalInputChapterKind.
+const (
+	AdditionalInput AdditionalInputChapterKind = "additionalInput"
+)
+
 // Defines values for CellState.
 const (
 	CellStateACTIVE  CellState = "ACTIVE"
@@ -37,6 +42,7 @@ const (
 
 // Defines values for ErrorCode.
 const (
+	ErrorCodeAppendBusy                        ErrorCode = "append_busy"
 	ErrorCodeChapterApplicationPayloadTooLarge ErrorCode = "chapter_application_payload_too_large"
 	ErrorCodeChapterNotFound                   ErrorCode = "chapter_not_found"
 	ErrorCodeConfigurationFailed               ErrorCode = "configuration_failed"
@@ -56,6 +62,7 @@ const (
 	ErrorCodeGoalConflict                      ErrorCode = "goal_conflict"
 	ErrorCodeGoalNotFound                      ErrorCode = "goal_not_found"
 	ErrorCodeInternal                          ErrorCode = "internal"
+	ErrorCodeInvalidAppendRequest              ErrorCode = "invalid_append_request"
 	ErrorCodeInvalidConfigurationRequest       ErrorCode = "invalid_configuration_request"
 	ErrorCodeInvalidDelegationCredential       ErrorCode = "invalid_delegation_credential"
 	ErrorCodeInvalidDelegationRequest          ErrorCode = "invalid_delegation_request"
@@ -133,6 +140,7 @@ const (
 
 // Defines values for LeaseAcquisitionSource.
 const (
+	Append         LeaseAcquisitionSource = "append"
 	Poll           LeaseAcquisitionSource = "poll"
 	Targeted       LeaseAcquisitionSource = "targeted"
 	TaskCompletion LeaseAcquisitionSource = "task_completion"
@@ -232,6 +240,21 @@ type AddChapterRequest struct {
 	Chapter         ChapterRecord    `json:"chapter"`
 }
 
+// AdditionalInputChapter defines model for AdditionalInputChapter.
+type AdditionalInputChapter struct {
+	Artifacts *[]AppendArtifactReference `json:"artifacts,omitempty"`
+
+	// Input Caller-owned application JSON payload embedded directly in REST
+	// requests and responses. This value is any valid JSON value: object,
+	// array, string, number, boolean, or null. It is never base64-encoded and
+	// never wrapped in a protobuf `Any`-style envelope on the REST boundary.
+	Input ApplicationPayload         `json:"input"`
+	Kind  AdditionalInputChapterKind `json:"kind"`
+}
+
+// AdditionalInputChapterKind defines model for AdditionalInputChapter.Kind.
+type AdditionalInputChapterKind string
+
 // AppErrorPayload defines model for AppErrorPayload.
 type AppErrorPayload struct {
 	Attrs      *Metadata       `json:"attrs,omitempty"`
@@ -239,6 +262,38 @@ type AppErrorPayload struct {
 	Level      *string         `json:"level,omitempty"`
 	Message    string          `json:"message"`
 	Stacktrace *[]string       `json:"stacktrace,omitempty"`
+}
+
+// AppendArtifactReference defines model for AppendArtifactReference.
+type AppendArtifactReference = jobdb.ArtifactKey
+
+// AppendJobTemplate defines model for AppendJobTemplate.
+type AppendJobTemplate struct {
+	AvailableAt *time.Time `json:"availableAt,omitempty"`
+
+	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. root is an ordinary name with no special privileges.
+	Cell CellName `json:"cell"`
+
+	// CellRepo Credential-free repository locator. Accept recognized host/owner/repo, HTTPS,
+	// and standard-port SSH/SCP forms. Canonicalize to lowercase-host/repository-path,
+	// preserving path case and removing one .git suffix and trailing slash. Ignore
+	// SSH transport username. Reject HTTP credentials, query/fragment components,
+	// empty/traversing paths, unsupported custom transports/ports, and local paths.
+	// Deployment-managed aliases can map otherwise unsupported locators to a shared
+	// canonical identity. Do not guess equivalence. No network/provider validation
+	// is performed. Cells return the canonical form, e.g. github.com/colony-2/payments.
+	// Git clone transport and authentication are separate c2j configuration.
+	CellRepo            *CellRepo            `json:"cellRepo,omitempty"`
+	ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
+	Data                TaskDataWrite        `json:"data"`
+	Dependencies        *[]Dependency        `json:"dependencies,omitempty"`
+	GoalId              *string              `json:"goalId,omitempty"`
+	JobId               *string              `json:"jobId,omitempty"`
+	JobType             string               `json:"jobType"`
+	Metadata            *Metadata            `json:"metadata,omitempty"`
+	Prerequisites       *[]JobPrerequisite   `json:"prerequisites,omitempty"`
+	RunPolicy           *RunPolicy           `json:"runPolicy,omitempty"`
+	Schema              *JobSchemaSelector   `json:"schema,omitempty"`
 }
 
 // ApplicationPayload Caller-owned application JSON payload embedded directly in REST
@@ -632,6 +687,7 @@ type JobHandle struct {
 
 // JobInfo defines model for JobInfo.
 type JobInfo struct {
+	AppendKey    *string             `json:"appendKey,omitempty"`
 	BlockingWait *DependencyWaitInfo `json:"blockingWait,omitempty"`
 
 	// Cell Tenant-unique case-sensitive name. Current names and permanent former-name aliases share uniqueness, including retired cells. root is an ordinary name with no special privileges.
@@ -720,6 +776,13 @@ type JobSchemaState string
 
 // JobStartChapter defines model for JobStartChapter.
 type JobStartChapter struct {
+	// Append Caller-owned application JSON payload embedded directly in REST
+	// requests and responses. This value is any valid JSON value: object,
+	// array, string, number, boolean, or null. It is never base64-encoded and
+	// never wrapped in a protobuf `Any`-style envelope on the REST boundary.
+	Append          *ApplicationPayload        `json:"append,omitempty"`
+	AppendArtifacts *[]AppendArtifactReference `json:"appendArtifacts,omitempty"`
+
 	// Input Caller-owned application JSON payload embedded directly in REST
 	// requests and responses. This value is any valid JSON value: object,
 	// array, string, number, boolean, or null. It is never base64-encoded and
@@ -739,6 +802,7 @@ type JobStore string
 
 // JobSummary List responses include stored completion detail, full opaque client payload and revision, execution state, prerequisites, and application metadata. Only additional memberships and evaluated dependency explanations require detail APIs.
 type JobSummary struct {
+	AppendKey   *string    `json:"appendKey,omitempty"`
 	ArchivedAt  *time.Time `json:"archivedAt,omitempty"`
 	AvailableAt time.Time  `json:"availableAt"`
 	// Deprecated: Not populated by ordinary job lists. Use GetJob for details.
@@ -865,6 +929,8 @@ type ListJobSchemasResponse struct {
 
 // ListJobsRequest defines model for ListJobsRequest.
 type ListJobsRequest struct {
+	AppendKeys *[]string `json:"appendKeys,omitempty"`
+
 	// AvailableRoutes Return only jobs currently leaseable through one of these routes,
 	// using the same eligibility and due-alternate rules as pollWork.
 	// Omitted or empty disables this filter. Intersects all other filters
@@ -1176,6 +1242,21 @@ type SetConfigurationBody struct {
 	// array, string, number, boolean, or null. It is never base64-encoded and
 	// never wrapped in a protobuf `Any`-style envelope on the REST boundary.
 	Value ApplicationPayload `json:"value"`
+}
+
+// StartOrAppendJobRequest defines model for StartOrAppendJobRequest.
+type StartOrAppendJobRequest struct {
+	// Append Caller-owned application JSON payload embedded directly in REST
+	// requests and responses. This value is any valid JSON value: object,
+	// array, string, number, boolean, or null. It is never base64-encoded and
+	// never wrapped in a protobuf `Any`-style envelope on the REST boundary.
+	Append          ApplicationPayload         `json:"append"`
+	AppendArtifacts *[]AppendArtifactReference `json:"appendArtifacts,omitempty"`
+	AppendKey       string                     `json:"appendKey"`
+	Job             AppendJobTemplate          `json:"job"`
+	MaxInputs       *int                       `json:"maxInputs,omitempty"`
+	RequestTime     *time.Time                 `json:"requestTime,omitempty"`
+	WorkerId        *string                    `json:"workerId,omitempty"`
 }
 
 // StoredArtifact defines model for StoredArtifact.
@@ -1584,6 +1665,11 @@ type SubmitRestartJobWithLeaseParams struct {
 	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
 }
 
+// StartOrAppendJobWithLeaseParams defines parameters for StartOrAppendJobWithLease.
+type StartOrAppendJobWithLeaseParams struct {
+	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
+}
+
 // PutJobWithLeaseParams defines parameters for PutJobWithLease.
 type PutJobWithLeaseParams struct {
 	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
@@ -1634,6 +1720,9 @@ type ListJobsJSONRequestBody = ListJobsRequest
 
 // SubmitRestartJobJSONRequestBody defines body for SubmitRestartJob for application/json ContentType.
 type SubmitRestartJobJSONRequestBody = SubmitRestartJobRequest
+
+// StartOrAppendJobJSONRequestBody defines body for StartOrAppendJob for application/json ContentType.
+type StartOrAppendJobJSONRequestBody = StartOrAppendJobRequest
 
 // PutJobJSONRequestBody defines body for PutJob for application/json ContentType.
 type PutJobJSONRequestBody = SubmitJobRequest
@@ -1686,6 +1775,9 @@ type SubmitJobWithLeaseJSONRequestBody = SubmitJobRequest
 // SubmitRestartJobWithLeaseJSONRequestBody defines body for SubmitRestartJobWithLease for application/json ContentType.
 type SubmitRestartJobWithLeaseJSONRequestBody = SubmitRestartJobRequest
 
+// StartOrAppendJobWithLeaseJSONRequestBody defines body for StartOrAppendJobWithLease for application/json ContentType.
+type StartOrAppendJobWithLeaseJSONRequestBody = StartOrAppendJobRequest
+
 // PutJobWithLeaseJSONRequestBody defines body for PutJobWithLease for application/json ContentType.
 type PutJobWithLeaseJSONRequestBody = SubmitJobRequest
 
@@ -1716,6 +1808,34 @@ func (t *ChapterBody) FromJobStartChapter(v JobStartChapter) error {
 // MergeJobStartChapter performs a merge with any union data inside the ChapterBody, using the provided JobStartChapter
 func (t *ChapterBody) MergeJobStartChapter(v JobStartChapter) error {
 	v.Kind = "jobStart"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAdditionalInputChapter returns the union data inside the ChapterBody as a AdditionalInputChapter
+func (t ChapterBody) AsAdditionalInputChapter() (AdditionalInputChapter, error) {
+	var body AdditionalInputChapter
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAdditionalInputChapter overwrites any union data inside the ChapterBody as the provided AdditionalInputChapter
+func (t *ChapterBody) FromAdditionalInputChapter(v AdditionalInputChapter) error {
+	v.Kind = "additionalInput"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAdditionalInputChapter performs a merge with any union data inside the ChapterBody, using the provided AdditionalInputChapter
+func (t *ChapterBody) MergeAdditionalInputChapter(v AdditionalInputChapter) error {
+	v.Kind = "additionalInput"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1852,6 +1972,8 @@ func (t ChapterBody) ValueByDiscriminator() (interface{}, error) {
 		return nil, err
 	}
 	switch discriminator {
+	case "additionalInput":
+		return t.AsAdditionalInputChapter()
 	case "execution":
 		return t.AsExecutionChapter()
 	case "jobAttemptOutcome":
@@ -2419,6 +2541,11 @@ type ClientInterface interface {
 
 	SubmitRestartJob(ctx context.Context, tenantId TenantId, body SubmitRestartJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// StartOrAppendJobWithBody request with any body
+	StartOrAppendJobWithBody(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	StartOrAppendJob(ctx context.Context, tenantId TenantId, body StartOrAppendJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetJob request
 	GetJob(ctx context.Context, tenantId TenantId, jobId JobId, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -2533,6 +2660,11 @@ type ClientInterface interface {
 	SubmitRestartJobWithLeaseWithBody(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *SubmitRestartJobWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	SubmitRestartJobWithLease(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *SubmitRestartJobWithLeaseParams, body SubmitRestartJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StartOrAppendJobWithLeaseWithBody request with any body
+	StartOrAppendJobWithLeaseWithBody(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *StartOrAppendJobWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	StartOrAppendJobWithLease(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *StartOrAppendJobWithLeaseParams, body StartOrAppendJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PutJobWithLeaseWithBody request with any body
 	PutJobWithLeaseWithBody(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, childJobId ChildJobId, params *PutJobWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -2926,6 +3058,30 @@ func (c *Client) SubmitRestartJobWithBody(ctx context.Context, tenantId TenantId
 
 func (c *Client) SubmitRestartJob(ctx context.Context, tenantId TenantId, body SubmitRestartJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSubmitRestartJobRequest(c.Server, tenantId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) StartOrAppendJobWithBody(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStartOrAppendJobRequestWithBody(c.Server, tenantId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) StartOrAppendJob(ctx context.Context, tenantId TenantId, body StartOrAppendJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStartOrAppendJobRequest(c.Server, tenantId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3454,6 +3610,30 @@ func (c *Client) SubmitRestartJobWithLeaseWithBody(ctx context.Context, tenantId
 
 func (c *Client) SubmitRestartJobWithLease(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *SubmitRestartJobWithLeaseParams, body SubmitRestartJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSubmitRestartJobWithLeaseRequest(c.Server, tenantId, parentJobId, leaseId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) StartOrAppendJobWithLeaseWithBody(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *StartOrAppendJobWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStartOrAppendJobWithLeaseRequestWithBody(c.Server, tenantId, parentJobId, leaseId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) StartOrAppendJobWithLease(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *StartOrAppendJobWithLeaseParams, body StartOrAppendJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStartOrAppendJobWithLeaseRequest(c.Server, tenantId, parentJobId, leaseId, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -4544,6 +4724,53 @@ func NewSubmitRestartJobRequestWithBody(server string, tenantId TenantId, conten
 	}
 
 	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs/restarts", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewStartOrAppendJobRequest calls the generic StartOrAppendJob builder with application/json body
+func NewStartOrAppendJobRequest(server string, tenantId TenantId, body StartOrAppendJobJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewStartOrAppendJobRequestWithBody(server, tenantId, "application/json", bodyReader)
+}
+
+// NewStartOrAppendJobRequestWithBody generates requests for StartOrAppendJob with any type of body
+func NewStartOrAppendJobRequestWithBody(server string, tenantId TenantId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs/start-or-append", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -6301,6 +6528,80 @@ func NewSubmitRestartJobWithLeaseRequestWithBody(server string, tenantId TenantI
 	return req, nil
 }
 
+// NewStartOrAppendJobWithLeaseRequest calls the generic StartOrAppendJobWithLease builder with application/json body
+func NewStartOrAppendJobWithLeaseRequest(server string, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *StartOrAppendJobWithLeaseParams, body StartOrAppendJobWithLeaseJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewStartOrAppendJobWithLeaseRequestWithBody(server, tenantId, parentJobId, leaseId, params, "application/json", bodyReader)
+}
+
+// NewStartOrAppendJobWithLeaseRequestWithBody generates requests for StartOrAppendJobWithLease with any type of body
+func NewStartOrAppendJobWithLeaseRequestWithBody(server string, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *StartOrAppendJobWithLeaseParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "parentJobId", runtime.ParamLocationPath, parentJobId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithLocation("simple", false, "leaseId", runtime.ParamLocationPath, leaseId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs/%s/leases/%s/jobs/start-or-append", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithLocation("simple", false, "X-JobDB-Lease-Token", runtime.ParamLocationHeader, params.XJobDBLeaseToken)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-JobDB-Lease-Token", headerParam0)
+
+	}
+
+	return req, nil
+}
+
 // NewPutJobWithLeaseRequest calls the generic PutJobWithLease builder with application/json body
 func NewPutJobWithLeaseRequest(server string, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, childJobId ChildJobId, params *PutJobWithLeaseParams, body PutJobWithLeaseJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -6819,6 +7120,11 @@ type ClientWithResponsesInterface interface {
 
 	SubmitRestartJobWithResponse(ctx context.Context, tenantId TenantId, body SubmitRestartJobJSONRequestBody, reqEditors ...RequestEditorFn) (*SubmitRestartJobHTTPResponse, error)
 
+	// StartOrAppendJobWithBodyWithResponse request with any body
+	StartOrAppendJobWithBodyWithResponse(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*StartOrAppendJobHTTPResponse, error)
+
+	StartOrAppendJobWithResponse(ctx context.Context, tenantId TenantId, body StartOrAppendJobJSONRequestBody, reqEditors ...RequestEditorFn) (*StartOrAppendJobHTTPResponse, error)
+
 	// GetJobWithResponse request
 	GetJobWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, reqEditors ...RequestEditorFn) (*GetJobHTTPResponse, error)
 
@@ -6933,6 +7239,11 @@ type ClientWithResponsesInterface interface {
 	SubmitRestartJobWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *SubmitRestartJobWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SubmitRestartJobWithLeaseHTTPResponse, error)
 
 	SubmitRestartJobWithLeaseWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *SubmitRestartJobWithLeaseParams, body SubmitRestartJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*SubmitRestartJobWithLeaseHTTPResponse, error)
+
+	// StartOrAppendJobWithLeaseWithBodyWithResponse request with any body
+	StartOrAppendJobWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *StartOrAppendJobWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*StartOrAppendJobWithLeaseHTTPResponse, error)
+
+	StartOrAppendJobWithLeaseWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *StartOrAppendJobWithLeaseParams, body StartOrAppendJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*StartOrAppendJobWithLeaseHTTPResponse, error)
 
 	// PutJobWithLeaseWithBodyWithResponse request with any body
 	PutJobWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, childJobId ChildJobId, params *PutJobWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutJobWithLeaseHTTPResponse, error)
@@ -7429,6 +7740,31 @@ func (r SubmitRestartJobHTTPResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r SubmitRestartJobHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type StartOrAppendJobHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *JobHandle
+	JSON400      *ErrorResponse
+	JSON409      *ErrorResponse
+	JSON413      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r StartOrAppendJobHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StartOrAppendJobHTTPResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -8066,6 +8402,31 @@ func (r SubmitRestartJobWithLeaseHTTPResponse) StatusCode() int {
 	return 0
 }
 
+type StartOrAppendJobWithLeaseHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *JobHandle
+	JSON400      *ErrorResponse
+	JSON409      *ErrorResponse
+	JSON413      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r StartOrAppendJobWithLeaseHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StartOrAppendJobWithLeaseHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type PutJobWithLeaseHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -8494,6 +8855,23 @@ func (c *ClientWithResponses) SubmitRestartJobWithResponse(ctx context.Context, 
 	return ParseSubmitRestartJobHTTPResponse(rsp)
 }
 
+// StartOrAppendJobWithBodyWithResponse request with arbitrary body returning *StartOrAppendJobHTTPResponse
+func (c *ClientWithResponses) StartOrAppendJobWithBodyWithResponse(ctx context.Context, tenantId TenantId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*StartOrAppendJobHTTPResponse, error) {
+	rsp, err := c.StartOrAppendJobWithBody(ctx, tenantId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStartOrAppendJobHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) StartOrAppendJobWithResponse(ctx context.Context, tenantId TenantId, body StartOrAppendJobJSONRequestBody, reqEditors ...RequestEditorFn) (*StartOrAppendJobHTTPResponse, error) {
+	rsp, err := c.StartOrAppendJob(ctx, tenantId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStartOrAppendJobHTTPResponse(rsp)
+}
+
 // GetJobWithResponse request returning *GetJobHTTPResponse
 func (c *ClientWithResponses) GetJobWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, reqEditors ...RequestEditorFn) (*GetJobHTTPResponse, error) {
 	rsp, err := c.GetJob(ctx, tenantId, jobId, reqEditors...)
@@ -8871,6 +9249,23 @@ func (c *ClientWithResponses) SubmitRestartJobWithLeaseWithResponse(ctx context.
 		return nil, err
 	}
 	return ParseSubmitRestartJobWithLeaseHTTPResponse(rsp)
+}
+
+// StartOrAppendJobWithLeaseWithBodyWithResponse request with arbitrary body returning *StartOrAppendJobWithLeaseHTTPResponse
+func (c *ClientWithResponses) StartOrAppendJobWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *StartOrAppendJobWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*StartOrAppendJobWithLeaseHTTPResponse, error) {
+	rsp, err := c.StartOrAppendJobWithLeaseWithBody(ctx, tenantId, parentJobId, leaseId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStartOrAppendJobWithLeaseHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) StartOrAppendJobWithLeaseWithResponse(ctx context.Context, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params *StartOrAppendJobWithLeaseParams, body StartOrAppendJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*StartOrAppendJobWithLeaseHTTPResponse, error) {
+	rsp, err := c.StartOrAppendJobWithLease(ctx, tenantId, parentJobId, leaseId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStartOrAppendJobWithLeaseHTTPResponse(rsp)
 }
 
 // PutJobWithLeaseWithBodyWithResponse request with arbitrary body returning *PutJobWithLeaseHTTPResponse
@@ -9808,6 +10203,53 @@ func ParseSubmitRestartJobHTTPResponse(rsp *http.Response) (*SubmitRestartJobHTT
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseStartOrAppendJobHTTPResponse parses an HTTP response from a StartOrAppendJobWithResponse call
+func ParseStartOrAppendJobHTTPResponse(rsp *http.Response) (*StartOrAppendJobHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StartOrAppendJobHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest JobHandle
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
 		var dest ErrorResponse
@@ -10770,6 +11212,53 @@ func ParseSubmitRestartJobWithLeaseHTTPResponse(rsp *http.Response) (*SubmitRest
 	return response, nil
 }
 
+// ParseStartOrAppendJobWithLeaseHTTPResponse parses an HTTP response from a StartOrAppendJobWithLeaseWithResponse call
+func ParseStartOrAppendJobWithLeaseHTTPResponse(rsp *http.Response) (*StartOrAppendJobWithLeaseHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StartOrAppendJobWithLeaseHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest JobHandle
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParsePutJobWithLeaseHTTPResponse parses an HTTP response from a PutJobWithLeaseWithResponse call
 func ParsePutJobWithLeaseHTTPResponse(rsp *http.Response) (*PutJobWithLeaseHTTPResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -11060,6 +11549,9 @@ type ServerInterface interface {
 	// Submit restart job
 	// (POST /v1/tenants/{tenantId}/jobs/restarts)
 	SubmitRestartJob(w http.ResponseWriter, r *http.Request, tenantId TenantId)
+	// Start or append to a shared job generation
+	// (POST /v1/tenants/{tenantId}/jobs/start-or-append)
+	StartOrAppendJob(w http.ResponseWriter, r *http.Request, tenantId TenantId)
 	// Get job
 	// (GET /v1/tenants/{tenantId}/jobs/{jobId})
 	GetJob(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId)
@@ -11141,6 +11633,9 @@ type ServerInterface interface {
 	// Submit child restart job with lease
 	// (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/jobs/restarts)
 	SubmitRestartJobWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params SubmitRestartJobWithLeaseParams)
+	// Start or append to a shared job generation
+	// (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/jobs/start-or-append)
+	StartOrAppendJobWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params StartOrAppendJobWithLeaseParams)
 	// Submit child job with explicit job ID and lease
 	// (PUT /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/jobs/{childJobId})
 	PutJobWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, childJobId ChildJobId, params PutJobWithLeaseParams)
@@ -11274,6 +11769,12 @@ func (_ Unimplemented) ListJobs(w http.ResponseWriter, r *http.Request, tenantId
 // Submit restart job
 // (POST /v1/tenants/{tenantId}/jobs/restarts)
 func (_ Unimplemented) SubmitRestartJob(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Start or append to a shared job generation
+// (POST /v1/tenants/{tenantId}/jobs/start-or-append)
+func (_ Unimplemented) StartOrAppendJob(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -11435,6 +11936,12 @@ func (_ Unimplemented) SubmitJobWithLease(w http.ResponseWriter, r *http.Request
 // Submit child restart job with lease
 // (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/jobs/restarts)
 func (_ Unimplemented) SubmitRestartJobWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params SubmitRestartJobWithLeaseParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Start or append to a shared job generation
+// (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/jobs/start-or-append)
+func (_ Unimplemented) StartOrAppendJobWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params StartOrAppendJobWithLeaseParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -12240,6 +12747,37 @@ func (siw *ServerInterfaceWrapper) SubmitRestartJob(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SubmitRestartJob(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartOrAppendJob operation middleware
+func (siw *ServerInterfaceWrapper) StartOrAppendJob(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartOrAppendJob(w, r, tenantId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -13991,6 +14529,83 @@ func (siw *ServerInterfaceWrapper) SubmitRestartJobWithLease(w http.ResponseWrit
 	handler.ServeHTTP(w, r)
 }
 
+// StartOrAppendJobWithLease operation middleware
+func (siw *ServerInterfaceWrapper) StartOrAppendJobWithLease(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "parentJobId" -------------
+	var parentJobId ParentJobId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "parentJobId", chi.URLParam(r, "parentJobId"), &parentJobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "parentJobId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "leaseId" -------------
+	var leaseId LeaseId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "leaseId", chi.URLParam(r, "leaseId"), &leaseId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "leaseId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params StartOrAppendJobWithLeaseParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-JobDB-Lease-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-JobDB-Lease-Token")]; found {
+		var XJobDBLeaseToken LeaseTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-JobDB-Lease-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-JobDB-Lease-Token", valueList[0], &XJobDBLeaseToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-JobDB-Lease-Token", Err: err})
+			return
+		}
+
+		params.XJobDBLeaseToken = XJobDBLeaseToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-JobDB-Lease-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-JobDB-Lease-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartOrAppendJobWithLease(w, r, tenantId, parentJobId, leaseId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // PutJobWithLease operation middleware
 func (siw *ServerInterfaceWrapper) PutJobWithLease(w http.ResponseWriter, r *http.Request) {
 
@@ -14518,6 +15133,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/restarts", wrapper.SubmitRestartJob)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/start-or-append", wrapper.StartOrAppendJob)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}", wrapper.GetJob)
 	})
 	r.Group(func(r chi.Router) {
@@ -14597,6 +15215,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/jobs/restarts", wrapper.SubmitRestartJobWithLease)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/jobs/start-or-append", wrapper.StartOrAppendJobWithLease)
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/jobs/{childJobId}", wrapper.PutJobWithLease)
@@ -15807,6 +16428,51 @@ func (response SubmitRestartJob413JSONResponse) VisitSubmitRestartJobResponse(w 
 	return json.NewEncoder(w).Encode(response)
 }
 
+type StartOrAppendJobRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Body     *StartOrAppendJobJSONRequestBody
+}
+
+type StartOrAppendJobResponseObject interface {
+	VisitStartOrAppendJobResponse(w http.ResponseWriter) error
+}
+
+type StartOrAppendJob200JSONResponse JobHandle
+
+func (response StartOrAppendJob200JSONResponse) VisitStartOrAppendJobResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type StartOrAppendJob400JSONResponse ErrorResponse
+
+func (response StartOrAppendJob400JSONResponse) VisitStartOrAppendJobResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type StartOrAppendJob409JSONResponse ErrorResponse
+
+func (response StartOrAppendJob409JSONResponse) VisitStartOrAppendJobResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type StartOrAppendJob413JSONResponse ErrorResponse
+
+func (response StartOrAppendJob413JSONResponse) VisitStartOrAppendJobResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type GetJobRequestObject struct {
 	TenantId TenantId `json:"tenantId"`
 	JobId    JobId    `json:"jobId"`
@@ -16936,6 +17602,54 @@ func (response SubmitRestartJobWithLease413JSONResponse) VisitSubmitRestartJobWi
 	return json.NewEncoder(w).Encode(response)
 }
 
+type StartOrAppendJobWithLeaseRequestObject struct {
+	TenantId    TenantId    `json:"tenantId"`
+	ParentJobId ParentJobId `json:"parentJobId"`
+	LeaseId     LeaseId     `json:"leaseId"`
+	Params      StartOrAppendJobWithLeaseParams
+	Body        *StartOrAppendJobWithLeaseJSONRequestBody
+}
+
+type StartOrAppendJobWithLeaseResponseObject interface {
+	VisitStartOrAppendJobWithLeaseResponse(w http.ResponseWriter) error
+}
+
+type StartOrAppendJobWithLease200JSONResponse JobHandle
+
+func (response StartOrAppendJobWithLease200JSONResponse) VisitStartOrAppendJobWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type StartOrAppendJobWithLease400JSONResponse ErrorResponse
+
+func (response StartOrAppendJobWithLease400JSONResponse) VisitStartOrAppendJobWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type StartOrAppendJobWithLease409JSONResponse ErrorResponse
+
+func (response StartOrAppendJobWithLease409JSONResponse) VisitStartOrAppendJobWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type StartOrAppendJobWithLease413JSONResponse ErrorResponse
+
+func (response StartOrAppendJobWithLease413JSONResponse) VisitStartOrAppendJobWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type PutJobWithLeaseRequestObject struct {
 	TenantId    TenantId    `json:"tenantId"`
 	ParentJobId ParentJobId `json:"parentJobId"`
@@ -17224,6 +17938,9 @@ type StrictServerInterface interface {
 	// Submit restart job
 	// (POST /v1/tenants/{tenantId}/jobs/restarts)
 	SubmitRestartJob(ctx context.Context, request SubmitRestartJobRequestObject) (SubmitRestartJobResponseObject, error)
+	// Start or append to a shared job generation
+	// (POST /v1/tenants/{tenantId}/jobs/start-or-append)
+	StartOrAppendJob(ctx context.Context, request StartOrAppendJobRequestObject) (StartOrAppendJobResponseObject, error)
 	// Get job
 	// (GET /v1/tenants/{tenantId}/jobs/{jobId})
 	GetJob(ctx context.Context, request GetJobRequestObject) (GetJobResponseObject, error)
@@ -17305,6 +18022,9 @@ type StrictServerInterface interface {
 	// Submit child restart job with lease
 	// (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/jobs/restarts)
 	SubmitRestartJobWithLease(ctx context.Context, request SubmitRestartJobWithLeaseRequestObject) (SubmitRestartJobWithLeaseResponseObject, error)
+	// Start or append to a shared job generation
+	// (POST /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/jobs/start-or-append)
+	StartOrAppendJobWithLease(ctx context.Context, request StartOrAppendJobWithLeaseRequestObject) (StartOrAppendJobWithLeaseResponseObject, error)
 	// Submit child job with explicit job ID and lease
 	// (PUT /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/jobs/{childJobId})
 	PutJobWithLease(ctx context.Context, request PutJobWithLeaseRequestObject) (PutJobWithLeaseResponseObject, error)
@@ -17936,6 +18656,39 @@ func (sh *strictHandler) SubmitRestartJob(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SubmitRestartJobResponseObject); ok {
 		if err := validResponse.VisitSubmitRestartJobResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StartOrAppendJob operation middleware
+func (sh *strictHandler) StartOrAppendJob(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
+	var request StartOrAppendJobRequestObject
+
+	request.TenantId = tenantId
+
+	var body StartOrAppendJobJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartOrAppendJob(ctx, request.(StartOrAppendJobRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartOrAppendJob")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartOrAppendJobResponseObject); ok {
+		if err := validResponse.VisitStartOrAppendJobResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -18821,6 +19574,42 @@ func (sh *strictHandler) SubmitRestartJobWithLease(w http.ResponseWriter, r *htt
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SubmitRestartJobWithLeaseResponseObject); ok {
 		if err := validResponse.VisitSubmitRestartJobWithLeaseResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StartOrAppendJobWithLease operation middleware
+func (sh *strictHandler) StartOrAppendJobWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, parentJobId ParentJobId, leaseId LeaseId, params StartOrAppendJobWithLeaseParams) {
+	var request StartOrAppendJobWithLeaseRequestObject
+
+	request.TenantId = tenantId
+	request.ParentJobId = parentJobId
+	request.LeaseId = leaseId
+	request.Params = params
+
+	var body StartOrAppendJobWithLeaseJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartOrAppendJobWithLease(ctx, request.(StartOrAppendJobWithLeaseRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartOrAppendJobWithLease")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartOrAppendJobWithLeaseResponseObject); ok {
+		if err := validResponse.VisitStartOrAppendJobWithLeaseResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
