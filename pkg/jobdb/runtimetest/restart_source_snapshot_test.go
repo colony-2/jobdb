@@ -314,12 +314,12 @@ func checkOutcomeChanges[T any](t *testing.T, factory func() T, wrap func(T) err
 	for i, change := range changes {
 		t.Run(change.name, func(t *testing.T) {
 			value := factory()
-			before, err := captureRestartOutcome(wrap(value), false, 0)
+			before, err := captureRestartOutcome(wrap(value), 0)
 			require.NoError(t, err)
-			expected, err := captureRestartOutcome(wrap(factory()), false, 0)
+			expected, err := captureRestartOutcome(wrap(factory()), 0)
 			require.NoError(t, err)
 			snapshotChanges(reflect.ValueOf(&value).Elem(), "outcome", func() {})[i].change()
-			after, err := captureRestartOutcome(wrap(value), false, 0)
+			after, err := captureRestartOutcome(wrap(value), 0)
 			require.NoError(t, err)
 			require.Equal(t, expected, before, "baseline aliases the original outcome")
 			require.NotEqual(t, before, after)
@@ -340,7 +340,7 @@ func TestRestartSourceSnapshotOutcomes(t *testing.T) {
 		{"deadline", context.DeadlineExceeded, restartOutcome{Deadline: true}},
 	} {
 		t.Run("classification/"+classification.name, func(t *testing.T) {
-			got, err := captureRestartOutcome(snapshotFixedMessage{error: classification.err}, false, 0)
+			got, err := captureRestartOutcome(snapshotFixedMessage{error: classification.err}, 0)
 			require.NoError(t, err)
 			classification.want.Message = "same"
 			require.Equal(t, &classification.want, got)
@@ -366,15 +366,15 @@ func TestRestartSourceSnapshotOutcomes(t *testing.T) {
 		checkOutcomeChanges(t, func() jobdb.JobCancelledError { return jobdb.JobCancelledError{Detail: "same"} }, func(e jobdb.JobCancelledError) error { return snapshotFixedMessage{error: &e} })
 	})
 	for _, pair := range [][2]error{{jobdb.AppError{Payload: snapshotApp()}, &jobdb.AppError{Payload: snapshotApp()}}, {jobdb.SystemError{Payload: snapshotSystem()}, &jobdb.SystemError{Payload: snapshotSystem()}}, {jobdb.TimeoutError{Payload: snapshotTimeout()}, &jobdb.TimeoutError{Payload: snapshotTimeout()}}} {
-		a, err := captureRestartOutcome(pair[0], false, 0)
+		a, err := captureRestartOutcome(pair[0], 0)
 		require.NoError(t, err)
-		b, err := captureRestartOutcome(pair[1], false, 0)
+		b, err := captureRestartOutcome(pair[1], 0)
 		require.NoError(t, err)
 		require.Equal(t, a, b)
 	}
 	variants := []error{
 		nil, jobdb.ErrJobNotComplete, jobdb.ErrJobCancelled, jobdb.ErrJobFailed,
-		&jobdb.JobCancelledError{Detail: "same"}, &jobdb.JobFailedError{Cause: errors.New("same")},
+		&jobdb.JobCancelledError{Detail: "same"}, &jobdb.JobFailedError{Cause: jobdb.ErrJobCancelled},
 		jobdb.AppError{Payload: snapshotApp()}, jobdb.SystemError{Payload: snapshotSystem()},
 		jobdb.TimeoutError{Payload: snapshotTimeout()}, &jobdb.GoalFailedError{Failure: *snapshotFailure()},
 		context.Canceled, context.DeadlineExceeded,
@@ -387,34 +387,34 @@ func TestRestartSourceSnapshotOutcomes(t *testing.T) {
 		&snapshotRetryError{retry: false}, &snapshotRetryError{retry: true},
 	}
 	for i, a := range variants {
-		before, err := captureRestartOutcome(a, false, 0)
+		before, err := captureRestartOutcome(a, 0)
 		require.NoError(t, err)
 		for _, b := range variants[i+1:] {
-			after, err := captureRestartOutcome(b, false, 0)
+			after, err := captureRestartOutcome(b, 0)
 			require.NoError(t, err)
 			require.NotEqual(t, before, after)
 		}
 	}
 	// Numeric identity and precision are semantic values, not JSON conversions.
 	numeric := snapshotApp()
-	before, err := captureRestartOutcome(jobdb.AppError{Payload: numeric}, false, 0)
+	before, err := captureRestartOutcome(jobdb.AppError{Payload: numeric}, 0)
 	require.NoError(t, err)
 	list := numeric.Attrs["nested"].(map[string]any)["list"].([]any)
 	list[1] = float64(5)
-	after, err := captureRestartOutcome(jobdb.AppError{Payload: numeric}, false, 0)
+	after, err := captureRestartOutcome(jobdb.AppError{Payload: numeric}, 0)
 	require.NoError(t, err)
-	expected, err := captureRestartOutcome(jobdb.AppError{Payload: snapshotApp()}, false, 0)
+	expected, err := captureRestartOutcome(jobdb.AppError{Payload: snapshotApp()}, 0)
 	require.NoError(t, err)
 	require.Equal(t, expected, before)
 	require.NotEqual(t, before, after)
 	list[0] = json.Number("9007199254740992")
-	afterPrecisionChange, err := captureRestartOutcome(jobdb.AppError{Payload: numeric}, false, 0)
+	afterPrecisionChange, err := captureRestartOutcome(jobdb.AppError{Payload: numeric}, 0)
 	require.NoError(t, err)
 	require.NotEqual(t, after, afterPrecisionChange)
 
 	unsupported := snapshotApp()
 	unsupported.Attrs["unsupported"] = func() {}
-	_, err = captureRestartOutcome(jobdb.AppError{Payload: unsupported}, false, 0)
+	_, err = captureRestartOutcome(jobdb.AppError{Payload: unsupported}, 0)
 	require.ErrorContains(t, err, "unsupported")
 }
 
@@ -436,22 +436,25 @@ type snapshotArtifact struct {
 	content                            []byte
 	keyErr, openErr, readErr, closeErr error
 	opens                              int
+	closes                             int
+	size                               int64
 }
 
 func (a *snapshotArtifact) Name() string                            { return a.name }
 func (a *snapshotArtifact) ArtifactKey() (jobdb.ArtifactKey, error) { return a.key, a.keyErr }
-func (a *snapshotArtifact) Size() int64                             { panic("reader cache size is not a persisted observation") }
+func (a *snapshotArtifact) Size() int64                             { return a.size }
 func (a *snapshotArtifact) Open() (io.ReadCloser, error) {
 	a.opens++
 	if a.openErr != nil {
 		return nil, a.openErr
 	}
-	return &snapshotReader{Reader: bytes.NewReader(a.content), readErr: a.readErr, closeErr: a.closeErr}, nil
+	return &snapshotReader{Reader: bytes.NewReader(a.content), readErr: a.readErr, closeErr: a.closeErr, closes: &a.closes}, nil
 }
 
 type snapshotReader struct {
 	*bytes.Reader
 	readErr, closeErr error
+	closes            *int
 }
 
 func (r *snapshotReader) Read(p []byte) (int, error) {
@@ -460,7 +463,12 @@ func (r *snapshotReader) Read(p []byte) (int, error) {
 	}
 	return r.Reader.Read(p)
 }
-func (r *snapshotReader) Close() error { return r.closeErr }
+func (r *snapshotReader) Close() error {
+	if r.closes != nil {
+		*r.closes++
+	}
+	return r.closeErr
+}
 func snapshotArtifacts() []*snapshotArtifact {
 	return []*snapshotArtifact{
 		{name: "recipe", key: jobdb.ArtifactKey{JobId: "job", TaskOrdinal: 2, Name: "persisted", SizeBytes: 123}, content: []byte("recipe")},
@@ -493,6 +501,11 @@ func TestRestartSourceSnapshotArtifacts(t *testing.T) {
 		{"key-job", func(a []*snapshotArtifact) []*snapshotArtifact { a[0].key.JobId = "changed"; return a }},
 		{"key-ordinal", func(a []*snapshotArtifact) []*snapshotArtifact { a[0].key.TaskOrdinal++; return a }},
 		{"key-name", func(a []*snapshotArtifact) []*snapshotArtifact { a[0].key.Name = "changed"; return a }},
+		{"loaded-size", func(a []*snapshotArtifact) []*snapshotArtifact { a[0].size++; return a }},
+		{"key-unavailable", func(a []*snapshotArtifact) []*snapshotArtifact {
+			a[0].keyErr = jobdb.ErrArtifactKeyUnavailable
+			return a
+		}},
 		{"key-persisted-size", func(a []*snapshotArtifact) []*snapshotArtifact { a[0].key.SizeBytes++; return a }},
 		{"bytes", func(a []*snapshotArtifact) []*snapshotArtifact { a[0].content[0] = 'X'; return a }},
 		{"empty-becomes-populated", func(a []*snapshotArtifact) []*snapshotArtifact { a[1].content = []byte("X"); return a }},
@@ -543,6 +556,9 @@ func TestRestartSourceSnapshotArtifacts(t *testing.T) {
 			_, err := captureRestartSource(snapshotArtifactInfo(artifacts))
 			require.ErrorContains(t, err, "empty")
 			require.ErrorContains(t, err, failure.Error())
+			if operation == "read" || operation == "close" {
+				require.Equal(t, 1, artifacts[1].closes, "close must run even after a read failure")
+			}
 		})
 	}
 	// Expected deferred outcomes must not suppress artifact bytes or membership.
@@ -660,3 +676,55 @@ func TestRestartSourceSnapshotExactChapters(t *testing.T) {
 }
 
 type unsupportedSnapshotBody struct{ jobdb.ChapterBody }
+
+func TestRestartSourceSnapshotRejectsUnknownCauses(t *testing.T) {
+	for _, err := range []error{
+		errors.New("same"),
+		&jobdb.JobFailedError{Cause: errors.New("same")},
+		&jobdb.JobFailedError{Cause: &jobdb.JobFailedError{Cause: errors.New("same")}},
+	} {
+		_, captureErr := captureRestartOutcome(err, 0)
+		require.ErrorContains(t, captureErr, "unexpected deferred read error")
+	}
+}
+
+func TestRestartSourceSnapshotKeylessLazyArtifacts(t *testing.T) {
+	makeInfo := func() jobdb.JobInfo {
+		return snapshotData(&jobdb.SimpleTaskData{Artifacts: []jobdb.Artifact{
+			jobdb.NewArtifact("lazy", func() (io.ReadCloser, int64, error) {
+				return io.NopCloser(bytes.NewReader([]byte("lazy bytes"))), 10, nil
+			}, nil),
+		}})
+	}
+	first, second := makeInfo(), makeInfo()
+	reader, err := first.Data.(*jobdb.SimpleTaskData).Artifacts[0].Open()
+	require.NoError(t, err)
+	require.NoError(t, reader.Close())
+	before, err := captureRestartSource(first)
+	require.NoError(t, err)
+	after, err := captureRestartSource(second)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+	require.False(t, before.Data.Outer.Artifacts[0].KeyPresent)
+	require.Equal(t, int64(10), before.Data.Outer.Artifacts[0].Size)
+
+	// Keyless metadata and bytes are owned, and key presence is an observation.
+	artifacts := snapshotArtifacts()
+	for _, a := range artifacts {
+		a.keyErr = jobdb.ErrArtifactKeyUnavailable
+	}
+	before, err = captureRestartSource(snapshotArtifactInfo(artifacts))
+	require.NoError(t, err)
+	independent := snapshotArtifacts()
+	for _, a := range independent {
+		a.keyErr = jobdb.ErrArtifactKeyUnavailable
+	}
+	expected, err := captureRestartSource(snapshotArtifactInfo(independent))
+	require.NoError(t, err)
+	artifacts[0].content[0] = 'X'
+	artifacts[0].size++
+	after, err = captureRestartSource(snapshotArtifactInfo(artifacts))
+	require.NoError(t, err)
+	require.Equal(t, expected, before)
+	require.NotEqual(t, before, after)
+}

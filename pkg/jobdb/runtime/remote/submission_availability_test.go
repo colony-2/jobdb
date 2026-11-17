@@ -94,3 +94,32 @@ func TestHTTPSubmissionAvailabilityRangeAndRetries(t *testing.T) {
 		}
 	}
 }
+
+// Finer precision belongs to the built-in backends, outside the portable
+// admission matrix. Explicit nanoseconds prevent accidental coverage loss.
+func TestBuiltInSubmissionAvailabilityFractionalRoundTrip(t *testing.T) {
+	runPayloadAndRouteConformance(t, func(t *testing.T, harnesses ...runtimetest.Harness) {
+		for _, h := range harnesses {
+			t.Run(h.Name, func(t *testing.T) {
+				f := h.New(t)
+				if f.Cleanup != nil {
+					t.Cleanup(func() { require.NoError(t, f.Cleanup(context.Background())) })
+				}
+				ctx := celltest.Context(context.Background())
+				at := time.Now().UTC().Add(time.Hour).Truncate(time.Microsecond).Add(123 * time.Nanosecond)
+				handle, err := celltest.Submit(f.Runtime, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
+					TenantId: "tenant", Cell: "test", CellRepo: "example.test/test", JobType: "fractional",
+					AvailableAt: &at, Data: jobdb.NewTaskDataOrPanic(nil),
+				}})
+				require.NoError(t, err)
+				rows, err := f.Runtime.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, JobKeys: []jobdb.JobKey{handle.JobKey}})
+				require.NoError(t, err)
+				require.Len(t, rows.Jobs, 1)
+				require.True(t, at.Equal(rows.Jobs[0].AvailableAt))
+				run, err := jobdb.GetJobRun(ctx, f.Runtime, jobdb.GetJobRunRequest{JobKey: handle.JobKey})
+				require.NoError(t, err)
+				require.True(t, at.Equal(run.Job.AvailableAt))
+			})
+		}
+	})
+}

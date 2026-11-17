@@ -1,0 +1,67 @@
+// This is a disposable consumer fixture, not an additional vendored override.
+package backport_test
+
+import (
+	"context"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtimetest"
+	"github.com/stretchr/testify/require"
+)
+
+func fixture(tb testing.TB, kind string, http bool) runtimetest.Fixture {
+	tb.Helper()
+	var rt jobdb.WorkflowRuntime = toy.New()
+	if kind == "sqlite" {
+		db, err := sqlite.NewFromConfig(celltest.Context(context.Background()), sqlite.Config{DBPath: tb.TempDir() + "/jobs.db"})
+		require.NoError(tb, err)
+		tb.Cleanup(func() { require.NoError(tb, db.Close(context.Background())) })
+		rt = db
+	}
+	if http {
+		server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
+		tb.Cleanup(server.Close)
+		client, err := remote.New(server.URL, server.Client())
+		require.NoError(tb, err)
+		rt = client
+	}
+	return runtimetest.Fixture{Runtime: rt}
+}
+
+func TestBackport(t *testing.T) {
+	var harnesses []runtimetest.Harness
+	for _, kind := range []string{"toy", "sqlite"} {
+		for _, http := range []bool{false, true} {
+			name := kind
+			if http {
+				name = "http-" + name
+			}
+			harnesses = append(harnesses, runtimetest.Harness{Name: name, New: func(tb testing.TB) runtimetest.Fixture { return fixture(tb, kind, http) }})
+		}
+	}
+	runtimetest.RunWorkflowRuntimeConformance(t, harnesses...)
+}
+
+func TestDelegatedAvailability(t *testing.T) {
+	for _, kind := range []string{"toy", "sqlite"} {
+		t.Run(kind, func(t *testing.T) {
+			ctx := celltest.Context(context.Background())
+			rt := fixture(t, kind, true).Runtime.(*remote.Runtime)
+			owner, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", Cell: "test", CellRepo: "example.test/test", JobType: "owner", Data: jobdb.NewTaskDataOrPanic(nil)}})
+			require.NoError(t, err)
+			lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: owner.JobKey, WorkerID: "owner", Routes: []jobdb.Route{{JobType: "owner"}}, LeaseDuration: time.Minute})
+			require.NoError(t, err)
+			require.NotNil(t, lease)
+			delegated, err := rt.CreateDelegation(ctx, lease, jobdb.CreateDelegationRequest{Permissions: jobdb.DelegationPermissions{Submit: &jobdb.DelegationSubmitPermission{JobTypes: jobdb.DelegationNames{Names: []string{"child"}}, JobIDs: jobdb.DelegationNames{Any: true}}}})
+			require.NoError(t, err)
+			runtimetest.RunSubmissionAvailabilityWithSubmit(t, rt, delegated.SubmitJob, owner.JobKey.JobId)
+		})
+	}
+}

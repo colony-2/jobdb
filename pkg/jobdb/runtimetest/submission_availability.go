@@ -80,8 +80,9 @@ func RunSubmissionAvailabilityWithSubmit(t *testing.T, rt jobdb.WorkflowRuntime,
 						deps = append(deps, d)
 					}
 					available := time.Now().UTC().Add(3 * time.Second)
-					// Force non-microsecond precision so HTTP/list round trips are exercised.
-					available = available.Truncate(time.Microsecond).Add(123 * time.Nanosecond)
+					// The shared admission matrix uses a cross-backend microsecond instant.
+					// Backend-specific tests cover finer scheduling precision.
+					available = available.Truncate(time.Microsecond)
 					req := availabilityRequest("consumer-"+id, "child", &available)
 					req.Job.Dependencies = deps
 					req.Job.Metadata, _ = json.Marshal(map[string]string{"consumer": id})
@@ -183,7 +184,7 @@ func RunSubmissionAvailabilityWithSubmit(t *testing.T, rt jobdb.WorkflowRuntime,
 				require.NoError(t, err)
 				require.NotNil(t, l)
 				completeLeaseForTest(t, ctx, l, 1)
-				now := time.Now().UTC()
+				now := time.Now().UTC().Truncate(time.Microsecond)
 				var at *time.Time
 				if when == "past" {
 					past := now.Add(-time.Hour)
