@@ -64,3 +64,18 @@ This is a caller/runtime artifact-routing limitation, before hook commands run.
 Use the local candidate-loading suites above for source acceptance; do not treat
 submission or the preparation command as verification success. Runtime owners
 must repair restore-artifact delivery before claiming that child route works.
+
+`publish.yaml` checks normal module consumption after the managed Git publication.
+It passes the actual full `merged_hash` to `scripts/verify-published-module.py`;
+the helper requires the checkout to match that commit. It creates an external
+consumer and an empty module cache, disables workspace mode, clears `GOFLAGS`,
+and resolves and downloads JobDB through the normal Git route without replacements.
+Both origin hashes must equal the publication commit, and the module archive must
+exist. The exported `module-consumption.md` records the full commit, resolved
+version and downloaded archive facts. Resolution or download failure fails the
+hook; the helper does not merge, push, substitute another commit or retry.
+
+This check uses the same scoped Git transport available for private module
+resolution in the verification hook. It needs no publishing credential or JobDB
+secret. The managed flow retains Git publication; this hook verifies availability
+of its result. A failed check does not undo a publication that already completed.

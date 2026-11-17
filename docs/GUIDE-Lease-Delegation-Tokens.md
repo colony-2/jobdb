@@ -64,6 +64,20 @@ For a submission-only child, set `Submit` to a
 selectors. `JobIDs.Any` allows generated IDs; a finite list requires explicit
 IDs. Leave the other permissions absent.
 
+`lease.StartOrAppendJob` also uses `jobs.submit`. It requires `JobIDs.Any` for
+creation, joining and successor creation because the backend selects the
+generation and assigns its ID. Every call checks the proposed template's cell
+and job type, even when a join preserves the creator's configuration. Grouped
+jobs stay parentless and receive their tenant from the authenticated lease.
+
+Delegated submissions can reference a registered schema hash but cannot supply
+an inline schema or register one. After `ErrJobSchemaNotFound`, an independently
+authorized registry caller can register the schema; the delegate can then
+explicitly retry with the same credentials. A transport failure may follow
+durable acceptance. The client returns that failure without automatic replay,
+ordinary-submission fallback or credential substitution; another append could
+duplicate a contribution.
+
 Set `NotAfter` to the absolute time when the child's authority must end. Omit it
 if the child should remain authorized while the exact parent lease is live.
 There is no renewal permission or access TTL to configure. The SDK maintains

@@ -1,0 +1,40 @@
+id: jobdb-published-module-verify
+version: 1.0.0
+desc: Verify exact published-commit module consumption through the normal Go route.
+inputs:
+  api_version: ${{ inputs.api_version }}
+  merged_hash: ${{ inputs.merged_hash }}
+sequence:
+- id: verify_module
+  op: command_execution
+  const: true
+  timeout: 10m
+  inputs:
+    working_directory: ${{ context.environment.op.worktree_path }}
+    timeout: 10m
+    continue_on_error: true
+    capture_diagnostics: always
+    env:
+      OUTBOX: ${{ context.environment.op.outbox }}
+      MERGED_HASH: ${{ inputs.merged_hash }}
+    run: |
+      python3 scripts/verify-published-module.py "$MERGED_HASH" "$OUTBOX/module-consumption.md"
+  catch:
+  - when: failure.kind != 'cancellation'
+    continue:
+      outputs:
+        success: false
+        exit_code: -1
+        timed_out: ${{ failure.kind == 'timeout' }}
+        error_message: ${{ failure.message }}
+  execution_needs:
+    packages:
+    - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#bash
+    - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#git
+    - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#go_1_26
+    - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#python3
+outputs:
+  api_version: c2.build-hook/v1
+  status: '${{ inputs.api_version == "c2.build-hook/v1" && jq(sequence.verify_module.outputs, ''.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)'') == true && "module-consumption.md" in sequence.verify_module.artifacts ? "passed" : "failed" }}'
+  summary: 'Exact published commit ${{ inputs.merged_hash }}: module resolution and download check completed; inspect module-consumption.md for acceptance.'
+  artifact_refs: '${{ jq(sequence.verify_module.artifacts, "with_entries(select(.key == \"module-consumption.md\"))") }}'

@@ -70,7 +70,7 @@ func (s *proxyServer) parentValidity(ctx context.Context, p leaseTokenClaims) (j
 		return v, &delegationError{503, "delegation_unavailable"}
 	}
 	if p.Cell.CellID == "" || p.Cell.CellID != v.Cell.CellID || p.Cell.CellRepo != v.Cell.CellRepo {
-		return v, jobdb.ErrExecutionLeaseLost
+		return v, &delegationError{409, "execution_lease_lost"}
 	}
 	if !v.ExpiresAt.After(time.Now()) {
 		return v, &delegationError{409, "execution_lease_lost"}
@@ -148,7 +148,9 @@ func (s *proxyServer) prepareDelegationRequest(w http.ResponseWriter, r *http.Re
 		allowed = true
 	case r.Method == http.MethodPost && suffix == "cells":
 		allowed = policy.CreateCells != nil
-	case r.Method == http.MethodPost && suffix == "jobs":
+	case r.Method == http.MethodPost && (suffix == "jobs" || suffix == "jobs/start-or-append"):
+		// Group selection can create a successor, so even a join needs authority
+		// for the backend-assigned ID before the operation can mutate storage.
 		allowed = policy.Submit != nil && policy.Submit.JobIDs.Any
 	case r.Method == http.MethodPut && len(p) == 10 && p[8] == "jobs":
 		id, err := url.PathUnescape(p[9])
@@ -221,11 +223,24 @@ func (s *proxyServer) prepareDelegationRequest(w http.ResponseWriter, r *http.Re
 			}
 		}
 	} else {
-		var body runtimeapi.SubmitJobRequest
-		if json.Unmarshal(raw, &body) != nil {
-			return reject(&delegationError{400, "invalid_delegation_request"})
+		var cell, jobType string
+		var inlineSchema bool
+		if suffix == "jobs/start-or-append" {
+			var body runtimeapi.StartOrAppendJobRequest
+			if json.Unmarshal(raw, &body) != nil {
+				return reject(&delegationError{400, "invalid_delegation_request"})
+			}
+			cell, jobType = body.Job.Cell, body.Job.JobType
+			inlineSchema = body.Job.Schema != nil && body.Job.Schema.Schema != nil
+		} else {
+			var body runtimeapi.SubmitJobRequest
+			if json.Unmarshal(raw, &body) != nil {
+				return reject(&delegationError{400, "invalid_delegation_request"})
+			}
+			cell, jobType = body.Job.Cell, body.Job.JobType
+			inlineSchema = body.Job.Schema != nil && body.Job.Schema.Schema != nil
 		}
-		if policy.Submit.CellNames != nil && !namesAllow(*policy.Submit.CellNames, body.Job.Cell) || !namesAllow(policy.Submit.JobTypes, body.Job.JobType) || body.Job.Schema != nil && body.Job.Schema.Schema != nil {
+		if policy.Submit.CellNames != nil && !namesAllow(*policy.Submit.CellNames, cell) || !namesAllow(policy.Submit.JobTypes, jobType) || inlineSchema {
 			return reject(delegationDenied())
 		}
 	}

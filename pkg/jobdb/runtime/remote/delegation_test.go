@@ -363,36 +363,40 @@ func TestDelegationDiesWithExpiredOrReplacedParent(t *testing.T) {
 }
 
 func TestDelegationReadFiltersAndExactSubmissionIDs(t *testing.T) {
-	f := newDelegationFixture(t, "toy", nil)
-	ctx := celltest.Context(context.Background())
-	for _, ordinal := range []int64{1, 2, 3} {
-		c := delegationChapter(ordinal)
-		require.NoError(t, f.client.PutChapter(ctx, jobdb.PutChapterRequest{LeaseID: f.owner.LeaseID(), LeaseToken: f.owner.(*remoteExecutionLease).LeaseToken(), Ref: jobdb.ChapterRef{JobKey: f.owner.Job().JobKey, Ordinal: ordinal}, Chapter: c}))
-	}
-	p := delegationPolicy()
-	p.Read = &jobdb.DelegationChapters{Ranges: []jobdb.DelegationOrdinalRange{{Start: 1, End: 2}}}
-	p.Submit.JobIDs = jobdb.DelegationNames{Names: []string{"exact"}}
-	l := f.create(t, jobdb.CreateDelegationRequest{Permissions: p})
-	chapters, err := f.client.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: l.Job().JobKey, LeaseID: l.LeaseID(), LeaseToken: l.LeaseToken()})
-	require.NoError(t, err)
-	require.Len(t, chapters, 2)
-	require.Equal(t, int64(1), chapters[0].Ordinal)
-	require.Equal(t, int64(2), chapters[1].Ordinal)
-	for _, id := range []string{"", "wrong", "exact"} {
-		_, err := l.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", JobID: id, JobType: "child", Data: jobdb.NewTaskDataOrPanic(1)}})
-		if id == "exact" {
+	for _, kind := range []string{"toy", "sqlite"} {
+		t.Run(kind, func(t *testing.T) {
+			f := newDelegationFixture(t, kind, nil)
+			ctx := celltest.Context(context.Background())
+			for _, ordinal := range []int64{1, 2, 3} {
+				c := delegationChapter(ordinal)
+				require.NoError(t, f.client.PutChapter(ctx, jobdb.PutChapterRequest{LeaseID: f.owner.LeaseID(), LeaseToken: f.owner.(*remoteExecutionLease).LeaseToken(), Ref: jobdb.ChapterRef{JobKey: f.owner.Job().JobKey, Ordinal: ordinal}, Chapter: c}))
+			}
+			p := delegationPolicy()
+			p.Read = &jobdb.DelegationChapters{Ranges: []jobdb.DelegationOrdinalRange{{Start: 1, End: 2}}}
+			p.Submit.JobIDs = jobdb.DelegationNames{Names: []string{"exact"}}
+			l := f.create(t, jobdb.CreateDelegationRequest{Permissions: p})
+			chapters, err := f.client.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: l.Job().JobKey, LeaseID: l.LeaseID(), LeaseToken: l.LeaseToken()})
 			require.NoError(t, err)
-		} else {
+			require.Len(t, chapters, 2)
+			require.Equal(t, int64(1), chapters[0].Ordinal)
+			require.Equal(t, int64(2), chapters[1].Ordinal)
+			for _, id := range []string{"", "wrong", "exact"} {
+				_, err := l.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", JobID: id, JobType: "child", Data: jobdb.NewTaskDataOrPanic(1)}})
+				if id == "exact" {
+					require.NoError(t, err)
+				} else {
+					require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
+				}
+			}
+			empty := f.create(t, jobdb.CreateDelegationRequest{})
+			_, err = empty.ResolveSecrets(ctx, []string{"anything"})
 			require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
-		}
-	}
-	empty := f.create(t, jobdb.CreateDelegationRequest{})
-	_, err = empty.ResolveSecrets(ctx, []string{"anything"})
-	require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
-	_, err = f.client.GetChapter(ctx, jobdb.ChapterRef{JobKey: l.Job().JobKey, LeaseID: l.LeaseID(), LeaseToken: empty.LeaseToken(), Ordinal: 0})
-	require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
-}
+			_, err = f.client.GetChapter(ctx, jobdb.ChapterRef{JobKey: l.Job().JobKey, LeaseID: l.LeaseID(), LeaseToken: empty.LeaseToken(), Ordinal: 0})
+			require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
 
+		})
+	}
+}
 func TestDelegationFreshArtifactsAndNoSchemaRegistration(t *testing.T) {
 	f := newDelegationFixture(t, "toy", nil)
 	ctx := celltest.Context(context.Background())
