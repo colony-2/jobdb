@@ -10,7 +10,6 @@ state:
   states:
     check_environment:
       id: check_environment
-      timeout: 2m
       op: command_execution
       inputs:
         shell: bash
@@ -77,7 +76,6 @@ state:
           - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#python3
     test_integration:
       id: test_integration
-      timeout: 30m
       op: command_execution
       inputs:
         shell: bash
@@ -134,7 +132,6 @@ state:
           - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#python3
     summarize:
       id: summarize
-      timeout: 2m
       op: command_execution
       artifacts:
         ./: '${{ jq([(has(states.check_environment) ? states.check_environment.artifacts : {}), (has(states.test_integration) ? states.test_integration.artifacts : {}), (has(states.test_races) ? states.test_races.artifacts : {})], ''add | with_entries(select(.key == "environment.log" or .key == "tests.log" or .key == "races.log"))'') }}'
@@ -208,7 +205,6 @@ state:
           - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#gnugrep
     test_races:
       id: test_races
-      timeout: 30m
       op: command_execution
       inputs:
         shell: bash

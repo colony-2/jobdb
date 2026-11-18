@@ -38,6 +38,11 @@ Cancellation is not caught. Full logs are exported as native artifact references
 Scoped Git transport remains intact; enclosing job identity and opt-in remote
 runtime/Postgres settings are cleared before testing.
 
+Timeouts belong to command inputs: two minutes for environment/reporting and
+thirty minutes for each test suite. Durable states have no wall-clock deadline,
+so suspension or delayed result collection cannot expire an already successful
+command. Command timeouts and all aggregate evidence requirements still gate a pass.
+
 Held regardless of available optional infrastructure: Linux AMD64 and macOS
 matrix jobs, matrix-wide certification, tagging, GoReleaser, cross compilation,
 signing, registry/npm/Homebrew publication, and deployment. No Docker, hosted
@@ -48,7 +53,7 @@ Contract regression checks:
 ```sh
 c2j test run --file tests/verify-hook/verify.test.json
 c2j test run --file tests/verify-hook/absent.test.json
-c2j test run --file tests/verify-hook/live.test.json --include-live --parallelism 1
+c2j test run --file tests/verify-hook/live.test.json --include-live --parallelism 1 --case-timeout 10m
 ```
 
 The live suite uses disposable source fixtures to run real commands, load the
