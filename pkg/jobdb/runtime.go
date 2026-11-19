@@ -7,12 +7,23 @@ import (
 	"time"
 )
 
-// WorkflowRuntime is the backend-agnostic facade used to isolate jobdb from
-// concrete persistence, artifact storage, and lease-management backends.
+// WorkflowRuntime is the legacy full backend contract. Consumer code should
+// accept ConsumerRuntime so its adapters need not expose goal attachment.
+// Existing backends continue to implement both contracts during retirement.
 type WorkflowRuntime interface {
+	ConsumerRuntime
+	GoalCandidateMutator
+}
+
+// ConsumerRuntime is the backend-agnostic runtime used by execution and readers.
+// It retains goal reads, waits and explicit failure, without mutable attachment.
+// Optional capabilities (for example LeaseDelegator, ConfigurationAdmin,
+// JobSchemaRegistry and PrimaryGoalSelectionCapability) must be forwarded
+// explicitly by decorators; embedding this interface does not promote them.
+type ConsumerRuntime interface {
 	LeaseEventReader
 	CellRuntime
-	GoalRuntime
+	ConsumerGoalRuntime
 	// GetConfiguration reads current tenant configuration using verified lease claims.
 	GetConfiguration(context.Context, GetConfigurationRequest) (ConfigurationSnapshot, error)
 

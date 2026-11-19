@@ -19,7 +19,10 @@ This includes task/job data APIs, artifact APIs, runtime request/response
 types, job lifecycle APIs, job-run inspection APIs, list-jobs APIs, first-class
 tenant configuration requests/snapshots and administration,
 error types, and the `WorkflowRuntime` interface used by runtime
-adapters and advanced consumers.
+adapters and advanced consumers. `ConsumerRuntime` supplies retained operations
+without goal attachment; the worker SDK accepts that interface. See the
+[consumer input migration](MIGRATION-CONSUMER-RUNTIME.md) for decorator ports,
+retained HTTP constructors and exact function-type changes.
 
 Lease history requires `LeaseEventReader` on `WorkflowRuntime` and
 `runtimecore.Scheduler`, with the validating `jobdb.ListLeaseEvents` helper and

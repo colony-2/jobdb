@@ -58,7 +58,10 @@ const (
 	JobStatusCompleted      = jobdb.JobStatusCompleted
 )
 
-type WorkflowRuntime = jobdb.WorkflowRuntime
+// WorkflowRuntime is the retained SDK input. Legacy attachment is not required.
+type WorkflowRuntime = jobdb.ConsumerRuntime
+type ConsumerRuntime = jobdb.ConsumerRuntime
+type JobRunReader = jobdb.JobRunReader
 type JobHandle = jobdb.JobHandle
 type ExecutionLease = jobdb.ExecutionLease
 type SubmitJobRequest = jobdb.SubmitJobRequest
@@ -236,7 +239,7 @@ func MetadataPredicates(filter MetadataFilter) ([]MetadataPredicate, error) {
 	return jobdb.MetadataPredicates(filter)
 }
 
-func GetJobRun(ctx context.Context, runtime WorkflowRuntime, req GetJobRunRequest) (GetJobRunResponse, error) {
+func GetJobRun(ctx context.Context, runtime JobRunReader, req GetJobRunRequest) (GetJobRunResponse, error) {
 	return jobdb.GetJobRun(ctx, runtime, req)
 }
 

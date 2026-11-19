@@ -20,7 +20,7 @@ func (r *replayHistoryProbe) ListLeaseEvents(_ context.Context, req jobdb.ListLe
 }
 func TestMandatoryHistoryForwarding(t *testing.T) {
 	backend := &replayHistoryProbe{}
-	var port jobdb.WorkflowRuntime = replayReadOnlyRuntime{runtime: backend}
+	var port jobdb.ConsumerRuntime = replayReadOnlyRuntime{runtime: backend}
 	for _, tenant := range []string{"tenant", "other"} {
 		req := jobdb.ListLeaseEventsRequest{TenantID: tenant, JobIDs: []string{"b", "a", "b"}, PageToken: "page", PageSize: 7}
 		for _, failure := range []error{nil, errors.New("backend failure")} {

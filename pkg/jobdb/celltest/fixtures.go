@@ -33,10 +33,12 @@ func Submit(rt interface {
 
 // WithCells supplies explicit cell registration for general workflow fixtures.
 // Cell conformance tests use the original runtime so absence remains observable.
-func WithCells(rt jobdb.WorkflowRuntime) jobdb.WorkflowRuntime { return fixtureRuntime{rt} }
+// Only mandatory consumer methods are promoted. Fixtures needing optional ports
+// should use Submit on their decorated runtime or forward those ports explicitly.
+func WithCells(rt jobdb.ConsumerRuntime) jobdb.ConsumerRuntime { return fixtureRuntime{rt} }
 
-type fixtureRuntime struct{ jobdb.WorkflowRuntime }
+type fixtureRuntime struct{ jobdb.ConsumerRuntime }
 
 func (r fixtureRuntime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {
-	return Submit(r.WorkflowRuntime, ctx, req)
+	return Submit(r.ConsumerRuntime, ctx, req)
 }

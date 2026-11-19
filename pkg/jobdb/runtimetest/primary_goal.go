@@ -21,7 +21,7 @@ func PrimaryGoalContext(ctx context.Context) context.Context {
 
 // RunPrimaryGoalSelectionConformance exercises fresh primary selection and
 // retained receipt behavior. Run it with fresh toy/SQLite direct/HTTP runtimes.
-func RunPrimaryGoalSelectionConformance(t *testing.T, r jobdb.WorkflowRuntime) {
+func RunPrimaryGoalSelectionConformance(t *testing.T, r jobdb.ConsumerRuntime) {
 	ctx := PrimaryGoalContext(context.Background())
 	request := func(id string) jobdb.SubmitJobRequest {
 		return jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "selection", JobID: id, Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(map[string]any{"fresh": id}), Metadata: json.RawMessage(`{"fresh":true}`), RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 4}}}}
@@ -152,7 +152,7 @@ func RunPrimaryGoalSelectionConformance(t *testing.T, r jobdb.WorkflowRuntime) {
 	runPrimaryGoalArchiveReplay(t, r)
 }
 
-func runPrimaryGoalOwnership(t *testing.T, r jobdb.WorkflowRuntime) {
+func runPrimaryGoalOwnership(t *testing.T, r jobdb.ConsumerRuntime) {
 	ctx := PrimaryGoalContext(context.Background())
 	source, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "ownership", JobID: "source", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	require.NoError(t, err)
@@ -204,7 +204,7 @@ func runPrimaryGoalOwnership(t *testing.T, r jobdb.WorkflowRuntime) {
 	require.Equal(t, h, replay)
 }
 
-func runPrimaryGoalArchiveReplay(t *testing.T, r jobdb.WorkflowRuntime) {
+func runPrimaryGoalArchiveReplay(t *testing.T, r jobdb.ConsumerRuntime) {
 	ctx := PrimaryGoalContext(context.Background())
 	source, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "archive", JobID: "source", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	require.NoError(t, err)

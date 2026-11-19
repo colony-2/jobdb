@@ -10,7 +10,15 @@ import (
 	"github.com/colony-2/jobdb/pkg/internal/executionmeta"
 )
 
-func GetJobRun(ctx context.Context, runtime WorkflowRuntime, req GetJobRunRequest) (GetJobRunResponse, error) {
+// JobRunReader supplies exact job, list and chapter reads for run inspection.
+// It requires neither execution authority nor a goal mutation port.
+type JobRunReader interface {
+	GetJob(context.Context, JobKey) (JobInfo, error)
+	ListJobs(context.Context, ListJobsRequest) (ListJobsResponse, error)
+	ListChapters(context.Context, ListChaptersRequest) ([]Chapter, error)
+}
+
+func GetJobRun(ctx context.Context, runtime JobRunReader, req GetJobRunRequest) (GetJobRunResponse, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -255,7 +263,7 @@ func GetJobRun(ctx context.Context, runtime WorkflowRuntime, req GetJobRunReques
 	return resp, nil
 }
 
-func loadJobSummary(ctx context.Context, runtime WorkflowRuntime, jobKey JobKey) (JobSummary, error) {
+func loadJobSummary(ctx context.Context, runtime JobRunReader, jobKey JobKey) (JobSummary, error) {
 	pageToken := ""
 	for {
 		resp, err := runtime.ListJobs(ctx, ListJobsRequest{

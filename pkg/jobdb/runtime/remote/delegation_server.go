@@ -27,8 +27,8 @@ type delegationError struct {
 // owner/admin handler behind a separate access boundary. Both handlers must use
 // the same backend and signing key. Missing credentials and owner tokens are
 // rejected, including on APIs that normally rely on deployment authorization.
-func NewDelegationServerWithOptions(runtime jobdb.WorkflowRuntime, opts ServerOptions) (http.Handler, error) {
-	handler, err := NewServerWithOptions(runtime, opts)
+func NewDelegationServerWithOptions(runtime jobdb.ConsumerRuntime, opts ServerOptions) (http.Handler, error) {
+	handler, err := NewConsumerServerWithOptions(runtime, opts)
 	if err != nil {
 		return nil, err
 	}

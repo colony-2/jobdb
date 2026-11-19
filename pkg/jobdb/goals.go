@@ -205,12 +205,24 @@ func ValidateDependencyReschedule(r RescheduleExecutionRequest) error {
 	return ValidateDependencyWait(r.DependencyWait, false)
 }
 
-// GoalRuntime is the durable, tenant-scoped goal and dependency read/mutation API.
+// GoalRuntime retains the legacy goal contract during attachment retirement.
 type GoalRuntime interface {
+	ConsumerGoalRuntime
+	GoalCandidateMutator
+}
+
+// GoalCandidateMutator is the temporary legacy attachment port. Consumers use
+// creation-time goal selection instead of exposing this capability.
+type GoalCandidateMutator interface {
+	AddGoalCandidate(context.Context, AddGoalCandidateRequest) (GoalCandidateInfo, error)
+}
+
+// ConsumerGoalRuntime is the retained tenant-scoped goal and dependency API.
+// FailGoal with a message remains supported; attachment is a separate port.
+type ConsumerGoalRuntime interface {
 	ListGoals(context.Context, ListGoalsRequest) (ListGoalsResponse, error)
 	ListDependencyWaits(context.Context, ListDependencyWaitsRequest) (ListDependencyWaitsResponse, error)
 	GetGoal(context.Context, GoalKey) (GoalInfo, error)
-	AddGoalCandidate(context.Context, AddGoalCandidateRequest) (GoalCandidateInfo, error)
 	FailGoal(context.Context, FailGoalRequest) (GoalInfo, error)
 	GetDependencyWait(context.Context, DependencyWaitKey) (DependencyWaitInfo, error)
 }

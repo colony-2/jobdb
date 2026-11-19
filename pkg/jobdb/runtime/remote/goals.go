@@ -85,8 +85,8 @@ func (s *proxyServer) GetGoal(ctx context.Context, req runtimeapi.GetGoalRequest
 	out, err := s.runtime.GetGoal(ctx, jobdb.GoalKey{TenantId: req.TenantId, GoalID: req.GoalId})
 	return runtimeapi.GetGoal200JSONResponse(out), err
 }
-func (s *proxyServer) AddGoalCandidate(ctx context.Context, req runtimeapi.AddGoalCandidateRequestObject) (runtimeapi.AddGoalCandidateResponseObject, error) {
-	out, err := s.runtime.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: jobdb.GoalKey{TenantId: req.TenantId, GoalID: req.GoalId}, JobID: req.JobId})
+func (s *legacyProxyServer) AddGoalCandidate(ctx context.Context, req runtimeapi.AddGoalCandidateRequestObject) (runtimeapi.AddGoalCandidateResponseObject, error) {
+	out, err := s.mutator.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: jobdb.GoalKey{TenantId: req.TenantId, GoalID: req.GoalId}, JobID: req.JobId})
 	return runtimeapi.AddGoalCandidate200JSONResponse(out), err
 }
 func (s *proxyServer) FailGoal(ctx context.Context, req runtimeapi.FailGoalRequestObject) (runtimeapi.FailGoalResponseObject, error) {

@@ -2,7 +2,7 @@
 
 `pkg/workflow` is the higher-level Go SDK for writing JobDB workers. It builds
 on `pkg/jobdb` and runs job workers, task workers, replay, external task waits,
-and worker loops against any `jobdb.WorkflowRuntime`.
+and worker loops against any `jobdb.ConsumerRuntime`.
 
 Use this package when you are writing workflow code. Use
 [pkg/jobdb](../jobdb/README.md) when you need the lower-level runtime API or
@@ -19,7 +19,7 @@ See [named cells](../../docs/SPEC-Tenant-Cells.md) for root bootstrap and policy
 - A `JobWorker` is the top-level workflow. It orchestrates task calls, waits,
   child jobs, and final output.
 - A `TaskWorker` is a reusable unit of work called by a job.
-- An `Engine` binds workers to a `jobdb.WorkflowRuntime`.
+- An `Engine` binds workers to a `jobdb.ConsumerRuntime`.
 - The runtime can be local (`sqlite`, `toy`, `direct`) or remote
   (`runtime/remote`) against a running `jobdb` server.
 
@@ -214,7 +214,7 @@ func (t MyTask) Run(ctx workflow.TaskContext, input jobdb.TaskData) (jobdb.TaskD
 
 ## Engine Configuration
 
-Build an engine over any `jobdb.WorkflowRuntime`:
+Build an engine over any `jobdb.ConsumerRuntime`:
 
 ```go
 engine, err := workflow.NewEngineBuilder().
@@ -405,3 +405,7 @@ engine or registered callbacks. Selection alone is not successful handling;
 check accepted disposition and resulting failure. See the
 [catch history guide](../../docs/CATCH-HISTORY.md) for opaque identities,
 compact-history frontiers, evidence gaps and a minimal consumer example.
+
+Runtime inputs no longer require goal attachment. See the
+[consumer input migration](../../docs/MIGRATION-CONSUMER-RUNTIME.md) for retained
+HTTP handlers, narrow readers and explicit optional-capability forwarding.

@@ -120,7 +120,7 @@ type CatchEvidenceGap struct {
 // Only supported v4 execution histories are interpreted. Corruption, inconsistent
 // association and missing required identity return errors; unavailable historical
 // facts produce gaps. A separately read job summary never establishes acceptance.
-func ReadCatchHistory(ctx context.Context, runtime jobdb.WorkflowRuntime, req jobdb.GetJobRunRequest) (CatchHistory, error) {
+func ReadCatchHistory(ctx context.Context, runtime jobdb.JobRunReader, req jobdb.GetJobRunRequest) (CatchHistory, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -145,10 +145,10 @@ func ReadCatchHistory(ctx context.Context, runtime jobdb.WorkflowRuntime, req jo
 // GetJobRun obtains chapters exactly once. Validate that snapshot before it can
 // be normalized into logical records; equal ordinals are legal only after
 // reconstruction, never in the physical chapter list.
-type catchPrefixRuntime struct{ jobdb.WorkflowRuntime }
+type catchPrefixRuntime struct{ jobdb.JobRunReader }
 
 func (r catchPrefixRuntime) ListChapters(ctx context.Context, req jobdb.ListChaptersRequest) ([]jobdb.Chapter, error) {
-	chapters, err := r.WorkflowRuntime.ListChapters(ctx, req)
+	chapters, err := r.JobRunReader.ListChapters(ctx, req)
 	if err != nil {
 		return nil, err
 	}

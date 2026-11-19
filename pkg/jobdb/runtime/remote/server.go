@@ -35,11 +35,21 @@ type leaseRenewalRuntime interface {
 
 type proxyServer struct {
 	configurationAdmin jobdb.ConfigurationAdmin
-	runtime            jobdb.WorkflowRuntime
+	runtime            jobdb.ConsumerRuntime
 	leaseOps           leaseOperationRuntime
 	schemaRegistry     jobdb.JobSchemaRegistry
 	tokens             *leaseTokenSigner
 }
+
+// legacyProxyServer alone implements the temporary candidate mutation port.
+// The retained server has no attachment method or mutation-bearing embedding.
+type legacyProxyServer struct {
+	*proxyServer
+	mutator jobdb.GoalCandidateMutator
+}
+
+var _ runtimeapi.ConsumerStrictServerInterface = (*proxyServer)(nil)
+var _ runtimeapi.StrictServerInterface = (*legacyProxyServer)(nil)
 
 // ServerOptions configures the JobDB runtime HTTP handler.
 type ServerOptions struct {
@@ -52,6 +62,8 @@ type ServerOptions struct {
 	LeaseTokenAudience string
 }
 
+// NewServer builds the legacy handler, including candidate attachment.
+// Consumers retiring attachment should use NewConsumerServer.
 func NewServer(runtime jobdb.WorkflowRuntime) http.Handler {
 	handler, err := newServer(runtime, newLeaseTokenSigner())
 	if err != nil {
@@ -63,15 +75,40 @@ func NewServer(runtime jobdb.WorkflowRuntime) http.Handler {
 // NewServerWithOptions builds a JobDB runtime HTTP handler with explicit
 // server configuration.
 func NewServerWithOptions(runtime jobdb.WorkflowRuntime, opts ServerOptions) (http.Handler, error) {
+	return newServerWithOptions(runtime, runtime, opts)
+}
+
+// NewConsumerServer builds a handler for retained runtime operations. Candidate
+// PUT is absent from its registered routes; no mutation implementation is needed.
+func NewConsumerServer(runtime jobdb.ConsumerRuntime) http.Handler {
+	handler, err := newRuntimeServer(runtime, nil, newLeaseTokenSigner())
+	if err != nil {
+		panic(err)
+	}
+	return handler
+}
+
+// NewConsumerServerWithOptions configures the retained handler's lease authority.
+// Decorators must explicitly forward configuration administration, schema and
+// tokenized lease operations when they support them, just as for NewServer.
+func NewConsumerServerWithOptions(runtime jobdb.ConsumerRuntime, opts ServerOptions) (http.Handler, error) {
+	return newServerWithOptions(runtime, nil, opts)
+}
+
+func newServerWithOptions(runtime jobdb.ConsumerRuntime, mutator jobdb.GoalCandidateMutator, opts ServerOptions) (http.Handler, error) {
 	tokens, err := newLeaseTokenSignerWithKey(opts.LeaseTokenSigningKey)
 	if err != nil {
 		return nil, err
 	}
 	tokens.audience = opts.LeaseTokenAudience
-	return newServer(runtime, tokens)
+	return newRuntimeServer(runtime, mutator, tokens)
 }
 
 func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Handler, error) {
+	return newRuntimeServer(runtime, runtime, tokens)
+}
+
+func newRuntimeServer(runtime jobdb.ConsumerRuntime, mutator jobdb.GoalCandidateMutator, tokens *leaseTokenSigner) (http.Handler, error) {
 	if runtime == nil {
 		return nil, errors.New("runtime is required")
 	}
@@ -89,7 +126,7 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 		schemaRegistry:     runtimeSchemaRegistry(runtime),
 		tokens:             tokens,
 	}
-	strict := runtimeapi.NewStrictHandlerWithOptions(server, []runtimeapi.StrictMiddlewareFunc{strictRequestFields}, runtimeapi.StrictHTTPServerOptions{
+	strictOptions := runtimeapi.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			if isCellPath(r.URL.EscapedPath()) || isLeaseEventsPath(r.URL.EscapedPath()) {
 				writeCellError(w, jobdb.ErrInvalidCell)
@@ -167,9 +204,17 @@ func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Ha
 			}
 			http.Error(w, err.Error(), status)
 		},
-	})
+	}
 	router := chi.NewRouter()
-	handler := runtimeapi.HandlerFromMux(strict, router)
+	middlewares := []runtimeapi.StrictMiddlewareFunc{strictRequestFields}
+	var handler http.Handler
+	if mutator == nil {
+		strict := runtimeapi.NewConsumerStrictHandlerWithOptions(server, middlewares, strictOptions)
+		handler = runtimeapi.ConsumerHandlerFromMux(strict, router)
+	} else {
+		strict := runtimeapi.NewStrictHandlerWithOptions(&legacyProxyServer{server, mutator}, middlewares, strictOptions)
+		handler = runtimeapi.HandlerFromMux(strict, router)
+	}
 	devHandler := server.devSecretHandler()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if isPrimaryGoalSelectionPath(r.URL.EscapedPath()) {
@@ -1078,7 +1123,7 @@ func badRequest(message string) error {
 	}
 }
 
-func runtimeLeaseOps(runtime jobdb.WorkflowRuntime) leaseOperationRuntime {
+func runtimeLeaseOps(runtime jobdb.ConsumerRuntime) leaseOperationRuntime {
 	if runtime == nil {
 		return nil
 	}
@@ -1086,7 +1131,7 @@ func runtimeLeaseOps(runtime jobdb.WorkflowRuntime) leaseOperationRuntime {
 	return ops
 }
 
-func runtimeSchemaRegistry(runtime jobdb.WorkflowRuntime) jobdb.JobSchemaRegistry {
+func runtimeSchemaRegistry(runtime jobdb.ConsumerRuntime) jobdb.JobSchemaRegistry {
 	if runtime == nil {
 		return nil
 	}

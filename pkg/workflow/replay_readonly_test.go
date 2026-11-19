@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"errors"
+	"reflect"
 	"sync/atomic"
 	"testing"
 
@@ -96,6 +97,9 @@ func TestReplayJobRun_MissingJobOutcomeReturnsCacheMissWithoutWriting(t *testing
 func TestReplayReadOnlyRuntimeRejectsMutations(t *testing.T) {
 	runtime := newRunnerTestRuntime()
 	replayRuntime := newReplayReadOnlyRuntime(runtime)
+	if _, found := reflect.TypeOf(replayRuntime).MethodByName("AddGoalCandidate"); found {
+		t.Fatal("replay runtime exposes goal attachment")
+	}
 	ctx := celltest.Context(context.Background())
 	_, secretErr := replayRuntime.ResolveSecrets(ctx, jobdb.ResolveSecretsRequest{})
 	if !errors.Is(secretErr, ErrReplayShouldNeverMutate) {
@@ -162,8 +166,8 @@ func TestReplayReadOnlyRuntimeRejectsMutations(t *testing.T) {
 			_, err := replayRuntime.GetConfiguration(ctx, jobdb.GetConfigurationRequest{})
 			return err
 		}},
-		{name: "AddGoalCandidate", call: func() error {
-			_, err := replayRuntime.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{})
+		{name: "StartOrAppendJob", call: func() error {
+			_, err := replayRuntime.StartOrAppendJob(ctx, jobdb.StartOrAppendJobRequest{})
 			return err
 		}},
 		{name: "FailGoal", call: func() error { _, err := replayRuntime.FailGoal(ctx, jobdb.FailGoalRequest{}); return err }},

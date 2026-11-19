@@ -120,11 +120,19 @@
         },
         {
           "type": "cel_true",
-          "expr": "calls.filter(c, c.node_path.endsWith(\"/test_integration/test_integration\"))[0].inputs.run.contains(\"-tags=integration\") && calls.filter(c, c.node_path.endsWith(\"/test_races/test_races\"))[0].inputs.run.contains(\"-race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider\")"
+          "expr": "calls.filter(c, c.node_path.endsWith(\"/test_integration/test_integration\"))[0].inputs.run.contains(\"-tags=integration\") && calls.filter(c, c.node_path.endsWith(\"/test_races/test_races\"))[0].inputs.run.contains(\"-race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb\")"
         },
         {
           "type": "cel_true",
           "expr": "calls.filter(c, !c.node_path.endsWith(\"/summarize/summarize\")).all(c, c.inputs.env.GOOS == \"linux\" && c.inputs.env.GOARCH == \"arm64\" && c.inputs.env.CGO_ENABLED == \"1\" && c.inputs.env.CC == \"gcc\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path.endsWith(\"/test_integration/test_integration\"))[0].inputs.run.contains(\"go generate ./pkg/jobdb/internal/runtimeapi\") && calls.filter(c, c.node_path.endsWith(\"/test_integration/test_integration\"))[0].inputs.run.contains(\"-check api/jobdb.public.txt\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path.endsWith(\"/test_races/test_races\"))[0].inputs.run.contains(\"go test -count=1 -timeout=20m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb\")"
         }
       ]
     },

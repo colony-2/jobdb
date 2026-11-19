@@ -46,7 +46,6 @@ func TestLeaseEventNormalization(t *testing.T) {
 }
 
 type historyProbe struct {
-	WorkflowRuntime
 	req   ListLeaseEventsRequest
 	calls int
 	err   error
@@ -59,7 +58,7 @@ func (r *historyProbe) ListLeaseEvents(_ context.Context, req ListLeaseEventsReq
 }
 func TestLeaseEventHelperMandatoryForwarding(t *testing.T) {
 	r := &historyProbe{}
-	var port WorkflowRuntime = r
+	var port LeaseEventReader = r
 	_, err := ListLeaseEvents(context.Background(), port, ListLeaseEventsRequest{})
 	require.ErrorIs(t, err, ErrInvalidLeaseEventRequest)
 	require.Zero(t, r.calls)

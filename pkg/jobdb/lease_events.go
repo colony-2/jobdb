@@ -203,7 +203,7 @@ type LeaseEventReader interface {
 }
 
 // ListLeaseEvents validates and dispatches an event query.
-func ListLeaseEvents(ctx context.Context, runtime WorkflowRuntime, req ListLeaseEventsRequest) (ListLeaseEventsResponse, error) {
+func ListLeaseEvents(ctx context.Context, runtime LeaseEventReader, req ListLeaseEventsRequest) (ListLeaseEventsResponse, error) {
 	req, err := NormalizeLeaseEventRequest(req)
 	if err != nil {
 		return ListLeaseEventsResponse{}, err

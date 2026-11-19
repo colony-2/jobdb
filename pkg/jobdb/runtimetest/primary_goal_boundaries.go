@@ -35,7 +35,7 @@ func (d *selectionBarrierData) GetData() (jobdb.Data, error) {
 // RunPrimaryGoalSelectionBoundaries controls the interval between reservation
 // and publication without sleeps. This suite requires a native runtime, since
 // HTTP serializes input bytes before the backend reserves work.
-func RunPrimaryGoalSelectionBoundaries(t *testing.T, r jobdb.WorkflowRuntime) {
+func RunPrimaryGoalSelectionBoundaries(t *testing.T, r jobdb.ConsumerRuntime) {
 	t.Run("revoked-before-publication", func(t *testing.T) { runSelectionRevocation(t, r) })
 	for _, closure := range []string{"success", "failure"} {
 		for _, ordering := range []string{"before-preparation", "after-reservation", "after-publication"} {
@@ -158,7 +158,7 @@ func RunPrimaryGoalSelectionBoundaries(t *testing.T, r jobdb.WorkflowRuntime) {
 
 // runSelectionRevocation checks the publication-time hook independently of the
 // preparation hook, with the same controlled staging barrier as closure tests.
-func runSelectionRevocation(t *testing.T, r jobdb.WorkflowRuntime) {
+func runSelectionRevocation(t *testing.T, r jobdb.ConsumerRuntime) {
 	ctx := PrimaryGoalContext(context.Background())
 	source, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "revoked", JobID: "source", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	require.NoError(t, err)
