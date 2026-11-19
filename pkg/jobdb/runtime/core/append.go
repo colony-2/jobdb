@@ -102,6 +102,7 @@ func (s AppendService) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAp
 	selector := in.Job
 	selector.CellRepo = ""
 	cell, err := s.Scheduler.ResolveAppendCell(ctx, selector)
+	err = jobdb.ClassifyRuntimeIO(err, "resolve_append_cell", nil, nil)
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -114,6 +115,7 @@ func (s AppendService) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAp
 			return jobdb.JobHandle{}, err
 		}
 		tail, found, err := s.Scheduler.GetAppendTail(ctx, chain)
+		err = jobdb.ClassifyRuntimeIO(err, "get_append_tail", nil, nil)
 		if err != nil {
 			return jobdb.JobHandle{}, err
 		}
@@ -135,6 +137,7 @@ func (s AppendService) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAp
 				}
 				if open {
 					claim, err := s.Scheduler.ClaimAppend(ctx, ClaimAppendRequest{tail.JobKey, worker, now(), 10 * time.Second})
+					err = jobdb.ClassifyRuntimeIO(err, "claim_append", &tail.JobKey, nil)
 					if errors.Is(err, jobdb.ErrConflict) {
 						if err := appendBackoff(ctx, attempt); err != nil {
 							return jobdb.JobHandle{}, err
@@ -157,20 +160,22 @@ func (s AppendService) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAp
 							encoded, err = EncodeChapter(EncodeChapterRequest{Chapter: ch})
 							if err == nil {
 								err = s.Chapters.Append(ctx, ChapterLogKey{tail.JobKey}, encoded)
+								err = jobdb.ClassifyRuntimeIO(err, "append_input", &tail.JobKey, &count)
 							}
 						}
 					}
 					releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 					releaseErr := s.Scheduler.ReleaseAppend(releaseCtx, claim)
+					releaseErr = jobdb.ClassifyRuntimeIO(releaseErr, "release_append", &tail.JobKey, nil)
 					cancel()
+					if releaseErr != nil {
+						return jobdb.JobHandle{}, errors.Join(err, releaseErr)
+					}
 					if err == nil && open {
 						return tail.Cell.Handle(tail.JobKey, tail.GoalID), nil
 					}
 					if err != nil && !errors.Is(err, jobdb.ErrConflict) {
 						return jobdb.JobHandle{}, err
-					}
-					if releaseErr != nil {
-						return jobdb.JobHandle{}, releaseErr
 					}
 					continue
 				}
@@ -247,6 +252,7 @@ func appendBackoff(ctx context.Context, attempt int) error {
 }
 func (s AppendService) appendable(ctx context.Context, key jobdb.JobKey, max int) (int64, bool, error) {
 	n, err := s.Chapters.Count(ctx, ChapterLogKey{key})
+	err = jobdb.ClassifyRuntimeIO(err, "count_append_chapters", &key, nil)
 	if err != nil {
 		return 0, false, err
 	}
@@ -254,10 +260,13 @@ func (s AppendService) appendable(ctx context.Context, key jobdb.JobKey, max int
 		return n, false, nil
 	}
 	encoded, err := s.Chapters.Get(ctx, ChapterLogKey{key}, n-1)
+	ordinal := n - 1
+	err = jobdb.ClassifyRuntimeIO(err, "get_append_chapter", &key, &ordinal)
 	if err != nil {
 		return 0, false, err
 	}
 	ch, err := DecodeChapter(encoded)
+	err = jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_append_chapter", &key, &encoded.Ordinal)
 	if err != nil {
 		return 0, false, err
 	}
@@ -273,6 +282,7 @@ func (s AppendService) create(ctx context.Context, req jobdb.StartOrAppendJobReq
 	// Read before preparing the template. A loser must recover the winner's facts,
 	// including its schema, availability, initial client payload and artifacts.
 	existing, err := s.Chapters.Get(ctx, ChapterLogKey{key}, 0)
+	err = jobdb.ClassifyRuntimeIO(err, "get_append_chapter", &key, nil)
 	if err == nil {
 		return s.publish(ctx, key, existing, false)
 	}
@@ -362,18 +372,21 @@ func (s AppendService) create(ctx context.Context, req jobdb.StartOrAppendJobReq
 	}
 	if err = s.Chapters.Create(ctx, ChapterLogKey{key}, encoded); err != nil {
 		if !errors.Is(err, jobdb.ErrConflict) {
-			return jobdb.JobHandle{}, false, err
+			return jobdb.JobHandle{}, false, jobdb.ClassifyRuntimeIO(err, "create_append_job", &key, nil)
 		}
 		existing, err = s.Chapters.Get(ctx, ChapterLogKey{key}, 0)
+		err = jobdb.ClassifyRuntimeIO(err, "get_append_chapter", &key, nil)
 		if errors.Is(err, jobdb.ErrChapterNotFound) || errors.Is(err, jobdb.ErrJobNotFound) {
 			// Some logs allocate their container before chapter zero. Recover an
 			// empty container by competing on ordinal zero, the actual arbiter.
 			err = s.Chapters.Append(ctx, ChapterLogKey{key}, encoded)
+			err = jobdb.ClassifyRuntimeIO(err, "create_append_job", &key, nil)
 			if err == nil {
 				return accept()
 			}
 			if errors.Is(err, jobdb.ErrConflict) {
 				existing, err = s.Chapters.Get(ctx, ChapterLogKey{key}, 0)
+				err = jobdb.ClassifyRuntimeIO(err, "get_append_chapter", &key, nil)
 			}
 		}
 		if err != nil {
@@ -385,6 +398,7 @@ func (s AppendService) create(ctx context.Context, req jobdb.StartOrAppendJobReq
 }
 func (s AppendService) publish(ctx context.Context, key jobdb.JobKey, encoded EncodedChapter, created bool) (jobdb.JobHandle, bool, error) {
 	ch, err := DecodeChapter(encoded)
+	err = jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_append_chapter", &key, &encoded.Ordinal)
 	if err != nil {
 		return jobdb.JobHandle{}, false, err
 	}
@@ -401,11 +415,13 @@ func (s AppendService) publish(ctx context.Context, key jobdb.JobKey, encoded En
 	}
 	// A stable descriptor intentionally excludes the caller's template and parent.
 	prepared, err := s.Scheduler.PrepareJob(ctx, JobPreparation{Key: key, Cell: facts.Cell.Cell, CellRepo: facts.Cell.CellRepo, Target: facts.Cell, Descriptor: fmt.Sprintf(`{"kind":"start-or-append","id":%q}`, key.JobId)})
+	err = jobdb.ClassifyRuntimeIO(err, "prepare_append_job", &key, nil)
 	if err != nil {
 		return jobdb.JobHandle{}, false, err
 	}
 	facts.GoalID = prepared.GoalID
 	stored, err := s.Scheduler.CreateJob(ctx, facts)
+	err = jobdb.ClassifyRuntimeIO(err, "publish_append_job", &key, nil)
 	if err != nil {
 		return jobdb.JobHandle{}, false, err
 	}

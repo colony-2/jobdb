@@ -255,11 +255,11 @@ func (r *Runtime) GetDependencyWait(ctx context.Context, key jobdb.DependencyWai
 func (r *Runtime) goalHandle(ctx context.Context, key jobdb.JobKey) (jobdb.JobHandle, error) {
 	j, err := r.loadJobRow(ctxOrBackground(ctx), key)
 	if err != nil {
-		return jobdb.JobHandle{}, err
+		return jobdb.JobHandle{}, submissionStorageError(err, "get_submitted_job", key, nil)
 	}
 	var name string
 	if err = r.db.QueryRowContext(ctxOrBackground(ctx), "SELECT name FROM jobdb_cells WHERE tenant_id=? AND cell_id=?", key.TenantId, j.cell.CellID).Scan(&name); err != nil {
-		return jobdb.JobHandle{}, err
+		return jobdb.JobHandle{}, submissionStorageError(err, "get_submitted_job", key, nil)
 	}
 	j.cell.Cell = name
 	return j.cell.Handle(key, j.goalID), nil

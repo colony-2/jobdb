@@ -53,7 +53,7 @@ func (r *Runtime) GetJob(ctx context.Context, key jobdb.JobKey) (jobdb.JobInfo, 
 	}
 	chapter, err := DecodeChapter(encoded)
 	if err != nil {
-		return jobdb.JobInfo{}, err
+		return jobdb.JobInfo{}, jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_outcome", &key, &encoded.Ordinal)
 	}
 	_, kind, payload, err := runtimecodec.ChapterBodyToWire(chapter.Body)
 	if err != nil {
@@ -82,14 +82,20 @@ func (r *Runtime) GetJob(ctx context.Context, key jobdb.JobKey) (jobdb.JobInfo, 
 		Kind:           kind,
 	}
 	var dataErr error
+	decodeOutcome := func(target any, makeError func() error) error {
+		if err := json.Unmarshal(payload, target); err != nil {
+			return jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_outcome", &key, &chapter.Ordinal)
+		}
+		return makeError()
+	}
 	switch kind {
 	case runtimecodec.PayloadKindApp:
 	case runtimecodec.PayloadKindTimeout:
 		var value jobdb.TimeoutPayload
-		dataErr = decodeOutcomeError(payload, &value, func() error { return &jobdb.TimeoutError{Payload: value} })
+		dataErr = decodeOutcome(&value, func() error { return &jobdb.TimeoutError{Payload: value} })
 	case runtimecodec.PayloadKindAppError:
 		var value jobdb.AppErrorPayload
-		dataErr = decodeOutcomeError(payload, &value, func() error {
+		dataErr = decodeOutcome(&value, func() error {
 			if err, ok := jobdb.GoalFailureFromAppError(value); ok {
 				return err
 			}
@@ -97,19 +103,15 @@ func (r *Runtime) GetJob(ctx context.Context, key jobdb.JobKey) (jobdb.JobInfo, 
 		})
 	case runtimecodec.PayloadKindSystemError:
 		var value jobdb.SystemErrorPayload
-		dataErr = decodeOutcomeError(payload, &value, func() error { return &jobdb.SystemError{Payload: value} })
+		dataErr = decodeOutcome(&value, func() error { return &jobdb.SystemError{Payload: value} })
 	default:
-		dataErr = fmt.Errorf("unsupported chapter payload kind %q", kind)
+		dataErr = jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("unsupported chapter payload kind %q", kind), jobdb.ExecutionInfrastructureDurableDecode, "decode_outcome", &key, &chapter.Ordinal)
+	}
+	if jobdb.IsExecutionInfrastructureError(dataErr) {
+		dataErr = jobdb.ClassifyExecutionInfrastructure(dataErr, jobdb.ExecutionInfrastructureDurableDecode, "decode_outcome", &key, &chapter.Ordinal)
 	}
 	info.Data = &runtimeJobData{taskData: data, err: dataErr}
 	return info, nil
-}
-
-func decodeOutcomeError(raw json.RawMessage, target any, makeError func() error) error {
-	if err := json.Unmarshal(raw, target); err != nil {
-		return err
-	}
-	return makeError()
 }
 
 type runtimeJobData struct {
@@ -137,6 +139,9 @@ func (d *runtimeJobData) GetDataOrPanic() jobdb.Data {
 }
 
 func (d *runtimeJobData) GetArtifacts() ([]jobdb.Artifact, error) {
+	if jobdb.IsExecutionInfrastructureError(d.err) {
+		return nil, d.err
+	}
 	if d.taskData == nil {
 		return nil, d.err
 	}

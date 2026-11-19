@@ -33,7 +33,7 @@ func (r *Runtime) reconcileExistingSubmitJob(ctx context.Context, req jobdb.Subm
 		return jobdb.JobHandle{}, true, err
 	}
 	if err := r.ensureSubmittedJobRecord(ctx, jobKey, req.Job.JobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, req.Job.AvailableAt, req.Job.ClientPayloadUpdate); err != nil {
-		return jobdb.JobHandle{}, true, err
+		return jobdb.JobHandle{}, true, submissionStorageError(err, "publish_job", jobKey, nil)
 	}
 	if req.Job.GoalID != "" {
 		prep, err := goalstate.SubmitPreparation(ctx, req, parentJobID)
@@ -41,6 +41,7 @@ func (r *Runtime) reconcileExistingSubmitJob(ctx context.Context, req jobdb.Subm
 			return jobdb.JobHandle{}, true, err
 		}
 		published, err := r.PrepareJob(ctx, prep)
+		err = submissionStorageError(err, "publish_job", jobKey, nil)
 		if err != nil {
 			return jobdb.JobHandle{}, true, err
 		}
@@ -66,7 +67,7 @@ func (r *Runtime) reconcileExistingRestartJob(ctx context.Context, req jobdb.Sub
 		return jobdb.JobHandle{}, true, err
 	}
 	if err := r.ensureSubmittedJobRecord(ctx, jobKey, jobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, nil, req.Job.ClientPayloadUpdate); err != nil {
-		return jobdb.JobHandle{}, true, err
+		return jobdb.JobHandle{}, true, submissionStorageError(err, "publish_restart", jobKey, nil)
 	}
 	handle, err := r.goalHandle(ctx, jobKey)
 	return handle, true, err
@@ -75,6 +76,8 @@ func (r *Runtime) reconcileExistingRestartJob(ctx context.Context, req jobdb.Sub
 func (r *Runtime) loadExistingStartChapter(ctx context.Context, jobKey jobdb.JobKey) (story.Chapter, bool, error) {
 	sctx := chapterContext(ctx)
 	chapter, err := r.chapterStore.Chapter(sctx, storyKeyForJob(jobKey), 0)
+	zero := int64(0)
+	err = submissionStorageError(err, "get_submitted_chapter", jobKey, &zero)
 	if err == nil {
 		return chapter, true, nil
 	}
@@ -91,6 +94,7 @@ func (r *Runtime) loadExistingStartChapter(ctx context.Context, jobKey jobdb.Job
 
 func (r *Runtime) storyExists(ctx context.Context, jobKey jobdb.JobKey) (bool, error) {
 	_, err := r.chapterStore.Story(chapterContext(ctx), storyKeyForJob(jobKey))
+	err = submissionStorageError(err, "get_submitted_story", jobKey, nil)
 	if err == nil {
 		return true, nil
 	}
@@ -106,6 +110,7 @@ func (r *Runtime) compareRestartStoryPrefix(ctx context.Context, job jobdb.Submi
 	sctx := chapterContext(ctx)
 	for ordinal := int64(0); ordinal <= job.LastStepToKeep; ordinal++ {
 		sourceChapter, err := r.chapterStore.Chapter(sctx, sourceKey, ordinal)
+		err = submissionStorageError(err, "get_restart_chapter", job.PriorJobKey, &ordinal)
 		if err != nil {
 			if errors.Is(err, core.ErrNotFound) {
 				return jobdb.NewExistingJobMismatchError(fmt.Sprintf("source job %s is missing chapter %d required for restart", job.PriorJobKey, ordinal))
@@ -113,6 +118,7 @@ func (r *Runtime) compareRestartStoryPrefix(ctx context.Context, job jobdb.Submi
 			return err
 		}
 		targetChapter, err := r.chapterStore.Chapter(sctx, targetKey, ordinal)
+		err = submissionStorageError(err, "get_restart_chapter", targetJobKey, &ordinal)
 		if err != nil {
 			if errors.Is(err, core.ErrNotFound) {
 				return jobdb.NewExistingJobMismatchError(fmt.Sprintf("job %s is missing copied restart chapter %d", targetJobKey, ordinal))
@@ -129,6 +135,7 @@ func (r *Runtime) compareRestartStoryPrefix(ctx context.Context, job jobdb.Submi
 	}
 	nextOrdinal := job.LastStepToKeep + 1
 	targetNext, err := r.chapterStore.Chapter(sctx, targetKey, nextOrdinal)
+	err = submissionStorageError(err, "get_restart_chapter", targetJobKey, &nextOrdinal)
 	switch {
 	case errors.Is(err, core.ErrNotFound):
 		if extra.Present {

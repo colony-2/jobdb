@@ -89,6 +89,7 @@ type ExecutionLease interface {
 	ClientPayloadRevision() int64
 	ExecutionState() ExecutionState
 	KeepAlive(ctx context.Context) error
+	// StopKeepAlive cancels and joins renewal owned by KeepAlive before returning.
 	StopKeepAlive()
 	Complete(ctx context.Context, req CompleteExecutionRequest) error
 	Reschedule(ctx context.Context, req RescheduleExecutionRequest) error

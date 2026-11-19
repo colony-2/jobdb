@@ -65,7 +65,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 	if req.Job.JobID != "" {
 		resp, err := r.client.PutJobWithResponse(ctx, req.Job.TenantId, req.Job.JobID, body)
 		if err != nil {
-			return jobdb.JobHandle{}, err
+			return jobdb.JobHandle{}, jobdb.ClassifyRuntimeIO(err, "http_response", nil, nil)
 		}
 		if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 			return jobdb.JobHandle{}, explicitJobCreateError("put job", resp.StatusCode(), resp.Body, resp.JSON409)
@@ -74,7 +74,7 @@ func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jo
 	}
 	resp, err := r.client.SubmitJobWithResponse(ctx, req.Job.TenantId, body)
 	if err != nil {
-		return jobdb.JobHandle{}, err
+		return jobdb.JobHandle{}, jobdb.ClassifyRuntimeIO(err, "http_response", nil, nil)
 	}
 	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 		return jobdb.JobHandle{}, responseError("submit job", resp.StatusCode(), resp.Body, nil)
@@ -133,7 +133,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 	if req.Job.JobID != "" {
 		resp, err := r.client.PutRestartJobWithResponse(ctx, req.Job.PriorJobKey.TenantId, req.Job.JobID, body)
 		if err != nil {
-			return jobdb.JobHandle{}, err
+			return jobdb.JobHandle{}, jobdb.ClassifyRuntimeIO(err, "http_response", nil, nil)
 		}
 		if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 			return jobdb.JobHandle{}, explicitJobCreateError("put restart job", resp.StatusCode(), resp.Body, resp.JSON409)
@@ -142,7 +142,7 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 	}
 	resp, err := r.client.SubmitRestartJobWithResponse(ctx, req.Job.PriorJobKey.TenantId, body)
 	if err != nil {
-		return jobdb.JobHandle{}, err
+		return jobdb.JobHandle{}, jobdb.ClassifyRuntimeIO(err, "http_response", nil, nil)
 	}
 	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 		return jobdb.JobHandle{}, responseError("submit restart job", resp.StatusCode(), resp.Body, nil)
@@ -232,7 +232,7 @@ func (r *Runtime) pollWorkOnce(ctx context.Context, req jobdb.PollWorkRequest) (
 	}
 	resp, err := r.client.PollWorkWithResponse(ctx, body)
 	if err != nil {
-		return nil, err
+		return nil, jobdb.ClassifyRuntimeIO(err, "http_response", nil, nil)
 	}
 	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 		return nil, responseError("poll work", resp.StatusCode(), resp.Body, nil)
@@ -292,21 +292,21 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	}
 	resp, err := r.client.CommitChapterIfWaitingWithResponse(ctx, req.JobKey.TenantId, req.JobKey.JobId, req.OutputOrdinal, body)
 	if err != nil {
-		return err
+		return jobdb.ClassifyRuntimeIO(err, "complete_task_if_waiting", &req.JobKey, &req.OutputOrdinal)
 	}
 	if resp.StatusCode() == http.StatusNoContent {
 		return nil
 	}
-	return responseErrorWithConflict("complete task if waiting", resp.StatusCode(), resp.Body, jobdb.ErrJobNotFound, jobdb.ErrConflict)
+	return responseErrorWithConflict("complete task if waiting", resp.StatusCode(), resp.Body, jobdb.ErrJobNotFound, jobdb.ErrConflict, &req.JobKey, &req.OutputOrdinal)
 }
 
 func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInfo, error) {
 	resp, err := r.client.GetJobWithResponse(ctx, jobKey.TenantId, jobKey.JobId)
 	if err != nil {
-		return jobdb.JobInfo{}, err
+		return jobdb.JobInfo{}, jobdb.ClassifyRuntimeIO(err, "get_job", &jobKey, nil)
 	}
 	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
-		return jobdb.JobInfo{}, responseError("get job", resp.StatusCode(), resp.Body, jobdb.ErrJobNotFound)
+		return jobdb.JobInfo{}, responseErrorAt("get job", resp.StatusCode(), resp.Body, jobdb.ErrJobNotFound, &jobKey, nil)
 	}
 	return jobInfoFromAPI(r, jobKey, *resp.JSON200)
 }
@@ -382,7 +382,7 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 
 	resp, err := r.client.ListJobsWithResponse(ctx, req.TenantIds[0], body)
 	if err != nil {
-		return jobdb.ListJobsResponse{}, err
+		return jobdb.ListJobsResponse{}, jobdb.ClassifyRuntimeIO(err, "http_response", nil, nil)
 	}
 	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 		return jobdb.ListJobsResponse{}, responseError("list jobs", resp.StatusCode(), resp.Body, nil)
@@ -409,7 +409,7 @@ func (r *Runtime) RegisterJobSchema(ctx context.Context, req jobdb.RegisterJobSc
 	}
 	resp, err := r.client.RegisterJobSchemaWithResponse(ctx, req.TenantId, body)
 	if err != nil {
-		return jobdb.JobSchemaInfo{}, err
+		return jobdb.JobSchemaInfo{}, jobdb.ClassifyRuntimeIO(err, "http_response", nil, nil)
 	}
 	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 		return jobdb.JobSchemaInfo{}, responseError("register job schema", resp.StatusCode(), resp.Body, jobdb.ErrConflict)
@@ -423,7 +423,7 @@ func (r *Runtime) GetJobSchema(ctx context.Context, key jobdb.JobSchemaKey) (job
 	}
 	resp, err := r.client.GetJobSchemaWithResponse(ctx, key.TenantId, runtimeapi.JobSchemaHash(key.SchemaHash))
 	if err != nil {
-		return jobdb.JobSchemaInfo{}, err
+		return jobdb.JobSchemaInfo{}, jobdb.ClassifyRuntimeIO(err, "http_response", nil, nil)
 	}
 	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 		return jobdb.JobSchemaInfo{}, responseError("get job schema", resp.StatusCode(), resp.Body, jobdb.ErrJobSchemaNotFound)
@@ -442,7 +442,7 @@ func (r *Runtime) ListJobSchemas(ctx context.Context, req jobdb.ListJobSchemasRe
 	}
 	resp, err := r.client.ListJobSchemasWithResponse(ctx, req.TenantId, params)
 	if err != nil {
-		return jobdb.ListJobSchemasResponse{}, err
+		return jobdb.ListJobSchemasResponse{}, jobdb.ClassifyRuntimeIO(err, "http_response", nil, nil)
 	}
 	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 		return jobdb.ListJobSchemasResponse{}, responseError("list job schemas", resp.StatusCode(), resp.Body, nil)
@@ -462,7 +462,7 @@ func (r *Runtime) ArchiveJobSchema(ctx context.Context, key jobdb.JobSchemaKey) 
 	}
 	resp, err := r.client.ArchiveJobSchemaWithResponse(ctx, key.TenantId, runtimeapi.JobSchemaHash(key.SchemaHash))
 	if err != nil {
-		return jobdb.JobSchemaInfo{}, err
+		return jobdb.JobSchemaInfo{}, jobdb.ClassifyRuntimeIO(err, "http_response", nil, nil)
 	}
 	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
 		return jobdb.JobSchemaInfo{}, responseError("archive job schema", resp.StatusCode(), resp.Body, jobdb.ErrJobSchemaNotFound)
@@ -476,12 +476,13 @@ func (r *Runtime) GetChapter(ctx context.Context, ref jobdb.ChapterRef) (jobdb.C
 	}
 	resp, err := r.client.GetChapterWithResponse(ctx, ref.JobKey.TenantId, ref.JobKey.JobId, ref.Ordinal)
 	if err != nil {
-		return jobdb.Chapter{}, err
+		return jobdb.Chapter{}, jobdb.ClassifyRuntimeIO(err, "get_chapter", &ref.JobKey, &ref.Ordinal)
 	}
 	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
-		return jobdb.Chapter{}, responseError("get chapter", resp.StatusCode(), resp.Body, jobdb.ErrChapterNotFound)
+		return jobdb.Chapter{}, responseErrorAt("get chapter", resp.StatusCode(), resp.Body, jobdb.ErrChapterNotFound, &ref.JobKey, &ref.Ordinal)
 	}
-	return fromAPIStoredChapter(*resp.JSON200)
+	ch, err := fromAPIStoredChapter(*resp.JSON200)
+	return ch, jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_chapter_response", &ref.JobKey, &ref.Ordinal)
 }
 
 func (r *Runtime) ListChapters(ctx context.Context, req jobdb.ListChaptersRequest) ([]jobdb.Chapter, error) {
@@ -497,16 +498,17 @@ func (r *Runtime) ListChapters(ctx context.Context, req jobdb.ListChaptersReques
 	}
 	resp, err := r.client.ListChaptersWithResponse(ctx, req.JobKey.TenantId, req.JobKey.JobId, params)
 	if err != nil {
-		return nil, err
+		return nil, jobdb.ClassifyRuntimeIO(err, "list_chapters", &req.JobKey, nil)
 	}
 	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
-		return nil, responseError("list chapters", resp.StatusCode(), resp.Body, jobdb.ErrChapterNotFound)
+		return nil, responseErrorAt("list chapters", resp.StatusCode(), resp.Body, jobdb.ErrChapterNotFound, &req.JobKey, nil)
 	}
 	out := make([]jobdb.Chapter, 0, len(resp.JSON200.Chapters))
 	for _, chapter := range resp.JSON200.Chapters {
 		converted, err := fromAPIStoredChapter(chapter)
 		if err != nil {
-			return nil, err
+			n := int64(chapter.Ordinal)
+			return nil, jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_chapter_response", &req.JobKey, &n)
 		}
 		out = append(out, converted)
 	}
@@ -514,6 +516,23 @@ func (r *Runtime) ListChapters(ctx context.Context, req jobdb.ListChaptersReques
 }
 
 func (r *Runtime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) error {
+	// Delegated writes retain their existing server-side authorization precedence.
+	if !isDelegationToken(req.LeaseToken) {
+		var record []byte
+		switch body := req.Chapter.Body.(type) {
+		case jobdb.ExecutionChapter:
+			record = body.Record
+		case *jobdb.ExecutionChapter:
+			if body != nil {
+				record = body.Record
+			}
+		}
+		if record != nil {
+			if _, err := jobdb.DecodeExecutionRecord(record); err != nil {
+				return err
+			}
+		}
+	}
 	if req.LeaseID == "" {
 		return fmt.Errorf("leaseId is required")
 	}
@@ -524,6 +543,7 @@ func (r *Runtime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) e
 	if err != nil {
 		return err
 	}
+	ctx = withRequestInfrastructureSource(ctx, req.Ref.JobKey, &req.Ref.Ordinal)
 	resp, err := r.client.AddChapterWithLeaseWithResponse(
 		ctx,
 		req.Ref.JobKey.TenantId,
@@ -533,27 +553,27 @@ func (r *Runtime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) e
 		body,
 	)
 	if err != nil {
-		return err
+		return jobdb.ClassifyRuntimeIO(err, "put_chapter", &req.Ref.JobKey, &req.Ref.Ordinal)
 	}
 	if resp.StatusCode() == http.StatusNoContent {
 		return nil
 	}
-	return responseErrorWithConflict("put chapter", resp.StatusCode(), resp.Body, jobdb.ErrJobNotFound, jobdb.ErrConflict)
+	return responseErrorWithConflict("put chapter", resp.StatusCode(), resp.Body, jobdb.ErrJobNotFound, jobdb.ErrConflict, &req.Ref.JobKey, &req.Ref.Ordinal)
 }
 
 func (r *Runtime) OpenArtifact(ctx context.Context, ref jobdb.ArtifactRef) (jobdb.ArtifactReader, error) {
 	resp, err := r.raw.OpenArtifact(ctx, ref.JobKey.TenantId, ref.JobKey.JobId, ref.Ordinal, ref.Name)
 	if err != nil {
-		return nil, err
+		return nil, jobdb.ClassifyRuntimeIO(err, "open_artifact", &ref.JobKey, &ref.Ordinal)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, responseError("open artifact", resp.StatusCode, body, nil)
+		return nil, responseErrorAt("open artifact", resp.StatusCode, body, nil, &ref.JobKey, &ref.Ordinal)
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, jobdb.ClassifyRuntimeIO(err, "read_artifact_response", &ref.JobKey, &ref.Ordinal)
 	}
 	return &remoteArtifactReader{
 		name: ref.Name,
@@ -647,6 +667,7 @@ func (l *remoteExecutionLease) Complete(ctx context.Context, req jobdb.CompleteE
 		Chapter:             chapterWrite.Chapter,
 		ArtifactUploads:     chapterWrite.ArtifactUploads,
 	}
+	ctx = withRequestInfrastructureSource(ctx, l.jobKey, &req.Chapter.Ordinal)
 	resp, err := l.runtime.client.CompleteJobWithLeaseWithResponse(
 		ctx,
 		l.jobKey.TenantId,
@@ -656,12 +677,12 @@ func (l *remoteExecutionLease) Complete(ctx context.Context, req jobdb.CompleteE
 		body,
 	)
 	if err != nil {
-		return err
+		return jobdb.ClassifyRuntimeIO(err, "complete", &l.jobKey, &req.Chapter.Ordinal)
 	}
 	if resp.StatusCode() == http.StatusNoContent {
 		return nil
 	}
-	return responseError("complete job with lease", resp.StatusCode(), resp.Body, jobdb.ErrExecutionLeaseLost)
+	return responseErrorAt("complete job with lease", resp.StatusCode(), resp.Body, jobdb.ErrExecutionLeaseLost, &l.jobKey, &req.Chapter.Ordinal)
 }
 
 func optionalArtifactWrites(items []runtimeapi.ArtifactWrite) *[]runtimeapi.ArtifactWrite {
@@ -716,12 +737,12 @@ func (l *remoteExecutionLease) Reschedule(ctx context.Context, req jobdb.Resched
 		body,
 	)
 	if err != nil {
-		return err
+		return jobdb.ClassifyRuntimeIO(err, "reschedule", &l.jobKey, nil)
 	}
 	if resp.StatusCode() == http.StatusNoContent {
 		return nil
 	}
-	return responseError("reschedule job with lease", resp.StatusCode(), resp.Body, jobdb.ErrExecutionLeaseLost)
+	return responseErrorAt("reschedule job with lease", resp.StatusCode(), resp.Body, jobdb.ErrExecutionLeaseLost, &l.jobKey, nil)
 }
 
 func (l *remoteExecutionLease) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {
@@ -873,6 +894,20 @@ func cellResponseError(status int, body []byte) error {
 }
 
 func responseError(operation string, status int, body []byte, sentinel error) error {
+	return responseErrorAt(operation, status, body, sentinel, nil, nil)
+}
+
+// Request context belongs to locally constructed fallbacks only. A valid typed
+// server error may identify a different source, or explicitly leave it unknown.
+func responseErrorAt(operation string, status int, body []byte, sentinel error, key *jobdb.JobKey, ordinal *int64) error {
+	if status == http.StatusInternalServerError {
+		if err := infrastructureResponseError(body); err != nil {
+			return err
+		}
+	}
+	if status >= 500 || status >= 200 && status < 300 {
+		return jobdb.ClassifyExecutionInfrastructure(&jobdb.RemoteExecutionCause{Code: "runtime_response", Message: "runtime response unavailable or malformed"}, jobdb.ExecutionInfrastructureRuntimeIO, operation, key, ordinal)
+	}
 	var structured runtimeapi.ErrorResponse
 	if status == http.StatusNotFound && json.Unmarshal(body, &structured) == nil && structured.Code == runtimeapi.ErrorCodeJobSchemaNotFound {
 		return fmt.Errorf("%w: %s", jobdb.ErrJobSchemaNotFound, structured.Message)
@@ -936,7 +971,15 @@ func responseError(operation string, status int, body []byte, sentinel error) er
 	return fmt.Errorf("%s: http %d: %s", operation, status, message)
 }
 
-func responseErrorWithConflict(operation string, status int, body []byte, notFoundSentinel error, conflictSentinel error) error {
+func responseErrorWithConflict(operation string, status int, body []byte, notFoundSentinel error, conflictSentinel error, key *jobdb.JobKey, ordinal *int64) error {
+	if status == http.StatusInternalServerError {
+		if err := infrastructureResponseError(body); err != nil {
+			return err
+		}
+	}
+	if status >= 500 || status >= 200 && status < 300 {
+		return jobdb.ClassifyExecutionInfrastructure(&jobdb.RemoteExecutionCause{Code: "runtime_response", Message: "runtime response unavailable or malformed"}, jobdb.ExecutionInfrastructureRuntimeIO, operation, key, ordinal)
+	}
 	if err := cellResponseError(status, body); err != nil {
 		return err
 	}
@@ -986,6 +1029,9 @@ func responseErrorWithConflict(operation string, status int, body []byte, notFou
 }
 
 func explicitJobCreateError(operation string, status int, body []byte, conflict *runtimeapi.ErrorResponse) error {
+	if status >= 500 || status >= 200 && status < 300 {
+		return responseError(operation, status, body, nil)
+	}
 	if err := cellResponseError(status, body); err != nil {
 		return err
 	}

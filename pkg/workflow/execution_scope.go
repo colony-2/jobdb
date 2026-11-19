@@ -124,11 +124,16 @@ func (c *executionContext) invoke(fn func() (TaskData, error)) (TaskData, error)
 	out, err := func() (out TaskData, err error) {
 		defer func() {
 			if p := recover(); p != nil {
-				err = panicToAppError(p)
+				if cause, ok := p.(error); ok && jobdb.IsExecutionInfrastructureError(cause) {
+					err = cause
+				} else {
+					err = panicToAppError(p)
+				}
 			}
 		}()
 		return fn()
 	}()
+	c.run.r.guard.observe(err)
 	if err := c.checkInvocation(); err != nil {
 		return nil, err
 	}
@@ -148,11 +153,16 @@ func (c *executionContext) invokeAsync(fn func() (TaskData, error)) (TaskData, e
 		returned := false
 		defer func() {
 			if p := recover(); p != nil {
-				err = panicToAppError(p)
+				if cause, ok := p.(error); ok && jobdb.IsExecutionInfrastructureError(cause) {
+					err = cause
+				} else {
+					err = panicToAppError(p)
+				}
 			}
 			if !returned && err == nil {
 				err = panicToAppError("callback exited without returning")
 			}
+			c.run.r.guard.observe(err)
 			result <- taskResult{out, err}
 		}()
 		out, err = fn()
@@ -172,6 +182,10 @@ func (c *executionContext) finishBody(kind, id string, out TaskData, bodyErr err
 	return c.finishOutcome(kind, id, out, bodyErr, input, false, retryPolicies...)
 }
 func (c *executionContext) finishOutcome(kind, id string, out TaskData, bodyErr error, input *jobdb.ExecutionSnapshot, deferred bool, retryPolicies ...RetryPolicy) (jobdb.ExecutionRecord, error) {
+	c.run.r.guard.observe(bodyErr)
+	if err := c.run.r.guard.failure(); err != nil {
+		return jobdb.ExecutionRecord{}, err
+	}
 	if bodyErr != nil && isExecutionControl(bodyErr) && !errors.Is(bodyErr, errRecordedBoundary) {
 		return jobdb.ExecutionRecord{}, bodyErr
 	}
@@ -192,7 +206,7 @@ func (c *executionContext) finishOutcome(kind, id string, out TaskData, bodyErr 
 	}
 	rec, err := recordResult(c.ctx, out, bodyErr)
 	if err != nil {
-		return jobdb.ExecutionRecord{}, err
+		return jobdb.ExecutionRecord{}, c.run.r.guard.observe(err)
 	}
 	rec.Input = input
 	if bodyErr != nil && len(retryPolicies) > 0 {
@@ -325,6 +339,10 @@ func (c *executionContext) DoScope(site string, opts ScopeOptions, body func(Exe
 	}
 }
 func (c *executionContext) handleFailure(id string, total time.Time, p executionPolicy, rules []CatchRule, attempt int, out TaskData, bodyErr error, retryable *bool) (TaskData, error, bool, error) {
+	c.run.r.guard.observe(bodyErr)
+	if err := c.run.r.guard.failure(); err != nil {
+		return nil, nil, false, err
+	}
 	if budget, ok := c.run.continuationBudget(id); ok {
 		total = budget.TotalDeadline
 		p.Retry.MaximumAttempts += int32(budget.Attempt - 1)

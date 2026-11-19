@@ -59,6 +59,8 @@ type ToyEngine struct {
 	mu                                sync.Mutex
 	jobRecords                        map[jobdb.JobKey]*jobRecord
 	schemas                           map[jobdb.JobSchemaKey]*toySchemaRecord
+	runtimeProvenance                 map[jobdb.JobKey]map[int64][]byte
+	runtimeProvenanceCeilings         map[jobdb.JobKey]int64
 	runtimeChapters                   map[jobdb.JobKey]map[int64]jobdb.Chapter
 	runtimeArtifacts                  map[runtimeArtifactKey][]byte
 	idGenerator                       JobIDGenerator
@@ -270,10 +272,11 @@ func metadataMatches(raw json.RawMessage, predicates []normalizedMetadataPredica
 // NewToyEngine constructs the in-memory state backing the toy runtime.
 func NewToyEngine(opts ...Option) *ToyEngine {
 	engine := &ToyEngine{
-		jobRecords:       make(map[jobdb.JobKey]*jobRecord),
-		schemas:          make(map[jobdb.JobSchemaKey]*toySchemaRecord),
-		runtimeChapters:  make(map[jobdb.JobKey]map[int64]jobdb.Chapter),
-		runtimeArtifacts: make(map[runtimeArtifactKey][]byte),
+		jobRecords:        make(map[jobdb.JobKey]*jobRecord),
+		schemas:           make(map[jobdb.JobSchemaKey]*toySchemaRecord),
+		runtimeProvenance: make(map[jobdb.JobKey]map[int64][]byte),
+		runtimeChapters:   make(map[jobdb.JobKey]map[int64]jobdb.Chapter),
+		runtimeArtifacts:  make(map[runtimeArtifactKey][]byte),
 		idGenerator: func(tenantId string) (jobdb.JobKey, error) {
 			return jobdb.JobKey{TenantId: tenantId, JobId: ksuid.New().String()}, nil
 		},

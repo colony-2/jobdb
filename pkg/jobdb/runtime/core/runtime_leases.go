@@ -115,6 +115,8 @@ type executionLease struct {
 	runtime  *Runtime
 	snapshot LeaseSnapshot
 
+	keepAliveMu     sync.Mutex
+	keepAliveDone   chan struct{}
 	mu              sync.Mutex
 	expiresAt       time.Time
 	keepAliveCancel context.CancelFunc
@@ -167,6 +169,8 @@ func (l *executionLease) KeepAlive(ctx context.Context) error {
 	if l == nil || l.runtime == nil {
 		return fmt.Errorf("runtime is required for lease keepalive")
 	}
+	l.keepAliveMu.Lock()
+	defer l.keepAliveMu.Unlock()
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if !l.expiresAt.After(l.runtime.now()) {
@@ -184,7 +188,9 @@ func (l *executionLease) KeepAlive(ctx context.Context) error {
 	if interval < time.Second {
 		interval = time.Second
 	}
-	go l.renewUntilStopped(keepaliveCtx, interval)
+	done := make(chan struct{})
+	l.keepAliveDone = done
+	go func() { defer close(done); l.renewUntilStopped(keepaliveCtx, interval) }()
 	return nil
 }
 
@@ -217,12 +223,16 @@ func (l *executionLease) StopKeepAlive() {
 	if l == nil {
 		return
 	}
+	l.keepAliveMu.Lock()
+	defer l.keepAliveMu.Unlock()
 	l.mu.Lock()
 	cancel := l.keepAliveCancel
+	done := l.keepAliveDone
 	l.keepAliveCancel = nil
 	l.mu.Unlock()
 	if cancel != nil {
 		cancel()
+		<-done
 	}
 }
 
@@ -318,7 +328,7 @@ func (l *executionLease) requireCurrent(ctx context.Context) error {
 		return err
 	}
 	_, err := l.runtime.scheduler.ValidateLease(ctx, l.snapshot.Identity)
-	return err
+	return jobdb.ClassifyRuntimeIO(err, "validate_lease", &l.snapshot.Identity.JobKey, nil)
 }
 
 func completionStatus(status string) (string, error) {

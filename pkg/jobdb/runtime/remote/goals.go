@@ -65,10 +65,10 @@ func (r *Runtime) FailGoal(ctx context.Context, req jobdb.FailGoalRequest) (jobd
 func (r *Runtime) GetDependencyWait(ctx context.Context, k jobdb.DependencyWaitKey) (jobdb.DependencyWaitInfo, error) {
 	resp, err := r.client.GetDependencyWaitWithResponse(ctx, k.JobKey.TenantId, k.JobKey.JobId, k.WaitID)
 	if err != nil {
-		return jobdb.DependencyWaitInfo{}, err
+		return jobdb.DependencyWaitInfo{}, jobdb.ClassifyRuntimeIO(err, "get_dependency_wait", &k.JobKey, nil)
 	}
 	if resp.StatusCode() != 200 || resp.JSON200 == nil {
-		return jobdb.DependencyWaitInfo{}, responseError("get dependency wait", resp.StatusCode(), resp.Body, nil)
+		return jobdb.DependencyWaitInfo{}, responseErrorAt("get dependency wait", resp.StatusCode(), resp.Body, nil, &k.JobKey, nil)
 	}
 	out := *resp.JSON200
 	if out.JobKey != k.JobKey || out.WaitID != k.WaitID || len(out.Dependencies) == 0 {

@@ -172,7 +172,7 @@ func encodeChapter(chapter jobdb.Chapter) ([]byte, error) {
 	return cloneBytes(encoded.Payload), nil
 }
 
-func chapterFromStoryChapter(chapter story.Chapter) (jobdb.Chapter, error) {
+func chapterFromStoryChapter(chapter story.Chapter) (result jobdb.Chapter, failure error) {
 	artifacts := make([]jobdb.StoredArtifact, 0, len(chapter.Artifacts()))
 	for _, art := range chapter.Artifacts() {
 		if art == nil {
@@ -192,7 +192,15 @@ func chapterFromStoryChapter(chapter story.Chapter) (jobdb.Chapter, error) {
 	})
 }
 
-func chapterToTaskData(chapter story.Chapter, jobKey jobdb.JobKey) (jobdb.TaskData, error) {
+func chapterToTaskData(chapter story.Chapter, jobKey jobdb.JobKey) (result jobdb.TaskData, failure error) {
+	defer func() {
+		if failure != nil && !jobdb.IsAppError(failure) && !jobdb.IsSystemError(failure) {
+			var timeout jobdb.TimeoutError
+			if !errors.As(failure, &timeout) {
+				failure = jobdb.ClassifyExecutionInfrastructure(failure, jobdb.ExecutionInfrastructureDurableDecode, "decode_outcome", &jobKey, func() *int64 { n := chapter.Ordinal(); return &n }())
+			}
+		}
+	}()
 	artifacts := make([]jobdb.Artifact, 0, len(chapter.Artifacts()))
 	for _, art := range chapter.Artifacts() {
 		artifacts = append(artifacts, fromChapterArtifact(art))

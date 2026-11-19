@@ -605,6 +605,9 @@ func (r *resultFaultRuntime) PutChapter(ctx context.Context, req jobdb.PutChapte
 		r.cancel()
 		return nil
 	}
+	if r.mode == "winner" || r.mode == "conflict" {
+		return jobdb.ErrConflict
+	}
 	return errors.New("injected lost result acknowledgement")
 }
 func TestTaskResultObserverReconciliation(t *testing.T) {
@@ -631,7 +634,7 @@ func TestTaskResultObserverReconciliation(t *testing.T) {
 				require.True(t, rt.fired.Load())
 				require.Len(t, f.all(), 1)
 				switch mode {
-				case "reject", "conflict":
+				case "ack-lost", "reject", "conflict":
 					require.Error(t, err)
 					require.Empty(t, f.all()[0].received())
 				case "cancel-after-accept":

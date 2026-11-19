@@ -598,9 +598,7 @@ func TestExecutionAlternateDispatchRecovery(t *testing.T) {
 				if fault.after {
 					require.True(t, fault.committed.Load(), "fault injection must follow a successful append; run error: %v", err)
 				}
-				if mode == "dispatch-ack-lost" {
-					require.NoError(t, err)
-				} else {
+				{
 					require.Error(t, err)
 					before := executionRecords(t, base, key)
 					_, err = replayExecutionTest(t, base, key, w, fallback)

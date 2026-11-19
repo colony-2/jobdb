@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -73,19 +72,8 @@ type executionContext struct {
 	cache         *workerRunner
 }
 
-func jobdbBuildVersion() string {
-	if info, ok := debug.ReadBuildInfo(); ok {
-		for _, d := range info.Deps {
-			if d.Path == "github.com/colony-2/jobdb" {
-				return d.Version
-			}
-		}
-		if info.Main.Path == "github.com/colony-2/jobdb" && info.Main.Version != "" {
-			return info.Main.Version
-		}
-	}
-	return "(devel)"
-}
+func jobdbBuildVersion() string { return jobdb.CurrentBuildInfo().Version }
+
 func (e *executionRun) control(err error) error {
 	if err == nil {
 		return nil
@@ -96,7 +84,7 @@ func (e *executionRun) control(err error) error {
 }
 func isExecutionControl(err error) bool {
 	var c *executionControlError
-	return errors.As(err, &c) || errors.Is(err, errExecutionSuspended) || errors.Is(err, errRecordedBoundary) || errors.Is(err, context.Canceled) || IsExecutionLeaseLost(err) || isReplayCacheMiss(err) || errors.Is(err, ErrReplayShouldNeverMutate)
+	return jobdb.IsExecutionInfrastructureError(err) || errors.As(err, &c) || errors.Is(err, errExecutionSuspended) || errors.Is(err, errRecordedBoundary) || errors.Is(err, context.Canceled) || IsExecutionLeaseLost(err) || isReplayCacheMiss(err) || errors.Is(err, ErrReplayShouldNeverMutate)
 }
 func (e *executionRun) peekLocked() *executionEvent {
 	for e.cursor < len(e.events) && (e.events[e.cursor].record.Kind == "activation" || e.events[e.cursor].record.Kind == "restart" || e.events[e.cursor].record.Kind == "checkpoint" || e.events[e.cursor].record.Kind == "dependency_binding") {
@@ -118,6 +106,9 @@ func (e *executionRun) peek() *executionEvent {
 	return &copy
 }
 func (c *executionContext) checkLocked() error {
+	if err := c.run.r.guard.failure(); err != nil {
+		return err
+	}
 	if c.run.suspended {
 		return errExecutionSuspended
 	}
@@ -268,6 +259,9 @@ func (c *executionContext) recordEvent(kind, id string, build func() *jobdb.Exec
 		return jobdb.ExecutionRecord{}, err
 	}
 	rec := build()
+	if err := e.r.guard.failure(); err != nil {
+		return jobdb.ExecutionRecord{}, err
+	}
 	rec.Kind = kind
 	rec.ID = id
 	rec.Version = jobdb.ExecutionPatternVersion
@@ -381,6 +375,9 @@ func (e *executionRun) appendLocked(rec *jobdb.ExecutionRecord) error {
 	ref := ChapterRef{JobKey: e.r.jobKey, Ordinal: e.ordinal}
 	err = e.r.runtime.PutChapter(e.r.ctx, PutChapterRequest{LeaseID: e.r.lease.LeaseID(), LeaseToken: executionLeaseToken(e.r.lease), Ref: ref, Chapter: ch, ArtifactUploads: uploads})
 	if err != nil {
+		if jobdb.IsExecutionInfrastructureError(err) {
+			return e.controlLocked(err)
+		}
 		// An uncertain append can have committed, or another valid execution can
 		// have won this exact slot. Never retry a stale event at another ordinal.
 		got, readErr := e.r.runtime.GetChapter(e.r.ctx, ref)
@@ -470,6 +467,9 @@ func snapshotData(s *jobdb.ExecutionSnapshot, runtime WorkflowRuntime, tenant st
 	return d
 }
 func recordResult(ctx context.Context, out TaskData, err error) (*jobdb.ExecutionRecord, error) {
+	if jobdb.IsExecutionInfrastructureError(err) {
+		return nil, err
+	}
 	rec := &jobdb.ExecutionRecord{}
 	if err != nil {
 		raw, kind, e := errorPayloadFromError(err, nil)
@@ -489,6 +489,14 @@ func recordResult(ctx context.Context, out TaskData, err error) (*jobdb.Executio
 func (e *executionRun) resultData(rec jobdb.ExecutionRecord) (TaskData, error) {
 	if rec.ErrorKind != "" {
 		_, err := envelopeToTaskData(chapterEnvelope{PayloadKind: rec.ErrorKind, Payload: rec.Error}, nil)
+		if err != nil && !jobdb.IsAppError(err) && !jobdb.IsSystemError(err) {
+			var timeout TimeoutError
+			if !errors.As(err, &timeout) {
+				ordinal := e.storedRecordOrdinal(rec.Kind, rec.ID)
+				err = e.r.guard.observe(jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_result", &e.r.jobKey, ordinal))
+			}
+		}
+
 		return e.snapshotData(rec.Output), err
 	}
 	return e.snapshotData(rec.Output), nil
@@ -499,13 +507,19 @@ func (c *executionContext) ExecutionVersions() jobdb.ExecutionVersions {
 	return v
 }
 func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobData, meta chapterMeta) (result JobData, runErr error) {
+	defer func() {
+		if errors.Is(runErr, ErrWorkflowNotDeterministic) {
+			runErr = jobdb.ClassifyExecutionInfrastructure(runErr, jobdb.ExecutionInfrastructureDeterminism, "execution", &r.jobKey, nil)
+		}
+		r.guard.observe(runErr)
+	}()
 	chapters, err := r.runtime.ListChapters(ctx, ListChaptersRequest{JobKey: r.jobKey})
 	if err != nil {
 		return nil, err
 	}
 	input, prefixEnd, err := r.assembleAppendInput(input, chapters)
 	if err != nil {
-		return nil, err
+		return nil, jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_append_input", &r.jobKey, nil)
 	}
 	e := &executionRun{dependencyBindings: map[string]jobdb.DependencyWaitInfo{}, restarts: map[string]*jobdb.ExecutionRecord{}, r: r, ordinal: int64(len(chapters)), activation: ksuid.New().String(), active: map[*executionContext]bool{}, versions: jobdb.ExecutionVersions{ExecutionPatternVersion: jobdb.ExecutionPatternVersion, JobDBVersion: jobdbBuildVersion(), ConsumerVersions: maps.Clone(r.worker.Options.ConsumerVersions)}}
 	defer func() {
@@ -523,7 +537,7 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 		case jobdb.ExecutionChapter:
 			rec, err := jobdb.DecodeExecutionRecord(body.Record)
 			if err != nil {
-				return nil, fmt.Errorf("%w: %v (worker versions %+v)", ErrWorkflowNotDeterministic, err, e.versions)
+				return nil, jobdb.ClassifyExecutionInfrastructure(errors.Join(ErrWorkflowNotDeterministic, err), jobdb.ExecutionInfrastructureDurableDecode, "decode_execution", &r.jobKey, &ch.Ordinal)
 			}
 			if rec.Version != jobdb.ExecutionPatternVersion {
 				return nil, fmt.Errorf("%w: execution version %d cannot resume after the compact-history cutover (requires %d)", ErrWorkflowNotDeterministic, rec.Version, jobdb.ExecutionPatternVersion)
@@ -534,15 +548,15 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 			}
 			prefix, decodeErr := executionmeta.Decode(prefixRaw)
 			if decodeErr != nil {
-				return nil, decodeErr
+				return nil, jobdb.ClassifyExecutionInfrastructure(decodeErr, jobdb.ExecutionInfrastructureDurableDecode, "decode_reconstruction", &r.jobKey, &ch.Ordinal)
 			}
 			for _, raw := range prefix {
 				item, decodeErr := jobdb.DecodeExecutionRecord(raw)
 				if decodeErr != nil {
-					return nil, decodeErr
+					return nil, jobdb.ClassifyExecutionInfrastructure(decodeErr, jobdb.ExecutionInfrastructureDurableDecode, "decode_reconstruction", &r.jobKey, &ch.Ordinal)
 				}
 				if item.Version != jobdb.ExecutionPatternVersion {
-					return nil, fmt.Errorf("invalid reconstruction version %d", item.Version)
+					return nil, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("invalid reconstruction version %d", item.Version), jobdb.ExecutionInfrastructureDurableDecode, "decode_reconstruction", &r.jobKey, &ch.Ordinal)
 				}
 				e.events = append(e.events, executionEvent{item, ch.Ordinal})
 			}
@@ -550,7 +564,7 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 			if rec.Kind == "dependency_binding" {
 				var wait jobdb.DependencyWaitInfo
 				if err := json.Unmarshal(rec.Payload, &wait); err != nil {
-					return nil, err
+					return nil, jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_dependency_binding", &r.jobKey, &ch.Ordinal)
 				}
 				e.dependencyBindings[rec.ID] = wait
 			}
@@ -562,15 +576,15 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 		case JobAttemptOutcomeChapter:
 			prefix, decodeErr := executionmeta.Decode(ch.Metadata.Fields["metadata"].Map[executionmeta.Key].String)
 			if decodeErr != nil {
-				return nil, decodeErr
+				return nil, jobdb.ClassifyExecutionInfrastructure(decodeErr, jobdb.ExecutionInfrastructureDurableDecode, "decode_reconstruction", &r.jobKey, &ch.Ordinal)
 			}
 			for _, raw := range prefix {
 				item, decodeErr := jobdb.DecodeExecutionRecord(raw)
 				if decodeErr != nil {
-					return nil, decodeErr
+					return nil, jobdb.ClassifyExecutionInfrastructure(decodeErr, jobdb.ExecutionInfrastructureDurableDecode, "decode_reconstruction", &r.jobKey, &ch.Ordinal)
 				}
 				if item.Version != jobdb.ExecutionPatternVersion {
-					return nil, fmt.Errorf("invalid reconstruction version %d", item.Version)
+					return nil, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("invalid reconstruction version %d", item.Version), jobdb.ExecutionInfrastructureDurableDecode, "decode_reconstruction", &r.jobKey, &ch.Ordinal)
 				}
 				e.events = append(e.events, executionEvent{item, ch.Ordinal})
 			}
@@ -582,6 +596,9 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 	}
 	if e.final != nil {
 		recorded, failure := chapterToTaskData(r.runtime, r.jobKey, *e.final)
+		if jobdb.IsExecutionInfrastructureError(failure) {
+			return nil, r.guard.observe(failure)
+		}
 		if jobdb.IsChapterPayloadFailure(failure) {
 			if !r.replay {
 				if err := r.completeLeaseWithChapter(ctx, *e.final, failure); err != nil {
@@ -616,7 +633,7 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 		}
 		rec := jobdb.ExecutionRecord{Kind: "header", Versions: &e.versions}
 		if err = e.appendLocked(&rec); err != nil {
-			if errors.Is(err, jobdb.ErrConflict) && r.lease != nil {
+			if !jobdb.IsExecutionInfrastructureError(err) && errors.Is(err, jobdb.ErrConflict) && r.lease != nil {
 				// A stalled appender may have won the first worker ordinal.
 				// Release for a fresh history snapshot without spending a job attempt.
 				return nil, r.lease.Reschedule(ctx, RescheduleExecutionRequest{NextRoute: Route{JobType: w.Name()}})
@@ -626,7 +643,7 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 		e.anchor = rec.At
 	} else {
 		if e.events[0].record.Kind != "header" {
-			return nil, fmt.Errorf("execution header missing")
+			return nil, jobdb.ClassifyExecutionInfrastructure(errors.New("execution header missing"), jobdb.ExecutionInfrastructureDurableDecode, "decode_execution", &r.jobKey, nil)
 		}
 		e.cursor = 1
 		e.initialVersions = *e.events[0].record.Versions
@@ -643,6 +660,9 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 	} else if failure != nil {
 		if e.final != nil {
 			recorded, recordErr := chapterToTaskData(r.runtime, r.jobKey, *e.final)
+			if jobdb.IsExecutionInfrastructureError(recordErr) {
+				return nil, r.guard.observe(recordErr)
+			}
 			if !r.replay {
 				if err := r.completeLeaseWithChapter(ctx, *e.final, recordErr); err != nil {
 					return nil, err
@@ -658,6 +678,10 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 	if len(meta.Prerequisites) > 0 {
 		admission, err := root.event("admission", "$job", func() *jobdb.ExecutionRecord {
 			failure := r.checkPrerequisites(ctx, meta)
+			if jobdb.IsExecutionInfrastructureError(failure) {
+				r.guard.observe(failure)
+				return &jobdb.ExecutionRecord{}
+			}
 			record, _ := recordResult(ctx, NewTaskDataOrPanic(true), failure)
 			return record
 		})
@@ -667,6 +691,9 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 		if _, failure := e.resultData(admission); failure != nil {
 			if e.final != nil {
 				recorded, recordErr := chapterToTaskData(r.runtime, r.jobKey, *e.final)
+				if jobdb.IsExecutionInfrastructureError(recordErr) {
+					return nil, r.guard.observe(recordErr)
+				}
 				if !r.replay {
 					if err := r.completeLeaseWithChapter(ctx, *e.final, recordErr); err != nil {
 						return nil, err
@@ -692,9 +719,6 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 	fatal := e.fatal
 	e.mu.Unlock()
 	if fatal != nil {
-		if !r.replay && errors.Is(fatal, ErrWorkflowNotDeterministic) {
-			return r.completeExecutionFailure(ctx, e.ordinal, w.Name(), fatal)
-		}
 		return nil, fatal
 	}
 	if isExecutionControl(err) {
@@ -708,6 +732,9 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 	}
 	if e.final != nil {
 		recorded, recordErr := chapterToTaskData(r.runtime, r.jobKey, *e.final)
+		if jobdb.IsExecutionInfrastructureError(recordErr) {
+			return nil, r.guard.observe(recordErr)
+		}
 		if !r.replay {
 			if completeErr := r.completeLeaseWithChapter(ctx, *e.final, recordErr); completeErr != nil {
 				return nil, completeErr
@@ -779,6 +806,18 @@ func (r *workerRunner) completeExecutionFailure(ctx context.Context, ordinal int
 	return nil, failure
 }
 
+// A newly built logical result has no containing persisted physical position.
+func (e *executionRun) storedRecordOrdinal(kind, id string) *int64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, event := range e.events {
+		if event.record.Kind == kind && event.record.ID == id {
+			n := event.ordinal
+			return &n
+		}
+	}
+	return nil
+}
 func (e *executionRun) resultOrdinal(id string) int64 {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -824,6 +863,7 @@ func (e *executionRun) unfinishedTask(call TaskCall, id string, attempt int, at 
 }
 
 func (e *executionRun) controlLocked(err error) error {
+	err = e.r.guard.observe(jobdb.ClassifyRuntimeIO(err, "execution", &e.r.jobKey, nil))
 	if e.fatal == nil {
 		e.fatal = &executionControlError{err}
 		for c := range e.active {

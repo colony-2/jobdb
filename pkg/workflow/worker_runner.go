@@ -26,6 +26,7 @@ type workerRunnerOptions struct {
 }
 
 type workerRunner struct {
+	guard     infrastructureGuard
 	handoff   *handoffState
 	beforeRun func(context.Context, ExecutionLease) error
 	runtime   WorkflowRuntime
@@ -67,7 +68,7 @@ func newWorkerRunner(runtime WorkflowRuntime, ws *WorkSet, lease ExecutionLease,
 	} else if opts.JobKey != (JobKey{}) {
 		jobKey = opts.JobKey
 	}
-	return &workerRunner{
+	runner := &workerRunner{
 		handoff:        &handoffState{},
 		runtime:        runtime,
 		beforeRun:      opts.BeforeRun,
@@ -83,6 +84,8 @@ func newWorkerRunner(runtime WorkflowRuntime, ws *WorkSet, lease ExecutionLease,
 		goalID:         goalID,
 		cell:           cell,
 	}
+	runner.runtime = &guardedRuntime{WorkflowRuntime: runtime, guard: &runner.guard}
+	return runner
 }
 
 func (r *workerRunner) GetJobKey() JobKey {
@@ -279,6 +282,9 @@ func (r *workerRunner) checkPrerequisites(ctx context.Context, meta chapterMeta)
 			return newPrereqFailedError(fmt.Sprintf("prerequisite job %s did not expose result data", prereq.JobID))
 		}
 		if _, err := job.Data.GetData(); err != nil {
+			if jobdb.IsExecutionInfrastructureError(err) {
+				return r.guard.observe(err)
+			}
 			msg := fmt.Sprintf("prerequisite job %s did not succeed", prereq.JobID)
 			if err.Error() != "" {
 				msg += ": " + err.Error()
@@ -290,9 +296,21 @@ func (r *workerRunner) checkPrerequisites(ctx context.Context, meta chapterMeta)
 }
 
 func (r *workerRunner) DoJob(ctx context.Context) (output JobData, runErr error) {
+	defer func() {
+		runErr = r.guard.observe(runErr)
+		if failure := r.guard.failure(); failure != nil {
+			output = nil
+			if !errors.Is(runErr, failure) {
+				runErr = errors.Join(failure, runErr)
+			}
+		}
+	}()
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	ctx, guardCancel := context.WithCancelCause(ctx)
+	r.guard.bind(guardCancel)
+	defer guardCancel(context.Canceled)
 	var session *leaseSession
 	if r.lease != nil && !r.replay {
 		if renewable, ok := r.lease.(jobdb.RenewableExecutionLease); ok {
@@ -314,7 +332,9 @@ func (r *workerRunner) DoJob(ctx context.Context) (output JobData, runErr error)
 				if cause != nil {
 					// Prefer an authority-bearing control error: it retains the
 					// rejected append and its execution-control marker.
-					if !errors.Is(runErr, jobdb.ErrExecutionLeaseLost) {
+					if jobdb.IsExecutionInfrastructureError(runErr) {
+						runErr = errors.Join(runErr, cause)
+					} else if !errors.Is(runErr, jobdb.ErrExecutionLeaseLost) {
 						output, runErr = nil, cause
 					}
 				}
@@ -348,6 +368,11 @@ func (r *workerRunner) DoJob(ctx context.Context) (output JobData, runErr error)
 		return nil, err
 	}
 
+	originalLease := r.lease
+	defer func() { r.lease = originalLease }()
+	if r.lease != nil {
+		r.lease = &guardedLease{ExecutionLease: r.lease, guard: &r.guard}
+	}
 	inputData, _, meta, err := r.loadInitialChapterAndPolicy(ctx)
 	if err != nil {
 		return nil, err
@@ -426,6 +451,12 @@ func (r *workerRunner) ClientPayloadRevision() int64 {
 }
 
 func (r *workerRunner) prepareJobResultPayload(output JobData, originalErr error, inputRef *InputReference) (json.RawMessage, []Artifact, string, error) {
+	if err := r.guard.observe(originalErr); jobdb.IsExecutionInfrastructureError(err) {
+		return nil, nil, "", err
+	}
+	if err := r.guard.failure(); err != nil {
+		return nil, nil, "", err
+	}
 	artifacts := []Artifact{}
 	if originalErr != nil {
 		payload, kind, err := errorPayloadFromError(originalErr, inputRef)

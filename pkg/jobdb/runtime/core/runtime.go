@@ -46,7 +46,11 @@ func NewRuntime(cfg Config) (*Runtime, error) {
 }
 
 // GetChapter returns a stored visible chapter.
-func (r *Runtime) GetChapter(ctx context.Context, ref jobdb.ChapterRef) (jobdb.Chapter, error) {
+func (r *Runtime) GetChapter(ctx context.Context, ref jobdb.ChapterRef) (result jobdb.Chapter, failure error) {
+	if ref.JobKey.Validate() != nil || ref.Ordinal < 0 {
+		return jobdb.Chapter{}, fmt.Errorf("invalid chapter reference")
+	}
+	defer func() { failure = jobdb.ClassifyRuntimeIO(failure, "get_chapter", &ref.JobKey, &ref.Ordinal) }()
 	if err := r.requirePublishedJob(ctx, ref.JobKey); err != nil {
 		return jobdb.Chapter{}, err
 	}
@@ -64,11 +68,16 @@ func (r *Runtime) GetChapter(ctx context.Context, ref jobdb.ChapterRef) (jobdb.C
 	if err != nil {
 		return jobdb.Chapter{}, err
 	}
-	return DecodeChapter(stored)
+	chapter, err := DecodeChapter(stored)
+	return chapter, jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_chapter", &ref.JobKey, &ref.Ordinal)
 }
 
 // ListChapters returns visible chapters in ascending ordinal order.
-func (r *Runtime) ListChapters(ctx context.Context, req jobdb.ListChaptersRequest) ([]jobdb.Chapter, error) {
+func (r *Runtime) ListChapters(ctx context.Context, req jobdb.ListChaptersRequest) (result []jobdb.Chapter, failure error) {
+	if req.JobKey.Validate() != nil || req.StartOrdinal < 0 || req.EndOrdinal != nil && *req.EndOrdinal < req.StartOrdinal {
+		return nil, fmt.Errorf("invalid chapter range")
+	}
+	defer func() { failure = jobdb.ClassifyRuntimeIO(failure, "list_chapters", &req.JobKey, nil) }()
 	if err := r.requirePublishedJob(ctx, req.JobKey); err != nil {
 		return nil, err
 	}
@@ -92,7 +101,7 @@ func (r *Runtime) ListChapters(ctx context.Context, req jobdb.ListChaptersReques
 	for _, encoded := range stored {
 		chapter, err := DecodeChapter(encoded)
 		if err != nil {
-			return nil, err
+			return nil, jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_chapter", &req.JobKey, &encoded.Ordinal)
 		}
 		chapters = append(chapters, chapter)
 	}

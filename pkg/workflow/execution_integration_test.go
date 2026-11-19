@@ -2,6 +2,7 @@ package workflow_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -322,7 +324,15 @@ func (f *executionFaultRuntime) PutChapter(ctx context.Context, req jobdb.PutCha
 func TestExecutionUncertainAppend(t *testing.T) {
 	for _, kind := range []string{"header", "activation", "scope", "attempt", "result", "catch", "handled", "decision"} {
 		t.Run(kind, func(t *testing.T) {
-			rt := &executionFaultRuntime{WorkflowRuntime: alternateRuntime(t, "sqlite"), after: true, fail: func(r jobdb.ExecutionRecord) bool { return r.Kind == kind }}
+			ctx := celltest.Context(context.Background())
+			path := filepath.Join(t.TempDir(), "uncertain.db")
+			base, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path})
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, base.Close(ctx)) })
+			db, err := sql.Open("sqlite", path)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, db.Close()) })
+			rt := &executionFaultRuntime{WorkflowRuntime: base, after: true, fail: func(r jobdb.ExecutionRecord) bool { return r.Kind == kind }}
 			var runs atomic.Int32
 			task := executionTestTask{"echo", func(wf.TaskContext, jobdb.TaskData) (jobdb.TaskData, error) {
 				runs.Add(1)
@@ -336,9 +346,32 @@ func TestExecutionUncertainAppend(t *testing.T) {
 				return c.DoTask(call, func(context.Context) (jobdb.TaskData, error) { return in, nil })
 			}}
 			key := submitExecutionTest(t, rt, w)
-			out, err := runExecutionTest(t, rt, key, w, task)
+			// Verify the committed failure before expiring authority. A 60 ms
+			// lease can expire before injection under race instrumentation.
+			run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "fault", LeaseDuration: 10 * time.Second})
+			require.NoError(t, err)
+			_, err = run.Run(nil)
+			require.True(t, jobdb.IsExecutionInfrastructureError(err), "run error: %v (fault fired=%v, committed=%v)", err, rt.fired.Load(), rt.committed.Load())
+			require.True(t, rt.fired.Load())
+			require.True(t, rt.committed.Load(), "fault must follow a committed append")
+			before, readErr := rt.WorkflowRuntime.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
+			require.NoError(t, readErr)
+			// Run has joined its renewer. Change only lease expiry so the next
+			// invocation can recover the same committed history immediately.
+			result, err := db.ExecContext(ctx, "UPDATE jobdb_jobs SET lease_expires_at_ns=0 WHERE tenant_id=? AND job_id=?", key.TenantId, key.JobId)
+			require.NoError(t, err)
+			changed, err := result.RowsAffected()
+			require.NoError(t, err)
+			require.EqualValues(t, 1, changed)
+			recovery, err := wf.GetJobForRun(ctx, base, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "execution-test", LeaseDuration: 10 * time.Second, ConsumerVersions: map[string]string{"c2j": "X", "pulse": "Y"}})
+			require.NoError(t, err)
+			require.True(t, recovery.LeaseAcquired())
+			out, err := recovery.Run(nil)
 			require.NoError(t, err)
 			require.Equal(t, wf.JobRunCompleted, out.Status)
+			after, readErr := rt.WorkflowRuntime.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
+			require.NoError(t, readErr)
+			require.Equal(t, before, after[:len(before)])
 			require.True(t, rt.fired.Load())
 			require.EqualValues(t, 1, runs.Load())
 			_, err = replayExecutionTest(t, rt, key, w, task)

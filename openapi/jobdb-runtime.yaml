@@ -7,6 +7,10 @@ info:
     This API mirrors the current `jobdb.WorkflowRuntime` boundary. It
     intentionally avoids exposing direct Strata or pgwf concepts over the wire.
 
+    The additive execution-infrastructure error envelope and optional retained
+    provenance route are specified in openapi/jobdb-execution-provenance.yaml.
+    They do not add a mandatory operation to backend runtime interfaces.
+
     Artifact bytes are committed as part of a chapter-scoped write.
     Implementations may stage uploads internally, but artifacts are not an
     independently durable write resource.

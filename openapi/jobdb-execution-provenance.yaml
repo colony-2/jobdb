@@ -1,0 +1,152 @@
+openapi: 3.1.0
+info:
+  title: JobDB optional execution provenance and infrastructure errors
+  version: 1.0.0
+  description: |
+    Additive extension of jobdb-runtime.yaml. Mandatory runtime and storage ports
+    are unchanged. Uses the same authenticated tenant/job access as chapter reads.
+    A delegated credential requires chapters.read Any and a live parent lease.
+    Restricted ordinal subsets cannot authorize this broader summary.
+    No retry or strict-history fallback is part of this operation.
+security:
+  - bearerAuth: []
+paths:
+  /v1/tenants/{tenantId}/jobs/{jobId}/execution-provenance:
+    get:
+      operationId: readExecutionProvenance
+      parameters:
+        - {name: tenantId, in: path, required: true, schema: {type: string}}
+        - {name: jobId, in: path, required: true, schema: {type: string}}
+        - name: consumer
+          in: query
+          required: true
+          description: Required valid UTF-8, at most 128 bytes.
+          schema: {type: string, minLength: 1, maxLength: 128}
+        - name: X-JobDB-Lease-Token
+          in: header
+          schema: {type: string}
+      responses:
+        '200':
+          description: Authorized evidence with explicit coverage, including unavailable evidence.
+          headers:
+            Cache-Control: {schema: {type: string, const: no-store}}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ExecutionProvenance'}
+        '400': {description: Invalid request}
+        '401': {description: Invalid or expired credential}
+        '403': {description: Read authority denied}
+        '404': {description: Hidden, unpublished or absent job; old servers may also lack this route}
+        '500':
+          description: Runtime operation failed
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ExecutionInfrastructureError'}
+        '501':
+          description: Optional backend capability unsupported
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message]
+                properties:
+                  code: {type: string, const: execution_provenance_unsupported}
+                  message: {type: string}
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer}
+  schemas:
+    ExecutionInfrastructureError:
+      type: object
+      description: |
+        Additive HTTP 500 envelope for any classified runtime operation. At most
+        16 KiB encoded; display and cause messages at most 4 KiB each; operation
+        at most 128 UTF-8 bytes. Descriptors contain no arbitrary backend messages,
+        application bodies, credentials, capabilities or stack dumps. Local causes
+        remain local. Null identity/ordinal means unknown; zero is a known ordinal.
+      required: [code, message, infrastructure]
+      properties:
+        code: {type: string, const: execution_infrastructure_error}
+        message: {type: string}
+        infrastructure:
+          type: object
+          required: [reason, operation, tenantId, jobId, ordinal, cause, causeTruncated]
+          properties:
+            reason: {type: string, enum: [determinism, durable_decode, runtime_io]}
+            operation: {type: string}
+            tenantId: {type: [string, 'null']}
+            jobId: {type: [string, 'null']}
+            ordinal: {type: [integer, 'null'], format: int64}
+            cause:
+              type: object
+              required: [code, message]
+              properties:
+                code: {type: string}
+                message: {type: string}
+            causeTruncated: {type: boolean}
+    ExecutionProvenance:
+      type: object
+      description: |
+        Bounded retained execution provenance through the physical ceiling captured
+        before scanning. Does not certify every process that wrote the job. Limits
+        are hard maxima and defaults. Shorter caller deadlines lower elapsedMillis.
+        Time covers authorization, storage, extraction and response construction.
+        responseBytes is the actual final encoded JSON length. Oversized bodies are
+        skipped before loading; normal page exhaustion continues internally.
+      required: [capability, scope, consumer, status, throughOrdinal, scannedThroughOrdinal, pairs, issues, omittedIssueCount, omittedPairCount, unexaminedRecordCount, limits, usage]
+      properties:
+        capability: {type: string, const: execution_provenance_v1}
+        scope: {type: string, const: retained_execution_provenance}
+        consumer: {type: string}
+        status: {type: string, enum: [complete, partial, unavailable]}
+        throughOrdinal: {type: [integer, 'null'], format: int64}
+        scannedThroughOrdinal: {type: [integer, 'null'], format: int64}
+        pairs:
+          type: array
+          maxItems: 512
+          items:
+            type: object
+            required: [consumerVersion, consumerCommit, jobdbVersion]
+            properties:
+              consumerVersion: {type: string}
+              consumerCommit: {type: [string, 'null']}
+              jobdbVersion: {type: string}
+        issues:
+          type: array
+          maxItems: 128
+          items:
+            type: object
+            required: [reason, ordinal]
+            properties:
+              reason:
+                type: string
+                enum: [missing_metadata, incomplete_identity, unreadable_record, unsupported_encoding, missing_record, unknown_ceiling, retained_unavailable, storage_unavailable, page_limit, record_limit, byte_limit, oversized_record, pair_limit, issue_limit, time_limit, response_limit, depth_limit, identity_limit]
+              ordinal: {type: [integer, 'null'], format: int64}
+              endOrdinal: {type: [integer, 'null'], format: int64}
+        omittedIssueCount: {type: integer, minimum: 0}
+        omittedPairCount: {type: integer, minimum: 0}
+        unexaminedRecordCount: {type: [integer, 'null'], minimum: 0}
+        limits:
+          type: object
+          required: [pages, records, scannedBytes, pairs, issues, elapsedMillis, responseBytes, pageRecords, pageBytes, nestingDepth, identityBytes]
+          properties:
+            pages: {type: integer, maximum: 64}
+            records: {type: integer, maximum: 10000}
+            scannedBytes: {type: integer, maximum: 16777216}
+            pairs: {type: integer, maximum: 512}
+            issues: {type: integer, maximum: 128}
+            elapsedMillis: {type: integer, maximum: 1500}
+            responseBytes: {type: integer, maximum: 262144}
+            pageRecords: {type: integer, maximum: 256}
+            pageBytes: {type: integer, maximum: 1048576}
+            nestingDepth: {type: integer, maximum: 64}
+            identityBytes: {type: integer, maximum: 4096}
+        usage:
+          type: object
+          required: [pages, records, scannedBytes, elapsedMillis, responseBytes]
+          properties:
+            pages: {type: integer, minimum: 0}
+            records: {type: integer, minimum: 0}
+            scannedBytes: {type: integer, minimum: 0}
+            elapsedMillis: {type: integer, minimum: 0}
+            responseBytes: {type: integer, minimum: 0}

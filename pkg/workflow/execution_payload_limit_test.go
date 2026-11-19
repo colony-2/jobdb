@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
@@ -63,7 +64,12 @@ func TestExecutionOversizedPayloadTerminatesJob(t *testing.T) {
 					require.True(t, jobdb.IsChapterPayloadFailure(err))
 					require.Zero(t, runs.Load())
 				} else {
-					out, err := runExecutionTest(t, rt, key, w, task)
+					// Payload encoding under the race detector can exceed a one-second
+					// lease while a terminal mutation holds renewal off. This test
+					// exercises payload rejection, not authority expiration.
+					run, err := wf.GetJobForRun(celltest.Context(context.Background()), rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "payload-test", LeaseDuration: 10 * time.Second})
+					require.NoError(t, err)
+					out, err := run.Run(nil)
 					require.NoError(t, err)
 					require.Equal(t, wf.JobRunFailed, out.Status)
 					require.True(t, jobdb.IsChapterPayloadFailure(out.JobError))

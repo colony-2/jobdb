@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
@@ -30,7 +31,9 @@ func TestLeaseHandleExpiryAfterIndependentRenewal(t *testing.T) {
 					runtime := providerRuntime(t, backend, testSecretProvider(func(ctx context.Context, req jobdb.SecretResolveRequest) (jobdb.SecretResolveResult, error) {
 						calls.Add(1)
 						if req.Names[0] == "slow" {
+							deadline, _ := ctx.Deadline()
 							<-ctx.Done()
+							t.Logf("provider stopped: error=%v deadline=%s authority=%s remaining_authority=%s", ctx.Err(), deadline.Format(time.RFC3339Nano), req.Lease.AuthorizedNotAfter.Format(time.RFC3339Nano), time.Until(req.Lease.AuthorizedNotAfter))
 						}
 						return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{req.Names[0]: {Value: "value"}}}, nil
 					}))
@@ -48,7 +51,13 @@ func TestLeaseHandleExpiryAfterIndependentRenewal(t *testing.T) {
 						signer := newLeaseTokenSigner()
 						handler, err := newServer(runtime, signer)
 						require.NoError(t, err)
-						server := httptest.NewServer(celltest.Handler(handler))
+						server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+							status := &leaseAuthorityResponse{ResponseWriter: w, status: http.StatusOK}
+							handler.ServeHTTP(status, r)
+							if isSecretResolutionPath(r.URL.Path) {
+								t.Logf("secret HTTP response: status=%d request_error=%v", status.status, r.Context().Err())
+							}
+						})))
 						t.Cleanup(server.Close)
 						client, err := New(server.URL, server.Client())
 						require.NoError(t, err)
@@ -63,6 +72,7 @@ func TestLeaseHandleExpiryAfterIndependentRenewal(t *testing.T) {
 					}
 					if duringLookup {
 						result, err := old.ResolveSecrets(ctx, []string{"slow"})
+						t.Logf("old handle resolution: error=%v caller_error=%v remaining_handle=%s", err, ctx.Err(), time.Until(old.LeaseExpiry()))
 						require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
 						require.Empty(t, result.Secrets)
 						require.Equal(t, int32(1), calls.Load())
@@ -98,4 +108,15 @@ func TestLeaseHandleExpiryAfterIndependentRenewal(t *testing.T) {
 			}
 		}
 	}
+}
+
+// Record status only: never retain secret response bodies or bearer tokens.
+type leaseAuthorityResponse struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *leaseAuthorityResponse) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
 }

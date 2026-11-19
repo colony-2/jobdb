@@ -69,29 +69,31 @@ func (l *remoteExecutionLease) Delegation() *jobdb.DelegationInfo {
 func (r *Runtime) getDelegatedChapter(ctx context.Context, ref jobdb.ChapterRef) (jobdb.Chapter, error) {
 	resp, err := r.client.GetChapterWithLeaseWithResponse(ctx, ref.JobKey.TenantId, ref.JobKey.JobId, ref.LeaseID, ref.Ordinal, &runtimeapi.GetChapterWithLeaseParams{XJobDBLeaseToken: ref.LeaseToken})
 	if err != nil {
-		return jobdb.Chapter{}, err
+		return jobdb.Chapter{}, jobdb.ClassifyRuntimeIO(err, "get_chapter", &ref.JobKey, &ref.Ordinal)
 	}
 	if resp.StatusCode() == 404 {
 		return jobdb.Chapter{}, jobdb.ErrChapterNotFound
 	}
 	if resp.StatusCode() != 200 || resp.JSON200 == nil {
-		return jobdb.Chapter{}, responseError("read leased chapter", resp.StatusCode(), resp.Body, jobdb.ErrExecutionLeaseLost)
+		return jobdb.Chapter{}, responseErrorAt("read leased chapter", resp.StatusCode(), resp.Body, jobdb.ErrExecutionLeaseLost, &ref.JobKey, &ref.Ordinal)
 	}
-	return fromAPIStoredChapter(*resp.JSON200)
+	chapter, err := fromAPIStoredChapter(*resp.JSON200)
+	return chapter, jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_chapter_response", &ref.JobKey, &ref.Ordinal)
 }
 func (r *Runtime) listDelegatedChapters(ctx context.Context, req jobdb.ListChaptersRequest) ([]jobdb.Chapter, error) {
 	resp, err := r.client.ListChaptersWithLeaseWithResponse(ctx, req.JobKey.TenantId, req.JobKey.JobId, req.LeaseID, &runtimeapi.ListChaptersWithLeaseParams{XJobDBLeaseToken: req.LeaseToken, StartOrdinal: req.StartOrdinal, EndOrdinal: req.EndOrdinal})
 	if err != nil {
-		return nil, err
+		return nil, jobdb.ClassifyRuntimeIO(err, "list_chapters", &req.JobKey, nil)
 	}
 	if resp.StatusCode() != 200 || resp.JSON200 == nil {
-		return nil, responseError("list leased chapters", resp.StatusCode(), resp.Body, jobdb.ErrExecutionLeaseLost)
+		return nil, responseErrorAt("list leased chapters", resp.StatusCode(), resp.Body, jobdb.ErrExecutionLeaseLost, &req.JobKey, nil)
 	}
 	out := make([]jobdb.Chapter, 0, len(resp.JSON200.Chapters))
 	for _, record := range resp.JSON200.Chapters {
 		c, err := fromAPIStoredChapter(record)
 		if err != nil {
-			return nil, err
+			ordinal := int64(record.Ordinal)
+			return nil, jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_chapter_response", &req.JobKey, &ordinal)
 		}
 		out = append(out, c)
 	}

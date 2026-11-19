@@ -24,7 +24,7 @@ func (r *Runtime) ClearCrashConcern(ctx context.Context, req jobdb.ClearCrashCon
 	if resp.StatusCode() == http.StatusBadRequest {
 		return fmt.Errorf("%w: %s", jobdb.ErrInvalidCrashConcernRequest, resp.Body)
 	}
-	return responseErrorWithConflict("clear crash concern", resp.StatusCode(), resp.Body, jobdb.ErrJobNotFound, jobdb.ErrConflict)
+	return responseErrorWithConflict("clear crash concern", resp.StatusCode(), resp.Body, jobdb.ErrJobNotFound, jobdb.ErrConflict, &req.JobKey, nil)
 }
 
 func (s *proxyServer) ClearCrashConcern(ctx context.Context, request runtimeapi.ClearCrashConcernRequestObject) (runtimeapi.ClearCrashConcernResponseObject, error) {

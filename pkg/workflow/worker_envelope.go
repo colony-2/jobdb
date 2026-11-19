@@ -133,6 +133,9 @@ func computeInputHash(ctx context.Context, taskData TaskData) (string, error) {
 }
 
 func errorPayloadFromError(err error, inputRef *InputReference) (json.RawMessage, string, error) {
+	if jobdb.IsExecutionInfrastructureError(err) {
+		return nil, "", err
+	}
 	if raw, kind, tdErr, ok := encodeJobFailedError(err, inputRef); ok {
 		return raw, kind, tdErr
 	}
@@ -172,7 +175,7 @@ func artifactHash(ctx context.Context, art Artifact) (string, error) {
 }
 
 // envelopeToTaskData returns the cached task output or the rehydrated error encoded in the envelope.
-func envelopeToTaskData(env chapterEnvelope, artifacts []Artifact) (TaskData, error) {
+func envelopeToTaskData(env chapterEnvelope, artifacts []Artifact) (result TaskData, failure error) {
 	copiedArtifacts := make([]Artifact, 0, len(artifacts))
 	for _, a := range artifacts {
 		copiedArtifacts = append(copiedArtifacts, a)

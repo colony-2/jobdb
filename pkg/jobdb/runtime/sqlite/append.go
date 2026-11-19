@@ -115,6 +115,7 @@ func (c appendChapters) Get(ctx context.Context, key runtimecore.ChapterLogKey, 
 		return runtimecore.EncodedChapter{}, err
 	}
 	typed, err := chapterFromStoryChapter(ch)
+	err = jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_append_chapter", &key.JobKey, &n)
 	if err != nil {
 		return runtimecore.EncodedChapter{}, err
 	}
@@ -161,7 +162,7 @@ func (l *executionLease) StartOrAppendJob(ctx context.Context, q jobdb.StartOrAp
 }
 func (r *Runtime) StartOrAppendJobWithLeaseByID(ctx context.Context, key jobdb.JobKey, lease, worker string, q jobdb.StartOrAppendJobRequest) (jobdb.JobHandle, error) {
 	if _, err := r.ValidateExecutionLeaseByID(ctx, key, lease, worker); err != nil {
-		return jobdb.JobHandle{}, err
+		return jobdb.JobHandle{}, submissionStorageError(err, "validate_parent_lease", key, nil)
 	}
 	q.Job.Job.TenantId = key.TenantId
 	return r.StartOrAppendJob(cellstate.WithLease(ctx, cellstate.LeaseProof{JobKey: key, LeaseID: lease, WorkerID: worker}), q)

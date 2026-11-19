@@ -19,6 +19,9 @@ func (tc TaskContext) GetConfiguration(ctx context.Context) (ConfigurationSnapsh
 }
 
 func (r *workerRunner) GetConfiguration(ctx context.Context) (ConfigurationSnapshot, error) {
+	if err := r.guard.failure(); err != nil {
+		return ConfigurationSnapshot{}, err
+	}
 	if r.replay {
 		return ConfigurationSnapshot{}, replayMutationError("get configuration")
 	}
@@ -35,7 +38,7 @@ func (r *workerRunner) GetConfiguration(ctx context.Context) (ConfigurationSnaps
 	if result == nil {
 		fetched, err := r.lease.GetConfiguration(callCtx)
 		if err != nil {
-			return ConfigurationSnapshot{}, err
+			return ConfigurationSnapshot{}, r.guard.observe(err)
 		}
 		result = &fetched
 	}

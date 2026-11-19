@@ -51,6 +51,9 @@ func (r *workerRunner) secretsCache() *attemptCache[map[string]*SecretValue] {
 }
 
 func (r *workerRunner) resolveSecrets(ctx context.Context, names []string, fresh bool) (SecretResolveResult, error) {
+	if err := r.guard.failure(); err != nil {
+		return SecretResolveResult{}, err
+	}
 	if r.replay {
 		return SecretResolveResult{}, replayMutationError("resolve secrets")
 	}
@@ -96,7 +99,7 @@ func (r *workerRunner) resolveSecrets(ctx context.Context, names []string, fresh
 		sort.Strings(lookup)
 		fetched, err := r.lease.ResolveSecrets(callCtx, lookup)
 		if err != nil {
-			return SecretResolveResult{}, err
+			return SecretResolveResult{}, r.guard.observe(err)
 		}
 		for _, name := range lookup {
 			var value *SecretValue

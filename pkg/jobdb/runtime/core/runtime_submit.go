@@ -61,6 +61,7 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 		return jobdb.JobHandle{}, err
 	}
 	reserved, err := r.scheduler.PrepareJob(ctx, preparation)
+	err = jobdb.ClassifyRuntimeIO(err, "prepare_job", &preparation.Key, nil)
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -68,7 +69,9 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 		// Keep stable retry identity if authority is lost after staging. The
 		// reservation may predate this call and cannot be safely discarded here.
 		if retErr != nil && !errors.Is(retErr, jobdb.ErrExecutionLeaseLost) {
-			_ = r.scheduler.DiscardJobPreparation(context.WithoutCancel(ctx), reserved.Key)
+			if cleanupErr := r.scheduler.DiscardJobPreparation(context.WithoutCancel(ctx), reserved.Key); cleanupErr != nil {
+				retErr = errors.Join(retErr, jobdb.ClassifyRuntimeIO(cleanupErr, "discard_job_preparation", &reserved.Key, nil))
+			}
 		}
 	}()
 	req.Job.JobID = reserved.Key.JobId
@@ -158,7 +161,7 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	existingChapter := false
 	if err := r.chapters.Create(ctx, logKey, encoded); err != nil {
 		if req.Job.JobID == "" || !errors.Is(err, jobdb.ErrConflict) {
-			return jobdb.JobHandle{}, err
+			return jobdb.JobHandle{}, jobdb.ClassifyRuntimeIO(err, "create_job", &key, nil)
 		}
 		if err := r.validateExistingInitialChapter(ctx, key, initial); err != nil {
 			return jobdb.JobHandle{}, err
@@ -173,6 +176,7 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	}
 	if existingChapter && req.Job.GoalID == "" {
 		stored, err := r.scheduler.GetJob(ctx, key)
+		err = jobdb.ClassifyRuntimeIO(err, "get_submitted_job", &key, nil)
 		if err == nil {
 			if stored.InitialPayloadDigest != initialDigest {
 				return jobdb.JobHandle{}, jobdb.NewExistingJobMismatchError("initial client payload differs")
@@ -200,6 +204,7 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 		WaitForJobIDs: waits, AvailableAt: req.Job.AvailableAt,
 		CreatedAt: createdAt.UTC(), WorkerID: workerID,
 	})
+	err = jobdb.ClassifyRuntimeIO(err, "publish_job", &key, nil)
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -209,6 +214,7 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	}
 	if req.Job.GoalID != "" {
 		published, err := r.scheduler.PrepareJob(ctx, preparation)
+		err = jobdb.ClassifyRuntimeIO(err, "publish_job", &key, nil)
 		if err != nil {
 			return jobdb.JobHandle{}, err
 		}
@@ -232,10 +238,13 @@ func validateStoredJobFacts(stored StoredJob, key jobdb.JobKey, jobType, schemaH
 
 func (r *Runtime) validateExistingInitialChapter(ctx context.Context, key jobdb.JobKey, want jobdb.Chapter) error {
 	encoded, err := r.chapters.Get(ctx, ChapterLogKey{JobKey: key}, 0)
+	zero := int64(0)
+	err = jobdb.ClassifyRuntimeIO(err, "get_submitted_chapter", &key, &zero)
 	if err != nil {
 		return err
 	}
 	got, err := DecodeChapter(encoded)
+	err = jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_submitted_chapter", &key, &zero)
 	if err != nil {
 		return err
 	}

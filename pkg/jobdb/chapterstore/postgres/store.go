@@ -265,3 +265,12 @@ func (r artifactReader) Open() (io.ReadCloser, error) {
 
 func (r artifactReader) Size() int64  { return r.art.SizeBytes() }
 func (r artifactReader) Name() string { return r.art.Name() }
+
+// ExecutionProvenanceCeiling and ReadProvenanceChapterPage expose the optional
+// body-only reader for runtime-core composition. Authorization stays with core.
+func (s *Store) ExecutionProvenanceCeiling(ctx context.Context, key runtimecore.ChapterLogKey) (*int64, error) {
+	return s.inner.ExecutionProvenanceCeiling(ctx, key)
+}
+func (s *Store) ReadProvenanceChapterPage(ctx context.Context, q runtimecore.ProvenanceChapterPageRequest) (runtimecore.ProvenanceChapterPage, error) {
+	return s.inner.ReadProvenanceChapterPage(ctx, q)
+}

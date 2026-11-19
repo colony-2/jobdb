@@ -65,12 +65,15 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	}
 	parentJobID = prep.ParentJobID
 	reserved, err := r.PrepareJob(ctx, prep)
+	err = submissionStorageError(err, "prepare_job", prep.Key, nil)
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
 	defer func() {
 		if retErr != nil {
-			_ = r.DiscardJobPreparation(context.WithoutCancel(ctx), reserved.Key)
+			if cleanupErr := r.DiscardJobPreparation(context.WithoutCancel(ctx), reserved.Key); cleanupErr != nil {
+				retErr = errors.Join(retErr, submissionStorageError(cleanupErr, "discard_job_preparation", reserved.Key, nil))
+			}
 		}
 	}()
 	req.Job.JobID = reserved.Key.JobId
@@ -140,24 +143,25 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 				// if its peer was interrupted between them. Append is atomic;
 				// an existing chapter is compared by reconciliation below.
 				if appendErr := r.chapterStore.SaveChapter(sctx, storyKeyForJob(jobKey), initialChapter); appendErr != nil && !errors.Is(appendErr, core.ErrConflict) {
-					return jobdb.JobHandle{}, appendErr
+					return jobdb.JobHandle{}, submissionStorageError(appendErr, "create_job", jobKey, nil)
 				}
 			}
 			if handle, handled, reconcileErr := r.reconcileExistingSubmitJob(ctx, req, jobKey, inputHash, prereqs, waitFor, jobPolicy, schemaHash, parentJobID); handled || reconcileErr != nil {
 				return handle, reconcileErr
 			}
 		}
-		return jobdb.JobHandle{}, err
+		return jobdb.JobHandle{}, submissionStorageError(err, "create_job", jobKey, nil)
 	}
 	if artifacts, _ := taskData.GetArtifacts(); len(artifacts) > 0 {
 		assignArtifactKeys(artifacts, jobKey.JobId, 0)
 		cleanupArtifacts(artifacts, r.logger)
 	}
 	if err := r.ensureSubmittedJobRecord(ctx, jobKey, req.Job.JobType, storedMetadata, waitFor, jobPayload{RunPolicy: jobPolicy}, req.WorkerID, req.Job.AvailableAt, req.Job.ClientPayloadUpdate); err != nil {
-		return jobdb.JobHandle{}, err
+		return jobdb.JobHandle{}, submissionStorageError(err, "publish_job", jobKey, nil)
 	}
 	if req.Job.GoalID != "" {
 		published, err := r.PrepareJob(ctx, prep)
+		err = submissionStorageError(err, "publish_job", jobKey, nil)
 		if err != nil {
 			return jobdb.JobHandle{}, err
 		}
@@ -189,12 +193,15 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	}
 	parentJobID = prep.ParentJobID
 	reserved, err := r.PrepareJob(ctx, prep)
+	err = submissionStorageError(err, "prepare_job", prep.Key, nil)
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
 	defer func() {
 		if retErr != nil {
-			_ = r.DiscardJobPreparation(context.WithoutCancel(ctx), reserved.Key)
+			if cleanupErr := r.DiscardJobPreparation(context.WithoutCancel(ctx), reserved.Key); cleanupErr != nil {
+				retErr = errors.Join(retErr, submissionStorageError(cleanupErr, "discard_job_preparation", reserved.Key, nil))
+			}
 		}
 	}()
 	req.Job.JobID = reserved.Key.JobId
@@ -221,6 +228,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		return jobdb.JobHandle{}, err
 	}
 	prior, err := r.loadJobRow(ctx, job.PriorJobKey)
+	err = submissionStorageError(err, "get_restart_source", job.PriorJobKey, nil)
 	if err != nil {
 		return jobdb.JobHandle{}, fmt.Errorf("load source job metadata: %w", err)
 	}
@@ -237,10 +245,13 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	targetJob := storyKeyForJob(jobKey)
 
 	chap0, err := r.chapterStore.Chapter(sctx, sourceJob, 0)
+	zero := int64(0)
+	err = submissionStorageError(err, "get_restart_chapter", job.PriorJobKey, &zero)
 	if err != nil {
 		return jobdb.JobHandle{}, fmt.Errorf("load source initial chapter: %w", err)
 	}
 	env0, err := decodeChapterEnvelope(chap0.Body())
+	err = jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_restart_source", &job.PriorJobKey, &zero)
 	if err != nil {
 		return jobdb.JobHandle{}, fmt.Errorf("decode source initial chapter: %w", err)
 	}
@@ -252,11 +263,13 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 
 	nextOrdinal := job.LastStepToKeep + 1
 	nextChap, err := r.chapterStore.Chapter(sctx, sourceJob, nextOrdinal)
+	err = submissionStorageError(err, "get_restart_chapter", job.PriorJobKey, &nextOrdinal)
 	if err != nil {
 		if executionRestart != nil || !errors.Is(err, storage.ErrChapterNotFound) {
 			return jobdb.JobHandle{}, fmt.Errorf("LastStepToKeep %d invalid: no chapter at ordinal %d: %w", job.LastStepToKeep, nextOrdinal, err)
 		}
 		source, err := r.chapterStore.Story(sctx, sourceJob)
+		err = submissionStorageError(err, "get_restart_source", job.PriorJobKey, nil)
 		if err != nil {
 			return jobdb.JobHandle{}, err
 		}
@@ -264,9 +277,10 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		if prefixOnly && source.ChapterCount() > 1 {
 			last, e := r.chapterStore.Chapter(sctx, sourceJob, source.ChapterCount()-1)
 			if e != nil {
-				return jobdb.JobHandle{}, e
+				return jobdb.JobHandle{}, submissionStorageError(e, "get_restart_chapter", job.PriorJobKey, nil)
 			}
 			env, e := decodeChapterEnvelope(last.Body())
+			e = jobdb.ClassifyExecutionInfrastructure(e, jobdb.ExecutionInfrastructureDurableDecode, "decode_restart_source", &job.PriorJobKey, nil)
 			if e != nil {
 				return jobdb.JobHandle{}, e
 			}
@@ -277,6 +291,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		}
 	} else {
 		nextEnv, err := decodeChapterEnvelope(nextChap.Body())
+		err = jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_restart_source", &job.PriorJobKey, &nextOrdinal)
 		if err != nil {
 			return jobdb.JobHandle{}, fmt.Errorf("decode source chapter %d: %w", nextOrdinal, err)
 		}
@@ -338,6 +353,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		LastOrdinal:    job.LastStepToKeep,
 		CreateOptions:  createOptions,
 	})
+	err = submissionStorageError(err, "clone_restart", jobKey, nil)
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -351,14 +367,16 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	})
 	if err != nil {
 		if cleanupErr := staged.Discard(); cleanupErr != nil {
-			return jobdb.JobHandle{}, errors.Join(err, fmt.Errorf("discard restart blobs: %w", cleanupErr))
+			return jobdb.JobHandle{}, errors.Join(
+				submissionStorageError(err, "publish_restart", jobKey, nil),
+				submissionStorageError(fmt.Errorf("discard restart blobs: %w", cleanupErr), "discard_restart", jobKey, nil))
 		}
 		if job.JobID != "" && cloneConflict {
 			if handle, handled, reconcileErr := r.reconcileExistingRestartJob(ctx, req, jobKey, prereqs, waitFor, jobType, jobPolicy, extra, storedMetadata); handled || reconcileErr != nil {
 				return handle, reconcileErr
 			}
 		}
-		return jobdb.JobHandle{}, err
+		return jobdb.JobHandle{}, submissionStorageError(err, "publish_restart", jobKey, nil)
 	}
 	if job.ExtraTaskOutput != nil {
 		if artifacts, _ := job.ExtraTaskOutput.GetArtifacts(); len(artifacts) > 0 {
@@ -704,6 +722,9 @@ func (d *jobInfoTaskData) GetDataOrPanic() jobdb.Data {
 }
 
 func (d *jobInfoTaskData) GetArtifacts() ([]jobdb.Artifact, error) {
+	if jobdb.IsExecutionInfrastructureError(d.err) {
+		return nil, d.err
+	}
 	if d.taskData == nil {
 		return nil, d.err
 	}
@@ -793,7 +814,11 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 	return r.listCompactJobs(ctx, req, pageSize)
 }
 
-func (r *Runtime) GetChapter(ctx context.Context, ref jobdb.ChapterRef) (jobdb.Chapter, error) {
+func (r *Runtime) GetChapter(ctx context.Context, ref jobdb.ChapterRef) (result jobdb.Chapter, failure error) {
+	if ref.JobKey.Validate() != nil || ref.Ordinal < 0 {
+		return jobdb.Chapter{}, fmt.Errorf("invalid chapter reference")
+	}
+	defer func() { failure = jobdb.ClassifyRuntimeIO(failure, "get_chapter", &ref.JobKey, &ref.Ordinal) }()
 	if err := r.requirePublishedJob(ctx, ref.JobKey); err != nil {
 		return jobdb.Chapter{}, err
 	}
@@ -811,10 +836,15 @@ func (r *Runtime) GetChapter(ctx context.Context, ref jobdb.ChapterRef) (jobdb.C
 		}
 		return jobdb.Chapter{}, err
 	}
-	return chapterFromStoryChapter(chapter)
+	decoded, err := chapterFromStoryChapter(chapter)
+	return decoded, jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_chapter", &ref.JobKey, &ref.Ordinal)
 }
 
-func (r *Runtime) ListChapters(ctx context.Context, req jobdb.ListChaptersRequest) ([]jobdb.Chapter, error) {
+func (r *Runtime) ListChapters(ctx context.Context, req jobdb.ListChaptersRequest) (result []jobdb.Chapter, failure error) {
+	if req.JobKey.Validate() != nil || req.StartOrdinal < 0 || req.EndOrdinal != nil && *req.EndOrdinal < req.StartOrdinal {
+		return nil, fmt.Errorf("invalid chapter range")
+	}
+	defer func() { failure = jobdb.ClassifyRuntimeIO(failure, "list_chapters", &req.JobKey, nil) }()
 	if err := r.requirePublishedJob(ctx, req.JobKey); err != nil {
 		return nil, err
 	}
@@ -850,7 +880,8 @@ func (r *Runtime) ListChapters(ctx context.Context, req jobdb.ListChaptersReques
 		}
 		stored, err := chapterFromStoryChapter(chapter)
 		if err != nil {
-			return nil, err
+			n := chapter.Ordinal()
+			return nil, jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_chapter", &req.JobKey, &n)
 		}
 		if stored.Ordinal < req.StartOrdinal {
 			continue

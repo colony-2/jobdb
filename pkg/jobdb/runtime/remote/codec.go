@@ -54,6 +54,9 @@ func (d *jobInfoTaskData) GetDataOrPanic() jobdb.Data {
 }
 
 func (d *jobInfoTaskData) GetArtifacts() ([]jobdb.Artifact, error) {
+	if jobdb.IsExecutionInfrastructureError(d.err) {
+		return nil, d.err
+	}
 	if d.taskData == nil {
 		return nil, d.err
 	}
@@ -628,6 +631,9 @@ func taskDataFromAPIWrite(write runtimeapi.TaskDataWrite) (jobdb.TaskData, error
 }
 
 func taskDataToAPIStored(ctx context.Context, data jobdb.TaskData, payloadErr error) (*runtimeapi.StoredTaskData, error) {
+	if jobdb.IsExecutionInfrastructureError(payloadErr) {
+		return nil, payloadErr
+	}
 	if data == nil {
 		return nil, nil
 	}
@@ -1458,7 +1464,8 @@ func jobInfoToAPI(ctx context.Context, info jobdb.JobInfo) (runtimeapi.JobInfo, 
 	return out, nil
 }
 
-func jobInfoFromAPI(runtime *Runtime, jobKey jobdb.JobKey, info runtimeapi.JobInfo) (jobdb.JobInfo, error) {
+func jobInfoFromAPI(runtime *Runtime, jobKey jobdb.JobKey, info runtimeapi.JobInfo) (result jobdb.JobInfo, failure error) {
+	defer func() { failure = jobdb.ClassifyRuntimeIO(failure, "decode_job_response", &jobKey, nil) }()
 	if info.GoalId == "" || info.OtherGoalIds == nil {
 		return jobdb.JobInfo{Cell: info.Cell, CellID: info.CellId, CellRepo: info.CellRepo}, fmt.Errorf("server response missing required goal fields")
 	}

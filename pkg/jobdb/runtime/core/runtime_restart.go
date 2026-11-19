@@ -46,6 +46,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		return jobdb.JobHandle{}, err
 	}
 	reserved, err := r.scheduler.PrepareJob(ctx, preparation)
+	err = jobdb.ClassifyRuntimeIO(err, "prepare_restart", &preparation.Key, nil)
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -53,7 +54,9 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		// Keep stable retry identity if authority is lost after staging. The
 		// reservation may predate this call and cannot be safely discarded here.
 		if retErr != nil && !errors.Is(retErr, jobdb.ErrExecutionLeaseLost) {
-			_ = r.scheduler.DiscardJobPreparation(context.WithoutCancel(ctx), reserved.Key)
+			if cleanupErr := r.scheduler.DiscardJobPreparation(context.WithoutCancel(ctx), reserved.Key); cleanupErr != nil {
+				retErr = errors.Join(retErr, jobdb.ClassifyRuntimeIO(cleanupErr, "discard_job_preparation", &reserved.Key, nil))
+			}
 		}
 	}()
 	req.Job.JobID = reserved.Key.JobId
@@ -93,6 +96,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		return jobdb.JobHandle{}, fmt.Errorf("restart job id must differ from source job id")
 	}
 	prior, err := r.scheduler.GetJob(ctx, job.PriorJobKey)
+	err = jobdb.ClassifyRuntimeIO(err, "get_restart_source", &job.PriorJobKey, nil)
 	if err != nil {
 		return jobdb.JobHandle{}, fmt.Errorf("load source job metadata: %w", err)
 	}
@@ -107,14 +111,18 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	}
 	source := ChapterLogKey{JobKey: job.PriorJobKey}
 	firstEncoded, err := r.chapters.Get(ctx, source, 0)
+	zero := int64(0)
+	err = jobdb.ClassifyRuntimeIO(err, "get_restart_chapter", &job.PriorJobKey, &zero)
 	if err != nil {
 		return jobdb.JobHandle{}, fmt.Errorf("load source first chapter: %w", err)
 	}
 	first, err := DecodeChapter(firstEncoded)
+	err = jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_restart_chapter", &job.PriorJobKey, &zero)
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
 	firstMeta, err := initialChapterMetadata(first.Metadata)
+	err = jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_restart_metadata", &job.PriorJobKey, &zero)
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -128,6 +136,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	}
 	nextOrdinal := job.LastStepToKeep + 1
 	nextEncoded, err := r.chapters.Get(ctx, source, nextOrdinal)
+	err = jobdb.ClassifyRuntimeIO(err, "get_restart_chapter", &job.PriorJobKey, &nextOrdinal)
 	if err != nil {
 		if executionRestart != nil || !errors.Is(err, jobdb.ErrChapterNotFound) {
 			return jobdb.JobHandle{}, fmt.Errorf("LastStepToKeep %d has no following chapter: %w", job.LastStepToKeep, err)
@@ -135,16 +144,20 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		// Only a stored submission may stand alone. A hole in a longer log
 		// must not turn a damaged history into a fresh execution.
 		count, err := r.chapters.Count(ctx, source)
+		err = jobdb.ClassifyRuntimeIO(err, "count_restart_chapters", &job.PriorJobKey, nil)
 		if err != nil {
 			return jobdb.JobHandle{}, err
 		}
 		prefixOnly := count == job.LastStepToKeep+1
 		if prefixOnly && count > 1 {
 			last, e := r.chapters.Get(ctx, source, count-1)
+			ordinal := count - 1
+			e = jobdb.ClassifyRuntimeIO(e, "get_restart_chapter", &job.PriorJobKey, &ordinal)
 			if e != nil {
 				return jobdb.JobHandle{}, e
 			}
 			typed, e := DecodeChapter(last)
+			e = jobdb.ClassifyExecutionInfrastructure(e, jobdb.ExecutionInfrastructureDurableDecode, "decode_restart_chapter", &job.PriorJobKey, &last.Ordinal)
 			if e != nil {
 				return jobdb.JobHandle{}, e
 			}
@@ -155,6 +168,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		}
 	} else {
 		nextChapter, err := DecodeChapter(nextEncoded)
+		err = jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_restart_chapter", &job.PriorJobKey, &nextOrdinal)
 		if err != nil {
 			return jobdb.JobHandle{}, err
 		}
@@ -247,7 +261,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		LastOrdinal: job.LastStepToKeep, Append: extra,
 	}); err != nil {
 		if job.JobID == "" || !errors.Is(err, jobdb.ErrConflict) {
-			return jobdb.JobHandle{}, err
+			return jobdb.JobHandle{}, jobdb.ClassifyRuntimeIO(err, "clone_restart", &key, nil)
 		}
 		if err := r.validateExistingRestart(ctx, source, destination, job.LastStepToKeep, extra); err != nil {
 			return jobdb.JobHandle{}, err
@@ -263,6 +277,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	}
 	if existing {
 		stored, err := r.scheduler.GetJob(ctx, key)
+		err = jobdb.ClassifyRuntimeIO(err, "get_restart_destination", &key, nil)
 		if err == nil {
 			if stored.InitialPayloadDigest != digest {
 				return jobdb.JobHandle{}, jobdb.NewExistingJobMismatchError("initial client payload differs")
@@ -288,6 +303,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		AppMetadata: metadata, SchemaHash: schemaHash,
 		WaitForJobIDs: waits, CreatedAt: createdAt.UTC(), WorkerID: workerID,
 	})
+	err = jobdb.ClassifyRuntimeIO(err, "publish_restart", &key, nil)
 	if err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -307,6 +323,7 @@ func (r *Runtime) validateExistingRestart(ctx context.Context, source, target Ch
 		wantCount++
 	}
 	count, err := r.chapters.Count(ctx, target)
+	err = jobdb.ClassifyRuntimeIO(err, "count_restart_chapters", &target.JobKey, nil)
 	if err != nil {
 		return err
 	}
@@ -315,10 +332,12 @@ func (r *Runtime) validateExistingRestart(ctx context.Context, source, target Ch
 	}
 	for ordinal := int64(0); ordinal <= lastOrdinal; ordinal++ {
 		want, err := r.chapters.Get(ctx, source, ordinal)
+		err = jobdb.ClassifyRuntimeIO(err, "get_restart_chapter", &source.JobKey, &ordinal)
 		if err != nil {
 			return err
 		}
 		got, err := r.chapters.Get(ctx, target, ordinal)
+		err = jobdb.ClassifyRuntimeIO(err, "get_restart_chapter", &target.JobKey, &ordinal)
 		if err != nil {
 			return err
 		}
@@ -328,10 +347,13 @@ func (r *Runtime) validateExistingRestart(ctx context.Context, source, target Ch
 	}
 	if extra != nil {
 		got, err := r.chapters.Get(ctx, target, lastOrdinal+1)
+		ordinal := lastOrdinal + 1
+		err = jobdb.ClassifyRuntimeIO(err, "get_restart_chapter", &target.JobKey, &ordinal)
 		if err != nil {
 			return err
 		}
 		gotChapter, err := DecodeChapter(got)
+		err = jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_restart_chapter", &target.JobKey, &got.Ordinal)
 		if err != nil {
 			return err
 		}

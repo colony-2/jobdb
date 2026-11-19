@@ -113,7 +113,13 @@ func TestAppendRecoveryAfterReopen(t *testing.T) {
 					q.Job.Job.ClientPayloadUpdate = &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"winner":true}`)}
 					scheduler := &appendPublicationFault{appendScheduler: appendScheduler{r}, fail: true}
 					_, err = (runtimecore.AppendService{Scheduler: scheduler, Chapters: appendChapters{r}, Schemas: r}).StartOrAppendJob(ctx, q)
-					require.EqualError(t, err, "publication interrupted")
+					var failure *jobdb.ExecutionInfrastructureError
+					require.ErrorAs(t, err, &failure)
+					require.Equal(t, jobdb.ExecutionInfrastructureRuntimeIO, failure.Reason)
+					require.Equal(t, "publish_append_job", failure.Operation)
+					require.Equal(t, &scheduler.winning.JobKey, failure.JobKey)
+					require.Nil(t, failure.Ordinal)
+					require.EqualError(t, failure.Err, "publication interrupted")
 					winning = scheduler.winning
 				}
 				key := winning.JobKey

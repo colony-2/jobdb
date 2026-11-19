@@ -596,7 +596,7 @@ func TestDelegatedSubmissionAvailabilityRejection(t *testing.T) {
 	before, err := f.client.ListGoals(ctx, jobdb.ListGoalsRequest{TenantId: "tenant"})
 	require.NoError(t, err)
 	_, err = delegated.SubmitJob(ctx, req)
-	require.ErrorContains(t, err, "availableAt")
+	require.True(t, jobdb.IsExecutionInfrastructureError(err))
 	assertRemoteAvailabilityAbsent(t, f.client, req.Job.JobID)
 	after, err := f.client.ListGoals(ctx, jobdb.ListGoalsRequest{TenantId: "tenant"})
 	require.NoError(t, err)

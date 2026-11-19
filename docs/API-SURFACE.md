@@ -44,6 +44,13 @@ Operator recovery uses `WorkflowRuntime.ClearCrashConcern` with
 `ClearCrashConcernRequest` to reset a job's consecutive expired-lease count.
 See [clearing crash concern](GUIDE-CRASH-CONCERN.md) for CLI, REST, and Go usage.
 
+Execution preservation adds `ExecutionInfrastructureError`, its reason constants,
+classification helpers and safe `RemoteExecutionCause`. Optional
+`ExecutionProvenanceReader` and its typed request, evidence, limits, usage and issue
+values describe retained writer provenance. `CurrentBuildInfo` identifies the
+linked JobDB module. These additions leave mandatory runtime/lease/storage ports
+and stored encodings unchanged. See [execution infrastructure](GUIDE-EXECUTION-INFRASTRUCTURE.md).
+
 Routing uses `Route{JobType, TaskType}` throughout the public API. See the
 [consumer migration guide](MIGRATION-TYPED-ROUTES.md) for the breaking changes.
 
@@ -79,7 +86,10 @@ chapter storage behavior without importing internal packages.
 
 ### `github.com/colony-2/jobdb/pkg/jobdb/runtime/core`
 
-Public backend boundary for external runtime implementers.
+Public backend boundary for external runtime implementers. Optional
+`ProvenanceChapterSource` supplies raw committed ceilings and bounded body-only
+pages; `ReadExecutionProvenance` shares extraction with native authorization.
+Existing mandatory ports do not require the optional source.
 
 This package wires scheduler, chapter-log, schema-store, and configuration-store ports used
 to keep runtime semantics in JobDB core while letting a backend own durable

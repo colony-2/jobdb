@@ -290,7 +290,13 @@ func TestAppendRecoversWinningChapter(t *testing.T) {
 				} else {
 					_, err = s.StartOrAppendJob(context.Background(), q)
 				}
-				require.EqualError(t, err, "publication interrupted")
+				var failure *jobdb.ExecutionInfrastructureError
+				require.ErrorAs(t, err, &failure)
+				require.Equal(t, jobdb.ExecutionInfrastructureRuntimeIO, failure.Reason)
+				require.Equal(t, "publish_append_job", failure.Operation)
+				require.Equal(t, &key, failure.JobKey)
+				require.Nil(t, failure.Ordinal)
+				require.EqualError(t, failure.Err, "publication interrupted")
 				require.Empty(t, f.facts)
 				original := f.logs[key][0]
 				ch, err := DecodeChapter(original)

@@ -369,6 +369,9 @@ func runClaimedJobLease(ctx context.Context, runtime WorkflowRuntime, workset *W
 	})
 	output, err := runner.DoJob(ctx)
 	handoff := runner.handoff.close()
+	if jobdb.IsExecutionInfrastructureError(err) {
+		return nil, nil, err
+	}
 	if handoff != nil {
 		return nil, handoff, nil
 	}
@@ -397,6 +400,9 @@ func classifyJobRunWithoutLease(ctx context.Context, runtime WorkflowRuntime, jo
 }
 
 func classifyJobRunAfterRun(ctx context.Context, runtime WorkflowRuntime, jobKey JobKey, supportedRoutes map[Route]struct{}, directOutput JobData, runErr error) (JobRunOutcome, error) {
+	if jobdb.IsExecutionInfrastructureError(runErr) {
+		return JobRunOutcome{}, runErr
+	}
 	var renewalErr *jobdb.LeaseRenewalError
 	if errors.As(runErr, &renewalErr) || errors.Is(runErr, ErrExecutionLeaseLost) || (ctx.Err() != nil && errors.Is(runErr, ctx.Err())) {
 		return JobRunOutcome{}, runErr
@@ -448,6 +454,9 @@ func classifyJobRunTerminal(job JobInfo, directOutput JobData) (JobRunOutcome, e
 		return JobRunOutcome{}, fmt.Errorf("completed job result is missing")
 	}
 	if _, err := job.Data.GetData(); err != nil {
+		if jobdb.IsExecutionInfrastructureError(err) {
+			return JobRunOutcome{}, err
+		}
 		outcome.Status = JobRunFailed
 		outcome.JobError = err
 		return outcome, nil

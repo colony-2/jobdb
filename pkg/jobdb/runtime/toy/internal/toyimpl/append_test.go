@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var errAppendPublicationInterrupted = errors.New("publication interrupted")
+
 type appendPublicationFault struct {
 	appendScheduler
 	fail bool
@@ -21,7 +23,7 @@ type appendPublicationFault struct {
 func (s *appendPublicationFault) CreateJob(ctx context.Context, q runtimecore.CreateJobRequest) (runtimecore.StoredJob, error) {
 	if s.fail {
 		s.fail = false
-		return runtimecore.StoredJob{}, errors.New("publication interrupted")
+		return runtimecore.StoredJob{}, errAppendPublicationInterrupted
 	}
 	return s.appendScheduler.CreateJob(ctx, q)
 }
@@ -40,7 +42,8 @@ func TestAppendRecoversCreatorPublication(t *testing.T) {
 	at := time.Now().Add(time.Hour)
 	q.Job.Job.AvailableAt = &at
 	_, err := svc.StartOrAppendJob(ctx, q)
-	require.EqualError(t, err, "publication interrupted")
+	require.ErrorIs(t, err, errAppendPublicationInterrupted)
+	require.True(t, jobdb.IsExecutionInfrastructureError(err))
 	q.Job.Job.Data = jobdb.NewTaskDataOrPanic("loser")
 	q.Job.Job.AvailableAt = nil
 	q.Job.Append = json.RawMessage(`2`)

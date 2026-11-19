@@ -57,6 +57,38 @@ def verify(commit, report):
             archive = Path(downloaded["Zip"])
             if not archive.is_relative_to(cache) or not archive.is_file() or archive.stat().st_size == 0:
                 raise ValueError("Downloaded module archive is missing from the fresh cache")
+            run(["go", "mod", "edit", f"-require={MODULE}@{version}"])
+            examples = Path("pkg/jobdb/example_execution_infrastructure_test.go").read_text(encoding="utf-8")
+            # The consumer's package has no JobDB identifiers of its own. Keep
+            # the copied examples executable without binding their names to it.
+            examples = examples.replace("package jobdb_test", "package main")
+            examples = examples.replace("func Example", "func Example_jobdb")
+            (consumer / "execution_test.go").write_text(examples, encoding="utf-8")
+            (consumer / "main.go").write_text('''package main
+import (
+ "context"
+ "errors"
+ "fmt"
+ "os"
+ "github.com/colony-2/jobdb/pkg/jobdb"
+)
+func main() {
+ info:=jobdb.CurrentBuildInfo()
+ if info.Path!="github.com/colony-2/jobdb" || info.Version!=os.Getenv("EXPECTED_JOBDB_VERSION") || info.Replacement!=nil {panic(fmt.Sprintf("unexpected linked build: %+v",info))}
+ cause:=errors.New("local I/O cause")
+ err:=jobdb.ClassifyExecutionInfrastructure(cause,jobdb.ExecutionInfrastructureRuntimeIO,"example",nil,nil)
+ if !jobdb.IsExecutionInfrastructureError(err) || !errors.Is(err,cause) {panic("classifier lost cause")}
+ _,err=jobdb.ReadExecutionProvenance(context.Background(),struct{}{},jobdb.ReadExecutionProvenanceRequest{})
+ if !errors.Is(err,jobdb.ErrExecutionProvenanceUnsupported) {panic("optional capability missing")}
+ fmt.Println(info.Version)
+}
+''', encoding="utf-8")
+            run(["go", "mod", "tidy"])
+            run(["go", "test", "-count=1", "./..."])
+            env["EXPECTED_JOBDB_VERSION"] = version
+            observed = run(["go", "run", "."]).strip()
+            if observed != version:
+                raise ValueError(f"Linked build version {observed} differs from {version}")
             # go.mod must still be a plain consumer with no replace directives.
             consumer_mod = json.loads(run(["go", "mod", "edit", "-json"]))
             if consumer_mod.get("Replace"):
@@ -71,6 +103,9 @@ def verify(commit, report):
                       "Commands completed:", "",
                       f"- `go list -m -json {MODULE}@{commit}`",
                       f"- `go mod download -json {MODULE}@{version}`", "",
+                      "Public classifier, optional reader and build-info examples compiled and ran.", "",
+                      f"Linked CurrentBuildInfo version: `{observed}`", "",
+                      "- `go test -count=1 ./...`", "- `go run .`", "",
                       "Result: passed."]
         status = 0
     except Exception as error:

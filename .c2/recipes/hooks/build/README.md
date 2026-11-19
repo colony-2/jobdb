@@ -9,6 +9,10 @@ accepted but never interpreted as shell code. Checks always cover the whole repo
 | --- | --- |
 | `test.yaml`: Linux ARM64 Go tests with integration tag | `test_integration`: `go test -count=1 -p=2 -v -tags=integration -exec "python3 $PWD/scripts/verify-test-exec.py" ./...` |
 | `test.yaml`: workflow/provider and shared/embedded runtime race check | `test_races`: `GOMAXPROCS=2 go test -count=1 -timeout=20m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/...` |
+| Crash-concern live state, expiry and same-job recovery | `test_integration`: three repetitions of the built-in and HTTP `crash_concern_excludes_ready_work` conformance cases, with a five-minute package budget |
+| Infrastructure preservation, provenance and synchronous legacy renewal | `test_races`: `go test -count=1 -p=1 -timeout=20m -v -race ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/remote -run 'TestInfrastructure\|TestProvenance\|TestLegacyKeepAlive'` |
+| Completion fallback, ignored SDK failures and HTTP source identity | `test_races`: ten race-instrumented repetitions of `TestInfrastructureCompletionSource`, `TestExecutionUncertainFinalCompletion`, `TestInfrastructureSDKFailures`, `TestInfrastructureHTTPFallbackRetainsKnownSource`, `TestInfrastructureHTTPOperationSource` and `TestInfrastructureHTTPArtifactBodySource` in workflow and HTTP |
+| Generated runtime inventories and public API snapshot | `test_integration`: checksum both generated HTTP inventories before/after `go generate`, then check the combined public API snapshot |
 | Tools/platform metadata | `check_environment` |
 | Local result and durable evidence | `summarize` |
 
@@ -25,6 +29,10 @@ The upstream `-parallel=2` limit also bounds parallel test fixtures. Remote runt
 and public JobDB package coverage remain included. No tests are excluded, and
 race instrumentation remains enabled.
 
+Integration first retains current main's generated-file checks for both legacy and
+consumer HTTP inventories and its public API snapshot check. The snapshot includes
+`ConsumerRuntime`, legacy `WorkflowRuntime` and the additive preservation APIs.
+
 The integration audit includes four embedded-PostgreSQL packages:
 `chapterstore/postgres`, `internal/chapterstore/postgres`, `configuration`, and
 `schemastore/postgres`. The Go `-exec` launcher isolates their binaries beneath the
@@ -34,7 +42,24 @@ PostgreSQL downloads its normal native 17.5.0 archive and uses a separate cache
 beneath its scratch working directory. The launcher removes the inherited home
 variable only in those test processes so embedded-postgres cannot write to the
 worker's home. Other tests keep their source working directory and fixture access.
-No test assertions, package selection, or GitHub Actions steps are changed.
+The workflow/provider race command uses a twenty-minute per-package timeout in
+both CI and the native hook. The native hook also exercises core, SQLite and HTTP
+infrastructure/provenance races, including synchronous legacy renewal shutdown.
+It then repeats completion fallback, ignored SDK failure and HTTP origin regressions ten
+times under the race detector. These include ordinary provider errors and valid
+server origins as controls. The HTTP operation matrix covers writes, waits,
+completion, rescheduling and artifacts, including body-carried ordinals before
+transport classification and interrupted artifact responses.
+
+After full integration, the hook repeats crash-concern conformance three times
+across toy, SQLite and their HTTP adapters. The fixture uses two-second leases
+and a one-minute context per backend: the former 100 ms lease could expire during
+storage or HTTP assertions on a loaded worker. It still waits for authoritative
+expiry on every acquisition and checks ACTIVE before expiry, READY or CRASH_CONCERN
+after expiry, blocked acquisition at the threshold, guarded clearing and recovery
+of the same job. If a listing omits backend expiry, the test waits for ACTIVE to
+end within its context: capability expiry can precede backend expiry. Unexpected
+non-ACTIVE states still fail immediately. This adds no retry of a failed case.
 
 Environment failures block dependent suites. Ordinary integration failures still
 allow the independent race suite to run. All mandatory results, timeout flags,
@@ -64,9 +89,16 @@ c2j test run --file tests/verify-hook/live.test.json --include-live --parallelis
 ```
 
 The live suite uses disposable source fixtures to run real commands, load the
-candidate hook, assert const preservation, and demonstrate a failing test without
-merging or publishing. Application-suite results must also be checked on the
-actual candidate; fixture success alone does not certify JobDB's tests.
+candidate hook, assert const preservation, and demonstrate integration, runtime
+race, repeated completion source, repeated SDK and repeated HTTP source failures without merging or publishing.
+The fixtures include stable generated files, a deterministic Go generator, and a
+small stand-in snapshot checker. Generation and stale-snapshot failure fixtures
+verify those gates independently while the real repository generation/snapshot
+commands are checked separately. They do not certify actual API compatibility.
+The repeated crash-concern failure fixture passes the initial integration sweep,
+fails only at count three, and requires failed verification, successful independent
+races, all four evidence artifacts and an unchanged fixture checkout.
+Application-suite results must also be checked on the actual candidate; fixture success alone does not certify JobDB's tests.
 
 For managed child-job validation, a successful preliminary command does not
 establish that hook restore artifacts reach the resolver. A bounded child with
@@ -91,3 +123,9 @@ This check uses the same scoped Git transport available for private module
 resolution in the verification hook. It needs no publishing credential or JobDB
 secret. The managed flow retains Git publication; this hook verifies availability
 of its result. A failed check does not undo a publication that already completed.
+
+The completion source fixture passes integration and the initial races, then fails
+only the ten-repeat completion regression. It requires a failed verdict, all four
+evidence artifacts and a clean fixture checkout. The actual regressions cover
+lost acknowledgements after terminal writes, known zero/positive ordinals, absent
+chapters and authoritative typed origins (including explicitly unknown sources).

@@ -61,7 +61,9 @@ func TestHTTPSubmissionAvailabilityRangeAndRetries(t *testing.T) {
 				require.NoError(t, err)
 				h, err := rt.SubmitJob(ctx, req)
 				if i >= 3 {
-					require.ErrorContains(t, err, "availableAt")
+					// Existing routes return legacy 500 for invalid availability. Keep the
+					// status and classify it without reflecting backend text.
+					require.True(t, jobdb.IsExecutionInfrastructureError(err))
 					assertRemoteAvailabilityAbsent(t, rt, req.Job.JobID)
 					after, err := rt.ListGoals(ctx, jobdb.ListGoalsRequest{TenantId: "tenant"})
 					require.NoError(t, err)
@@ -71,7 +73,7 @@ func TestHTTPSubmissionAvailabilityRangeAndRetries(t *testing.T) {
 					if selected {
 						require.ErrorIs(t, err, jobdb.ErrPrimaryGoalSelectionUnsupported)
 					} else {
-						require.ErrorContains(t, err, "availableAt")
+						require.True(t, jobdb.IsExecutionInfrastructureError(err))
 					}
 					assertRemoteAvailabilityAbsent(t, rt, req.Job.JobID)
 					return
@@ -89,7 +91,7 @@ func TestHTTPSubmissionAvailabilityRangeAndRetries(t *testing.T) {
 				bad := time.Date(2300, 1, 1, 0, 0, 0, 0, time.UTC)
 				req.Job.AvailableAt = &bad
 				_, err = rt.SubmitJob(ctx, req)
-				require.ErrorContains(t, err, "availableAt")
+				require.True(t, jobdb.IsExecutionInfrastructureError(err))
 			})
 		}
 	}

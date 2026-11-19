@@ -140,6 +140,25 @@ func TestChapterLogRoundTrip(t *testing.T) {
 	if err != nil || !bytes.Equal(clonedBody, body) {
 		t.Fatalf("cloned artifact body = %q, err = %v", clonedBody, err)
 	}
+	// The optional diagnostic source resolves the linked prefix without touching
+	// artifact objects and bounds oversized bodies before materialization.
+	ceiling, err := store.ExecutionProvenanceCeiling(ctx, cloneKey)
+	if err != nil || ceiling == nil || *ceiling != 1 {
+		t.Fatalf("provenance ceiling=%v, err=%v", ceiling, err)
+	}
+	page, err := store.ReadProvenanceChapterPage(ctx, runtimecore.ProvenanceChapterPageRequest{Key: cloneKey, ThroughOrdinal: *ceiling, StartOrdinal: 0, Records: 1, Bytes: 1 << 20})
+	if err != nil || len(page.Entries) != 1 || !bytes.Equal(page.Entries[0].Body, initial.Payload) || page.NextOrdinal != 1 {
+		t.Fatalf("inherited provenance page=%+v, err=%v", page, err)
+	}
+	oversized := runtimecore.EncodedChapter{Ordinal: 2, Payload: bytes.Repeat([]byte("x"), (1<<20)+1)}
+	if err := store.Append(ctx, cloneKey, oversized); err != nil {
+		t.Fatal(err)
+	}
+	page, err = store.ReadProvenanceChapterPage(ctx, runtimecore.ProvenanceChapterPageRequest{Key: cloneKey, ThroughOrdinal: 2, StartOrdinal: 1, Records: 256, Bytes: 1 << 20})
+	if err != nil || len(page.Entries) != 2 || page.Entries[1].Issue != jobdb.ExecutionProvenanceOversizedRecord || len(page.Entries[1].Body) != 0 {
+		t.Fatalf("bounded provenance page=%+v, err=%v", page, err)
+	}
+
 	if _, err := store.Get(ctx, key, 99); !errors.Is(err, jobdb.ErrChapterNotFound) {
 		t.Fatalf("missing chapter = %v, want chapter not found", err)
 	}

@@ -103,7 +103,13 @@ func TestRestartPublicationFailureRollsBackHistory(t *testing.T) {
 					for attempt := 0; attempt < 2; attempt++ {
 						_, err = rt.SubmitRestartJob(ctx, req)
 						require.Error(t, err)
-						if failure == "commit" {
+						require.True(t, jobdb.IsExecutionInfrastructureError(err))
+						if transport == "http" {
+							var cause *jobdb.RemoteExecutionCause
+							require.ErrorAs(t, err, &cause)
+							require.NotContains(t, err.Error(), "injected")
+							require.NotContains(t, err.Error(), "FOREIGN KEY")
+						} else if failure == "commit" {
 							require.Contains(t, err.Error(), "FOREIGN KEY")
 						} else {
 							require.Contains(t, err.Error(), "injected")

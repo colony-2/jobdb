@@ -177,6 +177,7 @@ func (c appendChapters) write(ctx context.Context, key runtimecore.ChapterLogKey
 		return jobdb.ErrConflict
 	}
 	chapters[ch.Ordinal] = runtimecodec.CloneChapter(ch)
+	c.r.engine.recordProvenanceLocked(key.JobKey, ch)
 	for name, b := range blobs {
 		c.r.engine.runtimeArtifacts[runtimeArtifactKey{key.JobKey, ch.Ordinal, name}] = b
 	}

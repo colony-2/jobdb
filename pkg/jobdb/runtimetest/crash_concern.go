@@ -18,7 +18,7 @@ func runCrashConcern(t *testing.T, harnesses []Harness) {
 		t.Run(h.Name, func(t *testing.T) {
 			f := buildFixture(t, h)
 			defer f.Shutdown(t)
-			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 30*time.Second)
+			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), time.Minute)
 			defer cancel()
 			r := f.Runtime
 			route := jobdb.Route{JobType: "crash-concern"}
@@ -30,16 +30,21 @@ func runCrashConcern(t *testing.T, harnesses []Harness) {
 				return handle.JobKey
 			}
 			key := submit("flapping")
+			// Acquisition and live-state assertions perform several storage/HTTP
+			// operations. Leave enough time for them on loaded native workers;
+			// a 100 ms lease could expire before the ACTIVE assertion. Still wait
+			// for each authoritative expiry below, including the threshold lease.
+			const leaseDuration = 2 * time.Second
 			poll := func() []jobdb.ExecutionLease {
 				leases, err := r.PollWork(ctx, jobdb.PollWorkRequest{
-					TenantId: key.TenantId, WorkerID: "poller", Routes: []jobdb.Route{route}, LeaseDuration: 100 * time.Millisecond,
+					TenantId: key.TenantId, WorkerID: "poller", Routes: []jobdb.Route{route}, LeaseDuration: leaseDuration,
 				})
 				require.NoError(t, err)
 				return leases
 			}
 			get := func() jobdb.ExecutionLease {
 				lease, err := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{
-					JobKey: key, WorkerID: "targeted", Routes: []jobdb.Route{route}, LeaseDuration: 100 * time.Millisecond,
+					JobKey: key, WorkerID: "targeted", Routes: []jobdb.Route{route}, LeaseDuration: leaseDuration,
 				})
 				require.NoError(t, err)
 				return lease
@@ -69,7 +74,8 @@ func runCrashConcern(t *testing.T, harnesses []Harness) {
 					expires = renewable.LeaseExpiry()
 				}
 				// A remote capability may expire before the underlying lease
-				// (Postgres rounds durations up to whole seconds).
+				// (Postgres rounds durations up to whole seconds). Prefer the
+				// authoritative expiry when the listing exposes it.
 				listed, err := r.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{key.TenantId}, JobKeys: []jobdb.JobKey{key}})
 				require.NoError(t, err)
 				require.Len(t, listed.Jobs, 1)
@@ -84,8 +90,22 @@ func runCrashConcern(t *testing.T, harnesses []Harness) {
 					timer.Stop()
 					t.Fatal(ctx.Err())
 				}
-				info, err = r.GetJob(ctx, key)
-				require.NoError(t, err)
+				// Some runtimes omit LeaseExpiresAt from listings. Capability
+				// expiry alone does not prove backend expiry, so wait for the
+				// live projection to end, bounded by the fixture context. Any
+				// unexpected non-ACTIVE state still fails the assertion below.
+				for {
+					info, err = r.GetJob(ctx, key)
+					require.NoError(t, err)
+					if info.Status != jobdb.JobStatusActive {
+						break
+					}
+					select {
+					case <-time.After(20 * time.Millisecond):
+					case <-ctx.Done():
+						t.Fatal(ctx.Err())
+					}
+				}
 				want := jobdb.JobStatusReady
 				if reclaims == crashconcern.DefaultThreshold {
 					want = jobdb.JobStatusCrashConcern

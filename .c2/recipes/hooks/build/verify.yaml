@@ -114,6 +114,9 @@ state:
           go run ./cmd/jobdb-api-snapshot -packages api/packages.txt -check api/jobdb.public.txt
           printf '%s\n' 'Command: go test -count=1 -p=2 -v -tags=integration -exec <python3 absolute-native-launcher> ./...'
           go test -count=1 -p=2 -v -tags=integration -exec "python3 $PWD/scripts/verify-test-exec.py" ./...
+          # Exercise live status, real expiry and same-job recovery repeatedly.
+          printf '%s\n' "Command: go test -count=3 -p=1 -timeout=5m -v -tags=integration ./pkg/workflow/internal/jobdbtest/runtimeconformance -run '^(TestBuiltInRuntimeConformance|TestRemoteRuntimeConformance)$/^crash_concern_excludes_ready_work$'"
+          go test -count=3 -p=1 -timeout=5m -v -tags=integration ./pkg/workflow/internal/jobdbtest/runtimeconformance -run '^(TestBuiltInRuntimeConformance|TestRemoteRuntimeConformance)$/^crash_concern_excludes_ready_work$'
       catch:
         - when: failure.kind != 'cancellation'
           continue:
@@ -250,6 +253,10 @@ state:
           # Give each package 20m within this command's 30m outer limit.
           printf '%s\n' "Command: go test -count=1 -timeout=20m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/..."
           go test -count=1 -timeout=20m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/...
+          printf '%s\n' "Command: go test -count=1 -p=1 -timeout=20m -v -race ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/remote -run 'TestInfrastructure|TestProvenance|TestLegacyKeepAlive'"
+          go test -count=1 -p=1 -timeout=20m -v -race ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/remote -run 'TestInfrastructure|TestProvenance|TestLegacyKeepAlive'
+          printf '%s\n' "Command: go test -count=10 -p=1 -timeout=20m -v -race ./pkg/workflow ./pkg/jobdb/runtime/remote -run 'TestInfrastructureCompletionSource|TestExecutionUncertainFinalCompletion|TestInfrastructureSDKFailures|TestInfrastructureHTTPFallbackRetainsKnownSource|TestInfrastructureHTTPOperationSource|TestInfrastructureHTTPArtifactBodySource'"
+          go test -count=10 -p=1 -timeout=20m -v -race ./pkg/workflow ./pkg/jobdb/runtime/remote -run 'TestInfrastructureCompletionSource|TestExecutionUncertainFinalCompletion|TestInfrastructureSDKFailures|TestInfrastructureHTTPFallbackRetainsKnownSource|TestInfrastructureHTTPOperationSource|TestInfrastructureHTTPArtifactBodySource'
       catch:
         - when: failure.kind != 'cancellation'
           continue:

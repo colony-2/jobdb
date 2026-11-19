@@ -67,7 +67,7 @@ func EncodeChapter(req EncodeChapterRequest) (EncodedChapter, error) {
 
 // DecodeChapter converts an opaque chapter-log record into a typed public
 // chapter.
-func DecodeChapter(encoded EncodedChapter) (jobdb.Chapter, error) {
+func DecodeChapter(encoded EncodedChapter) (result jobdb.Chapter, failure error) {
 	env, err := runtimecodec.DecodeChapter(encoded.Payload)
 	if err != nil {
 		return jobdb.Chapter{}, err

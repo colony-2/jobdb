@@ -143,6 +143,9 @@ func newRuntimeServer(runtime jobdb.ConsumerRuntime, mutator jobdb.GoalCandidate
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		},
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			if writeInfrastructureError(w, err) {
+				return
+			}
 			if writeCellError(w, err) {
 				return
 			}
@@ -230,6 +233,13 @@ func newRuntimeServer(runtime jobdb.ConsumerRuntime, mutator jobdb.GoalCandidate
 				writeDelegationError(w, delegationDenied())
 				return
 			}
+		}
+		if isProvenancePath(r.URL.EscapedPath()) {
+			if !prepareCellRequest(w, r) {
+				return
+			}
+			server.serveProvenance(w, r)
+			return
 		}
 		if !prepareCellRequest(w, r) {
 			return

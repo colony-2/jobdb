@@ -73,7 +73,8 @@ func (c *executionContext) dependencyResult(rec jobdb.ExecutionRecord) ([]jobdb.
 	}
 	var wait jobdb.DependencyWaitInfo
 	if err = json.Unmarshal(raw, &wait); err != nil {
-		return nil, err
+		ordinal := c.run.storedRecordOrdinal(rec.Kind, rec.ID)
+		return nil, c.run.r.guard.observe(jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_dependency_result", &c.run.r.jobKey, ordinal))
 	}
 	return wait.Dependencies, wait.Err()
 }

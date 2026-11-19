@@ -325,7 +325,7 @@ func (r *Runtime) SubmitJobWithLeaseByID(ctx context.Context, parentJobKey jobdb
 		return jobdb.JobHandle{}, jobdb.ErrExecutionLeaseLost
 	}
 	if _, err := r.validateLease(ctx, parentJobKey, leaseID, workerID); err != nil {
-		return jobdb.JobHandle{}, err
+		return jobdb.JobHandle{}, submissionStorageError(err, "validate_parent_lease", parentJobKey, nil)
 	}
 	req.Job.TenantId = parentJobKey.TenantId
 	return r.submitJobWithParent(cellstate.WithLease(ctx, cellstate.LeaseProof{JobKey: parentJobKey, LeaseID: leaseID, WorkerID: workerID}), req, parentJobKey.JobId)
@@ -342,7 +342,7 @@ func (r *Runtime) SubmitRestartJobWithLeaseByID(ctx context.Context, parentJobKe
 		return jobdb.JobHandle{}, jobdb.ErrExecutionLeaseLost
 	}
 	if _, err := r.validateLease(ctx, parentJobKey, leaseID, workerID); err != nil {
-		return jobdb.JobHandle{}, err
+		return jobdb.JobHandle{}, submissionStorageError(err, "validate_parent_lease", parentJobKey, nil)
 	}
 	if req.Job.PriorJobKey.TenantId != "" && req.Job.PriorJobKey.TenantId != parentJobKey.TenantId {
 		return jobdb.JobHandle{}, fmt.Errorf("prior job tenantId must match parent tenantId")

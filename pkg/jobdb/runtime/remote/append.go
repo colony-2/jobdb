@@ -52,7 +52,7 @@ func (r *Runtime) StartOrAppendJob(ctx context.Context, q jobdb.StartOrAppendJob
 	}
 	resp, err := r.client.StartOrAppendJobWithResponse(ctx, q.Job.Job.TenantId, body)
 	if err != nil {
-		return jobdb.JobHandle{}, err
+		return jobdb.JobHandle{}, jobdb.ClassifyRuntimeIO(err, "http_response", nil, nil)
 	}
 	if resp.JSON200 == nil {
 		return jobdb.JobHandle{}, responseError("start or append job", resp.StatusCode(), resp.Body, nil)
@@ -66,7 +66,7 @@ func (l *remoteExecutionLease) StartOrAppendJob(ctx context.Context, q jobdb.Sta
 	}
 	resp, err := l.runtime.client.StartOrAppendJobWithLeaseWithResponse(ctx, l.jobKey.TenantId, l.jobKey.JobId, l.leaseID, &runtimeapi.StartOrAppendJobWithLeaseParams{XJobDBLeaseToken: l.LeaseToken()}, body)
 	if err != nil {
-		return jobdb.JobHandle{}, err
+		return jobdb.JobHandle{}, jobdb.ClassifyRuntimeIO(err, "http_response", nil, nil)
 	}
 	if resp.JSON200 == nil {
 		return jobdb.JobHandle{}, responseError("start or append job with lease", resp.StatusCode(), resp.Body, jobdb.ErrExecutionLeaseLost)

@@ -113,7 +113,7 @@ func TestExecutionPrerequisiteAdmission(t *testing.T) {
 	}
 }
 
-func TestExecutionLiveMismatchCompletesJob(t *testing.T) {
+func TestExecutionLiveMismatchPreservesJob(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
 			base := alternateRuntime(t, backend)
@@ -133,18 +133,20 @@ func TestExecutionLiveMismatchCompletesJob(t *testing.T) {
 			_, err = run.Run(nil)
 			require.Error(t, err)
 			call.Command = []byte(`{"changed":true}`)
-			var out wf.JobRunOutcome
+			before, err := base.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
+			require.NoError(t, err)
 			require.Eventually(t, func() bool {
-				out, err = runExecutionTest(t, base, key, w, task)
-				require.NoError(t, err)
-				return out.Status != wf.JobRunNotLeaseable
+				_, err = runExecutionTest(t, base, key, w, task)
+				return jobdb.IsExecutionInfrastructureError(err)
 			}, 2*time.Second, 20*time.Millisecond)
-			require.Equal(t, wf.JobRunFailed, out.Status)
-			require.ErrorContains(t, out.JobError, "logical descriptor changed")
+			require.ErrorContains(t, err, "logical descriptor changed")
+			after, readErr := base.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
+			require.NoError(t, readErr)
+			require.Equal(t, before, after)
 			require.EqualValues(t, 1, builds.Load())
 			job, err := base.GetJob(celltest.Context(context.Background()), key)
 			require.NoError(t, err)
-			require.Equal(t, jobdb.JobStatusCompleted, job.Status)
+			require.NotEqual(t, jobdb.JobStatusCompleted, job.Status)
 		})
 	}
 }
@@ -153,6 +155,7 @@ type executionCompletionFaultRuntime struct {
 	jobdb.WorkflowRuntime
 	partial bool
 	fired   atomic.Bool
+	calls   atomic.Int32
 }
 type executionCompletionFaultLease struct {
 	jobdb.ExecutionLease
@@ -173,6 +176,7 @@ func (l *executionCompletionFaultLease) LeaseToken() string {
 	return ""
 }
 func (l *executionCompletionFaultLease) Complete(ctx context.Context, req jobdb.CompleteExecutionRequest) error {
+	l.runtime.calls.Add(1)
 	if !l.runtime.fired.CompareAndSwap(false, true) {
 		return l.ExecutionLease.Complete(ctx, req)
 	}
@@ -199,17 +203,22 @@ func TestExecutionUncertainFinalCompletion(t *testing.T) {
 				key := submitExecutionTest(t, rt, w)
 				run, err := wf.GetJobForRun(celltest.Context(context.Background()), rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "first", LeaseDuration: 500 * time.Millisecond})
 				require.NoError(t, err)
-				result, err := run.Run(nil)
-				if partial {
-					require.ErrorContains(t, err, "injected lost final")
-				} else {
-					// The lease session reconciles an already archived result.
-					require.NoError(t, err)
-					require.Equal(t, wf.JobRunCompleted, result.Status)
-				}
+				_, err = run.Run(nil)
+				require.ErrorContains(t, err, "injected lost final")
+				require.True(t, jobdb.IsExecutionInfrastructureError(err))
 				require.True(t, rt.fired.Load())
+				require.EqualValues(t, 1, rt.calls.Load(), "do not retry a completion after a lost acknowledgement")
+				var detail *jobdb.ExecutionInfrastructureError
+				require.ErrorAs(t, err, &detail)
+				require.Equal(t, jobdb.ExecutionInfrastructureRuntimeIO, detail.Reason)
+				require.Equal(t, "complete", detail.Operation)
+				require.Equal(t, &key, detail.JobKey)
 				before, err := base.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 				require.NoError(t, err)
+				require.NotEmpty(t, before)
+				final := before[len(before)-1]
+				require.IsType(t, jobdb.JobAttemptOutcomeChapter{}, final.Body)
+				require.Equal(t, &final.Ordinal, detail.Ordinal, "retain the committed terminal chapter's physical ordinal")
 				if partial {
 					var out wf.JobRunOutcome
 					require.Eventually(t, func() bool {

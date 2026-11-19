@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"io"
@@ -144,7 +145,15 @@ func chapterMetaFromChapter(ch Chapter) (chapterMeta, error) {
 	return meta, nil
 }
 
-func chapterToTaskData(runtime WorkflowRuntime, jobKey JobKey, ch Chapter) (TaskData, error) {
+func chapterToTaskData(runtime WorkflowRuntime, jobKey JobKey, ch Chapter) (result TaskData, failure error) {
+	defer func() {
+		if failure != nil && !jobdb.IsAppError(failure) && !jobdb.IsSystemError(failure) {
+			var timeout jobdb.TimeoutError
+			if !errors.As(failure, &timeout) {
+				failure = jobdb.ClassifyExecutionInfrastructure(failure, jobdb.ExecutionInfrastructureDurableDecode, "decode_outcome", &jobKey, &ch.Ordinal)
+			}
+		}
+	}()
 	artifacts := make([]Artifact, 0, len(ch.Artifacts))
 	for _, stored := range ch.Artifacts {
 		artifacts = append(artifacts, newRuntimeBackedArtifact(runtime, ArtifactRef{

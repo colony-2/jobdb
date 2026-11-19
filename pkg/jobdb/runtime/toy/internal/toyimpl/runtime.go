@@ -234,6 +234,7 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 		r.engine.runtimeChapters[jobKey] = make(map[int64]jobdb.Chapter)
 	}
 	r.engine.runtimeChapters[jobKey][0] = stored
+	r.engine.recordProvenanceLocked(jobKey, stored)
 	r.engine.mu.Unlock()
 
 	if req.Job.GoalID != "" {
@@ -487,6 +488,9 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		return jobdb.JobHandle{}, err
 	}
 	r.engine.runtimeChapters[jobKey] = targetChapters
+	for _, ch := range targetChapters {
+		r.engine.recordProvenanceLocked(jobKey, ch)
+	}
 	for key, data := range targetArtifacts {
 		r.engine.runtimeArtifacts[key] = data
 	}
@@ -779,6 +783,9 @@ func (d *jobInfoTaskData) GetDataOrPanic() jobdb.Data {
 }
 
 func (d *jobInfoTaskData) GetArtifacts() ([]jobdb.Artifact, error) {
+	if jobdb.IsExecutionInfrastructureError(d.err) {
+		return nil, d.err
+	}
 	if d.taskData == nil {
 		return nil, d.err
 	}
@@ -957,6 +964,7 @@ func (r *Runtime) storeRuntimeChapter(jobKey jobdb.JobKey, ordinal int64, chapte
 		}
 	}
 	chapters[ordinal] = cloneChapter(chapter)
+	r.engine.recordProvenanceLocked(jobKey, chapter)
 	record := r.engine.jobRecords[jobKey]
 	r.engine.mu.Unlock()
 
@@ -1734,6 +1742,7 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 		return fmt.Errorf("%w: task output is not appendable", jobdb.ErrConflict)
 	}
 	chapters[wait.OutputStep] = cloneChapter(chapter)
+	r.engine.recordProvenanceLocked(req.JobKey, chapter)
 	for name, data := range pendingArtifacts {
 		r.engine.runtimeArtifacts[runtimeArtifactKey{jobKey: req.JobKey, ordinal: wait.OutputStep, name: name}] = data
 	}
@@ -2037,6 +2046,7 @@ func (r *Runtime) completePayloadFailure(ctx context.Context, key jobdb.JobKey, 
 		return jobdb.ErrConflict
 	}
 	chapters[ch.Ordinal] = cloneChapter(ch)
+	r.engine.recordProvenanceLocked(key, ch)
 	failure := ch.Body.(jobdb.JobAttemptOutcomeChapter).Outcome.(jobdb.AppErrorOutcome).Error
 	record.err = &jobdb.AppError{Payload: failure}
 	raw, _ := json.Marshal(failure)
