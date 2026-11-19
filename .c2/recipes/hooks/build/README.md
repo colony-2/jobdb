@@ -8,7 +8,7 @@ accepted but never interpreted as shell code. Checks always cover the whole repo
 | Workflow behavior | Native task |
 | --- | --- |
 | `test.yaml`: Linux ARM64 Go tests with integration tag | `test_integration`: `go test -count=1 -p=2 -v -tags=integration -exec "python3 $PWD/scripts/verify-test-exec.py" ./...` |
-| `test.yaml`: workflow/provider race check | `test_races`: `go test -count=1 -p=1 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider` |
+| `test.yaml`: workflow/provider and shared/embedded runtime race check | `test_races`: `GOMAXPROCS=2 go test -count=1 -timeout=20m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/...` |
 | Tools/platform metadata | `check_environment` |
 | Local result and durable evidence | `summarize` |
 
@@ -17,7 +17,13 @@ Nixpkgs pin supplies Go 1.26.8; CI requests 1.26.1. This deliberately records a
 compatible patch version rather than claiming exact CI parity. Go's race detector
 requires CGO and the declared native GCC toolchain. Build/package parallelism is bounded (two for integration, one for races) to
 avoid compiling other packages during timing-sensitive workflow race tests. The
-Go runtime keeps its native CPU-aware default; no tests are excluded.
+integration suite keeps Go’s native CPU-aware default. The race task sets
+`GOMAXPROCS=2` for the Go command, compiler tools and test subprocesses to bound
+thread pressure. Its explicit `-timeout=20m` prevents the full workflow package
+from hitting Go’s default ten-minute limit while tests are still progressing.
+The upstream `-parallel=2` limit also bounds parallel test fixtures. Remote runtime
+and public JobDB package coverage remain included. No tests are excluded, and
+race instrumentation remains enabled.
 
 The integration audit includes four embedded-PostgreSQL packages:
 `chapterstore/postgres`, `internal/chapterstore/postgres`, `configuration`, and
@@ -39,7 +45,8 @@ Scoped Git transport remains intact; enclosing job identity and opt-in remote
 runtime/Postgres settings are cleared before testing.
 
 Timeouts belong to command inputs: two minutes for environment/reporting and
-thirty minutes for each test suite. Durable states have no wall-clock deadline,
+thirty minutes for each test suite, with a twenty-minute Go package timeout for
+the race suite. Durable states have no wall-clock deadline,
 so suspension or delayed result collection cannot expire an already successful
 command. Command timeouts and all aggregate evidence requirements still gate a pass.
 

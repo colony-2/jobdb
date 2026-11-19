@@ -3,6 +3,7 @@ package runtimecore
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -177,13 +178,30 @@ func (s AppendService) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAp
 		}
 		generation := int64(1)
 		if found {
-			if tail.AppendGeneration == math.MaxInt64 {
-				return bad("generation exhausted")
+			if tail.AppendGeneration >= math.MaxUint32 {
+				return bad("append generation exhausted (maximum 4294967295)")
 			}
 			generation = tail.AppendGeneration + 1
 		}
-		sum := sha256.Sum256([]byte(fmt.Sprintf("%q/%q/%q", chain.CellID, chain.JobType, chain.AppendKey)))
-		key := jobdb.JobKey{TenantId: chain.TenantID, JobId: fmt.Sprintf("ak-%x-%019d", sum[:16], generation)}
+		id, err := compactAppendJobID(chain, generation)
+		if err != nil {
+			return jobdb.JobHandle{}, err
+		}
+		// An old writer may have committed chapter zero without publishing the
+		// scheduler row. Recover it before choosing the new encoding. Writers
+		// sharing storage must be upgraded together to avoid competing encodings.
+		legacyKey := jobdb.JobKey{TenantId: chain.TenantID, JobId: legacyAppendJobID(chain, generation)}
+		legacy, err := s.Chapters.Get(ctx, ChapterLogKey{legacyKey}, 0)
+		if err == nil {
+			if _, _, err = s.publish(ctx, legacyKey, legacy, false); err != nil {
+				return jobdb.JobHandle{}, err
+			}
+			continue // Retry this caller's append against the recovered winner.
+		}
+		if !errors.Is(err, jobdb.ErrJobNotFound) && !errors.Is(err, jobdb.ErrChapterNotFound) {
+			return jobdb.JobHandle{}, err
+		}
+		key := jobdb.JobKey{TenantId: chain.TenantID, JobId: id}
 		handle, created, err := s.create(ctx, req, in, cell, key, tail, found, generation, now())
 		if err != nil {
 			return jobdb.JobHandle{}, err
@@ -194,6 +212,28 @@ func (s AppendService) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAp
 	}
 	return jobdb.JobHandle{}, jobdb.ErrAppendBusy
 }
+
+func appendIdentityHash(chain AppendChain) [32]byte {
+	return sha256.Sum256([]byte(fmt.Sprintf("%q/%q/%q", chain.CellID, chain.JobType, chain.AppendKey)))
+}
+
+func legacyAppendJobID(chain AppendChain, generation int64) string {
+	sum := appendIdentityHash(chain)
+	return fmt.Sprintf("ak-%x-%019d", sum[:16], generation)
+}
+
+func compactAppendJobID(chain AppendChain, generation int64) (string, error) {
+	if generation < 1 || generation > math.MaxUint32 {
+		return "", fmt.Errorf("%w: append generation outside range 1–4294967295", jobdb.ErrInvalidAppendRequest)
+	}
+	sum := appendIdentityHash(chain)
+	var raw [20]byte
+	copy(raw[:16], sum[:16])
+	binary.BigEndian.PutUint32(raw[16:], uint32(generation))
+	id, err := ksuid.FromBytes(raw[:])
+	return id.String(), err
+}
+
 func appendBackoff(ctx context.Context, attempt int) error {
 	delay := time.Duration(1+attempt%10) * time.Millisecond
 	timer := time.NewTimer(delay)

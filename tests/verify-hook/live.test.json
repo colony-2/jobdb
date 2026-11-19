@@ -15,7 +15,16 @@
               "pkg/jobdb/secrets/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
               "pkg/jobdb/cli/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
               "examples/secret-provider/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
-              "fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {  }\n"
+              "fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {  }\n",
+              "pkg/jobdb/runtime/core/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/sqlite/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/toy/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/workflow/race_budget_test.go": "//go:build race\n\npackage fixture\n\nimport (\n \"flag\"\n \"runtime\"\n \"testing\"\n \"time\"\n)\n\nfunc TestRaceBudget(t *testing.T) {\n if got := runtime.GOMAXPROCS(0); got != 2 {\n  t.Fatalf(\"GOMAXPROCS = %d, want 2\", got)\n }\n if got := flag.Lookup(\"test.parallel\").Value.String(); got != \"2\" {\n  t.Fatalf(\"test parallelism = %s, want 2\", got)\n }\n deadline, ok := t.Deadline()\n if !ok {\n  t.Fatal(\"race suite must have a package timeout\")\n }\n if left := time.Until(deadline); left < 19*time.Minute || left > 20*time.Minute {\n  t.Fatalf(\"remaining race timeout = %s, want between 19m and 20m\", left)\n }\n}\n",
+              "pkg/jobdb/runtime/remote/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/jobdb/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/jobdb/internal/runtimeapi/zz_generated.go": "package runtimeapi\n",
+              "pkg/jobdb/internal/runtimeapi/zz_consumer_generated.go": "package runtimeapi\n",
+              "cmd/jobdb-api-snapshot/main.go": "package main\nimport \"os\"\nfunc main() {\n want := []string{\"-packages\", \"api/packages.txt\", \"-check\", \"api/jobdb.public.txt\"}\n if len(os.Args) != 5 { panic(\"unexpected snapshot arguments\") }\n for i, arg := range want { if os.Args[i+1] != arg { panic(\"unexpected snapshot argument\") } }\n}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
@@ -81,7 +90,16 @@
               "pkg/jobdb/secrets/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
               "pkg/jobdb/cli/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
               "examples/secret-provider/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
-              "fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) { t.Fatal(\"representative forced failure\") }\n"
+              "fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) { t.Fatal(\"representative forced failure\") }\n",
+              "pkg/jobdb/runtime/core/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/sqlite/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/toy/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/workflow/race_budget_test.go": "//go:build race\n\npackage fixture\n\nimport (\n \"flag\"\n \"runtime\"\n \"testing\"\n \"time\"\n)\n\nfunc TestRaceBudget(t *testing.T) {\n if got := runtime.GOMAXPROCS(0); got != 2 {\n  t.Fatalf(\"GOMAXPROCS = %d, want 2\", got)\n }\n if got := flag.Lookup(\"test.parallel\").Value.String(); got != \"2\" {\n  t.Fatalf(\"test parallelism = %s, want 2\", got)\n }\n deadline, ok := t.Deadline()\n if !ok {\n  t.Fatal(\"race suite must have a package timeout\")\n }\n if left := time.Until(deadline); left < 19*time.Minute || left > 20*time.Minute {\n  t.Fatalf(\"remaining race timeout = %s, want between 19m and 20m\", left)\n }\n}\n",
+              "pkg/jobdb/runtime/remote/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/jobdb/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/jobdb/internal/runtimeapi/zz_generated.go": "package runtimeapi\n",
+              "pkg/jobdb/internal/runtimeapi/zz_consumer_generated.go": "package runtimeapi\n",
+              "cmd/jobdb-api-snapshot/main.go": "package main\nimport \"os\"\nfunc main() {\n want := []string{\"-packages\", \"api/packages.txt\", \"-check\", \"api/jobdb.public.txt\"}\n if len(os.Args) != 5 { panic(\"unexpected snapshot arguments\") }\n for i, arg := range want { if os.Args[i+1] != arg { panic(\"unexpected snapshot argument\") } }\n}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",

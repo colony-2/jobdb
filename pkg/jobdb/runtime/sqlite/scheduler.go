@@ -146,10 +146,16 @@ func (r *Runtime) insertJobRecordTx(ctx context.Context, tx *sql.Tx, jobKey jobd
 	now := time.Now().UTC()
 	facts, _ := ctx.Value(appendFactsKey{}).(runtimecore.CreateJobRequest)
 	var appendKey, appendGen any
+	createdAt := now
 	if facts.AppendKey != "" {
 		appendKey, appendGen = facts.AppendKey, facts.AppendGeneration
+		// Publication can recover a start chapter written by an earlier call.
+		// Keep its creation time and default availability, independent of retry time.
+		if !facts.CreatedAt.IsZero() {
+			createdAt = facts.CreatedAt
+		}
 	}
-	leaseableAt := now
+	leaseableAt := createdAt
 	if availableAt != nil {
 		leaseableAt = availableAt.UTC()
 	}
@@ -187,7 +193,7 @@ INSERT INTO jobdb_jobs (
 		parentJobIDFromMetadata(metadata),
 		waitBytes,
 		timeToNS(leaseableAt),
-		timeToNS(now),
+		timeToNS(createdAt),
 		timeToNS(now), appendKey, appendGen,
 	)
 	if err != nil {

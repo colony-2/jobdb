@@ -120,7 +120,7 @@
         },
         {
           "type": "cel_true",
-          "expr": "calls.filter(c, c.node_path.endsWith(\"/test_integration/test_integration\"))[0].inputs.run.contains(\"-tags=integration\") && calls.filter(c, c.node_path.endsWith(\"/test_races/test_races\"))[0].inputs.run.contains(\"-race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb\")"
+          "expr": "calls.filter(c, c.node_path.endsWith(\"/test_integration/test_integration\"))[0].inputs.run.contains(\"-tags=integration\") && calls.filter(c, c.node_path.endsWith(\"/test_races/test_races\"))[0].inputs.run.contains(\"-race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/...\")"
         },
         {
           "type": "cel_true",
@@ -132,7 +132,11 @@
         },
         {
           "type": "cel_true",
-          "expr": "calls.filter(c, c.node_path.endsWith(\"/test_races/test_races\"))[0].inputs.run.contains(\"go test -count=1 -timeout=20m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb\")"
+          "expr": "calls.filter(c, c.node_path.endsWith(\"/test_races/test_races\"))[0].inputs.run.contains(\"go test -count=1 -timeout=20m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/...\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path.endsWith(\"/test_races/test_races\")).all(c, c.inputs.env.GOMAXPROCS == \"2\" && c.inputs.run.contains(\"-timeout=20m\") && c.inputs.run.contains(\"-parallel=2\") && c.inputs.timeout == \"30m\")"
         }
       ]
     },

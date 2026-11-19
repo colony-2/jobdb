@@ -299,3 +299,41 @@ func TestGroupedTransportFailureAfterAcceptance(t *testing.T) {
 		}
 	}
 }
+
+// Exercise the existing error boundary without requiring a backend-specific way
+// to populate four billion queue generations.
+type exhaustedGroupedRuntime struct {
+	jobdb.WorkflowRuntime
+	jobdb.ConfigurationAdmin
+}
+
+func (r exhaustedGroupedRuntime) StartOrAppendJob(context.Context, jobdb.StartOrAppendJobRequest) (jobdb.JobHandle, error) {
+	return jobdb.JobHandle{}, fmt.Errorf("%w: append generation exhausted (maximum 4294967295)", jobdb.ErrInvalidAppendRequest)
+}
+func TestGroupedGenerationExhaustionHTTP(t *testing.T) {
+	f := newDelegationFixture(t, "toy", nil)
+	server := httptest.NewServer(celltest.Handler(NewServer(exhaustedGroupedRuntime{f.backend, f.backend.(jobdb.ConfigurationAdmin)})))
+	defer server.Close()
+	var status int
+	var body []byte
+	client, err := New(server.URL, &http.Client{Transport: appendTransportFunc(func(r *http.Request) (*http.Response, error) {
+		resp, err := server.Client().Transport.RoundTrip(r)
+		if err == nil {
+			status = resp.StatusCode
+			body, err = io.ReadAll(resp.Body)
+			resp.Body.Close()
+			resp.Body = io.NopCloser(bytes.NewReader(body))
+		}
+		return resp, err
+	})})
+	require.NoError(t, err)
+	_, err = client.StartOrAppendJob(celltest.Context(context.Background()), groupedRequest())
+	require.ErrorIs(t, err, jobdb.ErrInvalidAppendRequest)
+	require.Contains(t, err.Error(), "append generation exhausted (maximum 4294967295)")
+	require.Equal(t, http.StatusBadRequest, status)
+	var response struct {
+		Code string `json:"code"`
+	}
+	require.NoError(t, json.Unmarshal(body, &response))
+	require.Equal(t, "invalid_append_request", response.Code)
+}

@@ -77,3 +77,36 @@ Invalid append requests return `400 invalid_append_request`; bounded contention 
 The shared runtime algorithm writes a start chapter containing the first append and recoverable publication facts, followed by `AdditionalInput` prefix chapters. Backends store opaque chapter bytes. SQLite adds two indexed columns to `jobdb_jobs`; PostgreSQL adds them to its existing immutable `job_facts` row so chain identity survives archival. No new tables are required. Lease events use acquisition source `append`; expired append claims preserve crash counters, while expired worker leases still count.
 
 Install the updated PostgreSQL DDL before running the updated pgjobdb runtime. SQLite applies its additive migration on open. Update workers and servers together: older codecs cannot decode the new chapter kind. Ordinary job encoding remains unchanged.
+
+## Compact grouped job IDs
+
+New grouped generations use deterministic 27-character KSUID base62 strings. The
+20 encoded bytes are the first 16 bytes of SHA-256 over the existing canonical
+`fmt.Sprintf("%q/%q/%q", cellID, jobType, appendKey)` encoding, followed by the
+generation as four unsigned big-endian bytes. Tenant remains part of the storage
+key. These IDs are opaque: their decoded timestamp has no chronological meaning.
+Use `append_gen` for queue order and `created_at` for chronological order. String
+order increases within one compact queue, but does not order different queues or
+mixed legacy/compact chains.
+
+Generations start at one and may reach **4,294,967,295**. When a new successor would
+exceed that limit, the operation returns `ErrInvalidAppendRequest` with
+`append generation exhausted (maximum 4294967295)` (HTTP `400 invalid_append_request`).
+Existing open jobs at or above the limit can still accept ordinary appends.
+
+Existing `ak-…` jobs keep their IDs and remain addressable for reads, artifacts,
+appends, and waits. A newly created successor uses the compact ID unless a legacy
+chapter zero for that generation already exists. The shared runtime checks for
+that chapter first and recovers its saved publication facts, including the actual
+predecessor ID. No data rewrite, DDL change, or new storage interface is required.
+
+Pause grouped submissions on old writers, drain in-flight grouped calls, update
+all writers sharing the storage, then resume. Simultaneous old and new writers
+are unsupported: they could create different IDs for the same generation.
+
+Before rollback, keep the new writer available to recover and publish any compact
+chapter zero left by an interrupted creation. Establish that no compact creations
+remain unpublished before enabling old writers. Pausing and draining alone does
+not establish this: old writers cannot discover unpublished compact chapters.
+If completeness cannot be established, retain the new writer. Automatic global
+auditing and rollback recovery orchestration are outside this change.

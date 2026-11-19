@@ -227,6 +227,7 @@ state:
           CGO_ENABLED: "1"
           CC: gcc
           GOWORK: "off"
+          GOMAXPROCS: "2"
         run: |
           set -eu
           exec > "$OUTBOX/races.log" 2>&1
@@ -241,12 +242,14 @@ state:
           for variable in ${!C2J_CURRENT_@} ${!C2J_CHILD_JOB_@} ${!C2J_WORKSPACE_@}; do unset "$variable"; done
           unset C2J_TENANT_ID C2J_OBJECT_OUTBOX JOBDB_EXTERNAL_REMOTE_BASE_URL JOBDB_EXTERNAL_REMOTE_NAME JOBDB_EXTERNAL_REMOTE_ONLY JOBDB_CHAPTER_POSTGRES_DSN
           # Scoped Git transport credentials remain available for module downloads.
+          # Bound Go tool and test runtime threads independently of package parallelism.
+          printf 'Go runtime parallelism: %s\n' "$GOMAXPROCS"
           # -p bounds packages; separately bound t.Parallel fixtures under race overhead.
           # Preserve the availability matrix's future window and every assertion.
           # The complete race-instrumented workflow package exceeds Go's 10m default.
           # Give each package 20m within this command's 30m outer limit.
-          printf '%s\n' "Command: go test -count=1 -timeout=20m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb"
-          go test -count=1 -timeout=20m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb
+          printf '%s\n' "Command: go test -count=1 -timeout=20m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/..."
+          go test -count=1 -timeout=20m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/...
       catch:
         - when: failure.kind != 'cancellation'
           continue:

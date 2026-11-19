@@ -11,6 +11,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+	"github.com/segmentio/ksuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -33,21 +34,30 @@ func RunStartOrAppendConformance(t *testing.T, harnesses ...Harness) {
 				handles := make([]jobdb.JobHandle, n)
 				errs := make([]error, n)
 				var wg sync.WaitGroup
+				start := make(chan struct{})
 				for i := 0; i < n; i++ {
 					wg.Add(1)
 					go func(i int) {
 						defer wg.Done()
+						<-start
 						q := request("burst")
 						q.Job.Append = json.RawMessage(fmt.Sprint(i))
 						q.Job.Job.Data = jobdb.NewTaskDataOrPanic(i)
 						handles[i], errs[i] = rt.StartOrAppendJob(ctx, q)
 					}(i)
 				}
+				close(start)
 				wg.Wait()
 				for i := range handles {
 					require.NoError(t, errs[i])
 					require.Equal(t, handles[0], handles[i])
+					require.Len(t, handles[i].JobKey.JobId, 27)
+					_, err := ksuid.Parse(handles[i].JobKey.JobId)
+					require.NoError(t, err)
 				}
+				jobs, err := rt.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, AppendKeys: []string{"burst"}})
+				require.NoError(t, err)
+				require.Len(t, jobs.Jobs, 1)
 				chapters, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: handles[0].JobKey})
 				require.NoError(t, err)
 				require.Len(t, chapters, n)
