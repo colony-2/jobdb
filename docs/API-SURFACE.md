@@ -24,6 +24,12 @@ without goal attachment; the worker SDK accepts that interface. See the
 [consumer input migration](MIGRATION-CONSUMER-RUNTIME.md) for decorator ports,
 retained HTTP constructors and exact function-type changes.
 
+The shared `runtimecore.GoalScheduler` and `runtimetest` consumer inputs likewise
+require retained operations only. Core's temporary legacy attachment method
+forwards through optional `GoalCandidateMutator`; absence returns an error
+wrapping `errors.ErrUnsupported`. Existing backend contracts and legacy HTTP
+constructors remain during consumer migration.
+
 Lease history requires `LeaseEventReader` on `WorkflowRuntime` and
 `runtimecore.Scheduler`, with the validating `jobdb.ListLeaseEvents` helper and
 canonical `LeaseEvent` snapshots. Implementations missing the method intentionally

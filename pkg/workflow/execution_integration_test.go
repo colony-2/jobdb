@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 
 	wf "github.com/colony-2/jobdb/pkg/workflow"
@@ -379,11 +381,47 @@ func TestExecutionUncertainAppend(t *testing.T) {
 		})
 	}
 }
+
+const inputRecoveryLeaseDuration = 10 * time.Second
+
+// Expire only after the append fault has fired and Run has joined its renewer.
+// Toy callers use synctest; SQLite and HTTP callers change only lease expiry,
+// leaving the actual durable input and execution history untouched.
+func inputSnapshotRecoveryRuntime(t *testing.T, backend string) (jobdb.WorkflowRuntime, func(jobdb.JobKey)) {
+	t.Helper()
+	if backend == "toy" {
+		return alternateRuntime(t, backend), func(jobdb.JobKey) { time.Sleep(inputRecoveryLeaseDuration) }
+	}
+	ctx := celltest.Context(context.Background())
+	path := filepath.Join(t.TempDir(), "input-recovery.db")
+	storage, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, storage.Close(ctx)) })
+	db, err := sql.Open("sqlite", path)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	var runtime jobdb.WorkflowRuntime = storage
+	if backend == "remote" {
+		server := httptest.NewServer(celltest.Handler(remote.NewServer(storage)))
+		t.Cleanup(server.Close)
+		runtime, err = remote.New(server.URL, server.Client())
+		require.NoError(t, err)
+	}
+	return runtime, func(key jobdb.JobKey) {
+		t.Helper()
+		result, err := db.ExecContext(ctx, "UPDATE jobdb_jobs SET lease_expires_at_ns=0 WHERE tenant_id=? AND job_id=?", key.TenantId, key.JobId)
+		require.NoError(t, err)
+		changed, err := result.RowsAffected()
+		require.NoError(t, err)
+		require.EqualValues(t, 1, changed)
+	}
+}
+
 func TestExecutionRecoveryInputSnapshots(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		for _, committed := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/committed=%v", backend, committed), func(t *testing.T) {
-				base := alternateRuntime(t, backend)
+			scenario := func(t *testing.T) {
+				base, expire := inputSnapshotRecoveryRuntime(t, backend)
 				ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 				defer cancel()
 				rt := &executionFaultRuntime{WorkflowRuntime: base, cancel: cancel, fail: func(r jobdb.ExecutionRecord) bool {
@@ -412,19 +450,28 @@ func TestExecutionRecoveryInputSnapshots(t *testing.T) {
 					})
 				}}
 				key := submitExecutionTest(t, rt, w)
-				run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "first", LeaseDuration: 60 * time.Millisecond})
+				run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "first", LeaseDuration: inputRecoveryLeaseDuration})
 				require.NoError(t, err)
+				require.True(t, run.LeaseAcquired())
+				// Cover preparation slower than the former 60 ms lease budget.
+				time.Sleep(100 * time.Millisecond)
 				_, err = run.Run(nil)
 				require.Error(t, err)
-				require.True(t, rt.fired.Load())
+				require.True(t, rt.fired.Load(), "append fault must fire before lease expiry; run error: %v", err)
+				before, err := base.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
+				require.NoError(t, err)
+				expire(key)
 				source = "new"
-				var out wf.JobRunOutcome
-				require.Eventually(t, func() bool {
-					out, err = runExecutionTest(t, base, key, w, task)
-					require.NoError(t, err)
-					return out.Status != wf.JobRunNotLeaseable
-				}, 2*time.Second, 25*time.Millisecond)
+				recovery, err := wf.GetJobForRun(celltest.Context(context.Background()), base, wf.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "execution-test", LeaseDuration: inputRecoveryLeaseDuration, ConsumerVersions: map[string]string{"c2j": "X", "pulse": "Y"}})
+				require.NoError(t, err)
+				require.True(t, recovery.LeaseAcquired())
+				out, err := recovery.Run(nil)
+				require.NoError(t, err)
 				require.Equal(t, wf.JobRunCompleted, out.Status)
+				after, err := base.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
+				require.NoError(t, err)
+				require.GreaterOrEqual(t, len(after), len(before))
+				require.Equal(t, before, after[:len(before)])
 				if committed {
 					require.EqualValues(t, 1, builds.Load())
 					require.Equal(t, []string{`"old"`, `"old"`}, seen)
@@ -434,6 +481,13 @@ func TestExecutionRecoveryInputSnapshots(t *testing.T) {
 				}
 				_, err = replayExecutionTest(t, base, key, w, task)
 				require.NoError(t, err)
+			}
+			t.Run(fmt.Sprintf("%s/committed=%v", backend, committed), func(t *testing.T) {
+				if backend == "toy" {
+					synctest.Test(t, scenario)
+				} else {
+					scenario(t)
+				}
 			})
 		}
 	}

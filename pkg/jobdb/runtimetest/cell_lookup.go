@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func runLeaseCellLookup(t *testing.T, rt jobdb.WorkflowRuntime) {
+func runLeaseCellLookup(t *testing.T, rt jobdb.ConsumerRuntime) {
 	tenant := "lookup-" + ksuid.New().String()
 	admin, ctx := cellAdmin(tenant), context.Background()
 	create := func(tenant, name, repo string) jobdb.Cell {

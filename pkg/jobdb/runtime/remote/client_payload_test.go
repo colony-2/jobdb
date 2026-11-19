@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -35,7 +36,7 @@ func runPayloadAndRouteConformance(t *testing.T, run func(*testing.T, ...runtime
 				name = "remote-" + name
 			}
 			run(t, runtimetest.Harness{Name: name, New: func(tb testing.TB) runtimetest.Fixture {
-				var runtime jobdb.WorkflowRuntime = toyruntime.New()
+				var runtime jobdb.ConsumerRuntime = toyruntime.New()
 				cleanup := func() {}
 				if kind == "sqlite" {
 					embedded, err := sqliteruntime.NewFromConfig(celltest.Context(context.Background()), sqliteruntime.Config{DBPath: tb.TempDir() + "/jobdb.db"})
@@ -54,7 +55,10 @@ func runPayloadAndRouteConformance(t *testing.T, run func(*testing.T, ...runtime
 						tb.Fatal("native backend must provide lease validation")
 					}
 					validity = validator.ValidateExecutionLeaseByID
-					server := httptest.NewServer(celltest.Handler(NewServer(runtime)))
+					handler := NewConsumerServer(runtime)
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						handler.ServeHTTP(w, r.WithContext(runtimetest.PrimaryGoalContext(r.Context())))
+					}))
 					inner := cleanup
 					cleanup = func() { server.Close(); inner() }
 					client, err := New(server.URL, server.Client())

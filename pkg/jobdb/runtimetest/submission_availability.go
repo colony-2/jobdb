@@ -50,7 +50,7 @@ func availabilityRequest(id, typ string, at *time.Time) jobdb.SubmitJobRequest {
 
 // RunSubmissionAvailabilityWithSubmit also exercises restricted delegated
 // submission. Observer authority is separate from the supplied submit authority.
-func RunSubmissionAvailabilityWithSubmit(t *testing.T, rt jobdb.WorkflowRuntime, submit func(context.Context, jobdb.SubmitJobRequest) (jobdb.JobHandle, error), parentID string) {
+func RunSubmissionAvailabilityWithSubmit(t *testing.T, rt jobdb.ConsumerRuntime, submit func(context.Context, jobdb.SubmitJobRequest) (jobdb.JobHandle, error), parentID string) {
 	for _, kind := range []string{"completion", "exact-success", "goal-success", "all-of"} {
 		for _, timeFirst := range []bool{false, true} {
 			for _, poll := range []bool{false, true} {

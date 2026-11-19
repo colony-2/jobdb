@@ -11,9 +11,9 @@ import (
 	"testing"
 )
 
-type forwardingEventWrapper struct{ jobdb.WorkflowRuntime }
+type forwardingEventWrapper struct{ jobdb.ConsumerRuntime }
 type failingEventWrapper struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	err error
 }
 
@@ -26,15 +26,15 @@ func TestLeaseEventConformanceCompatibility(t *testing.T) {
 	if mode != "" {
 		h := Harness{Name: "probe", New: func(testing.TB) Fixture {
 			native := toy.New()
-			var r jobdb.WorkflowRuntime = native
+			var r jobdb.ConsumerRuntime = native
 			if strings.Contains(mode, "forwarded") {
 				r = forwardingEventWrapper{r}
 			}
 			if strings.Contains(mode, "failure") {
-				r = failingEventWrapper{WorkflowRuntime: r, err: errors.New("probe backend failure")}
+				r = failingEventWrapper{ConsumerRuntime: r, err: errors.New("probe backend failure")}
 			}
 			if strings.Contains(mode, "unsupported") {
-				r = failingEventWrapper{WorkflowRuntime: r, err: jobdb.ErrLeaseEventsUnsupported}
+				r = failingEventWrapper{ConsumerRuntime: r, err: jobdb.ErrLeaseEventsUnsupported}
 			}
 			return Fixture{Runtime: r, LeaseEventLeaseValidity: native.ValidateExecutionLeaseByID}
 		}}

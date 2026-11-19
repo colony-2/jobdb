@@ -11,7 +11,7 @@ import (
 )
 
 type expiryValidatorRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	validate func(context.Context, jobdb.JobKey, string, string) (jobdb.LeaseValidity, error)
 }
 

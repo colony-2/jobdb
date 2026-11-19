@@ -22,6 +22,37 @@ consumer handler, with its existing credential and permission checks.
 validating `jobdb.ListLeaseEvents` helper accepts `LeaseEventReader`. Selected
 primary-goal conformance and `celltest.WithCells` accept `ConsumerRuntime`.
 
+## Backend ports and shared conformance
+
+`runtimecore.GoalScheduler` requires `ConsumerGoalRuntime` plus its existing
+preparation/discard operations. A retained scheduler no longer needs
+`AddGoalCandidate`. The concrete core runtime still exposes that legacy method
+during staging: it forwards to a scheduler implementing `GoalCandidateMutator`,
+or returns an error wrapping the standard `errors.ErrUnsupported`. Existing
+full backends retain their genuine attachment implementation. Use retained
+consumer decorators and HTTP constructors to exclude that method and route.
+
+`runtimetest.Fixture.Runtime` and shared conformance inputs now accept
+`ConsumerRuntime`; `WaitForRuntimeStatus` takes `JobRunReader`. The existing
+`RunWorkflowRuntimeConformance` name remains. Update exact callbacks and method
+expressions that named the former input types. The compact-list suite creates a
+failed primary member and a recovery member in the same goal, with an unrelated
+dependency producer in a different goal. HTTP harnesses running it must install
+explicit test-only primary-selection authority, as for the selection suite.
+Lease-event conformance filters historical events by immutable primary identity;
+legacy secondary filtering remains a separate backend compatibility check.
+
+For lease history, keep the independent backend `LeaseEventLeaseValidity` hook
+on remote fixtures. Native decorators can instead forward the genuine
+`ValidateExecutionLeaseByID` operation, preserving exact native expiry checks.
+Do not derive the expected expiry from the event under test. Supply the real
+schema registry and configuration administration separately where required.
+
+This preparation changes no schema, admission or failure-record semantics.
+PostgreSQL consumer adoption and publication must precede final shared contract
+removal. Its inherited attachment CLI command also needs local removal; changing
+only an HTTP constructor does not retire that outbound consumer.
+
 ## Decorators and optional capabilities
 
 Pass the original runtime value when no override is needed. Its dynamic type

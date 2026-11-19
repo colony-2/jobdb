@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Verify normal Go module consumption of the managed publication's exact commit."""
+import base64
 import hashlib
 import json
 import os
@@ -10,6 +11,24 @@ import sys
 import tempfile
 
 MODULE = "github.com/colony-2/jobdb"
+
+
+def validate_origin(origin, commit, label):
+    if (not isinstance(origin, dict) or origin.get("VCS") != "git"
+            or not isinstance(origin.get("URL"), str) or not origin["URL"].strip()
+            or origin.get("Hash") != commit):
+        raise ValueError(f"{label} origin must identify Git, a nonblank URL and publication {commit}: {origin}")
+
+
+def validate_checksum(value, label):
+    try:
+        if not isinstance(value, str) or not value.startswith("h1:"):
+            raise ValueError("missing h1 prefix")
+        digest = base64.b64decode(value[3:], validate=True)
+        if len(digest) != 32 or base64.b64encode(digest).decode("ascii") != value[3:]:
+            raise ValueError("expected a base64 SHA-256 digest")
+    except ValueError as error:
+        raise ValueError(f"Download {label} is not a valid Go h1 checksum: {value!r}") from error
 
 
 def verify(commit, report):
@@ -44,19 +63,32 @@ def verify(commit, report):
             lines += [f"Toolchain: `{run(['go', 'version']).strip()}`", ""]
             run(["go", "mod", "init", "example.invalid/jobdb-published-consumer"])
             resolved = json.loads(run(["go", "list", "-m", "-json", f"{MODULE}@{commit}"]))
+            lines += [f"Resolved version: `{resolved.get('Version')}`", "",
+                      "Resolution origin:", "", "```json",
+                      json.dumps(resolved.get("Origin"), ensure_ascii=False, indent=2), "```", ""]
             if resolved.get("Replace") or resolved.get("Path") != MODULE:
                 raise ValueError("Resolution used a replacement or a different module")
-            if resolved.get("Origin", {}).get("Hash") != commit:
-                raise ValueError(f"Resolution did not return publication's origin hash: {resolved}")
-            version = resolved["Version"]
+            validate_origin(resolved.get("Origin"), commit, "Resolution")
+            version = resolved.get("Version")
+            if not isinstance(version, str) or not version.strip():
+                raise ValueError("Resolution returned a blank or missing version")
             downloaded = json.loads(run(["go", "mod", "download", "-json", f"{MODULE}@{version}"]))
-            if downloaded.get("Error") or downloaded.get("Path") != MODULE or downloaded.get("Version") != version:
+            lines += [f"Downloaded version: `{downloaded.get('Version')}`", "",
+                      "Download origin:", "", "```json",
+                      json.dumps(downloaded.get("Origin"), ensure_ascii=False, indent=2), "```", "",
+                      f"Sum: `{downloaded.get('Sum')}`", "",
+                      f"GoModSum: `{downloaded.get('GoModSum')}`", ""]
+            if (downloaded.get("Error") or downloaded.get("Replace")
+                    or downloaded.get("Path") != MODULE or downloaded.get("Version") != version):
                 raise ValueError(f"Module download failed: {downloaded}")
-            if downloaded.get("Origin", {}).get("Hash") != commit:
-                raise ValueError(f"Download did not return publication's origin hash: {downloaded}")
-            archive = Path(downloaded["Zip"])
-            if not archive.is_relative_to(cache) or not archive.is_file() or archive.stat().st_size == 0:
+            validate_origin(downloaded.get("Origin"), commit, "Download")
+            for field in ("Sum", "GoModSum"):
+                validate_checksum(downloaded.get(field), field)
+            archive = Path(downloaded["Zip"]).resolve()
+            if not archive.is_relative_to(cache.resolve()) or not archive.is_file() or archive.stat().st_size == 0:
                 raise ValueError("Downloaded module archive is missing from the fresh cache")
+            lines += [f"Downloaded archive: {archive.stat().st_size} bytes.", "",
+                      f"Archive SHA-256: `{hashlib.sha256(archive.read_bytes()).hexdigest()}`", ""]
             run(["go", "mod", "edit", f"-require={MODULE}@{version}"])
             examples = Path("pkg/jobdb/example_execution_infrastructure_test.go").read_text(encoding="utf-8")
             # The consumer's package has no JobDB identifiers of its own. Keep
@@ -95,12 +127,7 @@ func main() {
                 raise ValueError("Consumer contains module replacements")
             if run(["go", "env", "GOWORK"]).strip() != "off" or run(["go", "env", "GOFLAGS"]).strip():
                 raise ValueError("Workspace or GOFLAGS isolation was lost")
-            lines += [f"Resolved version: `{version}`", "",
-                      f"Resolution origin hash: `{resolved['Origin']['Hash']}`", "",
-                      f"Download origin hash: `{downloaded['Origin']['Hash']}`", "",
-                      f"Downloaded archive: {archive.stat().st_size} bytes.", "",
-                      f"Archive SHA-256: `{hashlib.sha256(archive.read_bytes()).hexdigest()}`", "",
-                      "Commands completed:", "",
+            lines += ["Commands completed:", "",
                       f"- `go list -m -json {MODULE}@{commit}`",
                       f"- `go mod download -json {MODULE}@{version}`", "",
                       "Public classifier, optional reader and build-info examples compiled and ran.", "",

@@ -37,7 +37,7 @@ type Fixture struct {
 	// Remote consumers must wire this hook to their backend, not their HTTP client.
 	LeaseEventLeaseValidity func(context.Context, jobdb.JobKey, string, string) (jobdb.LeaseValidity, error)
 
-	Runtime        jobdb.WorkflowRuntime
+	Runtime        jobdb.ConsumerRuntime
 	SchemaRegistry jobdb.JobSchemaRegistry
 	WorkerTenantID string
 	Cleanup        func(context.Context) error
@@ -45,7 +45,7 @@ type Fixture struct {
 
 type builtFixture struct {
 	Name           string
-	Runtime        jobdb.WorkflowRuntime
+	Runtime        jobdb.ConsumerRuntime
 	SchemaRegistry jobdb.JobSchemaRegistry
 	Engine         workflow.Engine
 	WorkerTenantID string
@@ -184,7 +184,7 @@ func WaitForEngineStatus(t testing.TB, ctx context.Context, engine workflow.Engi
 	}, want)
 }
 
-func WaitForRuntimeStatus(t testing.TB, ctx context.Context, runtime jobdb.WorkflowRuntime, jobKey jobdb.JobKey, want jobdb.JobStatus) {
+func WaitForRuntimeStatus(t testing.TB, ctx context.Context, runtime jobdb.JobRunReader, jobKey jobdb.JobKey, want jobdb.JobStatus) {
 	t.Helper()
 	waitForStatus(t, ctx, func(ctx context.Context) (jobdb.JobStatus, error) {
 		job, err := runtime.GetJob(ctx, jobKey)

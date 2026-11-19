@@ -107,6 +107,8 @@ state:
           for variable in ${!C2J_CURRENT_@} ${!C2J_CHILD_JOB_@} ${!C2J_WORKSPACE_@}; do unset "$variable"; done
           unset C2J_TENANT_ID C2J_OBJECT_OUTBOX JOBDB_EXTERNAL_REMOTE_BASE_URL JOBDB_EXTERNAL_REMOTE_NAME JOBDB_EXTERNAL_REMOTE_ONLY JOBDB_CHAPTER_POSTGRES_DSN
           # Scoped Git transport credentials remain available for module downloads.
+          # Check receipt acceptance before the candidate can be published.
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p 'test_verify_published_module.py' -v
           # Check both route inventories and public signatures before exercising them.
           sha256sum pkg/jobdb/internal/runtimeapi/zz{,_consumer}_generated.go > "$scratch/generated.sha256"
           go generate ./pkg/jobdb/internal/runtimeapi
@@ -251,12 +253,12 @@ state:
           # Preserve the availability matrix's future window and every assertion.
           # The complete race-instrumented workflow package exceeds Go's 10m default.
           # Give each package 20m within this command's 30m outer limit.
-          printf '%s\n' "Command: go test -count=1 -timeout=20m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/..."
-          go test -count=1 -timeout=20m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/...
+          printf '%s\n' "Command: go test -count=1 -timeout=20m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/... ./pkg/jobdb/runtimetest"
+          go test -count=1 -timeout=20m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/... ./pkg/jobdb/runtimetest
           printf '%s\n' "Command: go test -count=1 -p=1 -timeout=20m -v -race ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/remote -run 'TestInfrastructure|TestProvenance|TestLegacyKeepAlive'"
           go test -count=1 -p=1 -timeout=20m -v -race ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/remote -run 'TestInfrastructure|TestProvenance|TestLegacyKeepAlive'
-          printf '%s\n' "Command: go test -count=10 -p=1 -timeout=20m -v -race ./pkg/workflow ./pkg/jobdb/runtime/remote -run 'TestInfrastructureCompletionSource|TestExecutionUncertainFinalCompletion|TestInfrastructureSDKFailures|TestInfrastructureHTTPFallbackRetainsKnownSource|TestInfrastructureHTTPOperationSource|TestInfrastructureHTTPArtifactBodySource'"
-          go test -count=10 -p=1 -timeout=20m -v -race ./pkg/workflow ./pkg/jobdb/runtime/remote -run 'TestInfrastructureCompletionSource|TestExecutionUncertainFinalCompletion|TestInfrastructureSDKFailures|TestInfrastructureHTTPFallbackRetainsKnownSource|TestInfrastructureHTTPOperationSource|TestInfrastructureHTTPArtifactBodySource'
+          printf '%s\n' "Command: go test -count=10 -p=1 -timeout=20m -v -race ./pkg/workflow ./pkg/jobdb/runtime/remote -run 'TestInfrastructureCompletionSource|TestExecutionUncertainFinalCompletion|TestInfrastructureSDKFailures|TestInfrastructureHTTPFallbackRetainsKnownSource|TestInfrastructureHTTPOperationSource|TestInfrastructureHTTPArtifactBodySource|TestExecutionRecoveryInputSnapshots'"
+          go test -count=10 -p=1 -timeout=20m -v -race ./pkg/workflow ./pkg/jobdb/runtime/remote -run 'TestInfrastructureCompletionSource|TestExecutionUncertainFinalCompletion|TestInfrastructureSDKFailures|TestInfrastructureHTTPFallbackRetainsKnownSource|TestInfrastructureHTTPOperationSource|TestInfrastructureHTTPArtifactBodySource|TestExecutionRecoveryInputSnapshots'
       catch:
         - when: failure.kind != 'cancellation'
           continue:

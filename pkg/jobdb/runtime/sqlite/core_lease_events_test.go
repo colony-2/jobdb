@@ -43,13 +43,20 @@ func runCoreSQLiteConformance(t *testing.T, run func(*testing.T, ...runtimetest.
 				Schemas: sqliteSchemaStore{runtime: storage}, Configurations: storage.Service.Store,
 			})
 			require.NoError(tb, err)
-			var runtime jobdb.WorkflowRuntime = core
+			var runtime jobdb.ConsumerRuntime = struct {
+				jobdb.ConsumerRuntime
+				coreLeaseValidator
+			}{core, core}
 			if overHTTP {
-				server := httptest.NewServer(celltest.Handler(remote.NewServer(core)))
+				server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(core)))
 				tb.Cleanup(server.Close)
 				runtime, err = remote.New(server.URL, server.Client())
 				require.NoError(tb, err)
 			}
+			if overHTTP {
+				runtime = struct{ jobdb.ConsumerRuntime }{runtime}
+			}
+			require.NotImplements(tb, (*jobdb.GoalCandidateMutator)(nil), runtime)
 			fixture := runtimetest.Fixture{Runtime: runtime}
 			if overHTTP {
 				fixture.LeaseEventLeaseValidity = core.ValidateExecutionLeaseByID
@@ -57,6 +64,10 @@ func runCoreSQLiteConformance(t *testing.T, run func(*testing.T, ...runtimetest.
 			return fixture
 		}})
 	}
+}
+
+type coreLeaseValidator interface {
+	ValidateExecutionLeaseByID(context.Context, jobdb.JobKey, string, string) (jobdb.LeaseValidity, error)
 }
 
 // Unused ports deliberately have no implementation: an unexpected call fails

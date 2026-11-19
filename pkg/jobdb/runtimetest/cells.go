@@ -18,7 +18,7 @@ func cellAdmin(tenant string) context.Context {
 }
 
 // RunCellConformance tests the mandatory named-cell contract against a fresh tenant.
-func RunCellConformance(t *testing.T, rt jobdb.WorkflowRuntime) {
+func RunCellConformance(t *testing.T, rt jobdb.ConsumerRuntime) {
 	t.Helper()
 	t.Run("lease cell creation", func(t *testing.T) { runLeaseCellCreation(t, rt) })
 	t.Run("lease cell lookup", func(t *testing.T) { runLeaseCellLookup(t, rt) })
@@ -200,7 +200,7 @@ func RunCellConformance(t *testing.T, rt jobdb.WorkflowRuntime) {
 
 }
 
-func runLeaseCellCreation(t *testing.T, rt jobdb.WorkflowRuntime) {
+func runLeaseCellCreation(t *testing.T, rt jobdb.ConsumerRuntime) {
 	tenant := "lease-cells-" + ksuid.New().String()
 	admin := cellAdmin(tenant)
 	_, err := rt.CreateCell(admin, jobdb.CreateCellRequest{TenantID: tenant, Name: "ordinary", Repo: "github.com/org/ordinary"})

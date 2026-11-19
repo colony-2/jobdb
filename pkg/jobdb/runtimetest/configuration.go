@@ -13,7 +13,7 @@ import (
 
 // RunConfigurationConformance checks the required admin and lease read contract
 // on an isolated runtime. Backend adapters can also call it through remote.New.
-func RunConfigurationConformance(t *testing.T, rt jobdb.WorkflowRuntime) {
+func RunConfigurationConformance(t *testing.T, rt jobdb.ConsumerRuntime) {
 	t.Helper()
 	ctx := celltest.Context(context.Background())
 	admin, ok := rt.(jobdb.ConfigurationAdmin)

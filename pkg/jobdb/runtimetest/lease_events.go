@@ -225,14 +225,16 @@ func RunLeaseEventConformance(t *testing.T, harnesses ...Harness) {
 			byAlias := list(jobdb.ListLeaseEventsRequest{CellNames: []string{"test"}})
 			require.Equal(t, byName, byAlias)
 			require.Equal(t, "test", byName.Events[0].Cell)
-			// Additional membership added later matches without changing the immutable primary goal.
+			// Duplicate primary selectors preserve historical identity. A job in
+			// another goal cannot change which events match this job's primary.
 			target := submit("goal-target")
 			info, e := r.GetJob(ctx, target)
 			require.NoError(t, e)
-			_, e = r.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: jobdb.GoalKey{TenantId: tenant, GoalID: info.GoalID}, JobID: key.JobId})
-			require.NoError(t, e)
-			matched := list(jobdb.ListLeaseEventsRequest{GoalIDs: []string{info.GoalID, info.GoalID}, JobIDs: []string{key.JobId}})
+			require.NotEqual(t, a.GoalID, info.GoalID)
+			require.Empty(t, list(jobdb.ListLeaseEventsRequest{GoalIDs: []string{info.GoalID}, JobIDs: []string{key.JobId}}).Events)
+			matched := list(jobdb.ListLeaseEventsRequest{GoalIDs: []string{a.GoalID, a.GoalID}, JobIDs: []string{key.JobId}})
 			require.Len(t, matched.Events, len(original))
+			require.Equal(t, original, matched.Events)
 			for _, v := range matched.Events {
 				require.Equal(t, a.GoalID, v.GoalID)
 			}

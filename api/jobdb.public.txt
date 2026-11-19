@@ -1343,7 +1343,7 @@ const DoubleTaskName untyped string = "double"
 const FailingJobName untyped string = "failing"
 type Fixture struct
   field LeaseEventLeaseValidity func(context.Context, github.com/colony-2/jobdb/pkg/jobdb.JobKey, string, string) (github.com/colony-2/jobdb/pkg/jobdb.LeaseValidity, error)
-  field Runtime github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime
+  field Runtime github.com/colony-2/jobdb/pkg/jobdb.ConsumerRuntime
   field SchemaRegistry github.com/colony-2/jobdb/pkg/jobdb.JobSchemaRegistry
   field WorkerTenantID string
   field Cleanup func(context.Context) error
@@ -1357,10 +1357,10 @@ func MustWorkSet func(t testing.TB, job github.com/colony-2/jobdb/pkg/workflow.J
 func NumberTaskData func(n int) github.com/colony-2/jobdb/pkg/jobdb.TaskData
 func PrimaryGoalContext func(ctx context.Context) context.Context
 func RunAvailableRoutesConformance func(t *testing.T, harnesses ...Harness)
-func RunCellConformance func(t *testing.T, rt github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime)
+func RunCellConformance func(t *testing.T, rt github.com/colony-2/jobdb/pkg/jobdb.ConsumerRuntime)
 func RunClientPayloadConformance func(t *testing.T, harnesses ...Harness)
 func RunCompactListConformance func(t *testing.T, harnesses ...Harness)
-func RunConfigurationConformance func(t *testing.T, rt github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime)
+func RunConfigurationConformance func(t *testing.T, rt github.com/colony-2/jobdb/pkg/jobdb.ConsumerRuntime)
 func RunLeaseEventConformance func(t *testing.T, harnesses ...Harness)
 func RunParentIdentityConformance func(t *testing.T, harnesses ...Harness)
 func RunPrimaryGoalSelectionBoundaries func(t *testing.T, r github.com/colony-2/jobdb/pkg/jobdb.ConsumerRuntime)
@@ -1368,11 +1368,11 @@ func RunPrimaryGoalSelectionConformance func(t *testing.T, r github.com/colony-2
 func RunRouteConformance func(t *testing.T, harnesses ...Harness)
 func RunStartOrAppendConformance func(t *testing.T, harnesses ...Harness)
 func RunSubmissionAvailabilityConformance func(t *testing.T, harnesses ...Harness)
-func RunSubmissionAvailabilityWithSubmit func(t *testing.T, rt github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime, submit func(context.Context, github.com/colony-2/jobdb/pkg/jobdb.SubmitJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error), parentID string)
+func RunSubmissionAvailabilityWithSubmit func(t *testing.T, rt github.com/colony-2/jobdb/pkg/jobdb.ConsumerRuntime, submit func(context.Context, github.com/colony-2/jobdb/pkg/jobdb.SubmitJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error), parentID string)
 func RunWorkflowRuntimeConformance func(t *testing.T, harnesses ...Harness)
 const SequenceJobName untyped string = "seq"
 func WaitForEngineStatus func(t testing.TB, ctx context.Context, engine github.com/colony-2/jobdb/pkg/workflow.Engine, jobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey, want github.com/colony-2/jobdb/pkg/jobdb.JobStatus)
-func WaitForRuntimeStatus func(t testing.TB, ctx context.Context, runtime github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime, jobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey, want github.com/colony-2/jobdb/pkg/jobdb.JobStatus)
+func WaitForRuntimeStatus func(t testing.TB, ctx context.Context, runtime github.com/colony-2/jobdb/pkg/jobdb.JobRunReader, jobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey, want github.com/colony-2/jobdb/pkg/jobdb.JobStatus)
 func WaitForTaskHandle func(t testing.TB, ctx context.Context, engine github.com/colony-2/jobdb/pkg/workflow.Engine, jobType string, taskType string, tenantIDs []string) github.com/colony-2/jobdb/pkg/workflow.TaskHandle
 
 package github.com/colony-2/jobdb/pkg/jobdb/runtime/core
@@ -1509,7 +1509,7 @@ type EncodedChapter struct
   field Artifacts []github.com/colony-2/jobdb/pkg/jobdb.StoredArtifact
 func ExecutionCompletion func(ctx context.Context, r executionHistoryReader, req github.com/colony-2/jobdb/pkg/jobdb.CompleteTaskIfWaitingRequest, inputOrdinal int64) (*github.com/colony-2/jobdb/pkg/jobdb.ExecutionRecord, error)
 type GoalScheduler interface
-  embedded github.com/colony-2/jobdb/pkg/jobdb.GoalRuntime
+  embedded github.com/colony-2/jobdb/pkg/jobdb.ConsumerGoalRuntime
   method DiscardJobPreparation func(context.Context, github.com/colony-2/jobdb/pkg/jobdb.JobKey) error
   method PrepareJob func(context.Context, JobPreparation) (PreparedJob, error)
 func IsAppendWorker func(worker string) bool
