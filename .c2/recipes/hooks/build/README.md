@@ -264,3 +264,32 @@ and malformed error-body rejection. The project client package also runs in the
 initial race sweep. Live fixture `VH-055-project-append-permission-decoding-failure`
 proves failure of this focused regression rejects integration while independent
 races complete and all four artifacts survive.
+
+Retained-read denial verification runs `TestRetainedRead` explicitly before the
+broad integration sweep. Its public-only remote test fixture closes and reopens
+SQLite, then checks selected metadata, chapter list/detail, original-producer
+artifact lookup and reader opening with bare/wrapped denials, revocation and
+restored access. The initial remote race sweep also exercises this fixture.
+
+The hook separately runs `scripts/testdata/retained-read-compatibility`, which Go
+excludes from `./...`. It compiles an isolated helper at exact baseline commit
+`f885723cc03ce9c8b52365390dca9601109d2c7e` (canonical tag `v0.0.94`), checks its
+resolution/download origins and linked dependency, and tests the old HTTP client
+against the candidate ConsumerServer. It also creates real baseline storage:
+current format-13 constructors refuse its format 11 without conversion. That
+reopening compatibility is reported as failed; the assessment checks unchanged
+files and successful reopening by the baseline reader. HTTP behavior and the
+assessment itself are required gates. This does not certify whole-module API or
+storage compatibility with the baseline.
+
+Live fixtures VH-056 and VH-057 inject failures into the focused retained-read
+command and the baseline-client command. Each requires a failed hook result,
+independently successful races, all four evidence files and an unchanged fixture
+checkout. VH-031 retains the passing control.
+
+The published-module verifier copies the same public remote fixture and baseline
+helper into its external consumer. It reads named Go JSON test events and rejects
+missing, skipped or failed cases, even when the process exits zero. Its receipt
+lists actual retained-read/client results and the failed old-storage assessment.
+Run it against the actual managed publication commit after publication; source
+checks and hook fixture results do not identify that future commit.

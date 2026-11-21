@@ -31,8 +31,39 @@ def validate_checksum(value, label):
         raise ValueError(f"Download {label} is not a valid Go h1 checksum: {value!r}") from error
 
 
+def required_behavior_tests():
+    required = {
+        "TestPublishedCancelledReads", "TestPublishedSemanticAppend", "TestPublishedPayloadRejection",
+        "TestRetainedReadPermissionDenied", "TestRetainedReadInfrastructureControl", "TestRetainedReaderRevocation",
+        "TestRetainedReadBaselineCompatibility/client",
+        "TestRetainedReadBaselineCompatibility/baseline_storage_assessment",
+    }
+    for wrapped in ("false", "true"):
+        for operation in ("job", "list", "chapter", "artifact", "open"):
+            for mode in ("direct", "http"):
+                required.add(f"TestRetainedReadPermissionDenied/{mode}/{operation}/wrapped={wrapped}")
+            required.add(f"TestRetainedReadBaselineCompatibility/client/{operation}/wrapped={wrapped}")
+    return required
+
+
+def validate_behavior(output):
+    events = [json.loads(line) for line in output.splitlines() if line.strip()]
+    passed = {e["Test"] for e in events if e.get("Action") == "pass" and "Test" in e}
+    failed = [e.get("Test", e.get("Package")) for e in events if e.get("Action") == "fail"]
+    skipped = [e["Test"] for e in events if e.get("Action") == "skip" and "Test" in e]
+    missing = sorted(required_behavior_tests() - passed)
+    if failed or skipped or missing:
+        raise ValueError(f"Behavioral acceptance failed: failed={failed}; skipped={skipped}; missing={missing}")
+    assessment = [e.get("Output", "").strip() for e in events
+                  if e.get("Test") == "TestRetainedReadBaselineCompatibility/baseline_storage_assessment"
+                  and "OLD_STORAGE_COMPATIBILITY_FAILED:" in e.get("Output", "")]
+    if len(assessment) != 1:
+        raise ValueError("Missing explicit failed old-storage compatibility assessment")
+    return sorted(required_behavior_tests()), assessment[0]
+
+
 def verify(commit, report):
-    lines = ["# Published JobDB module consumption", "", f"Commit: `{commit}`", ""]
+    lines = ["# Published JobDB module consumption", "", f"Repository: `{MODULE}`", "", "Ref: `refs/heads/main`", "", f"Commit: `{commit}`", ""]
     try:
         if re.fullmatch(r"[0-9a-f]{40}", commit) is None:
             raise ValueError("A full immutable Git commit is required")
@@ -54,7 +85,7 @@ def verify(commit, report):
             def run(args):
                 result = subprocess.run(args, cwd=consumer, env=env, text=True,
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                        timeout=300)
+                                        timeout=900 if args[:2] == ["go", "test"] else 300)
                 if result.returncode:
                     raise RuntimeError(f"{' '.join(args)} failed ({result.returncode}):\n"
                                        f"{result.stdout}\n{result.stderr}")
@@ -98,6 +129,17 @@ def verify(commit, report):
             (consumer / "execution_test.go").write_text(examples, encoding="utf-8")
             fixture = Path("scripts/testdata/published-append-consumer/main_test.go").read_text(encoding="utf-8")
             (consumer / "append_test.go").write_text(fixture, encoding="utf-8")
+            # These fixtures use only public JobDB APIs. Sharing the actual source
+            # keeps candidate and downloaded-module behavior identical.
+            retained = Path("pkg/jobdb/runtime/remote/retained_read_permission_test.go").read_text(encoding="utf-8")
+            (consumer / "retained_read_test.go").write_text(
+                retained.replace("package remote_test", "package main", 1), encoding="utf-8")
+            compatibility = Path("scripts/testdata/retained-read-compatibility")
+            (consumer / "compatibility_test.go").write_text(
+                (compatibility / "main_test.go").read_text(encoding="utf-8"), encoding="utf-8")
+            (consumer / "testdata").mkdir()
+            (consumer / "testdata/baseline.go.txt").write_bytes(
+                (compatibility / "testdata/baseline.go.txt").read_bytes())
             (consumer / "main.go").write_text('''package main
 import (
  "context"
@@ -119,9 +161,12 @@ func main() {
 ''', encoding="utf-8")
             run(["go", "mod", "tidy"])
             env["EXPECTED_JOBDB_VERSION"] = version
-            behavioral_output = run(["go", "test", "-count=1", "./..."])
-            lines += ["Direct/HTTP cancelled reads and semantic append behavior:", "",
-                      "```text", behavioral_output.strip(), "```", ""]
+            behavioral_output = run(["go", "test", "-json", "-count=1", "./..."])
+            required, assessment = validate_behavior(behavioral_output)
+            lines += ["Required behavioral cases passed:", ""]
+            lines += [f"- `{name}`" for name in required]
+            lines += ["", "Old-storage reopening compatibility: **FAILED** (assessment is non-gating).", "",
+                      "```text", assessment, "```", ""]
             observed = run(["go", "run", "."]).strip()
             if observed != version:
                 raise ValueError(f"Linked build version {observed} differs from {version}")
@@ -134,10 +179,10 @@ func main() {
             lines += ["Commands completed:", "",
                       f"- `go list -m -json {MODULE}@{commit}`",
                       f"- `go mod download -json {MODULE}@{version}`", "",
-                      "Public examples and direct/HTTP cancellation and append regressions compiled and ran.", "",
+                      "Public examples, cancellation/append controls, direct/HTTP retained-read revocation and exact-baseline client regressions compiled and ran.", "",
                       f"Linked CurrentBuildInfo version: `{observed}`", "",
-                      "- `go test -count=1 ./...`", "- `go run .`", "",
-                      "Result: passed."]
+                      "- `go test -json -count=1 ./...`", "- `go run .`", "",
+                      "Result: passed.", "HTTP/client acceptance passed; old-storage reopening compatibility remains failed."]
         status = 0
     except Exception as error:
         lines += ["Result: failed.", "", "```text", str(error), "```"]

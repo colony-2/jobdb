@@ -1,0 +1,154 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"time"
+
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
+)
+
+type request struct {
+	Mode, URL, Path, Operation string
+	Key                        jobdb.JobKey
+	Denied                     bool
+	Expected                   []byte
+}
+
+func must(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+func main() {
+	var q request
+	must(json.NewDecoder(os.Stdin).Decode(&q))
+	ctx := celltest.Context(context.Background())
+	if q.Mode == "create" || q.Mode == "reopen" {
+		r, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: q.Path, MaxInlineArtifactBytes: 1})
+		must(err)
+		if q.Mode == "create" {
+			_, err = r.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "tenant", Name: "compat", Repo: "example.test/compat"})
+			must(err)
+			h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", Cell: "compat", JobType: "read", Data: jobdb.NewTaskDataOrPanic("baseline", jobdb.NewArtifactFromBytes("same.bin", q.Expected))}})
+			must(err)
+			q.Key = h.JobKey
+			lease, err := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "baseline", Routes: []jobdb.Route{{JobType: "read"}}, LeaseDuration: time.Minute})
+			must(err)
+			if lease == nil {
+				panic("missing baseline lease")
+			}
+			chapter := jobdb.Chapter{Ordinal: 1, TaskType: "read", CreatedAt: time.Now().UTC(), Body: jobdb.JobAttemptOutcomeChapter{Outcome: jobdb.ApplicationOutputOutcome{Output: jobdb.ApplicationOutputBytes{Data: []byte(`"retained-result"`)}}}}
+			must(lease.Complete(ctx, jobdb.CompleteExecutionRequest{Status: "success", Chapter: &chapter}))
+		}
+		info, err := r.GetJob(ctx, q.Key)
+		must(err)
+		if info.Status != jobdb.JobStatusCompleted {
+			panic("baseline terminal record changed")
+		}
+		chapters, err := r.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: q.Key})
+		must(err)
+		if len(chapters) != 2 || chapters[0].Ordinal != 0 || chapters[1].Ordinal != 1 {
+			panic("baseline chapters changed")
+		}
+		reader, err := r.OpenArtifact(ctx, jobdb.ArtifactRef{JobKey: q.Key, Ordinal: 0, Name: "same.bin"})
+		must(err)
+		stream, err := reader.Open()
+		must(err)
+		b, err := io.ReadAll(stream)
+		must(err)
+		must(stream.Close())
+		if !bytes.Equal(b, q.Expected) {
+			panic("baseline artifact changed")
+		}
+		must(r.Close(ctx))
+		must(json.NewEncoder(os.Stdout).Encode(q.Key))
+		return
+	}
+	client, err := remote.New(q.URL, nil)
+	must(err)
+	var readErr error
+	switch q.Operation {
+	case "job":
+		info, err := client.GetJob(ctx, q.Key)
+		readErr = err
+		if err != nil && info.Data != nil {
+			panic("denied job returned data")
+		}
+		if err == nil {
+			if info.Status != jobdb.JobStatusCompleted || info.CompletionStatus != "success" {
+				panic("baseline client terminal metadata")
+			}
+			data, err := info.Data.GetData()
+			must(err)
+			b, err := json.Marshal(data)
+			must(err)
+			if string(b) != `"retained-result"` {
+				panic("baseline client payload changed")
+			}
+		}
+	case "list":
+		chapters, err := client.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: q.Key})
+		readErr = err
+		if err == nil && (len(chapters) != 2 || chapters[0].Ordinal != 0 || chapters[1].Ordinal != 1 || len(chapters[0].Artifacts) != 1) {
+			panic("baseline client chapter list")
+		}
+		if err != nil && len(chapters) != 0 {
+			panic("denied list returned data")
+		}
+		if err == nil {
+			body, ok := chapters[0].Body.(jobdb.JobStartChapter)
+			if !ok || string(body.Input.Data) != `"input"` {
+				panic("baseline client list payload")
+			}
+		}
+	case "chapter":
+		chapter, err := client.GetChapter(ctx, jobdb.ChapterRef{JobKey: q.Key, Ordinal: 0})
+		readErr = err
+		if err != nil && (chapter.Body != nil || len(chapter.Artifacts) != 0) {
+			panic("denied chapter returned data")
+		}
+		if err == nil && (chapter.Ordinal != 0 || len(chapter.Artifacts) != 1) {
+			panic("baseline client chapter")
+		}
+		if err == nil {
+			body, ok := chapter.Body.(jobdb.JobStartChapter)
+			if !ok || string(body.Input.Data) != `"input"` {
+				panic("baseline client chapter payload")
+			}
+		}
+	case "artifact", "open":
+		reader, err := client.OpenArtifact(ctx, jobdb.ArtifactRef{JobKey: q.Key, Ordinal: 0, Name: "same.bin"})
+		readErr = err
+		if err == nil {
+			stream, err := reader.Open()
+			must(err)
+			b, err := io.ReadAll(stream)
+			must(err)
+			must(stream.Close())
+			if !bytes.Equal(b, q.Expected) || reader.Name() != "same.bin" || reader.Size() != int64(len(q.Expected)) {
+				panic("baseline client wrong producer artifact")
+			}
+		} else if reader != nil {
+			panic("denied artifact returned reader")
+		}
+	default:
+		panic("unknown operation")
+	}
+	if q.Denied {
+		if !errors.Is(readErr, jobdb.ErrLeasePermissionDenied) || errors.Is(readErr, jobdb.ErrExecutionLeaseLost) {
+			panic(fmt.Sprintf("baseline client denial: %v", readErr))
+		}
+	} else {
+		must(readErr)
+	}
+	fmt.Println("baseline client behavior passed")
+}

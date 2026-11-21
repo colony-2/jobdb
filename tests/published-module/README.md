@@ -40,3 +40,21 @@ consumer/caches are removed after the attempt; captures and consumer go.mod/go.s
 remain available. Do not label local source execution or controlled checker
 fixtures as published-module acceptance. Publication completes only the bounded
 JobDB delivery; downstream integration and deployment are separate work.
+
+The separate retained-read check uses the existing publication verifier:
+
+```sh
+python3 -B scripts/verify-published-module.py FULL_PUBLISHED_HASH /absolute/path/retained-read-consumption.md
+```
+
+Run from a checkout at that exact published hash. The external consumer downloads
+that module into a fresh cache with workspace mode disabled and no replacement.
+It runs the public retained-SQLite denial/revocation fixture and separately builds
+the exact `f885723cc03ce9c8b52365390dca9601109d2c7e` baseline client (`v0.0.94`).
+The report requires named passing behavioral cases, records repository, main ref,
+full commit, canonical module version, origins, checksums and linked build identity.
+
+Current main cannot reopen the baseline format-11 database without conversion.
+The report explicitly marks that compatibility failed, while checking unchanged
+baseline files and baseline-reader recovery. Passing HTTP/client acceptance does
+not establish full baseline API or storage compatibility. No conversion is run.

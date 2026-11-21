@@ -43,7 +43,10 @@
               "pkg/jobdb/runtime/remote/zz_project_routes.go": "// Fixture generated project routes.\npackage fixture\n",
               "pkg/workflow/replay_prefix_test.go": "package fixture\nimport \"testing\"\nfunc TestReplayPayloadAcceptedPrefix(t *testing.T) {\n t.Run(\"remote\", func(t *testing.T) {\n  t.Run(\"external-input\", func(t *testing.T) {})\n })\n}\n",
               "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport \"testing\"\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) {}\n",
-              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n"
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedReadPermissionDenied(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
@@ -144,7 +147,10 @@
               "pkg/jobdb/runtime/remote/zz_project_routes.go": "// Fixture generated project routes.\npackage fixture\n",
               "pkg/workflow/replay_prefix_test.go": "package fixture\nimport \"testing\"\nfunc TestReplayPayloadAcceptedPrefix(t *testing.T) {\n t.Run(\"remote\", func(t *testing.T) {\n  t.Run(\"external-input\", func(t *testing.T) {})\n })\n}\n",
               "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport \"testing\"\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) {}\n",
-              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n"
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedReadPermissionDenied(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
@@ -241,7 +247,10 @@
               "pkg/jobdb/runtime/remote/zz_project_routes.go": "// Fixture generated project routes.\npackage fixture\n",
               "pkg/workflow/replay_prefix_test.go": "package fixture\nimport \"testing\"\nfunc TestReplayPayloadAcceptedPrefix(t *testing.T) {\n t.Run(\"remote\", func(t *testing.T) {\n  t.Run(\"external-input\", func(t *testing.T) {})\n })\n}\n",
               "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport \"testing\"\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) {}\n",
-              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n"
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedReadPermissionDenied(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
@@ -337,7 +346,10 @@
               "pkg/jobdb/runtime/remote/zz_project_routes.go": "// Fixture generated project routes.\npackage fixture\n",
               "pkg/workflow/replay_prefix_test.go": "package fixture\nimport \"testing\"\nfunc TestReplayPayloadAcceptedPrefix(t *testing.T) {\n t.Run(\"remote\", func(t *testing.T) {\n  t.Run(\"external-input\", func(t *testing.T) {})\n })\n}\n",
               "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport \"testing\"\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) {}\n",
-              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n"
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedReadPermissionDenied(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
@@ -433,7 +445,10 @@
               "pkg/jobdb/runtime/remote/zz_project_routes.go": "// Fixture generated project routes.\npackage fixture\n",
               "pkg/workflow/replay_prefix_test.go": "package fixture\nimport \"testing\"\nfunc TestReplayPayloadAcceptedPrefix(t *testing.T) {\n t.Run(\"remote\", func(t *testing.T) {\n  t.Run(\"external-input\", func(t *testing.T) {})\n })\n}\n",
               "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport \"testing\"\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) {}\n",
-              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n"
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedReadPermissionDenied(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
@@ -529,7 +544,10 @@
               "pkg/jobdb/runtime/remote/zz_project_routes.go": "// Fixture generated project routes.\npackage fixture\n",
               "pkg/workflow/replay_prefix_test.go": "package fixture\nimport \"testing\"\nfunc TestReplayPayloadAcceptedPrefix(t *testing.T) {\n t.Run(\"remote\", func(t *testing.T) {\n  t.Run(\"external-input\", func(t *testing.T) {})\n })\n}\n",
               "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport \"testing\"\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) {}\n",
-              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n"
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedReadPermissionDenied(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
@@ -625,7 +643,10 @@
               "pkg/jobdb/runtime/remote/zz_project_routes.go": "// Fixture generated project routes.\npackage fixture\n",
               "pkg/workflow/replay_prefix_test.go": "package fixture\nimport \"testing\"\nfunc TestReplayPayloadAcceptedPrefix(t *testing.T) {\n t.Run(\"remote\", func(t *testing.T) {\n  t.Run(\"external-input\", func(t *testing.T) {})\n })\n}\n",
               "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport \"testing\"\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) {}\n",
-              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n"
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedReadPermissionDenied(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
@@ -721,7 +742,10 @@
               "pkg/jobdb/runtime/remote/zz_project_routes.go": "// Fixture generated project routes.\npackage fixture\n",
               "pkg/workflow/replay_prefix_test.go": "package fixture\nimport \"testing\"\nfunc TestReplayPayloadAcceptedPrefix(t *testing.T) {\n t.Run(\"remote\", func(t *testing.T) {\n  t.Run(\"external-input\", func(t *testing.T) {})\n })\n}\n",
               "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport \"testing\"\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) {}\n",
-              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n"
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedReadPermissionDenied(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
@@ -817,7 +841,10 @@
               "pkg/jobdb/runtime/remote/zz_project_routes.go": "// Fixture generated project routes.\npackage fixture\n",
               "pkg/workflow/replay_prefix_test.go": "package fixture\nimport \"testing\"\nfunc TestReplayPayloadAcceptedPrefix(t *testing.T) {\n t.Run(\"remote\", func(t *testing.T) {\n  t.Run(\"external-input\", func(t *testing.T) {})\n })\n}\n",
               "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport \"testing\"\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) {}\n",
-              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n"
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedReadPermissionDenied(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
@@ -915,7 +942,10 @@
               "pkg/jobdb/runtime/remote/zz_project_routes.go": "// Fixture generated project routes.\npackage fixture\n",
               "pkg/workflow/replay_prefix_test.go": "package fixture\nimport \"testing\"\nfunc TestReplayPayloadAcceptedPrefix(t *testing.T) {\n t.Run(\"remote\", func(t *testing.T) {\n  t.Run(\"external-input\", func(t *testing.T) {})\n })\n}\n",
               "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport \"testing\"\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) {}\n",
-              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n"
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedReadPermissionDenied(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
@@ -1018,7 +1048,10 @@
               "pkg/jobdb/runtime/remote/zz_project_routes.go": "// Fixture generated project routes.\npackage fixture\n",
               "pkg/workflow/replay_prefix_test.go": "package fixture\nimport \"testing\"\nfunc TestReplayPayloadAcceptedPrefix(t *testing.T) {\n t.Run(\"remote\", func(t *testing.T) {\n  t.Run(\"external-input\", func(t *testing.T) {})\n })\n}\n",
               "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport \"testing\"\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) {}\n",
-              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n"
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedReadPermissionDenied(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
@@ -1117,7 +1150,10 @@
               "pkg/jobdb/runtime/remote/zz_project_routes.go": "// Fixture generated project routes.\npackage fixture\n",
               "pkg/workflow/replay_prefix_test.go": "package fixture\nimport \"testing\"\nfunc TestReplayPayloadAcceptedPrefix(t *testing.T) {\n t.Run(\"remote\", func(t *testing.T) {\n  t.Run(\"external-input\", func(t *testing.T) {})\n })\n}\n",
               "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport \"testing\"\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) {}\n",
-              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n"
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedReadPermissionDenied(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
@@ -1216,7 +1252,10 @@
               "pkg/jobdb/runtime/remote/zz_project_routes.go": "// Fixture generated project routes.\npackage fixture\n",
               "pkg/workflow/replay_prefix_test.go": "package fixture\nimport \"testing\"\nfunc TestReplayPayloadAcceptedPrefix(t *testing.T) {\n t.Run(\"remote\", func(t *testing.T) {\n  t.Run(\"external-input\", func(t *testing.T) {})\n })\n}\n",
               "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport \"testing\"\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) {}\n",
-              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n"
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedReadPermissionDenied(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
@@ -1315,7 +1354,10 @@
               "pkg/jobdb/runtime/remote/zz_project_routes.go": "// Fixture generated project routes.\npackage fixture\n",
               "pkg/workflow/replay_prefix_test.go": "package fixture\nimport \"testing\"\nfunc TestReplayPayloadAcceptedPrefix(t *testing.T) {\n t.Run(\"remote\", func(t *testing.T) {\n  t.Run(\"external-input\", func(t *testing.T) {})\n })\n}\n",
               "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport \"testing\"\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) {}\n",
-              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n"
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedReadPermissionDenied(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
@@ -1421,7 +1463,10 @@
               "pkg/jobdb/runtime/remote/zz_project_routes.go": "// Fixture generated project routes.\npackage fixture\n",
               "pkg/workflow/replay_prefix_test.go": "package fixture\nimport \"testing\"\nfunc TestReplayPayloadAcceptedPrefix(t *testing.T) {\n t.Run(\"remote\", func(t *testing.T) {\n  t.Run(\"external-input\", func(t *testing.T) {})\n })\n}\n",
               "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport \"testing\"\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) {}\n",
-              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n"
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedReadPermissionDenied(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
@@ -1520,7 +1565,10 @@
               "pkg/jobdb/internal/projectapi/zz_generated.go": "// Fixture generated project API.\npackage projectapi\n",
               "pkg/jobdb/runtime/remote/zz_project_routes.go": "// Fixture generated project routes.\npackage fixture\n",
               "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport \"testing\"\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) {}\n",
-              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n"
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedReadPermissionDenied(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
@@ -1622,7 +1670,10 @@
               "pkg/workflow/replay_prefix_test.go": "package fixture\nimport \"testing\"\nfunc TestReplayPayloadAcceptedPrefix(t *testing.T) {\n t.Run(\"remote\", func(t *testing.T) {\n  t.Run(\"external-input\", func(t *testing.T) {})\n })\n}\n",
               "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport \"testing\"\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) {}\n",
               "scripts/testdata/published-append-consumer/main_test.go": "package main\nimport \"testing\"\nfunc TestPublishedCancelledReads(t *testing.T) {}\nfunc TestPublishedSemanticAppend(t *testing.T) {}\n",
-              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n"
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedReadPermissionDenied(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
@@ -1724,7 +1775,10 @@
               "pkg/workflow/replay_prefix_test.go": "package fixture\nimport \"testing\"\nfunc TestReplayPayloadAcceptedPrefix(t *testing.T) {\n t.Run(\"remote\", func(t *testing.T) {\n  t.Run(\"external-input\", func(t *testing.T) {})\n })\n}\n",
               "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport \"testing\"\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) {}\n",
               "scripts/testdata/published-append-consumer/main_test.go": "package main\nimport \"testing\"\nfunc TestPublishedCancelledReads(t *testing.T) {}\nfunc TestPublishedSemanticAppend(t *testing.T) {}\n",
-              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n"
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedReadPermissionDenied(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
@@ -1826,7 +1880,10 @@
               "pkg/workflow/replay_prefix_test.go": "package fixture\nimport (\"flag\"; \"testing\")\nfunc TestReplayPayloadAcceptedPrefix(t *testing.T) {\n t.Run(\"remote\", func(t *testing.T) {\n  t.Run(\"external-input\", func(t *testing.T) {\n   count := flag.Lookup(\"test.count\").Value.String()\n   t.Logf(\"prefix repetitions=%s\", count)\n   if count == \"10\" && flag.Lookup(\"test.run\").Value.String() == \"^TestReplayPayloadAcceptedPrefix$/^remote$/^external-input$\" { t.Fatal(\"forced repeated accepted-prefix failure\") }\n  })\n })\n}\n",
               "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport \"testing\"\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) {}\n",
               "scripts/testdata/published-append-consumer/main_test.go": "package main\nimport \"testing\"\nfunc TestPublishedCancelledReads(t *testing.T) {}\nfunc TestPublishedSemanticAppend(t *testing.T) {}\n",
-              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n"
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedReadPermissionDenied(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
@@ -1928,7 +1985,10 @@
               "pkg/workflow/replay_prefix_test.go": "package fixture\nimport \"testing\"\nfunc TestReplayPayloadAcceptedPrefix(t *testing.T) {\n t.Run(\"remote\", func(t *testing.T) {\n  t.Run(\"external-input\", func(t *testing.T) {})\n })\n}\n",
               "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport (\"flag\"; \"testing\")\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) { if flag.Lookup(\"test.run\").Value.String() == \"^TestGoalCandidatesPreservesTerminalFailure$\" { t.Fatal(\"injected CLI terminal record failure\") } }\n",
               "scripts/testdata/published-append-consumer/main_test.go": "package main\nimport \"testing\"\nfunc TestPublishedCancelledReads(t *testing.T) {}\nfunc TestPublishedSemanticAppend(t *testing.T) {}\n",
-              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n"
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedReadPermissionDenied(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
@@ -2030,7 +2090,10 @@
               "pkg/workflow/replay_prefix_test.go": "package fixture\nimport \"testing\"\nfunc TestReplayPayloadAcceptedPrefix(t *testing.T) {\n t.Run(\"remote\", func(t *testing.T) {\n  t.Run(\"external-input\", func(t *testing.T) {})\n })\n}\n",
               "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport \"testing\"\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) {}\n",
               "scripts/testdata/published-append-consumer/main_test.go": "package main\nimport \"testing\"\nfunc TestPublishedCancelledReads(t *testing.T) {}\nfunc TestPublishedSemanticAppend(t *testing.T) {}\n",
-              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport (\"flag\"; \"testing\")\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) { if flag.Lookup(\"test.run\").Value.String() == \"^TestProjectAppendPermissionDeniedResponses$\" { t.Fatal(\"injected project append permission decoding failure\") } }\n"
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport (\"flag\"; \"testing\")\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) { if flag.Lookup(\"test.run\").Value.String() == \"^TestProjectAppendPermissionDeniedResponses$\" { t.Fatal(\"injected project append permission decoding failure\") } }\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedReadPermissionDenied(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
             },
             "file_sources": {
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
@@ -2077,6 +2140,216 @@
         {
           "type": "cel_true",
           "expr": "calls[3].artifacts['tests.log'].contains('injected project append permission decoding failure')"
+        }
+      ],
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base `touch SHOULD_NOT_EXIST`",
+          "documents": {},
+          "settings": null
+        }
+      }
+    },
+    {
+      "id": "VH-056-retained-permission-failure",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "files": {
+              "go.mod": "module example.com/jobdbverifyfixture\n\ngo 1.26\n",
+              "candidate-untracked.txt": "preserve candidate content\n",
+              "pkg/workflow/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\nfunc TestInfrastructureSDKFailures(t *testing.T) {}\nfunc TestInfrastructureCompletionSource(t *testing.T) {}\nfunc TestExecutionUncertainFinalCompletion(t *testing.T) {}\n",
+              "pkg/jobdb/secrets/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/jobdb/cli/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "examples/secret-provider/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {  }\n",
+              "pkg/jobdb/runtime/core/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestInfrastructureFixture(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/sqlite/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestInfrastructureFixture(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestInfrastructureHTTPFallbackRetainsKnownSource(t *testing.T) {}\nfunc TestInfrastructureHTTPOperationSource(t *testing.T) {}\nfunc TestInfrastructureHTTPArtifactBodySource(t *testing.T) {}\n",
+              "pkg/workflow/internal/jobdbtest/runtimeconformance/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestBuiltInRuntimeConformance(t *testing.T) { t.Run(\"crash_concern_excludes_ready_work\", func(t *testing.T) {}) }\nfunc TestRemoteRuntimeConformance(t *testing.T) { t.Run(\"crash_concern_excludes_ready_work\", func(t *testing.T) {}) }\n",
+              "pkg/jobdb/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/jobdb/internal/runtimeapi/generate.go": "package runtimeapi\n\n//go:generate go run ./fixturegen\n",
+              "pkg/jobdb/internal/runtimeapi/fixturegen/main.go": "package main\nimport (\"os\"; \"fmt\")\nfunc main() {\n    for _, name := range []string{\"zz_generated.go\", \"zz_consumer_generated.go\"} {\n        raw, err := os.ReadFile(name + \".input\")\n        if err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }\n        if err := os.WriteFile(name, raw, 0644); err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }\n    }\n}\n",
+              "cmd/jobdb-api-snapshot/main.go": "// Small stand-in for the snapshot tool; real JobDB snapshots are checked separately.\npackage main\nimport (\"bytes\"; \"flag\"; \"fmt\"; \"os\")\nfunc main() {\n    packages := flag.String(\"packages\", \"\", \"fixture package list\")\n    check := flag.String(\"check\", \"\", \"fixture snapshot\")\n    flag.Parse()\n    paths, err := os.ReadFile(*packages)\n    if err != nil || string(paths) != \"example.com/jobdbverifyfixture\\n\" { fmt.Fprintln(os.Stderr, \"invalid fixture package inventory\"); os.Exit(1) }\n    raw, err := os.ReadFile(*check)\n    if err != nil || !bytes.Equal(raw, []byte(\"fixture public API\\n\")) { fmt.Fprintln(os.Stderr, \"fixture API snapshot differs\"); os.Exit(1) }\n}\n",
+              "api/packages.txt": "example.com/jobdbverifyfixture\n",
+              "api/jobdb.public.txt": "fixture public API\n",
+              "pkg/jobdb/internal/runtimeapi/zz_generated.go": "// Fixture generated API; stable across go generate.\npackage runtimeapi\n",
+              "pkg/jobdb/internal/runtimeapi/zz_generated.go.input": "// Fixture generated API; stable across go generate.\npackage runtimeapi\n",
+              "pkg/jobdb/internal/runtimeapi/zz_consumer_generated.go": "// Fixture generated API; stable across go generate.\npackage runtimeapi\n",
+              "pkg/jobdb/internal/runtimeapi/zz_consumer_generated.go.input": "// Fixture generated API; stable across go generate.\npackage runtimeapi\n",
+              "pkg/jobdb/runtime/toy/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/workflow/race_budget_test.go": "//go:build race\n\npackage fixture\n\nimport (\n \"flag\"\n \"runtime\"\n \"testing\"\n \"time\"\n)\n\nfunc TestRaceBudget(t *testing.T) {\n if got := runtime.GOMAXPROCS(0); got != 2 {\n  t.Fatalf(\"GOMAXPROCS = %d, want 2\", got)\n }\n if got := flag.Lookup(\"test.parallel\").Value.String(); got != \"2\" {\n  t.Fatalf(\"test parallelism = %s, want 2\", got)\n }\n deadline, ok := t.Deadline()\n if !ok {\n  t.Fatal(\"race suite must have a package timeout\")\n }\n if left := time.Until(deadline); left < 24*time.Minute || left > 25*time.Minute {\n  t.Fatalf(\"remaining race timeout = %s, want between 24m and 25m\", left)\n }\n}\n",
+              "pkg/jobdb/runtimetest/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedConformanceFixture(t *testing.T) {}\n",
+              "pkg/workflow/input_recovery_test.go": "package fixture\nimport (\"flag\"; \"testing\")\nfunc TestExecutionRecoveryInputSnapshots(t *testing.T) { t.Logf(\"input recovery repetitions=%s\", flag.Lookup(\"test.count\").Value.String()) }\n",
+              "pkg/jobdb/example_execution_infrastructure_test.go": "package fixture\n\nfunc Example_receiptFixture() {}\n",
+              "pkg/jobdb/projectcatalog/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestProjectCatalogFixture(t *testing.T) {}\n",
+              "pkg/jobdb/internal/projectwire/fixture_test.go": "package projectwire\nimport \"testing\"\nfunc TestIdentityEnvelopeFixture(t *testing.T) {}\n",
+              "pkg/jobdb/internal/projectwire/zz_shapes.go": "// Fixture generated envelope inventory.\npackage projectwire\n",
+              "pkg/jobdb/internal/projectapi/zz_generated.go": "// Fixture generated project API.\npackage projectapi\n",
+              "pkg/jobdb/runtime/remote/zz_project_routes.go": "// Fixture generated project routes.\npackage fixture\n",
+              "pkg/workflow/replay_prefix_test.go": "package fixture\nimport \"testing\"\nfunc TestReplayPayloadAcceptedPrefix(t *testing.T) {\n t.Run(\"remote\", func(t *testing.T) {\n  t.Run(\"external-input\", func(t *testing.T) {})\n })\n}\n",
+              "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport \"testing\"\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) {}\n",
+              "scripts/testdata/published-append-consumer/main_test.go": "package main\nimport \"testing\"\nfunc TestPublishedCancelledReads(t *testing.T) {}\nfunc TestPublishedSemanticAppend(t *testing.T) {}\n",
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport (\"testing\"; \"flag\")\nfunc TestRetainedReadPermissionDenied(t *testing.T) { if flag.Lookup(\"test.run\").Value.String()==\"^TestRetainedRead\" { t.Fatal(\"injected retained permission failure\") } }\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
+            },
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
+              "scripts/verify-test-exec.py": "../../scripts/verify-test-exec.py",
+              "scripts/verify-published-module.py": "../../scripts/verify-published-module.py",
+              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py",
+              "scripts/check-published-goals.py": "../../scripts/check-published-goals.py",
+              "scripts/test_check_published_goals.py": "../../scripts/test_check_published_goals.py"
+            }
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "op": "command_execution"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.artifact_refs.size() == 4"
+        },
+        {
+          "type": "cel_true",
+          "expr": "repositories.root.clean && repositories.root.new_commits == 0 && repositories.root.changed_files.size() == 0"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 5 && calls[1].outputs.success == false && calls[2].outputs.success == true && calls[3].outputs.success == true && calls[4].outputs.success == true"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls[3].artifacts['tests.log'].contains('injected retained permission failure')"
+        }
+      ],
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base `touch SHOULD_NOT_EXIST`",
+          "documents": {},
+          "settings": null
+        }
+      }
+    },
+    {
+      "id": "VH-057-baseline-client-failure",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "files": {
+              "go.mod": "module example.com/jobdbverifyfixture\n\ngo 1.26\n",
+              "candidate-untracked.txt": "preserve candidate content\n",
+              "pkg/workflow/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\nfunc TestInfrastructureSDKFailures(t *testing.T) {}\nfunc TestInfrastructureCompletionSource(t *testing.T) {}\nfunc TestExecutionUncertainFinalCompletion(t *testing.T) {}\n",
+              "pkg/jobdb/secrets/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/jobdb/cli/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "examples/secret-provider/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {  }\n",
+              "pkg/jobdb/runtime/core/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestInfrastructureFixture(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/sqlite/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestInfrastructureFixture(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestInfrastructureHTTPFallbackRetainsKnownSource(t *testing.T) {}\nfunc TestInfrastructureHTTPOperationSource(t *testing.T) {}\nfunc TestInfrastructureHTTPArtifactBodySource(t *testing.T) {}\n",
+              "pkg/workflow/internal/jobdbtest/runtimeconformance/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestBuiltInRuntimeConformance(t *testing.T) { t.Run(\"crash_concern_excludes_ready_work\", func(t *testing.T) {}) }\nfunc TestRemoteRuntimeConformance(t *testing.T) { t.Run(\"crash_concern_excludes_ready_work\", func(t *testing.T) {}) }\n",
+              "pkg/jobdb/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/jobdb/internal/runtimeapi/generate.go": "package runtimeapi\n\n//go:generate go run ./fixturegen\n",
+              "pkg/jobdb/internal/runtimeapi/fixturegen/main.go": "package main\nimport (\"os\"; \"fmt\")\nfunc main() {\n    for _, name := range []string{\"zz_generated.go\", \"zz_consumer_generated.go\"} {\n        raw, err := os.ReadFile(name + \".input\")\n        if err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }\n        if err := os.WriteFile(name, raw, 0644); err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }\n    }\n}\n",
+              "cmd/jobdb-api-snapshot/main.go": "// Small stand-in for the snapshot tool; real JobDB snapshots are checked separately.\npackage main\nimport (\"bytes\"; \"flag\"; \"fmt\"; \"os\")\nfunc main() {\n    packages := flag.String(\"packages\", \"\", \"fixture package list\")\n    check := flag.String(\"check\", \"\", \"fixture snapshot\")\n    flag.Parse()\n    paths, err := os.ReadFile(*packages)\n    if err != nil || string(paths) != \"example.com/jobdbverifyfixture\\n\" { fmt.Fprintln(os.Stderr, \"invalid fixture package inventory\"); os.Exit(1) }\n    raw, err := os.ReadFile(*check)\n    if err != nil || !bytes.Equal(raw, []byte(\"fixture public API\\n\")) { fmt.Fprintln(os.Stderr, \"fixture API snapshot differs\"); os.Exit(1) }\n}\n",
+              "api/packages.txt": "example.com/jobdbverifyfixture\n",
+              "api/jobdb.public.txt": "fixture public API\n",
+              "pkg/jobdb/internal/runtimeapi/zz_generated.go": "// Fixture generated API; stable across go generate.\npackage runtimeapi\n",
+              "pkg/jobdb/internal/runtimeapi/zz_generated.go.input": "// Fixture generated API; stable across go generate.\npackage runtimeapi\n",
+              "pkg/jobdb/internal/runtimeapi/zz_consumer_generated.go": "// Fixture generated API; stable across go generate.\npackage runtimeapi\n",
+              "pkg/jobdb/internal/runtimeapi/zz_consumer_generated.go.input": "// Fixture generated API; stable across go generate.\npackage runtimeapi\n",
+              "pkg/jobdb/runtime/toy/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/workflow/race_budget_test.go": "//go:build race\n\npackage fixture\n\nimport (\n \"flag\"\n \"runtime\"\n \"testing\"\n \"time\"\n)\n\nfunc TestRaceBudget(t *testing.T) {\n if got := runtime.GOMAXPROCS(0); got != 2 {\n  t.Fatalf(\"GOMAXPROCS = %d, want 2\", got)\n }\n if got := flag.Lookup(\"test.parallel\").Value.String(); got != \"2\" {\n  t.Fatalf(\"test parallelism = %s, want 2\", got)\n }\n deadline, ok := t.Deadline()\n if !ok {\n  t.Fatal(\"race suite must have a package timeout\")\n }\n if left := time.Until(deadline); left < 24*time.Minute || left > 25*time.Minute {\n  t.Fatalf(\"remaining race timeout = %s, want between 24m and 25m\", left)\n }\n}\n",
+              "pkg/jobdb/runtimetest/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedConformanceFixture(t *testing.T) {}\n",
+              "pkg/workflow/input_recovery_test.go": "package fixture\nimport (\"flag\"; \"testing\")\nfunc TestExecutionRecoveryInputSnapshots(t *testing.T) { t.Logf(\"input recovery repetitions=%s\", flag.Lookup(\"test.count\").Value.String()) }\n",
+              "pkg/jobdb/example_execution_infrastructure_test.go": "package fixture\n\nfunc Example_receiptFixture() {}\n",
+              "pkg/jobdb/projectcatalog/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestProjectCatalogFixture(t *testing.T) {}\n",
+              "pkg/jobdb/internal/projectwire/fixture_test.go": "package projectwire\nimport \"testing\"\nfunc TestIdentityEnvelopeFixture(t *testing.T) {}\n",
+              "pkg/jobdb/internal/projectwire/zz_shapes.go": "// Fixture generated envelope inventory.\npackage projectwire\n",
+              "pkg/jobdb/internal/projectapi/zz_generated.go": "// Fixture generated project API.\npackage projectapi\n",
+              "pkg/jobdb/runtime/remote/zz_project_routes.go": "// Fixture generated project routes.\npackage fixture\n",
+              "pkg/workflow/replay_prefix_test.go": "package fixture\nimport \"testing\"\nfunc TestReplayPayloadAcceptedPrefix(t *testing.T) {\n t.Run(\"remote\", func(t *testing.T) {\n  t.Run(\"external-input\", func(t *testing.T) {})\n })\n}\n",
+              "pkg/jobdb/cli/goal_candidates_test.go": "package fixture\nimport \"testing\"\nfunc TestGoalCandidatesPreservesTerminalFailure(t *testing.T) {}\n",
+              "scripts/testdata/published-append-consumer/main_test.go": "package main\nimport \"testing\"\nfunc TestPublishedCancelledReads(t *testing.T) {}\nfunc TestPublishedSemanticAppend(t *testing.T) {}\n",
+              "pkg/jobdb/internal/projectapi/append_test.go": "package projectapi\nimport \"testing\"\nfunc TestProjectAppendPermissionDeniedResponses(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/retained_read_permission_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedReadPermissionDenied(t *testing.T) {}\n",
+              "scripts/testdata/retained-read-compatibility/main_test.go": "// baselineBinary is supplied by the real public fixture, checked separately.\npackage fixture\nimport \"testing\"\nfunc TestRetainedReadBaselineCompatibility(t *testing.T) { t.Fatal(\"injected baseline client failure\") }\n",
+              "scripts/testdata/retained-read-compatibility/testdata/baseline.go.txt": "package main\nfunc main() {}\n"
+            },
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
+              "scripts/verify-test-exec.py": "../../scripts/verify-test-exec.py",
+              "scripts/verify-published-module.py": "../../scripts/verify-published-module.py",
+              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py",
+              "scripts/check-published-goals.py": "../../scripts/check-published-goals.py",
+              "scripts/test_check_published_goals.py": "../../scripts/test_check_published_goals.py"
+            }
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "op": "command_execution"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.artifact_refs.size() == 4"
+        },
+        {
+          "type": "cel_true",
+          "expr": "repositories.root.clean && repositories.root.new_commits == 0 && repositories.root.changed_files.size() == 0"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 5 && calls[1].outputs.success == false && calls[2].outputs.success == true && calls[3].outputs.success == true && calls[4].outputs.success == true"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls[3].artifacts['tests.log'].contains('injected baseline client failure')"
         }
       ],
       "inputs": {

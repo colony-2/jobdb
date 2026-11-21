@@ -115,6 +115,13 @@ state:
           # testdata is excluded from ./...; run the exact public consumer fixture too.
           printf '%s\n' 'Command: go test -count=1 -timeout=5m ./scripts/testdata/published-append-consumer'
           go test -count=1 -timeout=5m ./scripts/testdata/published-append-consumer
+          # Keep retained authorization and the separately compiled old client gated.
+          test -s pkg/jobdb/runtime/remote/retained_read_permission_test.go
+          printf '%s\n' "Command: go test -count=1 -p=1 -timeout=3m -v ./pkg/jobdb/runtime/remote -run '^TestRetainedRead'"
+          go test -count=1 -p=1 -timeout=3m -v ./pkg/jobdb/runtime/remote -run '^TestRetainedRead'
+          test -s scripts/testdata/retained-read-compatibility/main_test.go
+          printf '%s\n' 'Command: go test -count=1 -timeout=8m -v ./scripts/testdata/retained-read-compatibility'
+          go test -count=1 -timeout=8m -v ./scripts/testdata/retained-read-compatibility
           # Check both route inventories and public signatures before exercising them.
           sha256sum pkg/jobdb/internal/runtimeapi/zz{,_consumer}_generated.go pkg/jobdb/internal/projectapi/zz_generated.go pkg/jobdb/internal/projectwire/zz_shapes.go pkg/jobdb/runtime/remote/zz_project_routes.go > "$scratch/generated.sha256"
           go generate ./pkg/jobdb/internal/runtimeapi ./pkg/jobdb/internal/projectapi ./pkg/jobdb/runtime/remote

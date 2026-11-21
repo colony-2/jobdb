@@ -37,6 +37,9 @@ class PublishedModuleTest(unittest.TestCase):
         self.workspace, self.flags = "off", ""
         self.calls = []
         self.expected_transport = {}
+        self.behavior_events = [{"Action": "pass", "Test": n} for n in sorted(helper.required_behavior_tests())]
+        self.behavior_events.append({"Action": "output", "Test": "TestRetainedReadBaselineCompatibility/baseline_storage_assessment",
+                                     "Output": "OLD_STORAGE_COMPATIBILITY_FAILED: format 11 refused; bytes unchanged"})
 
     def run_command(self, args, **kwargs):
         self.calls.append(args)
@@ -80,12 +83,15 @@ class PublishedModuleTest(unittest.TestCase):
             output = self.workspace
         elif args == ["go", "env", "GOFLAGS"]:
             output = self.flags
-        elif args == ["go", "test", "-count=1", "./..."]:
+        elif args == ["go", "test", "-json", "-count=1", "./..."]:
             self.assertEqual(env["EXPECTED_JOBDB_VERSION"], VERSION)
             fixture = (consumer / "append_test.go").read_text()
             self.assertIn("TestPublishedCancelledReads", fixture)
             self.assertIn("TestPublishedSemanticAppend", fixture)
-            output = "ok example.invalid/jobdb-published-consumer"
+            self.assertIn("TestRetainedReadPermissionDenied", (consumer / "retained_read_test.go").read_text())
+            self.assertIn("baselineBinary", (consumer / "compatibility_test.go").read_text())
+            self.assertIn("func main", (consumer / "testdata/baseline.go.txt").read_text())
+            output = "\n".join(json.dumps(e) for e in self.behavior_events)
         elif args == ["go", "run", "."]:
             self.assertEqual(env["EXPECTED_JOBDB_VERSION"], VERSION)
             self.assertIn("CurrentBuildInfo", (consumer / "main.go").read_text())
@@ -93,7 +99,7 @@ class PublishedModuleTest(unittest.TestCase):
             output = self.linked_version
         elif args not in (["go", "mod", "init", "example.invalid/jobdb-published-consumer"],
                           ["go", "mod", "edit", "-require=" + helper.MODULE + "@" + VERSION],
-                          ["go", "mod", "tidy"], ["go", "test", "-count=1", "./..."]):
+                          ["go", "mod", "tidy"], ["go", "test", "-json", "-count=1", "./..."]):
             self.fail(f"Unexpected command: {args}")
         return subprocess.CompletedProcess(args, 0, output, "")
 
@@ -122,7 +128,7 @@ class PublishedModuleTest(unittest.TestCase):
             self.assertIn(value, report)
         self.assertIn(f"Downloaded archive: {len(ARCHIVE)} bytes.", report)
         self.assertIn(f"Downloaded version: `{VERSION}`", report)
-        self.assertIn(["go", "test", "-count=1", "./..."], self.calls)
+        self.assertIn(["go", "test", "-json", "-count=1", "./..."], self.calls)
         self.assertIn(["go", "run", "."], self.calls)
 
     def test_direct_git_routing_preserves_transport(self):
@@ -214,6 +220,22 @@ class PublishedModuleTest(unittest.TestCase):
         self.verify(1)
         with patch.object(helper.json, "loads", side_effect=json.JSONDecodeError("invalid JSON", "x", 0)):
             self.verify(1, message="invalid JSON")
+
+    def test_missing_skipped_or_failed_behavior_rejected(self):
+        original = list(self.behavior_events)
+        name = "TestRetainedReadPermissionDenied/http/open/wrapped=true"
+        for action in (None, "skip", "fail"):
+            with self.subTest(action=action):
+                self.behavior_events = [e for e in original if e.get("Test") != name]
+                if action:
+                    self.behavior_events.append({"Action": action, "Test": name})
+                self.verify(1, message="Behavioral acceptance failed")
+        self.behavior_events = [{"Action": "pass", "Package": "empty.consumer"}]
+        self.verify(1, message="missing=")
+        self.behavior_events = [e for e in original if e.get("Action") != "output"]
+        self.verify(1, message="Missing explicit failed old-storage compatibility assessment")
+        self.behavior_events = original
+        self.verify(message="Old-storage reopening compatibility: **FAILED**")
 
     def test_linked_version_and_isolation_leakage_fail(self):
         self.linked_version = "wrong"

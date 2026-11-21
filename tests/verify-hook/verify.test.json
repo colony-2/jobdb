@@ -153,6 +153,10 @@
         {
           "type": "cel_true",
           "expr": "calls.filter(c, c.node_path.endsWith(\"/test_integration/test_integration\"))[0].inputs.run.contains(\"go test -count=1 -p=1 -timeout=3m -v ./pkg/jobdb/internal/projectapi -run '^TestProjectAppendPermissionDeniedResponses$'\") && calls.filter(c, c.node_path.endsWith(\"/test_races/test_races\"))[0].inputs.run.contains(\"./pkg/jobdb/internal/projectwire ./pkg/jobdb/internal/projectapi\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path.endsWith(\"/test_integration/test_integration\"))[0].inputs.run.contains(\"go test -count=1 -p=1 -timeout=3m -v ./pkg/jobdb/runtime/remote -run '^TestRetainedRead'\") && calls.filter(c, c.node_path.endsWith(\"/test_integration/test_integration\"))[0].inputs.run.contains(\"go test -count=1 -timeout=8m -v ./scripts/testdata/retained-read-compatibility\")"
         }
       ]
     },
