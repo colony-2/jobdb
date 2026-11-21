@@ -37,6 +37,24 @@ tags:
 security:
   - bearerAuth: []
 paths:
+  /v1/capabilities/job-goals:
+    get:
+      operationId: getJobGoalCapabilities
+      tags: [jobs]
+      summary: Discover immutable membership, atomic admission and terminal failure support
+      description: |
+        Only explicitly true guarantees are supported. Primary-goal selection
+        alone does not imply these guarantees. Atomic admission governs fresh
+        publication; it does not certify that inherited overlaps have drained
+        or that obsolete writers have stopped. Discovery never checks a goal's
+        current state and cannot replace receipt replay or publication checks.
+      responses:
+        '200':
+          description: Independently advertised backend guarantees
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobGoalCapabilities'
   /v1/capabilities/primary-goal-selection:
     get:
       operationId: getPrimaryGoalSelectionCapability
@@ -241,30 +259,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GoalInfo'
-  /v1/tenants/{tenantId}/goals/{goalId}/candidates/{jobId}:
-    put:
-      tags: [jobs]
-      operationId: addGoalCandidate
-      parameters:
-        - name: tenantId
-          in: path
-          required: true
-          schema: {type: string}
-        - name: goalId
-          in: path
-          required: true
-          schema: {type: string}
-        - name: jobId
-          in: path
-          required: true
-          schema: {type: string}
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/GoalCandidateInfo'
   /v1/tenants/{tenantId}/jobs/{jobId}/dependency-waits/{waitId}:
     get:
       tags: [jobs]
@@ -2315,6 +2309,9 @@ components:
         state: {type: string, enum: [OPEN, SUCCEEDED, FAILED]}
         revision: {type: string, pattern: '^[0-9]+$'}
         successfulJobId: {type: string}
+        failureJobId:
+          type: string
+          description: Exact retained protected failure job, independent of the failure snapshot's jobId.
         failure: {$ref: '#/components/schemas/GoalFailure'}
         createdAt: {type: string, format: date-time}
         updatedAt: {type: string, format: date-time}
@@ -2415,20 +2412,6 @@ components:
           $ref: '#/components/schemas/CellId'
         cellRepo:
           $ref: '#/components/schemas/CellRepo'
-    GoalCandidateInfo:
-      type: object
-      additionalProperties: false
-      required: [goalKey, jobId, addedAt, goalState]
-      x-go-type: jobdb.GoalCandidateInfo
-      x-go-type-import:
-        name: jobdb
-        path: github.com/colony-2/jobdb/pkg/jobdb
-      properties:
-        goalKey: {$ref: '#/components/schemas/GoalKey'}
-        jobId: {type: string}
-        addedAt: {type: string, format: date-time}
-        goalState: {type: string, enum: [OPEN, SUCCEEDED, FAILED]}
-        successfulJobId: {type: string}
     FailGoalRequest:
       type: object
       additionalProperties: false
@@ -3250,6 +3233,20 @@ components:
           $ref: '#/components/schemas/CellName'
         cellRepo:
           $ref: '#/components/schemas/CellRepo'
+    JobGoalCapabilities:
+      type: object
+      additionalProperties: false
+      required: [immutableMembership, atomicAdmission, terminalFailureRecords]
+      properties:
+        immutableMembership:
+          type: boolean
+          description: One immutable primary goal selected only at job creation.
+        atomicAdmission:
+          type: boolean
+          description: Fresh publication cannot add a nonterminal member while any member is nonterminal. Does not certify overlap drain or exclusion of obsolete writers.
+        terminalFailureRecords:
+          type: boolean
+          description: Protected terminal failure publication and durable goal waiter settlement commit atomically without execution chapters.
     PrimaryGoalSelectionCapability:
       type: object
       additionalProperties: false
@@ -3762,6 +3759,14 @@ components:
             independent durable resources until the chapter commit succeeds.
           items:
             $ref: '#/components/schemas/ArtifactWrite'
+    JobRecordKind:
+      type: string
+      enum: [EXECUTION, GOAL_FAILURE, MIGRATED_GOAL_FAILURE]
+      description: Read-only protected record discriminator. Missing or empty legacy values mean EXECUTION. Job type and absent chapters do not convey protection.
+      x-go-type: jobdb.JobRecordKind
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
     JobInfo:
       type: object
       required:
@@ -3778,6 +3783,12 @@ components:
       properties:
         appendKey:
           type: string
+        recordKind:
+          allOf:
+            - $ref: '#/components/schemas/JobRecordKind'
+          x-go-type-skip-optional-pointer: true
+        terminalFailure:
+          $ref: '#/components/schemas/GoalFailure'
         nextRoute:
           $ref: '#/components/schemas/Route'
         completionStatus:
@@ -3794,6 +3805,9 @@ components:
         goalId:
           type: string
         otherGoalIds:
+          deprecated: true
+          description: Deprecated; always empty. Jobs have only their immutable primary goal.
+          x-deprecated-reason: Membership is the immutable primary goal.
           type: array
           items: {type: string}
         clientPayload:
@@ -3973,6 +3987,12 @@ components:
       properties:
         appendKey:
           type: string
+        recordKind:
+          allOf:
+            - $ref: '#/components/schemas/JobRecordKind'
+          x-go-type-skip-optional-pointer: true
+        terminalFailure:
+          $ref: '#/components/schemas/GoalFailure'
         blockingWaitSummary:
           $ref: '#/components/schemas/DependencyWaitSummary'
         blockingWait:

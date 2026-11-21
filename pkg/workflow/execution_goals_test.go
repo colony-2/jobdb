@@ -60,10 +60,17 @@ func TestExecutionGoalWaitRecoveryAndReplay(t *testing.T) {
 					return out
 				}
 				require.Equal(t, wf.JobRunSuspended, run().Status)
-				require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: first}))
-				replacement := submitExecutionTest(t, rt, producer)
-				_, err = rt.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: jobdb.GoalKey{TenantId: "tenant", GoalID: info.GoalID}, JobID: replacement.JobId})
+				failedProducer := producer
+				failedProducer.Execute = func(wf.ExecutionContext, jobdb.JobData) (jobdb.JobData, error) {
+					return nil, fmt.Errorf("ordinary attempt failed")
+				}
+				failedOutcome, err := runExecutionTest(t, rt, first, failedProducer)
 				require.NoError(t, err)
+				require.Equal(t, wf.JobRunFailed, failedOutcome.Status)
+				replacementHandle, err := rt.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{RequestID: "goal-recovery", Job: jobdb.SubmitRestartJob{PriorJobKey: first, Cell: "test", ShareGoal: true}})
+				require.NoError(t, err)
+				replacement := replacementHandle.JobKey
+				require.Equal(t, info.GoalID, replacementHandle.GoalID)
 				out, err := runExecutionTest(t, rt, replacement, producer)
 				require.NoError(t, err)
 				require.Equal(t, wf.JobRunCompleted, out.Status)

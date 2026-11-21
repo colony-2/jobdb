@@ -58,23 +58,13 @@ type GoalInfo struct {
 	State           GoalState    `json:"state"`
 	Revision        int64        `json:"revision,string"`
 	SuccessfulJobID string       `json:"successfulJobId,omitempty"`
+	FailureJobID    string       `json:"failureJobId,omitempty"`
 	Failure         *GoalFailure `json:"failure,omitempty"`
 	CreatedAt       time.Time    `json:"createdAt"`
 	UpdatedAt       time.Time    `json:"updatedAt"`
 	ClosedAt        *time.Time   `json:"closedAt,omitempty"`
 }
 
-type AddGoalCandidateRequest struct {
-	GoalKey GoalKey `json:"goalKey"`
-	JobID   string  `json:"jobId"`
-}
-type GoalCandidateInfo struct {
-	GoalKey         GoalKey   `json:"goalKey"`
-	JobID           string    `json:"jobId"`
-	AddedAt         time.Time `json:"addedAt"`
-	GoalState       GoalState `json:"goalState"`
-	SuccessfulJobID string    `json:"successfulJobId,omitempty"`
-}
 type FailGoalRequest struct {
 	GoalKey GoalKey `json:"-"`
 	Message string  `json:"message"`
@@ -84,7 +74,11 @@ func (r FailGoalRequest) Validate() error {
 	if err := r.GoalKey.Validate(); err != nil {
 		return err
 	}
-	if !utf8.ValidString(r.Message) || strings.TrimSpace(r.Message) == "" || len(r.Message) > 16<<10 {
+	return validateGoalFailureMessage(r.Message)
+}
+
+func validateGoalFailureMessage(message string) error {
+	if !utf8.ValidString(message) || strings.TrimSpace(message) == "" || len(message) > 16<<10 {
 		return fmt.Errorf("%w: nonblank message of at most 16 KiB required", ErrInvalidDependency)
 	}
 	return nil
@@ -205,20 +199,11 @@ func ValidateDependencyReschedule(r RescheduleExecutionRequest) error {
 	return ValidateDependencyWait(r.DependencyWait, false)
 }
 
-// GoalRuntime retains the legacy goal contract during attachment retirement.
-type GoalRuntime interface {
-	ConsumerGoalRuntime
-	GoalCandidateMutator
-}
-
-// GoalCandidateMutator is the temporary legacy attachment port. Consumers use
-// creation-time goal selection instead of exposing this capability.
-type GoalCandidateMutator interface {
-	AddGoalCandidate(context.Context, AddGoalCandidateRequest) (GoalCandidateInfo, error)
-}
+// GoalRuntime is the retained goal and dependency contract.
+type GoalRuntime = ConsumerGoalRuntime
 
 // ConsumerGoalRuntime is the retained tenant-scoped goal and dependency API.
-// FailGoal with a message remains supported; attachment is a separate port.
+// FailGoal with a message publishes a protected terminal failure record.
 type ConsumerGoalRuntime interface {
 	ListGoals(context.Context, ListGoalsRequest) (ListGoalsResponse, error)
 	ListDependencyWaits(context.Context, ListDependencyWaitsRequest) (ListDependencyWaitsResponse, error)

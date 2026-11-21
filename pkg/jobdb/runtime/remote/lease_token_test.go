@@ -294,9 +294,6 @@ func (r *claimsCapturingRuntime) GetGoal(context.Context, jobdb.GoalKey) (jobdb.
 func (r *claimsCapturingRuntime) GetDependencyWait(context.Context, jobdb.DependencyWaitKey) (jobdb.DependencyWaitInfo, error) {
 	return jobdb.DependencyWaitInfo{}, jobdb.ErrDependencyWaitNotFound
 }
-func (r *claimsCapturingRuntime) AddGoalCandidate(context.Context, jobdb.AddGoalCandidateRequest) (jobdb.GoalCandidateInfo, error) {
-	panic("unexpected goal mutation")
-}
 func (r *claimsCapturingRuntime) FailGoal(context.Context, jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
 	panic("unexpected goal mutation")
 }

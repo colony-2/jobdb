@@ -136,7 +136,7 @@
         },
         {
           "type": "cel_true",
-          "expr": "calls.filter(c, c.node_path.endsWith(\"/test_races/test_races\")).all(c, c.inputs.env.GOMAXPROCS == \"2\" && c.inputs.run.contains(\"-timeout=20m\") && c.inputs.run.contains(\"-parallel=2\") && c.inputs.timeout == \"45m\")"
+          "expr": "calls.filter(c, c.node_path.endsWith(\"/test_races/test_races\")).all(c, c.inputs.env.GOMAXPROCS == \"2\" && c.inputs.run.contains(\"-timeout=20m\") && c.inputs.run.contains(\"-parallel=2\") && c.inputs.timeout == \"60m\")"
         },
         {
           "type": "cel_true",

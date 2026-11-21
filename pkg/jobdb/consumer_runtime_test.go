@@ -21,7 +21,7 @@ func TestConsumerRuntimeMethodSets(t *testing.T) {
 		{reflect.TypeFor[jobdb.ConsumerRuntime](), reflect.TypeFor[jobdb.WorkflowRuntime]()},
 		{reflect.TypeFor[jobdb.ConsumerGoalRuntime](), reflect.TypeFor[jobdb.GoalRuntime]()},
 	} {
-		require.Equal(t, pair[0].NumMethod()+1, pair[1].NumMethod())
+		require.Equal(t, pair[0].NumMethod(), pair[1].NumMethod())
 		_, found := pair[0].MethodByName("AddGoalCandidate")
 		require.False(t, found)
 		for i := 0; i < pair[0].NumMethod(); i++ {
@@ -32,8 +32,6 @@ func TestConsumerRuntimeMethodSets(t *testing.T) {
 		}
 	}
 	rt := retainedRuntime{toy.New()}
-	_, legacy := any(rt).(jobdb.GoalCandidateMutator)
-	require.False(t, legacy)
 	_, found := reflect.TypeOf(rt).MethodByName("AddGoalCandidate")
 	require.False(t, found)
 }

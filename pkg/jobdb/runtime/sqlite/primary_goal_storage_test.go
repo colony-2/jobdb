@@ -24,6 +24,7 @@ func TestPrimaryGoalReceiptReopenCleanupAndPurge(t *testing.T) {
 	defer func() { _ = r.Close(ctx) }()
 	source, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "source", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	require.NoError(t, err)
+	require.NoError(t, r.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: source.JobKey}))
 	req := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "dest", GoalID: source.GoalID, Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic("fresh")}}
 	h, err := r.SubmitJob(ctx, req)
 	require.NoError(t, err)
@@ -70,6 +71,7 @@ func TestPrimaryGoalUnknownIdentityAndUnavailableReceipt(t *testing.T) {
 			require.NoError(t, err)
 			req := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: bad, JobID: "dest", GoalID: source.GoalID, Cell: source.Cell, CellRepo: source.CellRepo, JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}}
 			if bad == "unavailable" {
+				require.NoError(t, r.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: source.JobKey}))
 				_, err = r.SubmitJob(ctx, req)
 				require.NoError(t, err)
 				_, err = r.db.ExecContext(ctx, `DELETE FROM jobdb_submission_receipts WHERE tenant_id=? AND job_id='dest'`, bad)
@@ -83,23 +85,17 @@ func TestPrimaryGoalUnknownIdentityAndUnavailableReceipt(t *testing.T) {
 					_, e := tx.ExecContext(ctx, `UPDATE jobdb_cells SET state='RETIRED' WHERE tenant_id=?`, bad)
 					return e
 				}
-				store := goalStore{ctx, tx}
-				g, e := store.Goal(jobdb.GoalKey{TenantId: bad, GoalID: source.GoalID})
-				if e != nil {
+				// Simulate imported corruption after disabling the exact guards; publication
+				// must still reject it without creating a replacement.
+				if _, e := tx.ExecContext(ctx, `DROP TRIGGER IF EXISTS jobdb_jobs_identity_immutable`); e != nil {
 					return e
 				}
 				if bad == "state" {
-					g.State = "UNKNOWN"
-				} else {
-					g.CellID = ""
-					raw, e := json.Marshal(g)
-					if e != nil {
-						return e
-					}
-					_, e = tx.ExecContext(ctx, `UPDATE jobdb_goals SET payload=? WHERE tenant_id=?`, raw, bad)
+					_, e := tx.ExecContext(ctx, `PRAGMA ignore_check_constraints=ON; UPDATE jobdb_jobs SET goal_closure_state='UNKNOWN',goal_closed_at_ns=1,goal_closure_origin='native' WHERE tenant_id=?`, bad)
 					return e
 				}
-				return store.SaveGoal(g)
+				_, e := tx.ExecContext(ctx, `UPDATE jobdb_jobs SET cell_name='' WHERE tenant_id=?`, bad)
+				return e
 			})
 			require.NoError(t, err)
 			_, err = r.SubmitJob(ctx, req)
@@ -107,15 +103,13 @@ func TestPrimaryGoalUnknownIdentityAndUnavailableReceipt(t *testing.T) {
 			var n int
 			require.NoError(t, r.db.QueryRow(`SELECT count(*) FROM jobdb_jobs WHERE tenant_id=? AND job_id='dest'`, bad).Scan(&n))
 			require.Zero(t, n)
-			require.NoError(t, r.db.QueryRow(`SELECT count(*) FROM jobdb_goal_candidates WHERE tenant_id=?`, bad).Scan(&n))
-			require.Zero(t, n)
-			require.NoError(t, r.db.QueryRow(`SELECT count(*) FROM jobdb_goals WHERE tenant_id=?`, bad).Scan(&n))
+			require.NoError(t, r.db.QueryRow(`SELECT count(*) FROM jobdb_jobs WHERE tenant_id=? AND goal_origin=1`, bad).Scan(&n))
 			require.Equal(t, 1, n)
 		})
 	}
 }
 
-func TestPrimaryGoalLegacyPreparationUpgrade(t *testing.T) {
+func TestPrimaryGoalPreparationReopen(t *testing.T) {
 	ctx := celltest.Context(context.Background())
 	cfg := Config{DBPath: filepath.Join(t.TempDir(), "legacy.db")}
 	r, err := NewFromConfig(ctx, cfg)
@@ -130,8 +124,6 @@ func TestPrimaryGoalLegacyPreparationUpgrade(t *testing.T) {
 	require.NotContains(t, d["Job"], "GoalID")
 	reserved, err := r.PrepareJob(ctx, prep)
 	require.NoError(t, err)
-	_, err = r.db.ExecContext(ctx, `DROP TABLE jobdb_submission_receipts`)
-	require.NoError(t, err)
 	require.NoError(t, r.Close(ctx))
 	r, err = NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
@@ -144,6 +136,9 @@ func TestPrimaryGoalLegacyPreparationUpgrade(t *testing.T) {
 type primaryCoreScheduler struct{ *coreEventScheduler }
 
 func (s *primaryCoreScheduler) SupportsPrimaryGoalSelection() bool { return true }
+func (s *primaryCoreScheduler) JobGoalCapabilities() jobdb.JobGoalCapabilities {
+	return s.r.JobGoalCapabilities()
+}
 func (s *primaryCoreScheduler) CreateJob(ctx context.Context, req runtimecore.CreateJobRequest) (runtimecore.StoredJob, error) {
 	if req.SelectedGoalID != "" && req.SelectedGoalID != req.GoalID {
 		return runtimecore.StoredJob{}, jobdb.ErrGoalConflict
@@ -158,6 +153,7 @@ func TestPrimaryGoalCoreRetainedReceipt(t *testing.T) {
 	defer storage.Close(ctx)
 	source, err := celltest.Submit(storage, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "source", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	require.NoError(t, err)
+	require.NoError(t, storage.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: source.JobKey}))
 	scheduler := &coreEventScheduler{r: storage, CellRuntime: storage, GoalScheduler: storage}
 	cfg := runtimecore.Config{Scheduler: scheduler, Chapters: coreEventChapters{r: storage}, Schemas: sqliteSchemaStore{runtime: storage}, Configurations: storage.Service.Store}
 	unsupported, err := runtimecore.NewRuntime(cfg)
@@ -190,6 +186,7 @@ func TestPrimaryGoalIndependentWriters(t *testing.T) {
 	defer first.Close(ctx)
 	source, err := celltest.Submit(first, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "source", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	require.NoError(t, err)
+	require.NoError(t, first.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: source.JobKey}))
 	second, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	defer second.Close(ctx)

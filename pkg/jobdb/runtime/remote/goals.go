@@ -39,18 +39,11 @@ func (r *Runtime) GetGoal(ctx context.Context, k jobdb.GoalKey) (jobdb.GoalInfo,
 	}
 	return *resp.JSON200, nil
 }
-func (r *Runtime) AddGoalCandidate(ctx context.Context, req jobdb.AddGoalCandidateRequest) (jobdb.GoalCandidateInfo, error) {
-	resp, err := r.client.AddGoalCandidateWithResponse(ctx, req.GoalKey.TenantId, req.GoalKey.GoalID, req.JobID)
-	if err != nil {
-		return jobdb.GoalCandidateInfo{}, err
-	}
-	if resp.StatusCode() != 200 || resp.JSON200 == nil {
-		return jobdb.GoalCandidateInfo{}, responseError("add goal candidate", resp.StatusCode(), resp.Body, nil)
-	}
-	return *resp.JSON200, nil
-}
 func (r *Runtime) FailGoal(ctx context.Context, req jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
 	if err := req.Validate(); err != nil {
+		return jobdb.GoalInfo{}, err
+	}
+	if err := r.requireGoalPublication(ctx, true); err != nil {
 		return jobdb.GoalInfo{}, err
 	}
 	resp, err := r.client.FailGoalWithResponse(ctx, req.GoalKey.TenantId, req.GoalKey.GoalID, req)
@@ -85,10 +78,6 @@ func (s *proxyServer) GetGoal(ctx context.Context, req runtimeapi.GetGoalRequest
 	out, err := s.runtime.GetGoal(ctx, jobdb.GoalKey{TenantId: req.TenantId, GoalID: req.GoalId})
 	return runtimeapi.GetGoal200JSONResponse(out), err
 }
-func (s *legacyProxyServer) AddGoalCandidate(ctx context.Context, req runtimeapi.AddGoalCandidateRequestObject) (runtimeapi.AddGoalCandidateResponseObject, error) {
-	out, err := s.mutator.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: jobdb.GoalKey{TenantId: req.TenantId, GoalID: req.GoalId}, JobID: req.JobId})
-	return runtimeapi.AddGoalCandidate200JSONResponse(out), err
-}
 func (s *proxyServer) FailGoal(ctx context.Context, req runtimeapi.FailGoalRequestObject) (runtimeapi.FailGoalResponseObject, error) {
 	if req.Body == nil {
 		return nil, badRequest("body is required")
@@ -97,6 +86,9 @@ func (s *proxyServer) FailGoal(ctx context.Context, req runtimeapi.FailGoalReque
 	request.GoalKey = jobdb.GoalKey{TenantId: req.TenantId, GoalID: req.GoalId}
 	if err := request.Validate(); err != nil {
 		return nil, badRequest(err.Error())
+	}
+	if !supportsGoalPublication(s.runtime, true) {
+		return nil, jobdb.ErrJobGoalSemanticsUnsupported
 	}
 	out, err := s.runtime.FailGoal(ctx, request)
 	return runtimeapi.FailGoal200JSONResponse(out), err
@@ -111,6 +103,9 @@ var goalErrors = []struct {
 	code   string
 	status int
 }{
+	{jobdb.ErrInvalidJobRecord, "invalid_job_record", 500},
+	{jobdb.ErrJobRecordOperationUnsupported, "job_record_operation_unsupported", 501},
+	{jobdb.ErrJobGoalSemanticsUnsupported, "job_goal_semantics_unsupported", 501},
 	{jobdb.ErrPrimaryGoalSelectionUnsupported, "primary_goal_selection_unsupported", 501},
 	{jobdb.ErrPrimaryGoalSelectionForbidden, "primary_goal_selection_forbidden", 403},
 	{jobdb.ErrSubmissionReceiptUnavailable, "submission_receipt_unavailable", 503},
@@ -134,6 +129,22 @@ func writeGoalError(w http.ResponseWriter, err error) bool {
 	}
 	return false
 }
+
+// Only an agreed status/code pair can bypass generic 5xx infrastructure
+// classification. Unknown or mismatched envelopes retain the safe fallback.
+func goalResponseErrorAt(status int, body []byte) error {
+	var payload struct{ Code string }
+	if json.Unmarshal(body, &payload) != nil {
+		return nil
+	}
+	for _, entry := range goalErrors {
+		if entry.status == status && entry.code == payload.Code {
+			return goalResponseError(body)
+		}
+	}
+	return nil
+}
+
 func goalResponseError(body []byte) error {
 	var payload struct {
 		Code    string

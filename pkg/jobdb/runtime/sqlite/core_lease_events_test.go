@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -56,7 +57,8 @@ func runCoreSQLiteConformance(t *testing.T, run func(*testing.T, ...runtimetest.
 			if overHTTP {
 				runtime = struct{ jobdb.ConsumerRuntime }{runtime}
 			}
-			require.NotImplements(tb, (*jobdb.GoalCandidateMutator)(nil), runtime)
+			_, mutation := reflect.TypeOf(runtime).MethodByName("AddGoalCandidate")
+			require.False(tb, mutation)
 			fixture := runtimetest.Fixture{Runtime: runtime}
 			if overHTTP {
 				fixture.LeaseEventLeaseValidity = core.ValidateExecutionLeaseByID

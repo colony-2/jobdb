@@ -14,8 +14,6 @@ import (
 	"strconv"
 )
 
-const retired = "AddGoalCandidate"
-
 var names = map[string]string{
 	"ServerInterface":             "ConsumerServerInterface",
 	"ServerInterfaceWrapper":      "ConsumerServerInterfaceWrapper",
@@ -42,7 +40,7 @@ func generate() error {
 		return err
 	}
 	out := &ast.File{Name: ast.NewIdent("runtimeapi")}
-	methods, wrappers, strictMethods, routes := 0, 0, 0, 0
+	methods, wrappers, strictMethods := 0, 0, 0
 	for _, decl := range source.Decls {
 		switch d := decl.(type) {
 		case *ast.GenDecl:
@@ -54,19 +52,7 @@ func generate() error {
 				continue
 			}
 			if iface, ok := t.Type.(*ast.InterfaceType); ok {
-				retained := iface.Methods.List[:0]
-				removed := 0
-				for _, field := range iface.Methods.List {
-					if len(field.Names) == 1 && field.Names[0].Name == retired {
-						removed++
-						continue
-					}
-					retained = append(retained, field)
-				}
-				if removed != 1 {
-					return fmt.Errorf("%s: expected one retired operation, found %d", t.Name, removed)
-				}
-				iface.Methods.List = retained
+				retained := iface.Methods.List
 				if methods != 0 && methods != len(retained) {
 					return fmt.Errorf("server operation inventories differ")
 				}
@@ -80,7 +66,7 @@ func generate() error {
 					continue
 				}
 				typ, ok := ptr.X.(*ast.Ident)
-				if !ok || (typ.Name != "ServerInterfaceWrapper" && typ.Name != "strictHandler") || d.Name.Name == retired {
+				if !ok || (typ.Name != "ServerInterfaceWrapper" && typ.Name != "strictHandler") {
 					continue
 				}
 				if typ.Name == "ServerInterfaceWrapper" {
@@ -94,29 +80,11 @@ func generate() error {
 			} else if _, ok := names[d.Name.Name]; !ok {
 				continue
 			}
-			if d.Name.Name == "HandlerWithOptions" {
-				retained := d.Body.List[:0]
-				for _, statement := range d.Body.List {
-					isRetired := false
-					ast.Inspect(statement, func(n ast.Node) bool {
-						if selector, ok := n.(*ast.SelectorExpr); ok && selector.Sel.Name == retired {
-							isRetired = true
-						}
-						return true
-					})
-					if isRetired {
-						routes++
-						continue
-					}
-					retained = append(retained, statement)
-				}
-				d.Body.List = retained
-			}
 			out.Decls = append(out.Decls, d)
 		}
 	}
-	if methods == 0 || wrappers != methods || strictMethods != methods || routes != 1 {
-		return fmt.Errorf("unexpected generated server shape: methods=%d wrappers=%d strict=%d retired routes=%d", methods, wrappers, strictMethods, routes)
+	if methods == 0 || wrappers != methods || strictMethods != methods {
+		return fmt.Errorf("unexpected generated server shape: methods=%d wrappers=%d strict=%d", methods, wrappers, strictMethods)
 	}
 	usedImports := map[string]bool{}
 	ast.Inspect(out, func(n ast.Node) bool {

@@ -27,7 +27,7 @@ func TestCompactListDoesNotReadDetailsOrGoalDiagnostics(t *testing.T) {
 	_, err = r.GetDependencyWait(ctx, waitKey)
 	require.NoError(t, err)
 	// Evaluated wait diagnostics require the goal payload. Compact lists must not.
-	_, err = r.db.ExecContext(ctx, `UPDATE jobdb_goals SET payload=x'ff'`)
+	_, err = r.db.ExecContext(ctx, `DROP TRIGGER jobdb_jobs_identity_immutable; UPDATE jobdb_jobs SET cell_repo='invalid' WHERE job_id='producer'`)
 	require.NoError(t, err)
 	_, err = r.GetDependencyWait(ctx, waitKey)
 	require.Error(t, err, "fixture must make diagnostic evaluation fail")
@@ -41,7 +41,7 @@ func TestCompactListDoesNotReadDetailsOrGoalDiagnostics(t *testing.T) {
 	}
 	check()
 	// No membership query is needed without an explicit GoalIDs filter.
-	_, err = r.db.ExecContext(ctx, `DROP TABLE jobdb_goal_candidates`)
+	_, err = r.db.ExecContext(ctx, `DROP TABLE IF EXISTS jobdb_goal_candidates`)
 	require.NoError(t, err)
 	check()
 	// Nor may it read chapters or artifacts.
@@ -108,7 +108,7 @@ func TestCompactListFiltersAndCursorTies(t *testing.T) {
 			expected = append(expected, h.JobKey.String())
 		}
 	}
-	_, err = r.db.ExecContext(ctx, `UPDATE jobdb_jobs SET created_at_ns=?`, at.UnixNano())
+	_, err = r.db.ExecContext(ctx, `DROP TRIGGER jobdb_jobs_identity_immutable; UPDATE jobdb_jobs SET created_at_ns=?`, at.UnixNano())
 	require.NoError(t, err)
 	sort.Sort(sort.Reverse(sort.StringSlice(expected)))
 	filter, err := jobdb.Metadata().EqualFilter("nested", map[string]any{"a": []any{1, true}})

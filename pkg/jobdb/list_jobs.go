@@ -22,6 +22,8 @@ type DependencyWaitSummary struct {
 // returned in full from the same listing snapshot.
 type JobSummary struct {
 	AppendKey           string
+	RecordKind          JobRecordKind
+	TerminalFailure     *GoalFailure
 	Cell                string
 	CellID              string
 	CellRepo            string
@@ -29,7 +31,7 @@ type JobSummary struct {
 	// Deprecated: use GetJob or GetDependencyWait. Not populated by compact lists.
 	BlockingWait *DependencyWaitInfo
 	GoalID       string
-	// Deprecated: use GetJob. Not populated by compact lists.
+	// Deprecated: always empty; membership is the immutable primary GoalID.
 	OtherGoalIDs []string
 	JobKey       JobKey
 	Status       JobStatus

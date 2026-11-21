@@ -41,12 +41,17 @@ type SubmitRestartJob = jobdb.SubmitRestartJob
 type CancelJob = jobdb.CancelJob
 type JobStatus = jobdb.JobStatus
 type JobInfo = jobdb.JobInfo
+type JobRecordKind = jobdb.JobRecordKind
 type JobPrereqCondition = jobdb.JobPrereqCondition
 type JobPrerequisite = jobdb.JobPrerequisite
 
 const (
-	JobPrereqComplete = jobdb.JobPrereqComplete
-	JobPrereqSuccess  = jobdb.JobPrereqSuccess
+	JobRecordExecution           = jobdb.JobRecordExecution
+	JobRecordGoalFailure         = jobdb.JobRecordGoalFailure
+	JobRecordMigratedGoalFailure = jobdb.JobRecordMigratedGoalFailure
+	GoalFailureJobType           = jobdb.GoalFailureJobType
+	JobPrereqComplete            = jobdb.JobPrereqComplete
+	JobPrereqSuccess             = jobdb.JobPrereqSuccess
 
 	JobStatusReady          = jobdb.JobStatusReady
 	JobStatusExpired        = jobdb.JobStatusExpired
@@ -172,17 +177,19 @@ type JobCancelledError = jobdb.JobCancelledError
 type NonRetryableError = jobdb.NonRetryableError
 
 var (
-	ErrArtifactKeyUnavailable   = jobdb.ErrArtifactKeyUnavailable
-	ErrChapterNotFound          = jobdb.ErrChapterNotFound
-	ErrConflict                 = jobdb.ErrConflict
-	ErrExecutionLeaseLost       = jobdb.ErrExecutionLeaseLost
-	ErrExistingJobMismatch      = jobdb.ErrExistingJobMismatch
-	ErrJobCancelled             = jobdb.ErrJobCancelled
-	ErrJobFailed                = jobdb.ErrJobFailed
-	ErrJobNotComplete           = jobdb.ErrJobNotComplete
-	ErrJobNotFound              = jobdb.ErrJobNotFound
-	ErrMissingInputHash         = jobdb.ErrMissingInputHash
-	ErrWorkflowNotDeterministic = jobdb.ErrWorkflowNotDeterministic
+	ErrArtifactKeyUnavailable        = jobdb.ErrArtifactKeyUnavailable
+	ErrChapterNotFound               = jobdb.ErrChapterNotFound
+	ErrConflict                      = jobdb.ErrConflict
+	ErrExecutionLeaseLost            = jobdb.ErrExecutionLeaseLost
+	ErrExistingJobMismatch           = jobdb.ErrExistingJobMismatch
+	ErrJobCancelled                  = jobdb.ErrJobCancelled
+	ErrJobFailed                     = jobdb.ErrJobFailed
+	ErrInvalidJobRecord              = jobdb.ErrInvalidJobRecord
+	ErrJobRecordOperationUnsupported = jobdb.ErrJobRecordOperationUnsupported
+	ErrJobNotComplete                = jobdb.ErrJobNotComplete
+	ErrJobNotFound                   = jobdb.ErrJobNotFound
+	ErrMissingInputHash              = jobdb.ErrMissingInputHash
+	ErrWorkflowNotDeterministic      = jobdb.ErrWorkflowNotDeterministic
 )
 
 func AsDuration(t time.Duration) *Duration { return jobdb.AsDuration(t) }

@@ -31,6 +31,7 @@ func RunPrimaryGoalSelectionConformance(t *testing.T, r jobdb.ConsumerRuntime) {
 	sourceReq.Job.RunPolicy.Retry.MaximumAttempts = 2
 	source, err := celltest.Submit(r, ctx, sourceReq)
 	require.NoError(t, err)
+	require.NoError(t, r.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: source.JobKey}))
 	req := request("selected")
 	req.Job.GoalID = source.GoalID
 	h, err := r.SubmitJob(ctx, req)
@@ -53,14 +54,15 @@ func RunPrimaryGoalSelectionConformance(t *testing.T, r jobdb.ConsumerRuntime) {
 	body, ok := chapters[0].Body.(jobdb.JobStartChapter)
 	require.True(t, ok)
 	require.JSONEq(t, `{"fresh":"selected"}`, string(body.Input.Data))
-	// Active/runnable candidates are not an exclusive claim on the goal.
-	lease, err := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: source.JobKey, WorkerID: "original", Routes: []jobdb.Route{{JobType: "work"}}})
+	// Lease publication still rejects unsupported primary selection.
+	lease, err := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "original", Routes: []jobdb.Route{{JobType: "work"}}})
 	require.NoError(t, err)
 	require.NotNil(t, lease)
 	deniedChild := req
 	deniedChild.Job.JobID = "lease-selected"
 	_, err = lease.SubmitJob(ctx, deniedChild)
 	require.ErrorIs(t, err, jobdb.ErrPrimaryGoalSelectionUnsupported)
+	require.NoError(t, r.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: h.JobKey}))
 	concurrent := request("concurrent")
 	concurrent.Job.GoalID = h.GoalID
 	var wg sync.WaitGroup
@@ -106,6 +108,7 @@ func RunPrimaryGoalSelectionConformance(t *testing.T, r jobdb.ConsumerRuntime) {
 	require.ErrorIs(t, err, jobdb.ErrGoalNotFound)
 	_, err = r.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{JobID: req.Job.JobID, PriorJobKey: source.JobKey, Cell: source.Cell, CellRepo: source.CellRepo}})
 	require.ErrorIs(t, err, jobdb.ErrExistingJobMismatch)
+	require.NoError(t, r.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: jobdb.JobKey{TenantId: "selection", JobId: "concurrent"}}))
 	cycle := request("cycle")
 	cycle.Job.GoalID = h.GoalID
 	cycle.Job.Dependencies = []jobdb.Dependency{{Target: jobdb.DependencyTarget{GoalID: h.GoalID}, Condition: jobdb.JobPrereqSuccess}}
@@ -125,8 +128,8 @@ func RunPrimaryGoalSelectionConformance(t *testing.T, r jobdb.ConsumerRuntime) {
 	// Publication before explicit closure is retained, including the frozen set.
 	g, err := r.FailGoal(ctx, jobdb.FailGoalRequest{GoalKey: jobdb.GoalKey{TenantId: "selection", GoalID: h.GoalID}, Message: "stop"})
 	require.NoError(t, err)
-	require.Contains(t, g.Failure.NonTerminalJobIDs, "selected")
-	require.Contains(t, g.Failure.NonTerminalJobIDs, "concurrent")
+	require.Contains(t, g.Failure.TerminalJobIDs, "selected")
+	require.Contains(t, g.Failure.TerminalJobIDs, "concurrent")
 	replay, err := r.SubmitJob(ctx, req)
 	require.NoError(t, err)
 	require.Equal(t, h, replay)
@@ -156,6 +159,7 @@ func runPrimaryGoalOwnership(t *testing.T, r jobdb.ConsumerRuntime) {
 	ctx := PrimaryGoalContext(context.Background())
 	source, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "ownership", JobID: "source", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	require.NoError(t, err)
+	require.NoError(t, r.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: source.JobKey}))
 	req := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "ownership", JobID: "selected", GoalID: source.GoalID, Cell: source.Cell, CellRepo: source.CellRepo, JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}}
 	h, err := r.SubmitJob(ctx, req)
 	require.NoError(t, err)
@@ -184,6 +188,7 @@ func runPrimaryGoalOwnership(t *testing.T, r jobdb.ConsumerRuntime) {
 	replay, err := r.SubmitJob(ctx, req)
 	require.NoError(t, err)
 	require.Equal(t, h, replay)
+	require.NoError(t, r.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: h.JobKey}))
 	alias := req
 	alias.Job.JobID = "alias"
 	alias.Job.Cell = "work"
@@ -208,6 +213,7 @@ func runPrimaryGoalArchiveReplay(t *testing.T, r jobdb.ConsumerRuntime) {
 	ctx := PrimaryGoalContext(context.Background())
 	source, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "archive", JobID: "source", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	require.NoError(t, err)
+	require.NoError(t, r.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: source.JobKey}))
 	req := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "archive", JobID: "dest", GoalID: source.GoalID, Cell: source.Cell, CellRepo: source.CellRepo, JobType: "work", Data: jobdb.NewTaskDataOrPanic("fresh")}}
 	h, err := r.SubmitJob(ctx, req)
 	require.NoError(t, err)

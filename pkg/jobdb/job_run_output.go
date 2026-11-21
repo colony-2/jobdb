@@ -8,6 +8,12 @@ type ArtifactGetter interface {
 
 // GetOutput returns the final job output or a job-level error.
 func (r GetJobRunResponse) GetOutput(getter ArtifactGetter, tenantId string) (JobData, error) {
+	if err := r.Job.ValidateRecord(); err != nil {
+		return nil, err
+	}
+	if r.Job.RecordKind.IsTerminalRecord() {
+		return nil, terminalRecordFailure(r.Job.TerminalFailure)
+	}
 	if r.Job.Status == JobStatusCancelled {
 		return nil, &JobCancelledError{Detail: r.Job.CompletionDetail}
 	}

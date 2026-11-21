@@ -82,13 +82,13 @@ func TestRestartPublicationFailureRollsBackHistory(t *testing.T) {
 						req.Job.ExtraTaskOutput = jobdb.NewTaskDataOrPanic("extra", jobdb.NewArtifactFromBytes("extra.bin", []byte(strings.Repeat("extra", 32))))
 					}
 					var goalCount int
-					require.NoError(t, local.db.QueryRowContext(ctx, "SELECT count(*) FROM jobdb_goals").Scan(&goalCount))
+					require.NoError(t, local.db.QueryRowContext(ctx, "SELECT count(*) FROM jobdb_jobs WHERE goal_origin=1").Scan(&goalCount))
 					trigger := ""
 					switch failure {
 					case "scheduler":
 						trigger = `CREATE TRIGGER fail_restart BEFORE INSERT ON jobdb_jobs WHEN NEW.job_id='destination' BEGIN SELECT RAISE(ABORT, 'injected publication failure'); END`
 					case "goal":
-						trigger = `CREATE TRIGGER fail_restart BEFORE INSERT ON jobdb_goals BEGIN SELECT RAISE(ABORT, 'injected goal failure'); END`
+						trigger = `CREATE TRIGGER fail_restart BEFORE UPDATE OF goal_origin ON jobdb_jobs WHEN NEW.job_id='destination' AND NEW.goal_origin=1 BEGIN SELECT RAISE(ABORT, 'injected goal failure'); END`
 					case "append":
 						trigger = `CREATE TRIGGER fail_restart BEFORE INSERT ON jobdb_chapter_artifacts WHEN NEW.story_id='destination' BEGIN SELECT RAISE(ABORT, 'injected append failure'); END`
 					case "commit":
@@ -122,7 +122,7 @@ func TestRestartPublicationFailureRollsBackHistory(t *testing.T) {
 							require.Zero(t, count, table)
 						}
 						var gotGoals int
-						require.NoError(t, local.db.QueryRowContext(ctx, "SELECT count(*) FROM jobdb_goals").Scan(&gotGoals))
+						require.NoError(t, local.db.QueryRowContext(ctx, "SELECT count(*) FROM jobdb_jobs WHERE goal_origin=1").Scan(&gotGoals))
 						require.Equal(t, goalCount, gotGoals)
 						gotBlobs, err := os.ReadDir(blobs)
 						require.NoError(t, err)

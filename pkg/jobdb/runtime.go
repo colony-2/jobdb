@@ -7,13 +7,9 @@ import (
 	"time"
 )
 
-// WorkflowRuntime is the legacy full backend contract. Consumer code should
-// accept ConsumerRuntime so its adapters need not expose goal attachment.
-// Existing backends continue to implement both contracts during retirement.
-type WorkflowRuntime interface {
-	ConsumerRuntime
-	GoalCandidateMutator
-}
+// WorkflowRuntime and ConsumerRuntime expose the same retained operations.
+// Both names remain available to existing consumers.
+type WorkflowRuntime = ConsumerRuntime
 
 // ConsumerRuntime is the backend-agnostic runtime used by execution and readers.
 // It retains goal reads, waits and explicit failure, without mutable attachment.

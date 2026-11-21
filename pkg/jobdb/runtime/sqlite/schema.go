@@ -3,96 +3,47 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-
+	"errors"
 	"fmt"
 	"strings"
 )
 
-const schemaSQL = `
-CREATE TABLE IF NOT EXISTS jobdb_jobs (
-	tenant_id TEXT NOT NULL,
-	job_id TEXT NOT NULL,
- goal_id TEXT NOT NULL,
- cell_id TEXT NOT NULL,
- cell_name TEXT NOT NULL,
- cell_repo TEXT NOT NULL,
- dependency_wait_id TEXT NOT NULL DEFAULT '',
-	job_type TEXT NOT NULL,
-	route_job_type TEXT NOT NULL,
- route_task_type TEXT NOT NULL DEFAULT '',
-	payload BLOB NOT NULL DEFAULT x'',
- client_payload BLOB,
- client_payload_revision INTEGER NOT NULL DEFAULT 0,
- initial_payload_digest TEXT NOT NULL,
-	metadata BLOB,
-	parent_job_id TEXT,
-	wait_for BLOB NOT NULL DEFAULT x'',
-	available_at_ns INTEGER NOT NULL,
-	wait_deadline_ns INTEGER,
-	created_at_ns INTEGER NOT NULL,
-	updated_at_ns INTEGER NOT NULL,
-	archived_at_ns INTEGER,
-	hidden_at_ns INTEGER,
-	cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK (cancel_requested IN (0, 1)),
-	completion_status TEXT,
-	completion_detail TEXT,
-	consecutive_expirations INTEGER NOT NULL DEFAULT 0,
-	lease_id TEXT,
-	lease_worker_id TEXT,
-	lease_expires_at_ns INTEGER,
-	alternate_job_type TEXT,
- alternate_task_type TEXT,
-	alternate_at_ns INTEGER,
-	PRIMARY KEY (tenant_id, job_id),
- FOREIGN KEY(tenant_id,cell_id) REFERENCES jobdb_cells(tenant_id,cell_id)
-);
+// ErrMigrationRequired identifies the manual-upgrade prerequisite independently
+// of the source format and selected database path.
+var ErrMigrationRequired = errors.New("sqlite runtime: manual migration required")
 
-CREATE INDEX IF NOT EXISTS jobdb_jobs_poll_idx
-	ON jobdb_jobs (archived_at_ns, tenant_id, route_job_type, route_task_type, available_at_ns, created_at_ns);
+// MigrationRequiredError reports a legacy database that requires explicit offline conversion.
+// Constructors never convert, reset, or initialize ancillary stores for these inputs.
+type MigrationRequiredError struct {
+	SourceFormat int
+	Path         string
+}
 
-CREATE INDEX IF NOT EXISTS jobdb_jobs_list_idx
-	ON jobdb_jobs (tenant_id, created_at_ns DESC, job_id DESC);
+func (e *MigrationRequiredError) Error() string {
+	return fmt.Sprintf("sqlite runtime: database %q format %d requires manual upgrade to 13; stop every writer, back up the database, run jobdb sqlite check-migrate --db PATH, then jobdb sqlite migrate --db PATH", e.Path, e.SourceFormat)
+}
 
-CREATE TABLE IF NOT EXISTS jobdb_schemas (
-	tenant_id TEXT NOT NULL,
-	schema_hash TEXT NOT NULL,
-	schema_json BLOB NOT NULL,
-	state TEXT NOT NULL,
-	created_at_ns INTEGER NOT NULL,
-	archived_at_ns INTEGER,
-	PRIMARY KEY (tenant_id, schema_hash)
-);
+func (e *MigrationRequiredError) Unwrap() error { return ErrMigrationRequired }
 
-CREATE INDEX IF NOT EXISTS jobdb_schemas_list_idx
-	ON jobdb_schemas (tenant_id, state, created_at_ns DESC, schema_hash ASC);
-`
+func legacyMigrationRequired(ctx context.Context, q goalQuery, version int) error {
+	var path string
+	if err := q.QueryRowContext(ctx, `SELECT file FROM pragma_database_list WHERE name='main'`).Scan(&path); err != nil {
+		return err
+	}
+	return &MigrationRequiredError{SourceFormat: version, Path: path}
+}
 
-const goalSchemaSQL = `
-CREATE TABLE jobdb_cells(tenant_id TEXT NOT NULL,cell_id TEXT NOT NULL,name TEXT NOT NULL,repo TEXT NOT NULL,description TEXT NOT NULL,metadata BLOB NOT NULL,state TEXT NOT NULL CHECK(state IN ('ACTIVE','RETIRED')),revision TEXT NOT NULL,created_at_ns INTEGER NOT NULL,updated_at_ns INTEGER NOT NULL,retired_at_ns INTEGER,PRIMARY KEY(tenant_id,cell_id),UNIQUE(tenant_id,name),UNIQUE(tenant_id,repo));
-CREATE TABLE jobdb_cell_names(tenant_id TEXT NOT NULL,name TEXT NOT NULL,cell_id TEXT NOT NULL,PRIMARY KEY(tenant_id,name),FOREIGN KEY(tenant_id,cell_id) REFERENCES jobdb_cells(tenant_id,cell_id));
-CREATE TABLE jobdb_cell_catalog(tenant_id TEXT PRIMARY KEY,cursor_key BLOB NOT NULL);
-CREATE TABLE jobdb_cell_requests(tenant_id TEXT NOT NULL,principal TEXT NOT NULL,request_id TEXT NOT NULL,descriptor TEXT NOT NULL,cell_id TEXT NOT NULL,name TEXT NOT NULL,repo TEXT NOT NULL,description TEXT NOT NULL,metadata BLOB NOT NULL,revision TEXT NOT NULL,created_at_ns INTEGER NOT NULL,PRIMARY KEY(tenant_id,principal,request_id),FOREIGN KEY(tenant_id,cell_id) REFERENCES jobdb_cells(tenant_id,cell_id));
-CREATE INDEX jobdb_jobs_cell_idx ON jobdb_jobs(tenant_id,cell_id,job_id);
+func refuseLegacy(ctx context.Context, db *sql.DB) error {
+	var version int
+	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		return err
+	}
+	if version == 11 || version == 12 {
+		return legacyMigrationRequired(ctx, db, version)
+	}
+	return nil
+}
 
-CREATE INDEX IF NOT EXISTS jobdb_jobs_goal_idx ON jobdb_jobs(tenant_id,goal_id,job_id);
-CREATE TABLE IF NOT EXISTS jobdb_goals(tenant_id TEXT NOT NULL,goal_id TEXT NOT NULL,state TEXT NOT NULL DEFAULT '',created_at_ns INTEGER NOT NULL DEFAULT 0,updated_at_ns INTEGER NOT NULL DEFAULT 0,cell_id TEXT NOT NULL,cell_name TEXT NOT NULL,cell_repo TEXT NOT NULL,payload BLOB NOT NULL,PRIMARY KEY(tenant_id,goal_id),FOREIGN KEY(tenant_id,cell_id) REFERENCES jobdb_cells(tenant_id,cell_id));
-CREATE TABLE IF NOT EXISTS jobdb_goal_candidates(tenant_id TEXT NOT NULL,goal_id TEXT NOT NULL,job_id TEXT NOT NULL,added_at_ns INTEGER NOT NULL,PRIMARY KEY(tenant_id,goal_id,job_id));
-CREATE INDEX IF NOT EXISTS jobdb_goal_candidates_job_idx ON jobdb_goal_candidates(tenant_id,job_id,goal_id);
-CREATE TABLE IF NOT EXISTS jobdb_dependency_waits(tenant_id TEXT NOT NULL,job_id TEXT NOT NULL,wait_id TEXT NOT NULL,state TEXT NOT NULL,payload BLOB NOT NULL,PRIMARY KEY(tenant_id,job_id,wait_id));
-CREATE TABLE IF NOT EXISTS jobdb_dependency_targets(tenant_id TEXT NOT NULL,job_id TEXT NOT NULL,wait_id TEXT NOT NULL,target_kind TEXT NOT NULL,target_id TEXT NOT NULL,PRIMARY KEY(tenant_id,job_id,wait_id,target_kind,target_id));
-CREATE INDEX IF NOT EXISTS jobdb_dependency_targets_lookup ON jobdb_dependency_targets(tenant_id,target_kind,target_id);
-CREATE TABLE IF NOT EXISTS jobdb_goal_preparations(tenant_id TEXT NOT NULL,job_id TEXT NOT NULL,request_id TEXT,goal_id TEXT NOT NULL,share_goal INTEGER NOT NULL,descriptor BLOB NOT NULL,requested_cell TEXT NOT NULL,requested_repo TEXT NOT NULL,cell_id TEXT NOT NULL,cell_name TEXT NOT NULL,cell_repo TEXT NOT NULL,parent_job_id TEXT NOT NULL,prior_job_id TEXT NOT NULL,dependencies BLOB NOT NULL,PRIMARY KEY(tenant_id,job_id),UNIQUE(tenant_id,request_id),FOREIGN KEY(tenant_id,cell_id) REFERENCES jobdb_cells(tenant_id,cell_id));
- CREATE INDEX jobdb_goals_cell_idx ON jobdb_goals(tenant_id,cell_id,state);
- CREATE INDEX jobdb_preparations_cell_idx ON jobdb_goal_preparations(tenant_id,cell_id);
- CREATE INDEX jobdb_goals_state_idx ON jobdb_goals(tenant_id,state,goal_id);
- CREATE INDEX jobdb_goals_created_idx ON jobdb_goals(tenant_id,created_at_ns,goal_id);
- CREATE INDEX jobdb_goals_updated_idx ON jobdb_goals(tenant_id,updated_at_ns,goal_id);
- CREATE INDEX jobdb_jobs_type_goal_idx ON jobdb_jobs(tenant_id,job_type,goal_id,job_id);
- CREATE INDEX jobdb_dependency_targets_discovery_idx ON jobdb_dependency_targets(tenant_id,target_kind,target_id,job_id,wait_id);
- CREATE INDEX jobdb_dependency_waits_state_idx ON jobdb_dependency_waits(tenant_id,job_id,state,wait_id);
-`
-
-// migrate keeps the historical base format. Events are an additive extension.
 func migrate(ctx context.Context, db *sql.DB) error {
 	if db == nil {
 		return fmt.Errorf("sqlite runtime: db is required")
@@ -106,42 +57,28 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	if err = tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version != 0 && version != 11 && version != 12 {
-		return fmt.Errorf("sqlite runtime: unsupported database format %d", version)
-	}
-	if version == 0 {
+	switch version {
+	case 11, 12:
+		return legacyMigrationRequired(ctx, tx, version)
+	case 0:
 		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tables); err != nil {
 			return err
 		}
 		if tables != 0 {
 			return fmt.Errorf("sqlite runtime: unsupported unversioned database; existing data was not changed")
 		}
-		if _, err = tx.ExecContext(ctx, schemaSQL+goalSchemaSQL); err != nil {
+		if err = createRetainedGoalSchema(ctx, tx); err != nil {
 			return err
 		}
-	} else {
-		// Compare known definitions before normalizing a format-12 marker. Extra
-		// application/chapter/configuration tables are deliberately left untouched.
-		if err = validateLeaseEventBaseSchema(ctx, tx, version == 12); err != nil {
+		if _, err = tx.ExecContext(ctx, "PRAGMA user_version=13"); err != nil {
 			return err
 		}
-	}
-	var eventTables int
-	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='jobdb_lease_events'").Scan(&eventTables); err != nil {
-		return err
-	}
-	if eventTables == 0 {
-		if _, err = tx.ExecContext(ctx, leaseEventSchemaSQL); err != nil {
+	case 13:
+		if err = validateRetainedGoalSchema(ctx, tx); err != nil {
 			return err
 		}
-	}
-	if version != 11 {
-		if _, err = tx.ExecContext(ctx, "PRAGMA user_version=11"); err != nil {
-			return err
-		}
-	}
-	if _, err = tx.ExecContext(ctx, submissionReceiptSchemaSQL); err != nil {
-		return err
+	default:
+		return fmt.Errorf("sqlite runtime: unsupported database format %d", version)
 	}
 	if err = migrateAppend(ctx, tx); err != nil {
 		return err
@@ -150,12 +87,19 @@ func migrate(ctx context.Context, db *sql.DB) error {
 }
 
 func validateLeaseEventBaseSchema(ctx context.Context, tx *sql.Tx, requireEvents bool) error {
+	var appendColumns int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('jobdb_jobs') WHERE name IN ('append_key','append_gen')`).Scan(&appendColumns); err != nil {
+		return err
+	}
+	if appendColumns != 0 && appendColumns != 2 {
+		return fmt.Errorf("sqlite runtime: incomplete append columns")
+	}
 	expected, err := sql.Open(sqliteDriverName, ":memory:")
 	if err != nil {
 		return err
 	}
 	defer expected.Close()
-	if _, err = expected.ExecContext(ctx, schemaSQL+goalSchemaSQL+leaseEventSchemaSQL); err != nil {
+	if _, err = expected.ExecContext(ctx, legacyGoalSchemaSQL+legacyLeaseEventSchemaSQL); err != nil {
 		return err
 	}
 	rows, err := expected.QueryContext(ctx, "SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'")
@@ -178,6 +122,17 @@ func validateLeaseEventBaseSchema(ctx context.Context, tx *sql.Tx, requireEvents
 		var name, want, got string
 		if err = rows.Scan(&name, &want); err != nil {
 			return err
+		}
+		// Scheduling was removed without deleting dormant historical data. Both
+		// authentic older schemas and current schedule-free inputs are supported.
+		if strings.HasPrefix(name, "jobdb_schedules") {
+			var exists int
+			if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE name=?", name).Scan(&exists); err != nil {
+				return err
+			}
+			if exists == 0 {
+				continue
+			}
 		}
 		if strings.HasPrefix(name, "jobdb_lease_events") && !requireEvents && eventTable == 0 {
 			continue
@@ -203,7 +158,7 @@ CREATE TABLE jobdb_lease_events (
  route_job_type TEXT NOT NULL,route_task_type TEXT NOT NULL,
  lease_id TEXT NOT NULL,worker_id TEXT NOT NULL,lease_expires_at_ns INTEGER NOT NULL,
  previous_lease_expires_at_ns INTEGER,acquisition_source TEXT,previous_lease_id TEXT,
- CHECK ((event_type='lease_acquired' AND acquisition_source IS NOT NULL AND acquisition_source IN ('poll','targeted','task_completion') AND previous_lease_expires_at_ns IS NULL)
+ CHECK ((event_type='lease_acquired' AND acquisition_source IS NOT NULL AND acquisition_source IN ('poll','targeted','task_completion','append') AND previous_lease_expires_at_ns IS NULL)
  OR (event_type='lease_renewed' AND previous_lease_expires_at_ns IS NOT NULL AND acquisition_source IS NULL AND previous_lease_id IS NULL))
 );
 CREATE UNIQUE INDEX jobdb_lease_events_acquired_unique ON jobdb_lease_events(tenant_id,job_id,lease_id) WHERE event_type='lease_acquired';
@@ -235,38 +190,59 @@ func migrateAppend(ctx context.Context, tx *sql.Tx) error {
 		return err
 	}
 	if !strings.Contains(ddl, "'append'") {
-		// Rebuild only the event table to expand its CHECK constraint. Preserve IDs.
-		rows, err := tx.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='jobdb_lease_events' AND sql IS NOT NULL")
+		// Rebuild in place rather than renaming the source: SQLite otherwise
+		// rewrites dependent views and foreign keys to the temporary table name.
+		rows, err := tx.QueryContext(ctx, `SELECT name,sql FROM sqlite_master WHERE tbl_name='jobdb_lease_events' AND type IN ('index','trigger') AND sql IS NOT NULL ORDER BY type,name`)
 		if err != nil {
 			return err
 		}
-		var names []string
+		type eventDefinition struct{ name, ddl string }
+		var definitions []eventDefinition
 		for rows.Next() {
-			var name string
-			if err = rows.Scan(&name); err != nil {
+			var d eventDefinition
+			if err = rows.Scan(&d.name, &d.ddl); err != nil {
 				rows.Close()
 				return err
 			}
-			names = append(names, name)
+			definitions = append(definitions, d)
 		}
 		err = rows.Err()
 		rows.Close()
 		if err != nil {
 			return err
 		}
-		for _, name := range names {
-			if _, err = tx.ExecContext(ctx, `DROP INDEX "`+strings.ReplaceAll(name, `"`, `""`)+`"`); err != nil {
+		var sequence sql.NullInt64
+		err = tx.QueryRowContext(ctx, `SELECT seq FROM sqlite_sequence WHERE name='jobdb_lease_events'`).Scan(&sequence)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `CREATE TEMP TABLE retained_conversion_events AS SELECT * FROM jobdb_lease_events; DROP TABLE jobdb_lease_events`); err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, leaseEventSchemaSQL); err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO jobdb_lease_events SELECT * FROM retained_conversion_events; DROP TABLE retained_conversion_events`); err != nil {
+			return err
+		}
+		for _, d := range definitions {
+			var exists int
+			if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE name=?`, d.name).Scan(&exists); err != nil {
 				return err
 			}
+			if exists == 0 {
+				if _, err = tx.ExecContext(ctx, d.ddl); err != nil {
+					return err
+				}
+			}
 		}
-		if _, err = tx.ExecContext(ctx, "ALTER TABLE jobdb_lease_events RENAME TO jobdb_lease_events_before_append"); err != nil {
-			return err
-		}
-		if _, err = tx.ExecContext(ctx, strings.ReplaceAll(leaseEventSchemaSQL, "'task_completion'", "'task_completion','append'")); err != nil {
-			return err
-		}
-		if _, err = tx.ExecContext(ctx, "INSERT INTO jobdb_lease_events SELECT * FROM jobdb_lease_events_before_append; DROP TABLE jobdb_lease_events_before_append"); err != nil {
-			return err
+		if sequence.Valid {
+			if _, err = tx.ExecContext(ctx, `UPDATE sqlite_sequence SET seq=max(seq,?) WHERE name='jobdb_lease_events'`, sequence.Int64); err != nil {
+				return err
+			}
+			if _, err = tx.ExecContext(ctx, `INSERT INTO sqlite_sequence(name,seq) SELECT 'jobdb_lease_events',? WHERE NOT EXISTS(SELECT 1 FROM sqlite_sequence WHERE name='jobdb_lease_events')`, sequence.Int64); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

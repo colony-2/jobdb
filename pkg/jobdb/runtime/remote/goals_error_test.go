@@ -41,3 +41,28 @@ func TestGoalResponseErrorUnknownIsUntyped(t *testing.T) {
 		require.NotErrorIs(t, err, jobdb.ErrPrimaryGoalSelectionForbidden, fmt.Sprint(raw))
 	}
 }
+
+func TestProtectedRejectionsPreserveIdentityAcrossResponseHelpers(t *testing.T) {
+	for _, entry := range goalErrors {
+		if entry.status < 500 {
+			continue
+		}
+		raw, err := json.Marshal(map[string]string{"code": entry.code, "message": entry.err.Error()})
+		require.NoError(t, err)
+		for _, decode := range []func(int, []byte) error{
+			func(status int, body []byte) error { return responseError("restart", status, body, nil) },
+			func(status int, body []byte) error {
+				return responseErrorWithConflict("restart", status, body, nil, nil, nil, nil)
+			},
+			func(status int, body []byte) error { return explicitJobCreateError("restart", status, body, nil) },
+		} {
+			require.ErrorIs(t, decode(entry.status, raw), entry.err)
+			require.False(t, jobdb.IsExecutionInfrastructureError(jobdb.ClassifyRuntimeIO(decode(entry.status, raw), "restart", nil, nil)))
+			// A success or arbitrary server status carrying a semantic-looking
+			// body must still be treated as malformed infrastructure.
+			for _, wrong := range []int{200, 502} {
+				require.True(t, jobdb.IsExecutionInfrastructureError(decode(wrong, raw)))
+			}
+		}
+	}
+}

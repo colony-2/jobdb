@@ -7,13 +7,15 @@ accepted but never interpreted as shell code. Checks always cover the whole repo
 
 | Workflow behavior | Native task |
 | --- | --- |
-| `test.yaml`: Linux ARM64 Go tests with integration tag | `test_integration`: `go test -count=1 -p=2 -v -tags=integration -exec "python3 $PWD/scripts/verify-test-exec.py" ./...` |
+| `test.yaml`: Linux ARM64 Go tests with integration tag | `test_integration`: `go test -count=1 -p=2 -timeout=20m -v -tags=integration -exec "python3 $PWD/scripts/verify-test-exec.py" ./...` |
 | `test.yaml`: workflow/provider and shared/embedded runtime race check | `test_races`: `GOMAXPROCS=2 go test -count=1 -timeout=20m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/... ./pkg/jobdb/runtimetest` |
+| Immutable-goal migration, admission and protected records | `test_integration`: focused goal/terminal/manual-migration/availability/restart checks; `test_races`: three repetitions of independent goal writers and controlled closure/admission/wait commit orders |
 | Crash-concern live state, expiry and same-job recovery | `test_integration`: three repetitions of the built-in and HTTP `crash_concern_excludes_ready_work` conformance cases, with a five-minute package budget |
 | Infrastructure preservation, provenance and synchronous legacy renewal | `test_races`: `go test -count=1 -p=1 -timeout=20m -v -race ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/remote -run 'TestInfrastructure\|TestProvenance\|TestLegacyKeepAlive'` |
 | Completion fallback, input recovery, ignored SDK failures and HTTP source identity | `test_races`: ten race-instrumented repetitions of `TestInfrastructureCompletionSource`, `TestExecutionUncertainFinalCompletion`, `TestInfrastructureSDKFailures`, `TestInfrastructureHTTPFallbackRetainsKnownSource`, `TestInfrastructureHTTPOperationSource`, `TestInfrastructureHTTPArtifactBodySource` and `TestExecutionRecoveryInputSnapshots` in workflow and HTTP |
 | Generated runtime inventories and public API snapshot | `test_integration`: checksum both generated HTTP inventories before/after `go generate`, then check the combined public API snapshot |
 | Published-module receipt acceptance and failure cases | `test_integration`: Python standard-library unit fixtures for `verify-published-module.py`; actual availability requires an explicit check of a published commit |
+| Immutable-goal external consumer checks | `test_integration`: rejection fixtures for `check-published-goals.py` and public toy/SQLite consumer tests in the complete integration sweep; external acquisition/execution follows publication |
 | Tools/platform metadata | `check_environment` |
 | Local result and durable evidence | `summarize` |
 
@@ -80,13 +82,15 @@ Cancellation is not caught. Full logs are exported as native artifact references
 Scoped Git transport remains intact; enclosing job identity and opt-in remote
 runtime/Postgres settings are cleared before testing.
 
-Timeouts belong to command inputs: two minutes for environment/reporting,
-thirty minutes for integration and forty-five minutes for the race operation.
-A fresh-cache local run of the complete race script exceeded the former
-thirty-minute operation budget before its initial command finished. The outer
-budget covers cold compilation and all three mandatory commands; every
-twenty-minute Go package timeout, assertion and thread limit remains intact.
-Durable states have no wall-clock deadline,
+Timeouts belong to command inputs: two minutes for environment/reporting and
+thirty minutes for integration and sixty minutes for races, with a
+twenty-minute Go package timeout for both complete suites. A native run passed
+integration and the 603-second workflow race package, then exhausted the old
+thirty-minute command budget during progressing HTTP conformance. A forty-five-minute
+rerun passed workflow, HTTP and core races before its outer deadline interrupted
+progressing SQLite checks. The sixty-minute outer race budget covers cold
+compilation and all four mandatory commands. It retains every package, repetition,
+assertion, parallelism bound and per-package timeout. Durable states have no wall-clock deadline,
 so suspension or delayed result collection cannot expire an already successful
 command. Command timeouts and all aggregate evidence requirements still gate a pass.
 
@@ -162,8 +166,24 @@ proves that a failing receipt regression rejects verification while independent
 races and all four evidence artifacts survive. Actual availability requires a
 real fresh-consumer check of the exact published commit.
 
+There is no repository publish hook in the current lifecycle. The recipe owns
+Git publication. Do not restore the removed publish hook or `.c2j` files.
+The immutable-goal consumer check described below runs after actual publication.
+
 The completion source fixture passes integration and the initial races, then fails
 only the ten-repeat completion regression. It requires a failed verdict, all four
 evidence artifacts and a clean fixture checkout. The actual regressions cover
 lost acknowledgements after terminal writes, known zero/positive ordinals, absent
 chapters and authoritative typed origins (including explicitly unknown sources).
+
+The focused migration and repeated goal-race live fixtures pass the broad sweep
+and fail only at the newly added focused command. They require failed verification,
+all four diagnostic artifacts and unchanged fixture source. They test the hook's
+gates; the actual migration and independent-writer behavior is checked separately
+against JobDB source.
+
+Live fixture VH-053 makes only the new external-checker unit gate fail. It requires
+failed verification, the diagnostic marker, all four artifacts and unchanged
+fixture source. This proves a checker-fixture failure cannot be silently omitted.
+The published-module consumer README gives the post-publication command and
+explains the fresh caches, exact origins/checksums and actual API execution.

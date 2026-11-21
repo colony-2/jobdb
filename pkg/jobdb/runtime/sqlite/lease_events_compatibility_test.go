@@ -23,7 +23,7 @@ func TestLeaseEventsDefaultLegacyMutations(t *testing.T) {
 	defer r.Close(ctx)
 	var n, version int
 	require.NoError(t, r.db.QueryRow("PRAGMA user_version").Scan(&version))
-	require.Equal(t, 11, version)
+	require.Equal(t, 13, version)
 	require.NoError(t, r.db.QueryRow("SELECT count(*) FROM sqlite_master WHERE name='jobdb_lease_events'").Scan(&n))
 	require.Equal(t, 1, n)
 	for _, targeted := range []bool{false, true} {
@@ -93,8 +93,6 @@ func TestLeaseEventExtensionTransitions(t *testing.T) {
 	require.NoError(t, e)
 	require.NoError(t, l.KeepAlive(ctx))
 	before := compatibilitySnapshot(t, r.db)
-	_, e = r.db.Exec("PRAGMA user_version=12")
-	require.NoError(t, e)
 	require.NoError(t, r.Close(ctx))
 
 	r, e = NewFromConfig(ctx, cfg)
@@ -102,7 +100,7 @@ func TestLeaseEventExtensionTransitions(t *testing.T) {
 	require.Equal(t, before, compatibilitySnapshot(t, r.db))
 	var version int
 	require.NoError(t, r.db.QueryRow("PRAGMA user_version").Scan(&version))
-	require.Equal(t, 11, version)
+	require.Equal(t, 13, version)
 	require.NoError(t, r.Close(ctx))
 	r, e = NewFromConfig(ctx, cfg)
 	require.NoError(t, e)
@@ -152,8 +150,8 @@ func TestLeaseEventSchemaRejectsWithoutPartialMigration(t *testing.T) {
 		require.Equal(t, schemaBefore, schemaAfter)
 		var version int
 		require.NoError(t, raw.QueryRow("PRAGMA user_version").Scan(&version))
-		require.Equal(t, 11, version)
-		_, e = raw.Exec("DROP INDEX jobdb_lease_events_time_idx")
+		require.Equal(t, 13, version)
+		_, e = raw.Exec("DROP INDEX jobdb_lease_events_time_idx;" + leaseEventSchemaSQL)
 		require.NoError(t, e)
 		require.NoError(t, raw.Close())
 		r, e = NewFromConfig(ctx, cfg)
@@ -184,45 +182,14 @@ func TestLeaseEventsHistoricalMixedWriter(t *testing.T) {
 	require.NoError(t, e)
 	old := compatibilitySnapshot(t, raw)
 	require.NoError(t, raw.Close())
-	r, e := NewFromConfig(ctx, cfg)
+	_, e = NewFromConfig(ctx, cfg)
+	var prerequisite *MigrationRequiredError
+	require.ErrorAs(t, e, &prerequisite)
+	require.Equal(t, 11, prerequisite.SourceFormat)
+	raw, e = sql.Open(sqliteDriverName, cfg.DBPath)
 	require.NoError(t, e)
-	upgraded := compatibilitySnapshot(t, r.db)
-	for table, values := range old {
-		require.Equal(t, values, upgraded[table], table)
-	}
-	initial, e := r.ListLeaseEvents(ctx, jobdb.ListLeaseEventsRequest{TenantID: "tenant"})
-	require.NoError(t, e)
-	require.Empty(t, initial.Events)
-	config, e := r.GetTenantConfiguration(ctx, "tenant")
-	require.NoError(t, e)
-	require.JSONEq(t, `{"historical":true}`, string(config.Values["saved"]))
-	assertStartArtifact(t, ctx, r, jobdb.JobKey{TenantId: "tenant", JobId: "historical-live"}, "saved.bin", []byte("historical artifact bytes\x00"))
-	h, e := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "new", Cell: "test", CellRepo: "example.test/test", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
-	require.NoError(t, e)
-	l, e := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "new", Routes: []jobdb.Route{{JobType: "job"}}})
-	require.NoError(t, e)
-	require.NoError(t, l.KeepAlive(ctx))
-	events, e := r.ListLeaseEvents(ctx, jobdb.ListLeaseEventsRequest{TenantID: "tenant"})
-	require.NoError(t, e)
-	require.Len(t, events.Events, 2)
-	require.NoError(t, r.Close(ctx))
-	run("historical-after")
-	r, e = NewFromConfig(ctx, cfg)
-	require.NoError(t, e)
-	defer r.Close(ctx)
-	page, e := r.ListLeaseEvents(ctx, jobdb.ListLeaseEventsRequest{TenantID: "tenant"})
-	require.NoError(t, e)
-	require.Equal(t, events, page)
-	jobs, e := r.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}})
-	require.NoError(t, e)
-	require.GreaterOrEqual(t, len(jobs.Jobs), 5)
-	require.Equal(t, old["jobdb_cell_catalog"], compatibilitySnapshot(t, r.db)["jobdb_cell_catalog"])
-	assertStartArtifact(t, ctx, r, jobdb.JobKey{TenantId: "tenant", JobId: "historical-live"}, "saved.bin", []byte("historical artifact bytes\x00"))
-	for _, id := range []string{"historical-before", "historical-after"} {
-		info, e := r.GetJob(ctx, jobdb.JobKey{TenantId: "tenant", JobId: id})
-		require.NoError(t, e)
-		require.Equal(t, jobdb.JobStatusCompleted, info.Status)
-	}
+	defer raw.Close()
+	require.Equal(t, old, compatibilitySnapshot(t, raw))
 }
 
 func TestLeaseEventsDefaultInternalClaim(t *testing.T) {

@@ -11,6 +11,8 @@ import (
 )
 
 type ConsumerServerInterface interface {
+	GetJobGoalCapabilities(w http.ResponseWriter, r *http.Request)
+
 	GetPrimaryGoalSelectionCapability(w http.ResponseWriter, r *http.Request)
 
 	PollWork(w http.ResponseWriter, r *http.Request)
@@ -124,6 +126,25 @@ type ConsumerServerInterfaceWrapper struct {
 	Handler            ConsumerServerInterface
 	HandlerMiddlewares []MiddlewareFunc
 	ErrorHandlerFunc   func(w http.ResponseWriter, r *http.Request, err error)
+}
+
+func (siw *ConsumerServerInterfaceWrapper) GetJobGoalCapabilities(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetJobGoalCapabilities(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
 }
 
 func (siw *ConsumerServerInterfaceWrapper) GetPrimaryGoalSelectionCapability(w http.ResponseWriter, r *http.Request) {
@@ -2845,6 +2866,9 @@ func ConsumerHandlerWithOptions(si ConsumerServerInterface, options ChiServerOpt
 	}
 
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/capabilities/job-goals", wrapper.GetJobGoalCapabilities)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/capabilities/primary-goal-selection", wrapper.GetPrimaryGoalSelectionCapability)
 	})
 	r.Group(func(r chi.Router) {
@@ -2883,7 +2907,6 @@ func ConsumerHandlerWithOptions(si ConsumerServerInterface, options ChiServerOpt
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/tenants/{tenantId}/goals/{goalId}", wrapper.GetGoal)
 	})
-
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/goals/{goalId}/fail", wrapper.FailGoal)
 	})
@@ -3012,6 +3035,8 @@ func ConsumerHandlerWithOptions(si ConsumerServerInterface, options ChiServerOpt
 }
 
 type ConsumerStrictServerInterface interface {
+	GetJobGoalCapabilities(ctx context.Context, request GetJobGoalCapabilitiesRequestObject) (GetJobGoalCapabilitiesResponseObject, error)
+
 	GetPrimaryGoalSelectionCapability(ctx context.Context, request GetPrimaryGoalSelectionCapabilityRequestObject) (GetPrimaryGoalSelectionCapabilityResponseObject, error)
 
 	PollWork(ctx context.Context, request PollWorkRequestObject) (PollWorkResponseObject, error)
@@ -3140,6 +3165,29 @@ type consumerStrictHandler struct {
 	ssi         ConsumerStrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+func (sh *consumerStrictHandler) GetJobGoalCapabilities(w http.ResponseWriter, r *http.Request) {
+	var request GetJobGoalCapabilitiesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetJobGoalCapabilities(ctx, request.(GetJobGoalCapabilitiesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetJobGoalCapabilities")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetJobGoalCapabilitiesResponseObject); ok {
+		if err := validResponse.VisitGetJobGoalCapabilitiesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 func (sh *consumerStrictHandler) GetPrimaryGoalSelectionCapability(w http.ResponseWriter, r *http.Request) {

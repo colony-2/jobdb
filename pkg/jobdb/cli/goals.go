@@ -15,7 +15,7 @@ import (
 
 func newGoalsCmd() *cobra.Command {
 	var tenant, baseURL, message string
-	root := &cobra.Command{Use: "goals", Short: "Inspect goals, add candidates, and record explicit failure", Args: cobra.NoArgs}
+	root := &cobra.Command{Use: "goals", Short: "Inspect goals and record explicit failure", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
 	root.PersistentFlags().StringVarP(&tenant, "tenant", "t", "", "tenant ID (required)")
 	root.PersistentFlags().StringVarP(&baseURL, "url", "u", "http://127.0.0.1:9047", "runtime server URL")
 	client := func() (*remote.Runtime, error) {
@@ -34,17 +34,6 @@ func newGoalsCmd() *cobra.Command {
 			return err
 		}
 		out, err := rt.GetGoal(cmd.Context(), jobdb.GoalKey{TenantId: tenant, GoalID: args[0]})
-		if err != nil {
-			return err
-		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
-	}}
-	add := &cobra.Command{Use: "add-candidate GOAL_ID JOB_ID", Short: "Add an existing job as a candidate (idempotent)", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
-		rt, err := client()
-		if err != nil {
-			return err
-		}
-		out, err := rt.AddGoalCandidate(cmd.Context(), jobdb.AddGoalCandidateRequest{GoalKey: jobdb.GoalKey{TenantId: tenant, GoalID: args[0]}, JobID: args[1]})
 		if err != nil {
 			return err
 		}
@@ -79,7 +68,7 @@ func newGoalsCmd() *cobra.Command {
 	candidates.Flags().StringVar(&pageToken, "page-token", "", "continuation token")
 	candidates.Flags().IntVar(&pageSize, "page-size", jobdb.DefaultListJobsPageSize, "maximum jobs per page")
 	candidates.Flags().BoolVar(&hidden, "include-hidden", false, "include deleted jobs")
-	root.AddCommand(get, add, fail, candidates)
+	root.AddCommand(get, fail, candidates)
 	addGoalDiscoveryCommands(root, &tenant, client)
 	return root
 }

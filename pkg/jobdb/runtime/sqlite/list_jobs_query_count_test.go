@@ -72,7 +72,7 @@ func TestStoredListFieldsUseOneQueryPerPage(t *testing.T) {
 	_, err = r.db.ExecContext(ctx, `UPDATE jobdb_jobs SET archived_at_ns=?, completion_status='future_category', completion_detail=? WHERE job_id < 'job-100'`, time.Now().UnixNano(), " \tfailure 雪\n ")
 	require.NoError(t, err)
 	// Output memberships and history must not be touched, even for a full page.
-	_, err = r.db.ExecContext(ctx, `DROP TABLE jobdb_goal_candidates`)
+	_, err = r.db.ExecContext(ctx, `DROP TABLE IF EXISTS jobdb_goal_candidates`)
 	require.NoError(t, err)
 	originalStore := r.chapterStore
 	r.chapterStore = &chapterstore.Store{}

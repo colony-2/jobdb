@@ -709,13 +709,6 @@ func (r *tenantNamespacedRuntime) FailGoal(ctx context.Context, req jobdb.FailGo
 	out.GoalKey = original
 	return out, err
 }
-func (r *tenantNamespacedRuntime) AddGoalCandidate(ctx context.Context, req jobdb.AddGoalCandidateRequest) (jobdb.GoalCandidateInfo, error) {
-	original := req.GoalKey
-	req.GoalKey.TenantId = r.prefixTenant(req.GoalKey.TenantId)
-	out, err := r.runtime.AddGoalCandidate(ctx, req)
-	out.GoalKey = original
-	return out, err
-}
 func (r *tenantNamespacedRuntime) GetDependencyWait(ctx context.Context, key jobdb.DependencyWaitKey) (jobdb.DependencyWaitInfo, error) {
 	original := key.JobKey
 	key.JobKey = r.prefixJobKey(key.JobKey)

@@ -40,7 +40,9 @@
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
               "scripts/verify-test-exec.py": "../../scripts/verify-test-exec.py",
               "scripts/verify-published-module.py": "../../scripts/verify-published-module.py",
-              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py"
+              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py",
+              "scripts/check-published-goals.py": "../../scripts/check-published-goals.py",
+              "scripts/test_check_published_goals.py": "../../scripts/test_check_published_goals.py"
             }
           }
         }
@@ -130,7 +132,9 @@
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
               "scripts/verify-test-exec.py": "../../scripts/verify-test-exec.py",
               "scripts/verify-published-module.py": "../../scripts/verify-published-module.py",
-              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py"
+              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py",
+              "scripts/check-published-goals.py": "../../scripts/check-published-goals.py",
+              "scripts/test_check_published_goals.py": "../../scripts/test_check_published_goals.py"
             }
           }
         }
@@ -215,7 +219,9 @@
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
               "scripts/verify-test-exec.py": "../../scripts/verify-test-exec.py",
               "scripts/verify-published-module.py": "../../scripts/verify-published-module.py",
-              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py"
+              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py",
+              "scripts/check-published-goals.py": "../../scripts/check-published-goals.py",
+              "scripts/test_check_published_goals.py": "../../scripts/test_check_published_goals.py"
             }
           }
         }
@@ -299,7 +305,9 @@
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
               "scripts/verify-test-exec.py": "../../scripts/verify-test-exec.py",
               "scripts/verify-published-module.py": "../../scripts/verify-published-module.py",
-              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py"
+              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py",
+              "scripts/check-published-goals.py": "../../scripts/check-published-goals.py",
+              "scripts/test_check_published_goals.py": "../../scripts/test_check_published_goals.py"
             }
           }
         }
@@ -383,7 +391,9 @@
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
               "scripts/verify-test-exec.py": "../../scripts/verify-test-exec.py",
               "scripts/verify-published-module.py": "../../scripts/verify-published-module.py",
-              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py"
+              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py",
+              "scripts/check-published-goals.py": "../../scripts/check-published-goals.py",
+              "scripts/test_check_published_goals.py": "../../scripts/test_check_published_goals.py"
             }
           }
         }
@@ -468,7 +478,9 @@
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
               "scripts/verify-test-exec.py": "../../scripts/verify-test-exec.py",
               "scripts/verify-published-module.py": "../../scripts/verify-published-module.py",
-              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py"
+              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py",
+              "scripts/check-published-goals.py": "../../scripts/check-published-goals.py",
+              "scripts/test_check_published_goals.py": "../../scripts/test_check_published_goals.py"
             }
           }
         }
@@ -553,7 +565,9 @@
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
               "scripts/verify-test-exec.py": "../../scripts/verify-test-exec.py",
               "scripts/verify-published-module.py": "../../scripts/verify-published-module.py",
-              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py"
+              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py",
+              "scripts/check-published-goals.py": "../../scripts/check-published-goals.py",
+              "scripts/test_check_published_goals.py": "../../scripts/test_check_published_goals.py"
             }
           }
         }
@@ -638,7 +652,9 @@
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
               "scripts/verify-test-exec.py": "../../scripts/verify-test-exec.py",
               "scripts/verify-published-module.py": "../../scripts/verify-published-module.py",
-              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py"
+              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py",
+              "scripts/check-published-goals.py": "../../scripts/check-published-goals.py",
+              "scripts/test_check_published_goals.py": "../../scripts/test_check_published_goals.py"
             }
           }
         }
@@ -722,7 +738,9 @@
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
               "scripts/verify-test-exec.py": "../../scripts/verify-test-exec.py",
               "scripts/verify-published-module.py": "../../scripts/verify-published-module.py",
-              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py"
+              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py",
+              "scripts/check-published-goals.py": "../../scripts/check-published-goals.py",
+              "scripts/test_check_published_goals.py": "../../scripts/test_check_published_goals.py"
             }
           }
         }
@@ -809,7 +827,9 @@
               ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
               "scripts/verify-test-exec.py": "../../scripts/verify-test-exec.py",
               "scripts/verify-published-module.py": "../../scripts/verify-published-module.py",
-              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py"
+              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py",
+              "scripts/check-published-goals.py": "../../scripts/check-published-goals.py",
+              "scripts/test_check_published_goals.py": "../../scripts/test_check_published_goals.py"
             }
           }
         }
@@ -848,6 +868,275 @@
         {
           "type": "cel_true",
           "expr": "calls[3].artifacts['races.log'].contains('--- FAIL: TestRetainedConformanceRegression') && calls[3].artifacts['races.log'].contains('retained conformance race regression')"
+        }
+      ],
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base `touch SHOULD_NOT_EXIST`",
+          "documents": {},
+          "settings": null
+        }
+      }
+    },
+    {
+      "id": "VH-051-repeated-goal-race-failure",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "files": {
+              "go.mod": "module example.com/jobdbverifyfixture\n\ngo 1.26\n",
+              "candidate-untracked.txt": "preserve candidate content\n",
+              "pkg/workflow/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\nfunc TestInfrastructureSDKFailures(t *testing.T) {}\nfunc TestInfrastructureCompletionSource(t *testing.T) {}\nfunc TestExecutionUncertainFinalCompletion(t *testing.T) {}\n",
+              "pkg/jobdb/secrets/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/jobdb/cli/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "examples/secret-provider/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {  }\n",
+              "pkg/jobdb/runtime/core/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestInfrastructureFixture(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/sqlite/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestInfrastructureFixture(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestInfrastructureHTTPFallbackRetainsKnownSource(t *testing.T) {}\nfunc TestInfrastructureHTTPOperationSource(t *testing.T) {}\nfunc TestInfrastructureHTTPArtifactBodySource(t *testing.T) {}\n",
+              "pkg/workflow/internal/jobdbtest/runtimeconformance/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestBuiltInRuntimeConformance(t *testing.T) { t.Run(\"crash_concern_excludes_ready_work\", func(t *testing.T) {}) }\nfunc TestRemoteRuntimeConformance(t *testing.T) { t.Run(\"crash_concern_excludes_ready_work\", func(t *testing.T) {}) }\n",
+              "pkg/jobdb/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/jobdb/internal/runtimeapi/generate.go": "package runtimeapi\n\n//go:generate go run ./fixturegen\n",
+              "pkg/jobdb/internal/runtimeapi/fixturegen/main.go": "package main\nimport (\"os\"; \"fmt\")\nfunc main() {\n    for _, name := range []string{\"zz_generated.go\", \"zz_consumer_generated.go\"} {\n        raw, err := os.ReadFile(name + \".input\")\n        if err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }\n        if err := os.WriteFile(name, raw, 0644); err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }\n    }\n}\n",
+              "cmd/jobdb-api-snapshot/main.go": "// Small stand-in for the snapshot tool; real JobDB snapshots are checked separately.\npackage main\nimport (\"bytes\"; \"flag\"; \"fmt\"; \"os\")\nfunc main() {\n    packages := flag.String(\"packages\", \"\", \"fixture package list\")\n    check := flag.String(\"check\", \"\", \"fixture snapshot\")\n    flag.Parse()\n    paths, err := os.ReadFile(*packages)\n    if err != nil || string(paths) != \"example.com/jobdbverifyfixture\\n\" { fmt.Fprintln(os.Stderr, \"invalid fixture package inventory\"); os.Exit(1) }\n    raw, err := os.ReadFile(*check)\n    if err != nil || !bytes.Equal(raw, []byte(\"fixture public API\\n\")) { fmt.Fprintln(os.Stderr, \"fixture API snapshot differs\"); os.Exit(1) }\n}\n",
+              "api/packages.txt": "example.com/jobdbverifyfixture\n",
+              "api/jobdb.public.txt": "fixture public API\n",
+              "pkg/jobdb/internal/runtimeapi/zz_generated.go": "// Fixture generated API; stable across go generate.\npackage runtimeapi\n",
+              "pkg/jobdb/internal/runtimeapi/zz_generated.go.input": "// Fixture generated API; stable across go generate.\npackage runtimeapi\n",
+              "pkg/jobdb/internal/runtimeapi/zz_consumer_generated.go": "// Fixture generated API; stable across go generate.\npackage runtimeapi\n",
+              "pkg/jobdb/internal/runtimeapi/zz_consumer_generated.go.input": "// Fixture generated API; stable across go generate.\npackage runtimeapi\n",
+              "pkg/jobdb/runtime/toy/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/workflow/race_budget_test.go": "//go:build race\n\npackage fixture\n\nimport (\n \"flag\"\n \"runtime\"\n \"testing\"\n \"time\"\n)\n\nfunc TestRaceBudget(t *testing.T) {\n if got := runtime.GOMAXPROCS(0); got != 2 {\n  t.Fatalf(\"GOMAXPROCS = %d, want 2\", got)\n }\n if got := flag.Lookup(\"test.parallel\").Value.String(); got != \"2\" {\n  t.Fatalf(\"test parallelism = %s, want 2\", got)\n }\n deadline, ok := t.Deadline()\n if !ok {\n  t.Fatal(\"race suite must have a package timeout\")\n }\n if left := time.Until(deadline); left < 19*time.Minute || left > 20*time.Minute {\n  t.Fatalf(\"remaining race timeout = %s, want between 19m and 20m\", left)\n }\n}\n",
+              "pkg/jobdb/runtimetest/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedConformanceFixture(t *testing.T) {}\n",
+              "pkg/workflow/input_recovery_test.go": "package fixture\nimport (\"flag\"; \"testing\")\nfunc TestExecutionRecoveryInputSnapshots(t *testing.T) { t.Logf(\"input recovery repetitions=%s\", flag.Lookup(\"test.count\").Value.String()) }\n",
+              "pkg/jobdb/example_execution_infrastructure_test.go": "package fixture\n\nfunc Example_receiptFixture() {}\n",
+              "pkg/jobdb/runtime/sqlite/goal_gate_test.go": "package fixture\nimport (\"flag\"; \"testing\")\nfunc TestGoalPublicCommitOrders(t *testing.T) { if flag.Lookup(\"test.count\").Value.String() == \"3\" { t.Fatal(\"injected repeated goal race failure\") } }\n"
+            },
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
+              "scripts/verify-test-exec.py": "../../scripts/verify-test-exec.py",
+              "scripts/verify-published-module.py": "../../scripts/verify-published-module.py",
+              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py",
+              "scripts/check-published-goals.py": "../../scripts/check-published-goals.py",
+              "scripts/test_check_published_goals.py": "../../scripts/test_check_published_goals.py"
+            }
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "op": "command_execution"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.artifact_refs.size() == 4"
+        },
+        {
+          "type": "cel_true",
+          "expr": "repositories.root.clean && repositories.root.new_commits == 0 && repositories.root.changed_files.size() == 0"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.exists(c, has(c.artifacts) && 'races.log' in c.artifacts && c.artifacts['races.log'].contains('injected repeated goal race failure'))"
+        }
+      ],
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base `touch SHOULD_NOT_EXIST`",
+          "documents": {},
+          "settings": null
+        }
+      }
+    },
+    {
+      "id": "VH-052-focused-migration-failure",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "files": {
+              "go.mod": "module example.com/jobdbverifyfixture\n\ngo 1.26\n",
+              "candidate-untracked.txt": "preserve candidate content\n",
+              "pkg/workflow/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\nfunc TestInfrastructureSDKFailures(t *testing.T) {}\nfunc TestInfrastructureCompletionSource(t *testing.T) {}\nfunc TestExecutionUncertainFinalCompletion(t *testing.T) {}\n",
+              "pkg/jobdb/secrets/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/jobdb/cli/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "examples/secret-provider/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {  }\n",
+              "pkg/jobdb/runtime/core/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestInfrastructureFixture(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/sqlite/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestInfrastructureFixture(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestInfrastructureHTTPFallbackRetainsKnownSource(t *testing.T) {}\nfunc TestInfrastructureHTTPOperationSource(t *testing.T) {}\nfunc TestInfrastructureHTTPArtifactBodySource(t *testing.T) {}\n",
+              "pkg/workflow/internal/jobdbtest/runtimeconformance/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestBuiltInRuntimeConformance(t *testing.T) { t.Run(\"crash_concern_excludes_ready_work\", func(t *testing.T) {}) }\nfunc TestRemoteRuntimeConformance(t *testing.T) { t.Run(\"crash_concern_excludes_ready_work\", func(t *testing.T) {}) }\n",
+              "pkg/jobdb/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/jobdb/internal/runtimeapi/generate.go": "package runtimeapi\n\n//go:generate go run ./fixturegen\n",
+              "pkg/jobdb/internal/runtimeapi/fixturegen/main.go": "package main\nimport (\"os\"; \"fmt\")\nfunc main() {\n    for _, name := range []string{\"zz_generated.go\", \"zz_consumer_generated.go\"} {\n        raw, err := os.ReadFile(name + \".input\")\n        if err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }\n        if err := os.WriteFile(name, raw, 0644); err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }\n    }\n}\n",
+              "cmd/jobdb-api-snapshot/main.go": "// Small stand-in for the snapshot tool; real JobDB snapshots are checked separately.\npackage main\nimport (\"bytes\"; \"flag\"; \"fmt\"; \"os\")\nfunc main() {\n    packages := flag.String(\"packages\", \"\", \"fixture package list\")\n    check := flag.String(\"check\", \"\", \"fixture snapshot\")\n    flag.Parse()\n    paths, err := os.ReadFile(*packages)\n    if err != nil || string(paths) != \"example.com/jobdbverifyfixture\\n\" { fmt.Fprintln(os.Stderr, \"invalid fixture package inventory\"); os.Exit(1) }\n    raw, err := os.ReadFile(*check)\n    if err != nil || !bytes.Equal(raw, []byte(\"fixture public API\\n\")) { fmt.Fprintln(os.Stderr, \"fixture API snapshot differs\"); os.Exit(1) }\n}\n",
+              "api/packages.txt": "example.com/jobdbverifyfixture\n",
+              "api/jobdb.public.txt": "fixture public API\n",
+              "pkg/jobdb/internal/runtimeapi/zz_generated.go": "// Fixture generated API; stable across go generate.\npackage runtimeapi\n",
+              "pkg/jobdb/internal/runtimeapi/zz_generated.go.input": "// Fixture generated API; stable across go generate.\npackage runtimeapi\n",
+              "pkg/jobdb/internal/runtimeapi/zz_consumer_generated.go": "// Fixture generated API; stable across go generate.\npackage runtimeapi\n",
+              "pkg/jobdb/internal/runtimeapi/zz_consumer_generated.go.input": "// Fixture generated API; stable across go generate.\npackage runtimeapi\n",
+              "pkg/jobdb/runtime/toy/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/workflow/race_budget_test.go": "//go:build race\n\npackage fixture\n\nimport (\n \"flag\"\n \"runtime\"\n \"testing\"\n \"time\"\n)\n\nfunc TestRaceBudget(t *testing.T) {\n if got := runtime.GOMAXPROCS(0); got != 2 {\n  t.Fatalf(\"GOMAXPROCS = %d, want 2\", got)\n }\n if got := flag.Lookup(\"test.parallel\").Value.String(); got != \"2\" {\n  t.Fatalf(\"test parallelism = %s, want 2\", got)\n }\n deadline, ok := t.Deadline()\n if !ok {\n  t.Fatal(\"race suite must have a package timeout\")\n }\n if left := time.Until(deadline); left < 19*time.Minute || left > 20*time.Minute {\n  t.Fatalf(\"remaining race timeout = %s, want between 19m and 20m\", left)\n }\n}\n",
+              "pkg/jobdb/runtimetest/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedConformanceFixture(t *testing.T) {}\n",
+              "pkg/workflow/input_recovery_test.go": "package fixture\nimport (\"flag\"; \"testing\")\nfunc TestExecutionRecoveryInputSnapshots(t *testing.T) { t.Logf(\"input recovery repetitions=%s\", flag.Lookup(\"test.count\").Value.String()) }\n",
+              "pkg/jobdb/example_execution_infrastructure_test.go": "package fixture\n\nfunc Example_receiptFixture() {}\n",
+              "pkg/jobdb/runtime/sqlite/goal_gate_test.go": "package fixture\nimport (\"flag\"; \"strings\"; \"testing\")\nfunc TestGoalMigrationCurrentUpstream(t *testing.T) { if strings.Contains(flag.Lookup(\"test.run\").Value.String(), \"Test.*Goal\") { t.Fatal(\"injected focused migration failure\") } }\n"
+            },
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
+              "scripts/verify-test-exec.py": "../../scripts/verify-test-exec.py",
+              "scripts/verify-published-module.py": "../../scripts/verify-published-module.py",
+              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py",
+              "scripts/check-published-goals.py": "../../scripts/check-published-goals.py",
+              "scripts/test_check_published_goals.py": "../../scripts/test_check_published_goals.py"
+            }
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "op": "command_execution"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.artifact_refs.size() == 4"
+        },
+        {
+          "type": "cel_true",
+          "expr": "repositories.root.clean && repositories.root.new_commits == 0 && repositories.root.changed_files.size() == 0"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.exists(c, has(c.artifacts) && 'tests.log' in c.artifacts && c.artifacts['tests.log'].contains('injected focused migration failure'))"
+        }
+      ],
+      "inputs": {
+        "hook_inputs": {
+          "api_version": "c2.build-hook/v1",
+          "request": "$(touch SHOULD_NOT_EXIST)",
+          "target_directory": "; touch SHOULD_NOT_EXIST",
+          "candidate": "candidate; $(touch SHOULD_NOT_EXIST)",
+          "base": "base `touch SHOULD_NOT_EXIST`",
+          "documents": {},
+          "settings": null
+        }
+      }
+    },
+    {
+      "id": "VH-053-published-goals-checker-failure",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "files": {
+              "go.mod": "module example.com/jobdbverifyfixture\n\ngo 1.26\n",
+              "candidate-untracked.txt": "preserve candidate content\n",
+              "pkg/workflow/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\nfunc TestInfrastructureSDKFailures(t *testing.T) {}\nfunc TestInfrastructureCompletionSource(t *testing.T) {}\nfunc TestExecutionUncertainFinalCompletion(t *testing.T) {}\n",
+              "pkg/jobdb/secrets/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/jobdb/cli/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "examples/secret-provider/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {  }\n",
+              "pkg/jobdb/runtime/core/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestInfrastructureFixture(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/sqlite/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestInfrastructureFixture(t *testing.T) {}\n",
+              "pkg/jobdb/runtime/remote/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestInfrastructureHTTPFallbackRetainsKnownSource(t *testing.T) {}\nfunc TestInfrastructureHTTPOperationSource(t *testing.T) {}\nfunc TestInfrastructureHTTPArtifactBodySource(t *testing.T) {}\n",
+              "pkg/workflow/internal/jobdbtest/runtimeconformance/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestBuiltInRuntimeConformance(t *testing.T) { t.Run(\"crash_concern_excludes_ready_work\", func(t *testing.T) {}) }\nfunc TestRemoteRuntimeConformance(t *testing.T) { t.Run(\"crash_concern_excludes_ready_work\", func(t *testing.T) {}) }\n",
+              "pkg/jobdb/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/jobdb/internal/runtimeapi/generate.go": "package runtimeapi\n\n//go:generate go run ./fixturegen\n",
+              "pkg/jobdb/internal/runtimeapi/fixturegen/main.go": "package main\nimport (\"os\"; \"fmt\")\nfunc main() {\n    for _, name := range []string{\"zz_generated.go\", \"zz_consumer_generated.go\"} {\n        raw, err := os.ReadFile(name + \".input\")\n        if err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }\n        if err := os.WriteFile(name, raw, 0644); err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }\n    }\n}\n",
+              "cmd/jobdb-api-snapshot/main.go": "// Small stand-in for the snapshot tool; real JobDB snapshots are checked separately.\npackage main\nimport (\"bytes\"; \"flag\"; \"fmt\"; \"os\")\nfunc main() {\n    packages := flag.String(\"packages\", \"\", \"fixture package list\")\n    check := flag.String(\"check\", \"\", \"fixture snapshot\")\n    flag.Parse()\n    paths, err := os.ReadFile(*packages)\n    if err != nil || string(paths) != \"example.com/jobdbverifyfixture\\n\" { fmt.Fprintln(os.Stderr, \"invalid fixture package inventory\"); os.Exit(1) }\n    raw, err := os.ReadFile(*check)\n    if err != nil || !bytes.Equal(raw, []byte(\"fixture public API\\n\")) { fmt.Fprintln(os.Stderr, \"fixture API snapshot differs\"); os.Exit(1) }\n}\n",
+              "api/packages.txt": "example.com/jobdbverifyfixture\n",
+              "api/jobdb.public.txt": "fixture public API\n",
+              "pkg/jobdb/internal/runtimeapi/zz_generated.go": "// Fixture generated API; stable across go generate.\npackage runtimeapi\n",
+              "pkg/jobdb/internal/runtimeapi/zz_generated.go.input": "// Fixture generated API; stable across go generate.\npackage runtimeapi\n",
+              "pkg/jobdb/internal/runtimeapi/zz_consumer_generated.go": "// Fixture generated API; stable across go generate.\npackage runtimeapi\n",
+              "pkg/jobdb/internal/runtimeapi/zz_consumer_generated.go.input": "// Fixture generated API; stable across go generate.\npackage runtimeapi\n",
+              "pkg/jobdb/runtime/toy/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestFixture(t *testing.T) {}\n",
+              "pkg/workflow/race_budget_test.go": "//go:build race\n\npackage fixture\n\nimport (\n \"flag\"\n \"runtime\"\n \"testing\"\n \"time\"\n)\n\nfunc TestRaceBudget(t *testing.T) {\n if got := runtime.GOMAXPROCS(0); got != 2 {\n  t.Fatalf(\"GOMAXPROCS = %d, want 2\", got)\n }\n if got := flag.Lookup(\"test.parallel\").Value.String(); got != \"2\" {\n  t.Fatalf(\"test parallelism = %s, want 2\", got)\n }\n deadline, ok := t.Deadline()\n if !ok {\n  t.Fatal(\"race suite must have a package timeout\")\n }\n if left := time.Until(deadline); left < 19*time.Minute || left > 20*time.Minute {\n  t.Fatalf(\"remaining race timeout = %s, want between 19m and 20m\", left)\n }\n}\n",
+              "pkg/jobdb/runtimetest/fixture_test.go": "package fixture\nimport \"testing\"\nfunc TestRetainedConformanceFixture(t *testing.T) {}\n",
+              "pkg/workflow/input_recovery_test.go": "package fixture\nimport (\"flag\"; \"testing\")\nfunc TestExecutionRecoveryInputSnapshots(t *testing.T) { t.Logf(\"input recovery repetitions=%s\", flag.Lookup(\"test.count\").Value.String()) }\n",
+              "pkg/jobdb/example_execution_infrastructure_test.go": "package fixture\n\nfunc Example_receiptFixture() {}\n",
+              "scripts/test_check_published_goals.py": "import unittest\nclass Fixture(unittest.TestCase):\n def test_checker_failure(self):\n  self.fail(\"external checker gate forced failure\")\n"
+            },
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml",
+              "scripts/verify-test-exec.py": "../../scripts/verify-test-exec.py",
+              "scripts/verify-published-module.py": "../../scripts/verify-published-module.py",
+              "scripts/test_verify_published_module.py": "../../scripts/test_verify_published_module.py",
+              "scripts/check-published-goals.py": "../../scripts/check-published-goals.py"
+            }
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "op": "command_execution"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.artifact_refs.size() == 4"
+        },
+        {
+          "type": "cel_true",
+          "expr": "repositories.root.clean && repositories.root.new_commits == 0 && repositories.root.changed_files.size() == 0"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.exists(c, has(c.artifacts) && 'tests.log' in c.artifacts && c.artifacts['tests.log'].contains('external checker gate forced failure'))"
         }
       ],
       "inputs": {

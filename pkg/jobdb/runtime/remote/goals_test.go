@@ -94,11 +94,6 @@ func TestGoalsLifecycle(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, a.GoalID, b.GoalID)
 		other := goalSubmit(t, r, "other")
-		attached, err := r.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: goalKey(a), JobID: other.JobKey.JobId})
-		require.NoError(t, err)
-		repeat, err := r.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: goalKey(a), JobID: other.JobKey.JobId})
-		require.NoError(t, err)
-		require.Equal(t, attached, repeat)
 		goalComplete(t, r, b, true)
 		retry, err := r.SubmitRestartJob(ctx, restart)
 		require.NoError(t, err)
@@ -118,15 +113,13 @@ func TestGoalsLifecycle(t *testing.T) {
 		require.Equal(t, other.JobKey.JobId, own.SuccessfulJobID)
 		job, err := r.GetJob(ctx, other.JobKey)
 		require.NoError(t, err)
-		require.Equal(t, []string{a.GoalID}, job.OtherGoalIDs)
+		require.Empty(t, job.OtherGoalIDs)
 		list, err := r.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, GoalIDs: []string{a.GoalID, other.GoalID}, PageSize: 100})
 		require.NoError(t, err)
 		require.Len(t, list.Jobs, 3)
 		_, err = r.FailGoal(ctx, jobdb.FailGoalRequest{GoalKey: goalKey(a), Message: "late"})
 		require.ErrorIs(t, err, jobdb.ErrGoalConflict)
-		fresh := goalSubmit(t, r, "fresh")
-		_, err = r.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: goalKey(a), JobID: fresh.JobKey.JobId})
-		require.ErrorIs(t, err, jobdb.ErrGoalConflict)
+
 	})
 }
 
@@ -182,11 +175,10 @@ func TestGoalFailureSnapshotAndCancellation(t *testing.T) {
 	goalRuntimes(t, func(t *testing.T, r jobdb.WorkflowRuntime) {
 		ctx := celltest.Context(context.Background())
 		a := goalSubmit(t, r, "a")
-		b := goalSubmit(t, r, "b")
-		_, err := r.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: goalKey(a), JobID: b.JobKey.JobId})
+		goalComplete(t, r, a, false)
+		b, err := r.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: a.JobKey, JobID: "b", Cell: a.Cell, ShareGoal: true}})
 		require.NoError(t, err)
 		consumer := goalSubmit(t, r, "consumer", jobdb.Dependency{Target: jobdb.DependencyTarget{GoalID: a.GoalID}, Condition: jobdb.JobPrereqSuccess})
-		require.NoError(t, r.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: a.JobKey, Reason: "first approach abandoned"}))
 		req := jobdb.FailGoalRequest{GoalKey: goalKey(a), Message: "No acceptable solution"}
 		failed, err := r.FailGoal(ctx, req)
 		require.NoError(t, err)
@@ -208,7 +200,7 @@ func TestGoalFailureSnapshotAndCancellation(t *testing.T) {
 		require.ErrorIs(t, err, jobdb.ErrGoalConflict)
 	})
 }
-func TestGoalAttachSuccessCycleAndDurableWait(t *testing.T) {
+func TestGoalPrimarySuccessCycleAndDurableWait(t *testing.T) {
 	goalRuntimes(t, func(t *testing.T, r jobdb.WorkflowRuntime) {
 		ctx := celltest.Context(context.Background())
 		a := goalSubmit(t, r, "a")
@@ -216,18 +208,16 @@ func TestGoalAttachSuccessCycleAndDurableWait(t *testing.T) {
 		lease := goalLease(t, r, b)
 		req := jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "work"}, DependencyWait: &jobdb.DependencyWait{WaitID: "join-1", Dependencies: []jobdb.Dependency{{Target: jobdb.DependencyTarget{GoalID: a.GoalID}, Condition: jobdb.JobPrereqSuccess}}}}
 		require.NoError(t, lease.Reschedule(ctx, req))
-		_, err := r.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: goalKey(a), JobID: b.JobKey.JobId})
-		require.ErrorIs(t, err, jobdb.ErrDependencyCycle)
-		bi, err := r.GetJob(ctx, b.JobKey)
-		require.NoError(t, err)
-		require.Empty(t, bi.OtherGoalIDs)
-		winner := goalSubmit(t, r, "winner")
-		goalComplete(t, r, winner, true)
-		_, err = r.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: goalKey(a), JobID: winner.JobKey.JobId})
-		require.NoError(t, err)
+		// Goal cycles are checked on creation-time membership and dependency edges.
+		aLease := goalLease(t, r, a)
+		require.NotNil(t, aLease)
+		cycle := jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "work"}, DependencyWait: &jobdb.DependencyWait{WaitID: "cycle", Dependencies: []jobdb.Dependency{{Target: jobdb.DependencyTarget{GoalID: b.GoalID}, Condition: jobdb.JobPrereqSuccess}}}}
+		require.ErrorIs(t, aLease.Reschedule(ctx, cycle), jobdb.ErrDependencyCycle)
+		chapter := jobdb.Chapter{Ordinal: 1, TaskType: "work", CreatedAt: time.Now().UTC(), Body: jobdb.JobAttemptOutcomeChapter{Outcome: jobdb.ApplicationOutputOutcome{Output: jobdb.ApplicationOutputBytes{Data: []byte(`true`)}}}}
+		require.NoError(t, aLease.Complete(ctx, jobdb.CompleteExecutionRequest{Status: "success", Chapter: &chapter}))
 		wait, err := r.GetDependencyWait(ctx, jobdb.DependencyWaitKey{JobKey: b.JobKey, WaitID: "join-1"})
 		require.NoError(t, err)
-		require.Equal(t, winner.JobKey.JobId, wait.Dependencies[0].SatisfiedByJobID)
+		require.Equal(t, a.JobKey.JobId, wait.Dependencies[0].SatisfiedByJobID)
 		lease = goalLease(t, r, b)
 		require.NotNil(t, lease)
 		require.NoError(t, lease.Reschedule(ctx, req)) // Same descriptor retains binding.
@@ -241,29 +231,37 @@ func TestConcurrentGoalResolution(t *testing.T) {
 	goalRuntimes(t, func(t *testing.T, r jobdb.WorkflowRuntime) {
 		ctx := celltest.Context(context.Background())
 		a := goalSubmit(t, r, "a")
-		b := goalSubmit(t, r, "b")
-		_, err := r.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: goalKey(a), JobID: b.JobKey.JobId})
-		require.NoError(t, err)
-		leases := []jobdb.ExecutionLease{goalLease(t, r, a), goalLease(t, r, b)}
+		lease := goalLease(t, r, a)
 		var wg sync.WaitGroup
 		errs := make(chan error, 2)
-		for _, lease := range leases {
-			wg.Add(1)
-			go func(lease jobdb.ExecutionLease) {
-				defer wg.Done()
-				chapter := jobdb.Chapter{Ordinal: 1, TaskType: "work", CreatedAt: time.Now().UTC(), Body: jobdb.JobAttemptOutcomeChapter{Outcome: jobdb.ApplicationOutputOutcome{Output: jobdb.ApplicationOutputBytes{Data: []byte(`true`)}}}}
-				errs <- lease.Complete(ctx, jobdb.CompleteExecutionRequest{Status: "success", Chapter: &chapter})
-			}(lease)
-		}
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			chapter := jobdb.Chapter{Ordinal: 1, TaskType: "work", CreatedAt: time.Now().UTC(), Body: jobdb.JobAttemptOutcomeChapter{Outcome: jobdb.ApplicationOutputOutcome{Output: jobdb.ApplicationOutputBytes{Data: []byte(`true`)}}}}
+			errs <- lease.Complete(ctx, jobdb.CompleteExecutionRequest{Status: "success", Chapter: &chapter})
+		}()
+		go func() {
+			defer wg.Done()
+			_, e := r.FailGoal(ctx, jobdb.FailGoalRequest{GoalKey: goalKey(a), Message: "closed"})
+			errs <- e
+		}()
 		wg.Wait()
 		close(errs)
-		for err := range errs {
-			require.NoError(t, err)
+		for e := range errs {
+			if e != nil {
+				require.ErrorIs(t, e, jobdb.ErrGoalConflict)
+			}
 		}
 		info, err := r.GetGoal(ctx, goalKey(a))
 		require.NoError(t, err)
-		require.Contains(t, []string{"a", "b"}, info.SuccessfulJobID)
 		require.EqualValues(t, 2, info.Revision)
+		if info.State == jobdb.GoalSucceeded {
+			require.Equal(t, "a", info.SuccessfulJobID)
+		} else {
+			require.Equal(t, jobdb.GoalFailed, info.State)
+			require.NotEmpty(t, info.FailureJobID)
+		}
+
 	})
 }
 

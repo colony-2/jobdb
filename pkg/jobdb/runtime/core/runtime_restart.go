@@ -25,6 +25,12 @@ func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJ
 }
 
 func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.SubmitRestartJobRequest, parentJobID string) (handle jobdb.JobHandle, retErr error) {
+	if req.Job.ShareGoal {
+		caps := r.JobGoalCapabilities()
+		if !caps.ImmutableMembership || !caps.AtomicAdmission {
+			return jobdb.JobHandle{}, jobdb.ErrJobGoalSemanticsUnsupported
+		}
+	}
 	if err := r.validate(); err != nil {
 		return jobdb.JobHandle{}, err
 	}
@@ -66,6 +72,20 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		}
 		return reserved.Target.Handle(reserved.Key, reserved.GoalID), nil
 	}
+	prior, err := r.scheduler.GetJob(ctx, req.Job.PriorJobKey)
+	err = jobdb.ClassifyRuntimeIO(err, "get_restart_source", &req.Job.PriorJobKey, nil)
+	if err != nil {
+		return jobdb.JobHandle{}, fmt.Errorf("load source job metadata: %w", err)
+	}
+	if err := prior.RecordKind.Validate(); err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	if prior.RecordKind.IsTerminalRecord() {
+		if _, err := jobListSummaryFromStored(prior); err != nil {
+			return jobdb.JobHandle{}, err
+		}
+		return jobdb.JobHandle{}, jobdb.ErrJobRecordOperationUnsupported
+	}
 	job, executionRestart, err := ResolveExecutionRestart(ctx, r, req.Job)
 	if err != nil {
 		return jobdb.JobHandle{}, err
@@ -94,11 +114,6 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	}
 	if key == job.PriorJobKey {
 		return jobdb.JobHandle{}, fmt.Errorf("restart job id must differ from source job id")
-	}
-	prior, err := r.scheduler.GetJob(ctx, job.PriorJobKey)
-	err = jobdb.ClassifyRuntimeIO(err, "get_restart_source", &job.PriorJobKey, nil)
-	if err != nil {
-		return jobdb.JobHandle{}, fmt.Errorf("load source job metadata: %w", err)
 	}
 	metadata := cloneRaw(prior.AppMetadata)
 	schemaHash, err := ResolveActiveSchemaForNewJob(ctx, r.schemas, key.TenantId, job.Schema)

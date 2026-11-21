@@ -46,16 +46,33 @@ func assertAvailabilityPublication(t *testing.T, rt *Runtime, id string, count i
 	}
 
 	var goals int
-	require.NoError(t, rt.db.QueryRow(`SELECT count(*) FROM jobdb_goals WHERE tenant_id='tenant'`).Scan(&goals))
+	require.NoError(t, rt.db.QueryRow(`SELECT count(*) FROM jobdb_jobs WHERE tenant_id='tenant' AND goal_origin=1`).Scan(&goals))
 	wantGoals := 1
-	if !selected {
+	if selected {
+		wantGoals++ // independent active dependency
+	} else {
 		wantGoals += count
 	}
 	require.Equal(t, wantGoals, goals, "fresh goals must publish atomically with their consumer")
-	var extras int
-	require.NoError(t, rt.db.QueryRow(`SELECT count(*) FROM jobdb_goal_candidates WHERE tenant_id='tenant' AND job_id=?`, id).Scan(&extras))
-	require.Zero(t, extras, "submission must not add secondary membership")
+	var legacy int
+	require.NoError(t, rt.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name IN ('jobdb_goals','jobdb_goal_candidates')`).Scan(&legacy))
+	require.Zero(t, legacy, "membership has no secondary storage")
 
+}
+
+// Keep selected-goal admission idle while retaining a genuinely pending, exact-job
+// dependency. Cancellation releases the producer's slot without closing its goal.
+func availabilityRangeProducer(t *testing.T, rt *Runtime, ctx context.Context, selected bool) (jobdb.JobHandle, jobdb.JobHandle) {
+	t.Helper()
+	p, err := celltest.Submit(rt, ctx, availabilityRangeRequest("producer", nil))
+	require.NoError(t, err)
+	if !selected {
+		return p, p
+	}
+	require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: p.JobKey}))
+	blocker, err := celltest.Submit(rt, ctx, availabilityRangeRequest("dependency", nil))
+	require.NoError(t, err)
+	return p, blocker
 }
 
 func TestSubmissionAvailabilityInvalidPublicationAndRetry(t *testing.T) {
@@ -67,10 +84,9 @@ func TestSubmissionAvailabilityInvalidPublicationAndRetry(t *testing.T) {
 				rt, err := NewFromConfig(ctx, cfg)
 				require.NoError(t, err)
 				defer func() { require.NoError(t, rt.Close(ctx)) }()
-				p, err := celltest.Submit(rt, ctx, availabilityRangeRequest("producer", nil))
-				require.NoError(t, err)
+				p, dependency := availabilityRangeProducer(t, rt, ctx, selected)
 				req := availabilityRangeRequest("consumer", &bad)
-				req.Job.Dependencies = []jobdb.Dependency{{Target: jobdb.DependencyTarget{JobID: p.JobKey.JobId}, Condition: jobdb.JobPrereqComplete}}
+				req.Job.Dependencies = []jobdb.Dependency{{Target: jobdb.DependencyTarget{JobID: dependency.JobKey.JobId}, Condition: jobdb.JobPrereqComplete}}
 				if selected {
 					req.Job.GoalID = p.GoalID
 				}
@@ -124,10 +140,9 @@ func TestSubmissionAvailabilityEquivalentRetriesAndReopen(t *testing.T) {
 				rt, err := NewFromConfig(ctx, cfg)
 				require.NoError(t, err)
 				defer func() { require.NoError(t, rt.Close(ctx)) }()
-				p, err := celltest.Submit(rt, ctx, availabilityRangeRequest("producer", nil))
-				require.NoError(t, err)
+				p, dependency := availabilityRangeProducer(t, rt, ctx, selected)
 				req := availabilityRangeRequest("consumer", &at)
-				req.Job.Dependencies = []jobdb.Dependency{{Target: jobdb.DependencyTarget{JobID: p.JobKey.JobId}, Condition: jobdb.JobPrereqComplete}}
+				req.Job.Dependencies = []jobdb.Dependency{{Target: jobdb.DependencyTarget{JobID: dependency.JobKey.JobId}, Condition: jobdb.JobPrereqComplete}}
 				if selected {
 					req.Job.GoalID = p.GoalID
 				}
@@ -170,11 +185,10 @@ func TestSubmissionAvailabilityStagedReconciliation(t *testing.T) {
 			rt, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 			require.NoError(t, err)
 			defer rt.Close(ctx)
-			p, err := celltest.Submit(rt, ctx, availabilityRangeRequest("producer", nil))
-			require.NoError(t, err)
+			p, dependency := availabilityRangeProducer(t, rt, ctx, selected)
 			at := time.Unix(0, 0).UTC()
 			req := availabilityRangeRequest("consumer", &at)
-			req.Job.Dependencies = []jobdb.Dependency{{Target: jobdb.DependencyTarget{JobID: p.JobKey.JobId}, Condition: jobdb.JobPrereqComplete}}
+			req.Job.Dependencies = []jobdb.Dependency{{Target: jobdb.DependencyTarget{JobID: dependency.JobKey.JobId}, Condition: jobdb.JobPrereqComplete}}
 			if selected {
 				req.Job.GoalID = p.GoalID
 			}
@@ -182,14 +196,22 @@ func TestSubmissionAvailabilityStagedReconciliation(t *testing.T) {
 			// simulate interruption after history, before the scheduler transaction.
 			h, err := rt.SubmitJob(ctx, req)
 			require.NoError(t, err)
+			// Fault-inject the pre-publication state, including a new-goal origin.
+			// Production deletion must retain origins; restore that protection in
+			// this same transaction before exercising recovery.
+			var retainDDL string
+			require.NoError(t, rt.db.QueryRow(`SELECT sql FROM sqlite_master WHERE name='jobdb_jobs_goal_facts_retained'`).Scan(&retainDDL))
+			tx, err := rt.db.BeginTx(ctx, nil)
+			require.NoError(t, err)
+			_, err = tx.Exec(`DROP TRIGGER jobdb_jobs_goal_facts_retained`)
+			require.NoError(t, err)
 			for _, table := range []string{"jobdb_jobs", "jobdb_dependency_waits", "jobdb_dependency_targets", "jobdb_submission_receipts"} {
-				_, err = rt.db.Exec("DELETE FROM " + table + " WHERE tenant_id='tenant' AND job_id='consumer'")
+				_, err = tx.Exec("DELETE FROM " + table + " WHERE tenant_id='tenant' AND job_id='consumer'")
 				require.NoError(t, err)
 			}
-			if !selected {
-				_, err = rt.db.Exec("DELETE FROM jobdb_goals WHERE tenant_id='tenant' AND goal_id=?", h.GoalID)
-				require.NoError(t, err)
-			}
+			_, err = tx.Exec(retainDDL)
+			require.NoError(t, err)
+			require.NoError(t, tx.Commit())
 			bad := time.Date(2300, 1, 1, 0, 0, 0, 0, time.UTC)
 			req.Job.AvailableAt = &bad
 			inputHash, err := computeInputHash(ctx, req.Job.Data)
@@ -262,6 +284,7 @@ func TestSubmissionAvailabilityOldTimezoneReceipt(t *testing.T) {
 	defer rt.Close(ctx)
 	p, err := celltest.Submit(rt, ctx, availabilityRangeRequest("producer", nil))
 	require.NoError(t, err)
+	require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: p.JobKey}))
 	at := time.Unix(0, 123456789).In(time.FixedZone("offset", 3600))
 	req := availabilityRangeRequest("consumer", &at)
 	req.Job.GoalID = p.GoalID

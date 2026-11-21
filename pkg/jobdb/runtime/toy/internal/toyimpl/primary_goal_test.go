@@ -3,6 +3,7 @@ package toyimpl
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
@@ -17,6 +18,7 @@ func TestPrimaryGoalUnknownIdentityAndPurge(t *testing.T) {
 			ctx := runtimetest.PrimaryGoalContext(context.Background())
 			source, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "source", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 			require.NoError(t, err)
+			require.NoError(t, r.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: source.JobKey}))
 			req := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "dest", GoalID: source.GoalID, Cell: source.Cell, CellRepo: source.CellRepo, JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}}
 			if bad == "purge" {
 				h, err := r.SubmitJob(ctx, req)
@@ -34,23 +36,21 @@ func TestPrimaryGoalUnknownIdentityAndPurge(t *testing.T) {
 				return
 			}
 			r.engine.mu.Lock()
-			key := jobdb.GoalKey{TenantId: "tenant", GoalID: source.GoalID}
-			g := r.engine.goals.GoalRows[key]
+			rec := r.engine.jobRecords[source.JobKey]
 			if bad == "state" {
-				g.State = "UNKNOWN"
+				rec.goalClosure = &toyGoalClosure{state: "UNKNOWN", at: time.Now()}
 			} else if bad == "identity" {
-				g.CellID = ""
+				rec.cell.CellID = ""
 			} else {
 				c := r.engine.cellsLocked("tenant").Cells[source.CellID]
 				c.State = jobdb.CellRetired
 				r.engine.cellsLocked("tenant").Cells[source.CellID] = c
 			}
-			r.engine.goals.GoalRows[key] = g
 			r.engine.mu.Unlock()
 			_, err = r.SubmitJob(ctx, req)
 			require.Error(t, err)
 			require.Len(t, r.engine.jobRecords, 1)
-			require.Len(t, r.engine.goals.GoalRows, 1)
+			require.True(t, r.engine.jobRecords[source.JobKey].goalOrigin)
 		})
 	}
 }

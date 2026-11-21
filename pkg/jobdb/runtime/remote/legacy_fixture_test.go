@@ -42,9 +42,6 @@ func (legacyRuntime) ListDependencyWaits(context.Context, jobdb.ListDependencyWa
 func (legacyRuntime) GetGoal(context.Context, jobdb.GoalKey) (jobdb.GoalInfo, error) {
 	panic("compile-only historical fixture")
 }
-func (legacyRuntime) AddGoalCandidate(context.Context, jobdb.AddGoalCandidateRequest) (jobdb.GoalCandidateInfo, error) {
-	panic("compile-only historical fixture")
-}
 func (legacyRuntime) FailGoal(context.Context, jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
 	panic("compile-only historical fixture")
 }

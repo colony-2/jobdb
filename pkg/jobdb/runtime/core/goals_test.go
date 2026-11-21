@@ -21,6 +21,10 @@ type goalCaptureScheduler struct {
 	history     *goalCaptureHistory
 }
 
+func (*goalCaptureScheduler) JobGoalCapabilities() jobdb.JobGoalCapabilities {
+	return jobdb.JobGoalCapabilities{ImmutableMembership: true, AtomicAdmission: true}
+}
+
 func (s *goalCaptureScheduler) PrepareJob(_ context.Context, p runtimecore.JobPreparation) (runtimecore.PreparedJob, error) {
 	s.preparation = p
 	key := p.Key

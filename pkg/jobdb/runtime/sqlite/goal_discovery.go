@@ -36,86 +36,36 @@ func (r *Runtime) ListGoals(ctx context.Context, req jobdb.ListGoalsRequest) (jo
 		return out, err
 	}
 	defer tx.Rollback()
-	where := []string{"g.tenant_id=?", "g.goal_id>?"}
-	args := []any{req.TenantId, after[0]}
-	addSet := func(column string, values []string) {
-		if len(values) > 0 {
-			where = append(where, column+" IN ("+placeholders(len(values))+")")
-			for _, v := range values {
-				args = append(args, v)
-			}
-		}
-	}
-	addSet("g.goal_id", req.GoalIDs)
-	states := []string{}
-	for _, v := range req.States {
-		states = append(states, string(v))
-	}
-	addSet("g.state", states)
-	for _, b := range []struct {
-		column, op string
-		value      *time.Time
-	}{{"g.created_at_ns", ">=", req.CreatedAfter}, {"g.created_at_ns", "<=", req.CreatedBefore}, {"g.updated_at_ns", ">=", req.UpdatedAfter}, {"g.updated_at_ns", "<=", req.UpdatedBefore}} {
-		if b.value != nil {
-			where = append(where, b.column+b.op+"?")
-			args = append(args, b.value.UnixNano())
-		}
-	}
-	// Query membership with an EXISTS so extra associations never duplicate goals.
-	if f := req.Candidate; f != nil {
-		sub := []string{"j.tenant_id=g.tenant_id", "j.job_id IN (SELECT job_id FROM jobdb_jobs WHERE tenant_id=g.tenant_id AND goal_id=g.goal_id UNION SELECT job_id FROM jobdb_goal_candidates WHERE tenant_id=g.tenant_id AND goal_id=g.goal_id)"}
-		for _, set := range []struct {
-			col string
-			v   []string
-		}{{"j.job_id", f.JobIDs}, {"j.job_type", f.JobTypes}} {
-			if len(set.v) > 0 {
-				sub = append(sub, set.col+" IN ("+placeholders(len(set.v))+")")
-				for _, v := range set.v {
-					args = append(args, v)
-				}
-			}
-		}
-		for _, p := range f.MetadataEquals {
-			path := "$.app"
-			for _, part := range p.Path {
-				raw, _ := json.Marshal(part)
-				path += "." + string(raw)
-			}
-			choices := []string{}
-			for _, v := range p.Values {
-				raw, e := json.Marshal(v)
-				if e != nil {
-					return out, fmt.Errorf("%w: invalid metadata value", jobdb.ErrInvalidDependency)
-				}
-				choices = append(choices, "(replace(json_type(j.metadata,?),'integer','real')=replace(json_type(?,'$'),'integer','real') AND json_extract(j.metadata,?) IS json_extract(?,'$'))")
-				args = append(args, path, string(raw), path, string(raw))
-			}
-			sub = append(sub, "("+strings.Join(choices, " OR ")+")")
-		}
-		where = append(where, "EXISTS (SELECT 1 FROM jobdb_jobs j WHERE "+strings.Join(sub, " AND ")+")")
-	}
-	args = append(args, size+1)
-	rows, err := tx.QueryContext(ctx, "SELECT g.payload,g.cell_id,g.cell_name,g.cell_repo FROM jobdb_goals g WHERE "+strings.Join(where, " AND ")+" ORDER BY g.goal_id LIMIT ?", args...)
+	query, args, err := goalDiscoveryQuery(req, after[0], size)
 	if err != nil {
 		return out, err
 	}
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return out, err
+	}
+
+	var ids []string
 	for rows.Next() {
-		var raw []byte
-		var g jobdb.GoalInfo
-		if err = rows.Scan(&raw, &g.CellID, &g.Cell, &g.CellRepo); err != nil {
+		var id string
+		if err = rows.Scan(&id); err != nil {
 			rows.Close()
 			return out, err
 		}
-		if err = json.Unmarshal(raw, &g); err != nil {
-			rows.Close()
-			return out, err
-		}
-		out.Goals = append(out.Goals, jobdb.GoalSummary{GoalInfo: g})
+		ids = append(ids, id)
 	}
 	err = rows.Err()
 	rows.Close()
 	if err != nil {
 		return out, err
+	}
+	store := retainedStore(ctx, tx)
+	for _, id := range ids {
+		g, e := store.Goal(jobdb.GoalKey{TenantId: req.TenantId, GoalID: id})
+		if e != nil {
+			return out, e
+		}
+		out.Goals = append(out.Goals, jobdb.GoalSummary{GoalInfo: g})
 	}
 	if len(out.Goals) > size {
 		out.Goals = out.Goals[:size]
@@ -123,13 +73,7 @@ func (r *Runtime) ListGoals(ctx context.Context, req jobdb.ListGoalsRequest) (jo
 	}
 	for i := range out.Goals {
 		g := &out.Goals[i]
-		err = tx.QueryRowContext(ctx, `WITH members AS (
-   SELECT job_id FROM jobdb_jobs WHERE tenant_id=? AND goal_id=?
-   UNION SELECT job_id FROM jobdb_goal_candidates WHERE tenant_id=? AND goal_id=?
-  ) SELECT count(*),coalesce(sum(j.job_id IS NOT NULL AND j.archived_at_ns IS NULL),0),
-   coalesce(sum(j.archived_at_ns IS NOT NULL),0),coalesce(sum(j.job_id IS NULL),0)
-   FROM members m LEFT JOIN jobdb_jobs j ON j.tenant_id=? AND j.job_id=m.job_id`,
-			req.TenantId, g.GoalKey.GoalID, req.TenantId, g.GoalKey.GoalID, req.TenantId).Scan(&g.CandidateCount, &g.NonTerminalCandidateCount, &g.TerminalCandidateCount, &g.UnavailableCandidateCount)
+		err = tx.QueryRowContext(ctx, `SELECT count(*),coalesce(sum(archived_at_ns IS NULL),0),coalesce(sum(archived_at_ns IS NOT NULL),0) FROM jobdb_jobs WHERE tenant_id=? AND goal_id=?`, req.TenantId, g.GoalKey.GoalID).Scan(&g.CandidateCount, &g.NonTerminalCandidateCount, &g.TerminalCandidateCount)
 		if err != nil {
 			return out, err
 		}
@@ -161,7 +105,7 @@ func (r *Runtime) ListDependencyWaits(ctx context.Context, req jobdb.ListDepende
 	}
 	defer tx.Rollback()
 	now := time.Now().UTC()
-	engine := goalstate.Engine{Store: goalStore{ctx, tx}, Now: now}
+	engine := goalstate.Engine{Store: retainedStore(ctx, tx), Now: now}
 	for len(out.Waits) <= size {
 		from := "jobdb_dependency_waits w"
 		where := []string{"w.tenant_id=?", "(w.job_id,w.wait_id)>(?,?)"}
@@ -245,7 +189,7 @@ func blockingWait(ctx context.Context, q goalQuery, row jobRow, now time.Time) (
 	if err != nil {
 		return nil, err
 	}
-	w, err = (goalstate.Engine{Store: goalStore{ctx, q}, Now: now}).Evaluate(w)
+	w, err = (goalstate.Engine{Store: retainedQueryStore(ctx, q), Now: now}).Evaluate(w)
 	if err != nil {
 		return nil, err
 	}
@@ -253,4 +197,69 @@ func blockingWait(ctx context.Context, q goalQuery, row jobRow, now time.Time) (
 		return nil, nil
 	}
 	return &w, nil
+}
+
+// goalDiscoveryQuery is shared by execution and query-plan checks. All filters
+// apply before the stable goal-ID pagination limit, including hidden membership.
+func goalDiscoveryQuery(req jobdb.ListGoalsRequest, afterGoal string, size int) (string, []any, error) {
+	where := []string{"g.tenant_id=?", "g.goal_origin=1", "g.goal_id>?"}
+	args := []any{req.TenantId, afterGoal}
+	addSet := func(column string, values []string) {
+		if len(values) > 0 {
+			where = append(where, column+" IN ("+placeholders(len(values))+")")
+			for _, v := range values {
+				args = append(args, v)
+			}
+		}
+	}
+	addSet("g.goal_id", req.GoalIDs)
+	states := []string{}
+	for _, v := range req.States {
+		states = append(states, string(v))
+	}
+	addSet("coalesce(c.goal_closure_state,'OPEN')", states)
+	for _, b := range []struct {
+		column, op string
+		value      *time.Time
+	}{{"g.created_at_ns", ">=", req.CreatedAfter}, {"g.created_at_ns", "<=", req.CreatedBefore}, {"coalesce(c.goal_closed_at_ns,g.created_at_ns)", ">=", req.UpdatedAfter}, {"coalesce(c.goal_closed_at_ns,g.created_at_ns)", "<=", req.UpdatedBefore}} {
+		if b.value != nil {
+			where = append(where, b.column+b.op+"?")
+			args = append(args, b.value.UnixNano())
+		}
+	}
+	// Match primary membership with EXISTS so several matching members cannot duplicate goals.
+	if f := req.Candidate; f != nil {
+		sub := []string{"j.tenant_id=g.tenant_id", "j.goal_id=g.goal_id"}
+		for _, set := range []struct {
+			col string
+			v   []string
+		}{{"j.job_id", f.JobIDs}, {"j.job_type", f.JobTypes}} {
+			if len(set.v) > 0 {
+				sub = append(sub, set.col+" IN ("+placeholders(len(set.v))+")")
+				for _, v := range set.v {
+					args = append(args, v)
+				}
+			}
+		}
+		for _, p := range f.MetadataEquals {
+			path := "$.app"
+			for _, part := range p.Path {
+				raw, _ := json.Marshal(part)
+				path += "." + string(raw)
+			}
+			choices := []string{}
+			for _, v := range p.Values {
+				raw, e := json.Marshal(v)
+				if e != nil {
+					return "", nil, fmt.Errorf("%w: invalid metadata value", jobdb.ErrInvalidDependency)
+				}
+				choices = append(choices, "(replace(json_type(j.metadata,?),'integer','real')=replace(json_type(?,'$'),'integer','real') AND json_extract(j.metadata,?) IS json_extract(?,'$'))")
+				args = append(args, path, string(raw), path, string(raw))
+			}
+			sub = append(sub, "("+strings.Join(choices, " OR ")+")")
+		}
+		where = append(where, "EXISTS (SELECT 1 FROM jobdb_jobs j WHERE "+strings.Join(sub, " AND ")+")")
+	}
+	args = append(args, size+1)
+	return "SELECT g.goal_id FROM jobdb_jobs g LEFT JOIN jobdb_jobs c ON c.tenant_id=g.tenant_id AND c.goal_id=g.goal_id AND c.goal_closure_state IS NOT NULL WHERE " + strings.Join(where, " AND ") + " ORDER BY g.goal_id LIMIT ?", args, nil
 }

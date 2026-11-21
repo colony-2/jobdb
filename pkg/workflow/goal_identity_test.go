@@ -23,6 +23,7 @@ func TestExecutionGoalIdentityAndBlockingWait(t *testing.T) {
 				child, err := tc.SubmitJob(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", JobID: "child", JobType: "child", Data: jobdb.NewTaskDataOrPanic(nil)})
 				require.NoError(t, err)
 				require.NotEmpty(t, child.GoalID)
+				require.NotEqual(t, want.GoalID, child.GoalID)
 				require.Equal(t, want.JobKey.TenantId, child.JobKey.TenantId)
 				return in, nil
 			}}
@@ -35,8 +36,6 @@ func TestExecutionGoalIdentityAndBlockingWait(t *testing.T) {
 			require.NoError(t, err)
 			other, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "other", Data: jobdb.NewTaskDataOrPanic(nil)}})
 			require.NoError(t, err)
-			_, err = rt.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: jobdb.GoalKey{TenantId: "tenant", GoalID: other.GoalID}, JobID: want.JobKey.JobId})
-			require.NoError(t, err)
 			out, err := runExecutionTest(t, rt, want.JobKey, w, task)
 			require.NoError(t, err)
 			require.Equal(t, wf.JobRunCompleted, out.Status)
@@ -46,7 +45,10 @@ func TestExecutionGoalIdentityAndBlockingWait(t *testing.T) {
 			detail, err := wf.GetJobRun(ctx, rt, jobdb.GetJobRunRequest{JobKey: want.JobKey})
 			require.NoError(t, err)
 			require.Equal(t, want.GoalID, detail.Job.GoalID)
-			require.Equal(t, []string{other.GoalID}, detail.Job.OtherGoalIDs)
+			require.Empty(t, detail.Job.OtherGoalIDs)
+			otherGoal, err := rt.GetGoal(ctx, jobdb.GoalKey{TenantId: other.JobKey.TenantId, GoalID: other.GoalID})
+			require.NoError(t, err)
+			require.Equal(t, jobdb.GoalOpen, otherGoal.State)
 
 			upstream, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "upstream", Data: jobdb.NewTaskDataOrPanic(nil)}})
 			require.NoError(t, err)

@@ -55,7 +55,11 @@ func TestHTTPSubmissionAvailabilityRangeAndRetries(t *testing.T) {
 			t.Run(fmt.Sprintf("selected=%v/case=%d", selected, i), func(t *testing.T) {
 				req := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", Cell: "test", CellRepo: "example.test/test", JobID: fmt.Sprintf("consumer-%v-%d", selected, i), JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil), AvailableAt: &at, Dependencies: []jobdb.Dependency{{Target: jobdb.DependencyTarget{JobID: p.JobKey.JobId}, Condition: jobdb.JobPrereqComplete}}}}
 				if selected {
-					req.Job.GoalID = p.GoalID
+					// Keep a genuinely pending dependency, but give each selected
+					// publication its own open goal with no nonterminal member.
+					origin := goalSubmit(t, rt, fmt.Sprintf("selected-origin-%d", i))
+					require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: origin.JobKey}))
+					req.Job.GoalID = origin.GoalID
 				}
 				before, err := rt.ListGoals(ctx, jobdb.ListGoalsRequest{TenantId: "tenant"})
 				require.NoError(t, err)

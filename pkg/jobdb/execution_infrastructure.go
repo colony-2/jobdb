@@ -74,7 +74,7 @@ func ClassifyRuntimeIO(err error, operation string, key *JobKey, ordinal *int64)
 	if errors.As(err, &renewal) || errors.As(err, &cell) {
 		return err
 	}
-	for _, semantic := range []error{context.Canceled, context.DeadlineExceeded, ErrExecutionLeaseLost, ErrLeasePermissionDenied, ErrConflict, ErrJobNotFound, ErrChapterNotFound, ErrJobNotComplete, ErrJobCancelled, ErrJobSchemaValidation, ErrJobSchemaArchived, ErrJobSchemaNotFound, ErrGoalNotFound, ErrGoalConflict, ErrGoalFailed, ErrInvalidDependency, ErrDependencyWaitNotFound, ErrDependencyWaitConflict, ErrDependencyCycle, ErrInvalidAppendRequest, ErrAppendBusy, ErrPrimaryGoalSelectionUnsupported, ErrPrimaryGoalSelectionForbidden} {
+	for _, semantic := range []error{context.Canceled, context.DeadlineExceeded, ErrExecutionLeaseLost, ErrLeasePermissionDenied, ErrConflict, ErrJobNotFound, ErrChapterNotFound, ErrJobNotComplete, ErrJobCancelled, ErrJobSchemaValidation, ErrJobSchemaArchived, ErrJobSchemaNotFound, ErrGoalNotFound, ErrGoalConflict, ErrGoalFailed, ErrInvalidDependency, ErrDependencyWaitNotFound, ErrDependencyWaitConflict, ErrDependencyCycle, ErrInvalidAppendRequest, ErrAppendBusy, ErrPrimaryGoalSelectionUnsupported, ErrPrimaryGoalSelectionForbidden, ErrJobGoalSemanticsUnsupported, ErrJobRecordOperationUnsupported, ErrInvalidJobRecord, ErrSubmissionReceiptUnavailable} {
 		if errors.Is(err, semantic) {
 			return err
 		}

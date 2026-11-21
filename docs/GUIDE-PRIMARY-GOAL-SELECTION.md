@@ -7,14 +7,17 @@ repository. Input, metadata, policy and chapter zero belong to the new job; no
 source history is copied and no additional goal or membership is created.
 
 Omitting `GoalID` preserves ordinary submission. `SubmitRestartJob.ShareGoal`
-and `AddGoalCandidate` retain their existing separate meanings. Schedules do not
+selects the source primary goal while copying its allowed history. Post-creation attachment
+APIs are removed; membership is selected only at creation. Schedules do not
 select an existing primary goal.
 
 The selected goal must be open in the authenticated tenant and must have the
 same stable cell ID and canonical repository as the existing active destination.
-Cell aliases resolve on the server; selection cannot register cells. A running
-candidate does not prevent another submission. Any successful candidate can
-satisfy the goal's existing dependents.
+Cell aliases resolve on the server; selection cannot register cells. Toy and SQLite reject fresh publication while any retained primary member is
+nonterminal, including hidden, delayed, blocked and expired-lease members. An
+ordinary failed or cancelled attempt leaves recovery open. A successful attempt
+or explicit permanent failure closes fresh admission. Exact accepted replay
+precedes fresh eligibility. Both backends advertise their enforced local admission capability.
 
 ## Authorize embedded and HTTP callers
 

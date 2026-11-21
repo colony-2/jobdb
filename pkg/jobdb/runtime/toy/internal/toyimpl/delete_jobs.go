@@ -80,7 +80,7 @@ func (r *Runtime) DeleteJobs(ctx context.Context, req jobdb.DeleteJobsRequest) (
 		record.leaseExpiresAt = time.Time{}
 		record.mu.Unlock()
 		r.engine.initGoalsLocked()
-		if err := (goalstate.Engine{Store: r.engine.goals, Now: now}).Complete(record.key); err != nil {
+		if err := (goalstate.Engine{Store: r.engine.goalStoreLocked(), Now: now}).Complete(record.key); err != nil {
 			return jobdb.DeleteJobsResponse{}, err
 		}
 	}

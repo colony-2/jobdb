@@ -27,6 +27,7 @@ type consumerServerPorts interface {
 	jobdb.JobSchemaRegistry
 	jobdb.JobDeletionRuntime
 	jobdb.PrimaryGoalSelectionCapability
+	jobdb.JobGoalCapability
 	leaseOperationRuntime
 	leaseRenewalRuntime
 	StartOrAppendJobWithLeaseByID(context.Context, jobdb.JobKey, string, string, jobdb.StartOrAppendJobRequest) (jobdb.JobHandle, error)
@@ -72,7 +73,7 @@ func consumerClient(t *testing.T, handler http.Handler) *Runtime {
 
 func TestConsumerServerRegisteredRoutes(t *testing.T) {
 	legacy := chi.NewRouter()
-	runtimeapi.HandlerFromMux(runtimeapi.NewStrictHandler(&legacyProxyServer{}, nil), legacy)
+	runtimeapi.HandlerFromMux(runtimeapi.NewStrictHandler(&proxyServer{}, nil), legacy)
 	consumer := chi.NewRouter()
 	runtimeapi.ConsumerHandlerFromMux(runtimeapi.NewConsumerStrictHandler(&proxyServer{}, nil), consumer)
 	inventory := func(r chi.Routes) map[string]bool {
@@ -85,7 +86,7 @@ func TestConsumerServerRegisteredRoutes(t *testing.T) {
 	}
 	oldRoutes, newRoutes := inventory(legacy), inventory(consumer)
 	retired := "PUT /v1/tenants/{tenantId}/goals/{goalId}/candidates/{jobId}"
-	require.True(t, oldRoutes[retired])
+	require.False(t, oldRoutes[retired])
 	require.False(t, newRoutes[retired])
 	delete(oldRoutes, retired)
 	require.Equal(t, oldRoutes, newRoutes)
@@ -93,7 +94,7 @@ func TestConsumerServerRegisteredRoutes(t *testing.T) {
 		_, found := typ.MethodByName("AddGoalCandidate")
 		require.False(t, found, typ.String())
 	}
-	require.Equal(t, reflect.TypeFor[runtimeapi.StrictServerInterface]().NumMethod()-1, reflect.TypeFor[runtimeapi.ConsumerStrictServerInterface]().NumMethod())
+	require.Equal(t, reflect.TypeFor[runtimeapi.StrictServerInterface]().NumMethod(), reflect.TypeFor[runtimeapi.ConsumerStrictServerInterface]().NumMethod())
 }
 
 func TestConsumerServerNoAttachmentAndLegacyCompatibility(t *testing.T) {
@@ -119,14 +120,14 @@ func TestConsumerServerNoAttachmentAndLegacyCompatibility(t *testing.T) {
 				require.NoError(t, err)
 				require.Empty(t, info.OtherGoalIDs)
 			}
-			// Both legacy constructors still serve real mutation during preparation.
+			// Both original constructors also retire attachment.
 			legacy, err := NewServerWithOptions(backend, opts)
 			require.NoError(t, err)
 			for _, handler := range []http.Handler{NewServer(backend), legacy} {
-				client := consumerClient(t, handler)
-				candidate, err := client.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: goalKey(a), JobID: b.JobKey.JobId})
-				require.NoError(t, err)
-				require.Equal(t, b.JobKey.JobId, candidate.JobID)
+				req := httptest.NewRequest(http.MethodPut, "/v1/tenants/tenant/goals/"+a.GoalID+"/candidates/"+b.JobKey.JobId, nil)
+				recorder := httptest.NewRecorder()
+				celltest.Handler(handler).ServeHTTP(recorder, req)
+				require.Equal(t, http.StatusNotFound, recorder.Code)
 			}
 			_, err = NewConsumerServerWithOptions(consumerFixture(t, backend), ServerOptions{})
 			require.Error(t, err)
@@ -210,7 +211,7 @@ func TestConsumerServerParentLeaseValidation(t *testing.T) {
 					require.False(t, mutation)
 					// Inject the signer into the default constructor's shared builder so
 					// a valid signed token missing its worker can also be exercised.
-					handler, err := newRuntimeServer(retained, nil, f.signer)
+					handler, err := newRuntimeServer(retained, f.signer)
 					if constructor == "options" {
 						handler, err = NewConsumerServerWithOptions(retained, ServerOptions{LeaseTokenSigningKey: f.signer.key})
 					}
@@ -326,7 +327,7 @@ func TestConsumerServerRetainedLifecycle(t *testing.T) {
 				jobdb.ConsumerRuntime
 				jobdb.LeaseDelegator
 			}{client, client}
-			_, mutation := any(delegator).(jobdb.GoalCandidateMutator)
+			_, mutation := reflect.TypeOf(delegator).MethodByName("AddGoalCandidate")
 			require.False(t, mutation)
 			delegated, err := delegator.CreateDelegation(ctx, renewed, jobdb.CreateDelegationRequest{Permissions: jobdb.DelegationPermissions{Read: &jobdb.DelegationChapters{Ordinals: []int64{0}}}})
 			require.NoError(t, err)

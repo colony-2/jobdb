@@ -1202,9 +1202,6 @@ func (r *runnerTestRuntime) GetGoal(context.Context, jobdb.GoalKey) (jobdb.GoalI
 func (r *runnerTestRuntime) GetDependencyWait(context.Context, jobdb.DependencyWaitKey) (jobdb.DependencyWaitInfo, error) {
 	return jobdb.DependencyWaitInfo{}, jobdb.ErrDependencyWaitNotFound
 }
-func (r *runnerTestRuntime) AddGoalCandidate(context.Context, jobdb.AddGoalCandidateRequest) (jobdb.GoalCandidateInfo, error) {
-	panic("unexpected goal mutation")
-}
 func (r *runnerTestRuntime) FailGoal(context.Context, jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
 	panic("unexpected goal mutation")
 }

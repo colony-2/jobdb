@@ -58,16 +58,11 @@ func (r *Runtime) RetireCell(ctx context.Context, req jobdb.RetireCellRequest) (
 			if busy {
 				return true, nil
 			}
-			g, err := e.goals.Goal(jobdb.GoalKey{TenantId: key.TenantId, GoalID: rec.goalID})
+			g, err := e.goalStoreLocked().Goal(jobdb.GoalKey{TenantId: key.TenantId, GoalID: rec.goalID})
 			if err != nil {
 				return false, err
 			}
 			if g.State == jobdb.GoalOpen {
-				return true, nil
-			}
-		}
-		for key, g := range e.goals.GoalRows {
-			if key.TenantId == req.TenantID && g.CellID == id && g.State == jobdb.GoalOpen {
 				return true, nil
 			}
 		}

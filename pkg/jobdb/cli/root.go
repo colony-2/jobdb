@@ -81,6 +81,7 @@ func newSQLiteCmd(listenAddr *string, dbPath *string, sqliteDSN *string, blobDir
 			return runSQLite(cmd.Context(), *listenAddr, cfg, *secretProvidersFile)
 		},
 	}
+	cmd.AddCommand(newSQLiteCheckMigrateCmd(), newSQLiteMigrateCmd())
 	return cmd
 }
 

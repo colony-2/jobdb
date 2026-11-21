@@ -34,11 +34,15 @@ func (r *Runtime) ListGoals(ctx context.Context, req jobdb.ListGoalsRequest) (jo
 	defer r.engine.mu.Unlock()
 	e := r.engine
 	e.initGoalsLocked()
-	for k := range e.goals.GoalRows {
+	for originKey, origin := range e.jobRecords {
+		if !origin.goalOrigin {
+			continue
+		}
+		k := jobdb.GoalKey{TenantId: originKey.TenantId, GoalID: origin.goalID}
 		if k.TenantId != req.TenantId || k.GoalID <= after[0] {
 			continue
 		}
-		g, err := e.goals.Goal(k)
+		g, err := e.goalStoreLocked().Goal(k)
 		if err != nil {
 			return out, err
 		}
@@ -55,11 +59,6 @@ func (r *Runtime) ListGoals(ctx context.Context, req jobdb.ListGoalsRequest) (jo
 		for key, rec := range e.jobRecords {
 			if key.TenantId == req.TenantId && rec.goalID == k.GoalID {
 				members[key.JobId] = true
-			}
-		}
-		for pair := range e.goals.Extras {
-			if pair.Goal == k {
-				members[pair.JobID] = true
 			}
 		}
 		row := jobdb.GoalSummary{GoalInfo: g}
@@ -131,15 +130,15 @@ func (r *Runtime) ListDependencyWaits(ctx context.Context, req jobdb.ListDepende
 	defer r.engine.mu.Unlock()
 	e := r.engine
 	e.initGoalsLocked()
-	engine := goalstate.Engine{Store: e.goals, Now: time.Now().UTC()}
-	for key := range e.goals.WaitRows {
+	engine := goalstate.Engine{Store: e.goalStoreLocked(), Now: time.Now().UTC()}
+	for key := range e.goalWaits {
 		if key.JobKey.TenantId != req.TenantId || req.ConsumerJobID != "" && key.JobKey.JobId != req.ConsumerJobID {
 			continue
 		}
 		if key.JobKey.JobId < after[0] || key.JobKey.JobId == after[0] && key.WaitID <= after[1] {
 			continue
 		}
-		w, err := e.goals.Wait(key)
+		w, err := e.goalStoreLocked().Wait(key)
 		if err != nil {
 			return out, err
 		}
@@ -182,11 +181,11 @@ func (e *ToyEngine) blockingWaitLocked(key jobdb.JobKey, rec *jobRecord, now tim
 		return nil, nil
 	}
 	e.initGoalsLocked()
-	w, err := e.goals.Wait(jobdb.DependencyWaitKey{JobKey: key, WaitID: rec.dependencyWaitID})
+	w, err := e.goalStoreLocked().Wait(jobdb.DependencyWaitKey{JobKey: key, WaitID: rec.dependencyWaitID})
 	if err != nil {
 		return nil, err
 	}
-	w, err = (goalstate.Engine{Store: e.goals, Now: now}).Evaluate(w)
+	w, err = (goalstate.Engine{Store: e.goalStoreLocked(), Now: now}).Evaluate(w)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +201,7 @@ func (e *ToyEngine) blockingWaitSummaryLocked(key jobdb.JobKey, rec *jobRecord, 
 		return nil, nil
 	}
 	e.initGoalsLocked()
-	w, err := e.goals.Wait(jobdb.DependencyWaitKey{JobKey: key, WaitID: rec.dependencyWaitID})
+	w, err := e.goalStoreLocked().Wait(jobdb.DependencyWaitKey{JobKey: key, WaitID: rec.dependencyWaitID})
 	if err != nil {
 		return nil, err
 	}

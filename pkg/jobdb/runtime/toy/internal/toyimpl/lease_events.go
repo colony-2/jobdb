@@ -3,7 +3,6 @@ package toyimpl
 import (
 	"context"
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	"github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/cellstate"
 	"slices"
 	"sort"
@@ -72,18 +71,7 @@ func (r *Runtime) ListLeaseEvents(ctx context.Context, req jobdb.ListLeaseEvents
 			}
 		}
 		if len(req.GoalIDs) > 0 && !slices.Contains(req.GoalIDs, v.GoalID) {
-			found := false
-			if r.engine.goals != nil {
-				for _, g := range req.GoalIDs {
-					if _, ok := r.engine.goals.Extras[goalstate.CandidateKey{Goal: jobdb.GoalKey{TenantId: req.TenantID, GoalID: g}, JobID: v.JobKey.JobId}]; ok {
-						found = true
-						break
-					}
-				}
-			}
-			if !found {
-				continue
-			}
+			continue
 		}
 		if req.OccurredAfter != nil && v.OccurredAt.Before(*req.OccurredAfter) {
 			continue

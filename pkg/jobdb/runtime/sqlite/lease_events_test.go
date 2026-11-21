@@ -55,13 +55,10 @@ func TestLeaseEventInsertFailureRollsBack(t *testing.T) {
 	require.NoError(t, e)
 	require.Len(t, page.Events, 1)
 }
-func TestLeaseEventUpgradeReopen(t *testing.T) {
+func TestLeaseEventRetainedReopen(t *testing.T) {
 	r, cfg, key := leaseEventFixture(t)
 	ctx := celltest.Context(context.Background())
 	l, e := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "job"}}, LeaseDuration: time.Minute})
-	require.NoError(t, e)
-	// Recreate the exact immediate-prior format by removing only the additive table.
-	_, e = r.db.Exec(`DROP TABLE jobdb_lease_events; PRAGMA user_version=11`)
 	require.NoError(t, e)
 	require.NoError(t, r.Close(ctx))
 	reopened, e := NewFromConfig(ctx, cfg)
@@ -69,7 +66,7 @@ func TestLeaseEventUpgradeReopen(t *testing.T) {
 	defer reopened.Close(ctx)
 	page, e := reopened.ListLeaseEvents(ctx, jobdb.ListLeaseEventsRequest{TenantID: "tenant"})
 	require.NoError(t, e)
-	require.Empty(t, page.Events)
+	require.Len(t, page.Events, 1)
 	for i := 0; i < 3; i++ {
 		require.NoError(t, reopened.KeepAliveLeaseByID(ctx, key, l.LeaseID(), "worker", time.Minute))
 	}
@@ -88,12 +85,12 @@ func TestLeaseEventUpgradeReopen(t *testing.T) {
 	require.NoError(t, e)
 	require.Len(t, page.Events, 1)
 	require.NotEmpty(t, page.NextPageToken)
-	// No cascade even if the retained job fact is removed.
+	// Origin retention rejects physical removal without disturbing events.
 	_, e = reopened.db.Exec(`DELETE FROM jobdb_jobs WHERE tenant_id=? AND job_id=?`, key.TenantId, key.JobId)
-	require.NoError(t, e)
+	require.Error(t, e)
 	page, e = reopened.ListLeaseEvents(ctx, jobdb.ListLeaseEventsRequest{TenantID: "tenant"})
 	require.NoError(t, e)
-	require.Len(t, page.Events, 3)
+	require.Len(t, page.Events, 4)
 }
 func TestLeaseEventQueriesAndPlans(t *testing.T) {
 	r, cfg, key := leaseEventFixture(t)

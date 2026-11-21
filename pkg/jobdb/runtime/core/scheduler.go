@@ -82,12 +82,15 @@ type AlternateRoute struct {
 
 // StoredJob joins immutable facts with current or archived scheduler state.
 type StoredJob struct {
-	AppendKey             string
-	AppendGeneration      int64
-	Cell                  jobdb.ResolvedCell
-	BlockingWaitSummary   *jobdb.DependencyWaitSummary
-	BlockingWait          *jobdb.DependencyWaitInfo
-	GoalID                string
+	AppendKey           string
+	AppendGeneration    int64
+	RecordKind          jobdb.JobRecordKind
+	TerminalFailure     *jobdb.GoalFailure
+	Cell                jobdb.ResolvedCell
+	BlockingWaitSummary *jobdb.DependencyWaitSummary
+	BlockingWait        *jobdb.DependencyWaitInfo
+	GoalID              string
+	// Deprecated: always empty; membership is the immutable primary GoalID.
 	OtherGoalIDs          []string
 	JobKey                jobdb.JobKey
 	Store                 jobdb.JobStore

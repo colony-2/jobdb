@@ -98,7 +98,7 @@ func jobListSummaryFromStored(row StoredJob) (jobdb.JobSummary, error) {
 	if row.WorkKind == WorkKindTask && row.TaskWork != nil {
 		nextRoute.TaskType = row.TaskWork.TaskType
 	}
-	summary := jobdb.JobSummary{AppendKey: row.AppendKey, Cell: row.Cell.Cell, CellID: row.Cell.CellID, CellRepo: row.Cell.CellRepo, BlockingWaitSummary: row.BlockingWaitSummary, GoalID: row.GoalID,
+	summary := jobdb.JobSummary{AppendKey: row.AppendKey, RecordKind: row.RecordKind, TerminalFailure: jobdb.CloneGoalFailure(row.TerminalFailure), Cell: row.Cell.Cell, CellID: row.Cell.CellID, CellRepo: row.Cell.CellRepo, BlockingWaitSummary: row.BlockingWaitSummary, GoalID: row.GoalID,
 		JobKey: row.JobKey, Status: row.Status, JobType: row.JobType,
 		ClientPayloadRevision: row.ClientPayloadRevision,
 		ClientPayload:         append([]byte(nil), row.ClientPayload...),
@@ -115,10 +115,33 @@ func jobListSummaryFromStored(row StoredJob) (jobdb.JobSummary, error) {
 		summary.CompletionStatus = row.Completion.Status
 		summary.CompletionDetail = row.Completion.Detail
 	}
+	if row.RecordKind.IsTerminalRecord() {
+		if err := validateProtectedStoredJob(row); err != nil {
+			return jobdb.JobSummary{}, err
+		}
+		summary.NextRoute = nil
+		summary.ExecutionState = jobdb.ExecutionState{}
+	}
+	if err := summary.ValidateRecord(); err != nil {
+		return jobdb.JobSummary{}, err
+	}
+	if row.RecordKind.IsTerminalRecord() {
+		return summary, nil
+	}
 	if row.WorkKind == WorkKindTask {
 		if row.TaskWork == nil {
 			return jobdb.JobSummary{}, fmt.Errorf("task route for %s is missing coordinates", row.JobKey)
 		}
 	}
 	return summary, nil
+}
+
+func validateProtectedStoredJob(row StoredJob) error {
+	if row.Store != jobdb.JobStoreArchived || row.ArchivedAt == nil || row.JobType != jobdb.GoalFailureJobType ||
+		row.Cell.CellID == "" || row.Cell.CellRepo == "" || row.Cell.Cell == "" ||
+		row.TaskWork != nil || row.Lease != nil || row.LeaseExpiresAt != nil || row.AlternateRoute != nil ||
+		row.RouteJobType != "" || len(row.WaitForJobIDs) != 0 || row.BlockingWait != nil || row.BlockingWaitSummary != nil {
+		return fmt.Errorf("%w: protected job must be archived with retained ownership and no executable route, lease or wait", jobdb.ErrInvalidJobRecord)
+	}
+	return nil
 }

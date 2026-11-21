@@ -172,15 +172,7 @@ func (r *Runtime) listCompactJobs(ctx context.Context, req jobdb.ListJobsRequest
 		}
 		where = append(where, "("+strings.Join(parts, " OR ")+")")
 	}
-	if len(req.GoalIDs) > 0 {
-		marks := placeholders(len(req.GoalIDs))
-		where = append(where, "(goal_id IN ("+marks+") OR EXISTS(SELECT 1 FROM jobdb_goal_candidates gc WHERE gc.tenant_id=p.tenant_id AND gc.job_id=p.job_id AND gc.goal_id IN ("+marks+")))")
-		for i := 0; i < 2; i++ {
-			for _, id := range req.GoalIDs {
-				args = append(args, id)
-			}
-		}
-	}
+	in("goal_id", req.GoalIDs)
 	if len(req.JobTasks) > 0 {
 		parts := []string{}
 		for _, route := range req.JobTasks {
@@ -260,7 +252,7 @@ SELECT COALESCE(append_key,''),tenant_id,job_id,cell_id,(SELECT name FROM jobdb_
  client_payload_revision,client_payload,payload,wait_for,metadata,list_parent,available_at_ns,created_at_ns,archived_at_ns,
  cancel_requested,completion_status,completion_detail,lease_expires_at_ns,list_status,
  CASE WHEN pending_wait THEN dependency_wait_id ELSE '' END,
- CASE WHEN pending_wait THEN json_extract(CAST(wait_payload AS TEXT),'$.deadline') ELSE NULL END
+ CASE WHEN pending_wait THEN json_extract(CAST(wait_payload AS TEXT),'$.deadline') ELSE NULL END, record_kind, goal_failure
 FROM projected p WHERE ` + strings.Join(where, " AND ") + ` ORDER BY created_at_ns DESC,list_key DESC LIMIT ?`
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -271,13 +263,13 @@ FROM projected p WHERE ` + strings.Join(where, " AND ") + ` ORDER BY created_at_
 	for rows.Next() {
 		var s jobdb.JobSummary
 		var route jobdb.Route
-		var metadata, clientPayload, payload, waitFor []byte
+		var metadata, clientPayload, payload, waitFor, failure []byte
 		var available, created int64
 		var archivedAt, leaseExpires sql.NullInt64
 		var completion, completionDetail, deadline sql.NullString
 		var waitID string
 		if err = rows.Scan(&s.AppendKey, &s.JobKey.TenantId, &s.JobKey.JobId, &s.CellID, &s.Cell, &s.CellRepo, &s.GoalID, &s.JobType, &route.JobType, &route.TaskType,
-			&s.ClientPayloadRevision, &clientPayload, &payload, &waitFor, &metadata, &s.ParentJobID, &available, &created, &archivedAt, &s.CancelRequested, &completion, &completionDetail, &leaseExpires, &s.Status, &waitID, &deadline); err != nil {
+			&s.ClientPayloadRevision, &clientPayload, &payload, &waitFor, &metadata, &s.ParentJobID, &available, &created, &archivedAt, &s.CancelRequested, &completion, &completionDetail, &leaseExpires, &s.Status, &waitID, &deadline, &s.RecordKind, &failure); err != nil {
 			return jobdb.ListJobsResponse{}, err
 		}
 		s.NextRoute = &route
@@ -304,6 +296,18 @@ FROM projected p WHERE ` + strings.Join(where, " AND ") + ` ORDER BY created_at_
 				}
 				s.BlockingWaitSummary.Deadline = &at
 			}
+		}
+		if len(failure) > 0 {
+			if err = json.Unmarshal(failure, &s.TerminalFailure); err != nil {
+				return jobdb.ListJobsResponse{}, fmt.Errorf("%w: %v", jobdb.ErrInvalidJobRecord, err)
+			}
+		}
+		if s.RecordKind.IsTerminalRecord() {
+			s.NextRoute = nil
+			s.ExecutionState = jobdb.ExecutionState{}
+		}
+		if err = s.ValidateRecord(); err != nil {
+			return jobdb.ListJobsResponse{}, err
 		}
 		out.Jobs = append(out.Jobs, s)
 	}

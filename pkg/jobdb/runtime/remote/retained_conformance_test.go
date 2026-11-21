@@ -66,8 +66,6 @@ func TestRetainedConsumerConformance(t *testing.T) {
 					for _, typ := range []reflect.Type{reflect.TypeOf(view), reflect.PointerTo(reflect.TypeOf(view))} {
 						_, found := typ.MethodByName("AddGoalCandidate")
 						require.False(tb, found)
-						require.False(tb, typ.Implements(reflect.TypeFor[jobdb.GoalCandidateMutator]()))
-						require.False(tb, typ.Implements(reflect.TypeFor[jobdb.WorkflowRuntime]()))
 					}
 					f := runtimetest.Fixture{Runtime: view, SchemaRegistry: view.(jobdb.JobSchemaRegistry)}
 					if transport != "direct" {

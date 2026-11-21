@@ -32,16 +32,12 @@ func GetJobRun(ctx context.Context, runtime JobRunReader, req GetJobRunRequest) 
 	if err != nil {
 		return GetJobRunResponse{}, err
 	}
-	chapters, err := runtime.ListChapters(ctx, ListChaptersRequest{JobKey: req.JobKey})
-	if err != nil {
-		return GetJobRunResponse{}, err
-	}
-	sort.Slice(chapters, func(i, j int) bool { return chapters[i].Ordinal < chapters[j].Ordinal })
-
 	resp := GetJobRunResponse{
 		Job: JobRunSummary{
 			AvailableAt: job.AvailableAt,
-			GoalID:      job.GoalID, OtherGoalIDs: append([]string(nil), job.OtherGoalIDs...), BlockingWait: job.BlockingWait,
+			Cell:        job.Cell, CellID: job.CellID, CellRepo: job.CellRepo,
+			RecordKind: job.RecordKind, TerminalFailure: CloneGoalFailure(job.TerminalFailure),
+			GoalID: job.GoalID, OtherGoalIDs: append([]string(nil), job.OtherGoalIDs...), BlockingWait: job.BlockingWait,
 			JobKey:           req.JobKey,
 			JobType:          job.JobType,
 			Status:           job.Status,
@@ -52,6 +48,17 @@ func GetJobRun(ctx context.Context, runtime JobRunReader, req GetJobRunRequest) 
 			Metadata:         append(json.RawMessage(nil), job.Metadata...),
 		},
 	}
+	if err := resp.Job.ValidateRecord(); err != nil {
+		return GetJobRunResponse{}, err
+	}
+	if job.RecordKind.IsTerminalRecord() {
+		return resp, nil
+	}
+	chapters, err := runtime.ListChapters(ctx, ListChaptersRequest{JobKey: req.JobKey})
+	if err != nil {
+		return GetJobRunResponse{}, err
+	}
+	sort.Slice(chapters, func(i, j int) bool { return chapters[i].Ordinal < chapters[j].Ordinal })
 
 	chapterByOrdinal := make(map[int64]Chapter, len(chapters))
 	for _, chapter := range chapters {
@@ -278,10 +285,20 @@ func loadJobSummary(ctx context.Context, runtime JobRunReader, jobKey JobKey) (J
 		}
 		for _, job := range resp.Jobs {
 			if job.JobKey == jobKey {
+				if err := job.ValidateRecord(); err != nil {
+					return JobSummary{}, err
+				}
 				// A run is a detail read. ListJobs deliberately omits these fields.
 				info, err := runtime.GetJob(ctx, jobKey)
 				if err != nil {
 					return JobSummary{}, err
+				}
+				if err := info.ValidateRecord(); err != nil {
+					return JobSummary{}, err
+				}
+				if job.RecordKind.IsTerminalRecord() != info.RecordKind.IsTerminalRecord() ||
+					(job.RecordKind.IsTerminalRecord() && (job.RecordKind != info.RecordKind || job.GoalID != info.GoalID)) {
+					return JobSummary{}, fmt.Errorf("%w: summary and detail disagree on protected identity", ErrInvalidJobRecord)
 				}
 				job.BlockingWait = info.BlockingWait
 				job.OtherGoalIDs = info.OtherGoalIDs
@@ -289,6 +306,14 @@ func loadJobSummary(ctx context.Context, runtime JobRunReader, jobKey JobKey) (J
 				job.ClientPayload = info.ClientPayload
 				job.ExecutionState = info.ExecutionState
 				job.WaitFor = info.WaitFor
+				// Exact detail supplies the current discriminator and protected
+				// outcome. Never infer these from the presence of chapters.
+				job.RecordKind = info.RecordKind
+				job.TerminalFailure = CloneGoalFailure(info.TerminalFailure)
+				if job.RecordKind.IsTerminalRecord() {
+					job.Status = info.Status
+					job.CompletionStatus = info.CompletionStatus
+				}
 				return cloneJobSummary(job), nil
 			}
 		}
@@ -630,6 +655,7 @@ func cloneStoredJobRunChapter(chapter Chapter) Chapter {
 
 func cloneJobSummary(job JobSummary) JobSummary {
 	cloned := job
+	cloned.TerminalFailure = CloneGoalFailure(job.TerminalFailure)
 	if job.BlockingWaitSummary != nil {
 		wait := *job.BlockingWaitSummary
 		wait.Deadline = cloneTimePtr(wait.Deadline)

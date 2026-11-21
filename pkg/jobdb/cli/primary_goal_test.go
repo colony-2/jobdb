@@ -52,6 +52,7 @@ func TestBundledPrimaryGoalSelection(t *testing.T) {
 			require.NoError(t, err)
 			source, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "source", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 			require.NoError(t, err)
+			require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: source.JobKey}))
 			req := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "selected", GoalID: source.GoalID, Cell: source.Cell, CellRepo: source.CellRepo, JobType: "work", Data: jobdb.NewTaskDataOrPanic("fresh")}}
 			expected := source
 			expected.JobKey.JobId = "selected"
@@ -59,14 +60,30 @@ func TestBundledPrimaryGoalSelection(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, expected, h)
 			require.NotEmpty(t, h.CellID)
+			failureJobID := ""
 			assertCounts := func(n int) {
 				jobs, e := rt.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}})
 				require.NoError(t, e)
-				require.Len(t, jobs.Jobs, n)
+				wantIDs := []string{"source", "selected"}
+				if n == 3 {
+					wantIDs = append(wantIDs, "lost")
+				}
+				if failureJobID != "" {
+					wantIDs = append(wantIDs, failureJobID)
+				}
+				var gotIDs []string
+				for _, job := range jobs.Jobs {
+					gotIDs = append(gotIDs, job.JobKey.JobId)
+					if job.JobKey.JobId == failureJobID {
+						require.Equal(t, jobdb.JobRecordGoalFailure, job.RecordKind)
+						require.Equal(t, "closed", job.TerminalFailure.Message)
+					}
+				}
+				require.ElementsMatch(t, wantIDs, gotIDs)
 				goals, e := rt.ListGoals(ctx, jobdb.ListGoalsRequest{TenantId: "tenant"})
 				require.NoError(t, e)
 				require.Len(t, goals.Goals, 1)
-				require.Equal(t, int64(n), goals.Goals[0].CandidateCount)
+				require.Equal(t, int64(len(wantIDs)), goals.Goals[0].CandidateCount)
 			}
 			info, err := rt.GetJob(ctx, h.JobKey)
 			require.NoError(t, err)
@@ -77,6 +94,7 @@ func TestBundledPrimaryGoalSelection(t *testing.T) {
 			require.Equal(t, h, replay)
 			assertCounts(2)
 
+			require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: h.JobKey}))
 			lost := req
 			lost.Job.JobID = "lost"
 			lose.Store(true)
@@ -105,8 +123,9 @@ func TestBundledPrimaryGoalSelection(t *testing.T) {
 				require.ErrorIs(t, err, jobdb.ErrJobNotFound)
 				assertCounts(3)
 			}
-			_, err = rt.FailGoal(ctx, jobdb.FailGoalRequest{GoalKey: jobdb.GoalKey{TenantId: "tenant", GoalID: h.GoalID}, Message: "closed"})
+			closed, err := rt.FailGoal(ctx, jobdb.FailGoalRequest{GoalKey: jobdb.GoalKey{TenantId: "tenant", GoalID: h.GoalID}, Message: "closed"})
 			require.NoError(t, err)
+			failureJobID = closed.FailureJobID
 			for _, retained := range []jobdb.SubmitJobRequest{req, lost} {
 				replay, err = rt.SubmitJob(ctx, retained)
 				require.NoError(t, err)
@@ -137,6 +156,7 @@ func TestBundledServePathsPrimaryGoalSelection(t *testing.T) {
 				require.NoError(t, err)
 				source, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "source", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 				require.NoError(t, err)
+				require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: source.JobKey}))
 				h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "selected", GoalID: source.GoalID, Cell: source.Cell, CellRepo: source.CellRepo, JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 				require.NoError(t, err)
 				expected := source

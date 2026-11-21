@@ -28,6 +28,9 @@ func (s *proxyServer) SubmitJobWithPrimaryGoal(ctx context.Context, request runt
 	if !ok || !capability.SupportsPrimaryGoalSelection() {
 		return nil, jobdb.ErrPrimaryGoalSelectionUnsupported
 	}
+	if !supportsGoalPublication(s.runtime, false) {
+		return nil, jobdb.ErrJobGoalSemanticsUnsupported
+	}
 	if request.Body == nil {
 		return nil, jobdb.ErrInvalidDependency
 	}
@@ -70,6 +73,9 @@ func (r *Runtime) submitJobWithPrimaryGoal(ctx context.Context, req jobdb.Submit
 	}
 	if discovery.StatusCode() != http.StatusOK || discovery.JSON200 == nil || !discovery.JSON200.Supported {
 		return jobdb.JobHandle{}, jobdb.ErrPrimaryGoalSelectionUnsupported
+	}
+	if err := r.requireGoalPublication(ctx, false); err != nil {
+		return jobdb.JobHandle{}, err
 	}
 	// The protected envelope contains selection; ordinary encoding remains unable
 	// to silently drop it. Preserve the caller's explicit destination on all errors.

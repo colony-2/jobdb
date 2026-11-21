@@ -27,7 +27,7 @@ func (r *Runtime) GetJob(ctx context.Context, key jobdb.JobKey) (jobdb.JobInfo, 
 	if stored.WorkKind == WorkKindTask && stored.TaskWork != nil {
 		route.TaskType = stored.TaskWork.TaskType
 	}
-	info := jobdb.JobInfo{AppendKey: stored.AppendKey, Cell: stored.Cell.Cell, CellID: stored.Cell.CellID, CellRepo: stored.Cell.CellRepo, NextRoute: &route, WaitFor: append([]string(nil), stored.WaitForJobIDs...), BlockingWait: stored.BlockingWait, GoalID: stored.GoalID, OtherGoalIDs: stored.OtherGoalIDs,
+	info := jobdb.JobInfo{AppendKey: stored.AppendKey, RecordKind: stored.RecordKind, TerminalFailure: jobdb.CloneGoalFailure(stored.TerminalFailure), Cell: stored.Cell.Cell, CellID: stored.Cell.CellID, CellRepo: stored.Cell.CellRepo, NextRoute: &route, WaitFor: append([]string(nil), stored.WaitForJobIDs...), BlockingWait: stored.BlockingWait, GoalID: stored.GoalID, OtherGoalIDs: stored.OtherGoalIDs,
 		Status: stored.Status, SchemaHash: stored.SchemaHash,
 		ClientPayload: append([]byte(nil), stored.ClientPayload...), ClientPayloadRevision: stored.ClientPayloadRevision, ExecutionState: executionState(stored.RunPolicy, stored.TaskWork),
 		Data: &runtimeJobData{err: jobdb.ErrJobNotComplete},
@@ -35,6 +35,20 @@ func (r *Runtime) GetJob(ctx context.Context, key jobdb.JobKey) (jobdb.JobInfo, 
 	if stored.Completion != nil {
 		info.CompletionStatus = stored.Completion.Status
 		info.CompletionDetail = stored.Completion.Detail
+	}
+	if stored.RecordKind.IsTerminalRecord() {
+		if err := validateProtectedStoredJob(stored); err != nil {
+			return jobdb.JobInfo{}, err
+		}
+		info.NextRoute = nil
+		info.ExecutionState = jobdb.ExecutionState{}
+	}
+	if err := info.ValidateRecord(); err != nil {
+		return jobdb.JobInfo{}, err
+	}
+	if stored.RecordKind.IsTerminalRecord() {
+		info.Data = &runtimeJobData{err: info.TerminalRecordFailure()}
+		return info, nil
 	}
 	if stored.Store != jobdb.JobStoreArchived {
 		return info, nil

@@ -37,9 +37,17 @@ fail compilation; custom adapters must implement real reads and wrappers must
 forward them. See [coordinated migration](MIGRATION-MANDATORY-LEASE-HISTORY.md).
 Supplied SQLite and toy runtimes record lease events automatically with existing
 constructors and CLI invocations. See [lease history](GUIDE-LEASE-EVENTS.md) for
-filters, cursor behavior, automatic database upgrades and backend integration.
+filters, cursor behavior, manual database upgrades and backend integration.
 
 Fresh submission can select an existing primary goal with `SubmitJob.GoalID`.
+The separate optional `JobGoalCapability` and HTTP job-goal discovery endpoint
+describe immutable membership, atomic admission and terminal failure support.
+Selection support alone does not imply those guarantees; see
+[job-goal capabilities](GUIDE-JOB-GOAL-CAPABILITIES.md).
+Protected job kinds, saved failure fields, chapter-free inspection and typed
+failed output are specified in the
+[terminal job read contract](GUIDE-TERMINAL-JOB-RECORDS.md). Reader support alone
+does not imply protected publication support.
 The optional `PrimaryGoalSelectionCapability`, trusted selection-authority hook,
 shared preparation/publication fields and retained complete receipts define
 backend support. Unknown support fails safely, and HTTP uses a dedicated
@@ -256,3 +264,19 @@ github.com/colony-2/jobdb/pkg/jobdb/runtime/toy
 
 No generated protobuf storage package should be added to this list unless it
 is explicitly promoted to public API.
+
+SQLite's public `CheckGoalMigration` and `MigrateGoals` operations accept an
+explicit existing filesystem path. `MigrationRequiredError` preserves the source
+format, available path and manual-upgrade commands from both constructors, and
+matches `ErrMigrationRequired` through `errors.Is`. See
+[SQLite manual migration](MIGRATION-IMMUTABLE-GOALS.md).
+
+
+Job-goal membership is immutable and selected at creation. Toy and SQLite reject
+fresh same-goal publication while any retained member is nonterminal. The former
+attachment method, HTTP mutation and CLI command are removed after Cortex, c2j and PostgreSQL consumer retirement; member reads and
+deprecated empty `OtherGoalIDs` remain. PostgreSQL backend conversion and
+terminal-record consumer integration follow shared contract publication. See [the specification](SPEC-Job-Goals.md) and
+[manual SQLite upgrade](MIGRATION-IMMUTABLE-GOALS.md) for primary-wins losses,
+backups, format refusal, capability limits and required writer exclusion/overlap
+drain before deployment activation.

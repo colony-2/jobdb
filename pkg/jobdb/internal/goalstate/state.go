@@ -14,11 +14,12 @@ import (
 )
 
 type Job struct {
-	Key       jobdb.JobKey
-	GoalID    string
-	Terminal  bool
-	Success   bool
-	CreatedAt time.Time
+	Key        jobdb.JobKey
+	RecordKind jobdb.JobRecordKind
+	GoalID     string
+	Terminal   bool
+	Success    bool
+	CreatedAt  time.Time
 }
 
 type Store interface {
@@ -27,8 +28,6 @@ type Store interface {
 	SaveGoal(jobdb.GoalInfo) error
 	Candidates(jobdb.GoalKey) ([]Job, error)
 	Goals(jobdb.JobKey) ([]jobdb.GoalKey, error)
-	Candidate(jobdb.GoalKey, string) (time.Time, bool, error)
-	InsertCandidate(jobdb.GoalKey, string, time.Time) error
 	Wait(jobdb.DependencyWaitKey) (jobdb.DependencyWaitInfo, error)
 	SaveWait(jobdb.DependencyWaitInfo) error
 	ConsumerWaits(jobdb.JobKey) ([]jobdb.DependencyWaitInfo, error)
@@ -40,46 +39,30 @@ type Engine struct {
 	Now   time.Time
 }
 
-func (e Engine) Add(req jobdb.AddGoalCandidateRequest) (jobdb.GoalCandidateInfo, error) {
-	if err := req.GoalKey.Validate(); err != nil {
-		return jobdb.GoalCandidateInfo{}, err
-	}
-	if req.JobID == "" {
-		return jobdb.GoalCandidateInfo{}, jobdb.ErrInvalidDependency
-	}
-	g, err := e.Store.Goal(req.GoalKey)
-	if err != nil {
-		return jobdb.GoalCandidateInfo{}, err
-	}
-	j, err := e.Store.Job(jobdb.JobKey{TenantId: req.GoalKey.TenantId, JobId: req.JobID})
-	if err != nil {
-		return jobdb.GoalCandidateInfo{}, err
-	}
-	at, exists, err := e.Store.Candidate(req.GoalKey, req.JobID)
-	if err != nil {
-		return jobdb.GoalCandidateInfo{}, err
-	}
-	if !exists {
-		if g.State != jobdb.GoalOpen {
-			return jobdb.GoalCandidateInfo{}, jobdb.ErrGoalConflict
-		}
-		at = e.Now
-		if err = e.Store.InsertCandidate(req.GoalKey, req.JobID, at); err != nil {
-			return jobdb.GoalCandidateInfo{}, err
-		}
-		if j.Success {
-			if err = e.resolve(&g, j.Key.JobId); err != nil {
-				return jobdb.GoalCandidateInfo{}, err
-			}
-		} else if !j.Terminal {
-			if err = e.CheckCycle(j.Key.TenantId, jobdb.DependencyTarget{GoalID: g.GoalKey.GoalID}); err != nil {
-				return jobdb.GoalCandidateInfo{}, err
-			}
-		}
-	}
-	return jobdb.GoalCandidateInfo{GoalKey: g.GoalKey, JobID: req.JobID, AddedAt: at, GoalState: g.State, SuccessfulJobID: g.SuccessfulJobID}, nil
+// FailureRecordStore stages a protected terminal job in the same scheduler
+// transaction as SaveGoal and waiter settlement. An error from any operation
+// must roll back the record, closure and waits together. The failure snapshot
+// describes members before insertion; implementations must not add chapters.
+type FailureRecordStore interface {
+	Store
+	InsertGoalFailure(jobdb.GoalInfo, jobdb.GoalFailure) (jobdb.JobKey, error)
 }
+
 func (e Engine) Fail(req jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
+	return e.FailWithRecord(req)
+}
+
+// FailWithRecord requires transactional protected publication. Neither entry
+// point can close a goal without its retained failure job.
+func (e Engine) FailWithRecord(req jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
+	store, ok := e.Store.(FailureRecordStore)
+	if !ok {
+		return jobdb.GoalInfo{}, jobdb.ErrJobGoalSemanticsUnsupported
+	}
+	return e.fail(req, store)
+}
+
+func (e Engine) fail(req jobdb.FailGoalRequest, records FailureRecordStore) (jobdb.GoalInfo, error) {
 	if err := req.Validate(); err != nil {
 		return jobdb.GoalInfo{}, err
 	}
@@ -88,6 +71,18 @@ func (e Engine) Fail(req jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
 		return g, err
 	}
 	if g.State == jobdb.GoalFailed && g.Failure != nil && g.Failure.Message == req.Message {
+		if records != nil {
+			if g.FailureJobID == "" {
+				return jobdb.GoalInfo{}, fmt.Errorf("%w: failed goal has no protected job", jobdb.ErrInvalidJobRecord)
+			}
+			j, err := e.Store.Job(jobdb.JobKey{TenantId: req.GoalKey.TenantId, JobId: g.FailureJobID})
+			if err != nil {
+				return jobdb.GoalInfo{}, err
+			}
+			if j.GoalID != req.GoalKey.GoalID || !j.RecordKind.IsTerminalRecord() || !j.Terminal || j.Success {
+				return jobdb.GoalInfo{}, fmt.Errorf("%w: failed goal references invalid protected job", jobdb.ErrInvalidJobRecord)
+			}
+		}
 		return g, nil
 	}
 	if g.State != jobdb.GoalOpen {
@@ -107,6 +102,19 @@ func (e Engine) Fail(req jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
 	}
 	sort.Strings(f.TerminalJobIDs)
 	sort.Strings(f.NonTerminalJobIDs)
+	if records != nil {
+		key, err := records.InsertGoalFailure(g, *jobdb.CloneGoalFailure(f))
+		if err != nil {
+			return jobdb.GoalInfo{}, err
+		}
+		if err := key.Validate(); err != nil {
+			return jobdb.GoalInfo{}, fmt.Errorf("%w: invalid protected job key: %v", jobdb.ErrInvalidJobRecord, err)
+		}
+		if key.TenantId != req.GoalKey.TenantId {
+			return jobdb.GoalInfo{}, fmt.Errorf("%w: protected job changed tenant", jobdb.ErrInvalidJobRecord)
+		}
+		g.FailureJobID = key.JobId
+	}
 	g.State = jobdb.GoalFailed
 	g.Revision = 2
 	g.UpdatedAt = e.Now

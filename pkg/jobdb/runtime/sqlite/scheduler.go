@@ -18,12 +18,14 @@ const jobColumns = `
 tenant_id, job_id, cell_id, cell_name, cell_repo, goal_id, dependency_wait_id, job_type, route_job_type, route_task_type, payload, client_payload, client_payload_revision, initial_payload_digest, metadata, parent_job_id, wait_for,
 available_at_ns, wait_deadline_ns, created_at_ns, updated_at_ns, archived_at_ns,
 cancel_requested, completion_status, completion_detail,
-consecutive_expirations, lease_id, lease_worker_id, lease_expires_at_ns, alternate_job_type, alternate_task_type, alternate_at_ns, append_key, append_gen
+consecutive_expirations, lease_id, lease_worker_id, lease_expires_at_ns, alternate_job_type, alternate_task_type, alternate_at_ns, append_key, append_gen, record_kind, goal_failure
 `
 
 type jobRow struct {
 	appendKey             sql.NullString
 	appendGeneration      sql.NullInt64
+	recordKind            jobdb.JobRecordKind
+	terminalFailure       *jobdb.GoalFailure
 	cell                  jobdb.ResolvedCell
 	goalID                string
 	dependencyWaitID      string
@@ -59,7 +61,7 @@ func scanJobRow(scanner interface{ Scan(dest ...any) error }) (jobRow, error) {
 	var row jobRow
 	var cancelRequested int
 	var alternateJob, alternateTask sql.NullString
-	var payload, client []byte
+	var payload, client, failure []byte
 	var metadata []byte
 	var waitFor []byte
 	if err := scanner.Scan(
@@ -86,9 +88,17 @@ func scanJobRow(scanner interface{ Scan(dest ...any) error }) (jobRow, error) {
 		&row.leaseWorkerID,
 		&row.leaseExpiresAtNS,
 		&alternateJob, &alternateTask,
-		&row.alternateAtNS, &row.appendKey, &row.appendGeneration,
+		&row.alternateAtNS, &row.appendKey, &row.appendGeneration, &row.recordKind, &failure,
 	); err != nil {
 		return jobRow{}, err
+	}
+	if err := row.recordKind.Validate(); err != nil {
+		return jobRow{}, err
+	}
+	if len(failure) > 0 {
+		if err := json.Unmarshal(failure, &row.terminalFailure); err != nil {
+			return jobRow{}, fmt.Errorf("%w: invalid saved failure: %v", jobdb.ErrInvalidJobRecord, err)
+		}
 	}
 	if alternateJob.Valid {
 		row.alternateRoute = &jobdb.Route{JobType: alternateJob.String, TaskType: alternateTask.String}
@@ -171,7 +181,7 @@ func (r *Runtime) insertJobRecordTx(ctx context.Context, tx *sql.Tx, jobKey jobd
 	if err != nil {
 		return err
 	}
-	goalID, deps, err := publishGoal(ctx, tx, jobKey, target, now)
+	goalID, deps, err := publishGoal(ctx, tx, jobKey, target)
 	if err != nil {
 		return err
 	}
@@ -198,6 +208,15 @@ INSERT INTO jobdb_jobs (
 	)
 	if err != nil {
 		return fmt.Errorf("sqlite runtime: insert job: %w", err)
+	}
+	var shared bool
+	if err = tx.QueryRowContext(ctx, `SELECT share_goal FROM jobdb_goal_preparations WHERE tenant_id=? AND job_id=?`, jobKey.TenantId, jobKey.JobId).Scan(&shared); err != nil {
+		return err
+	}
+	if !shared {
+		if err = retainedStore(ctx, tx).MarkOrigin(jobKey); err != nil {
+			return err
+		}
 	}
 	if len(deps) > 0 {
 		if _, err = goalEngine(ctx, tx).Register(jobKey, jobdb.DependencyWait{WaitID: "submission", Dependencies: deps}, true); err != nil {
@@ -258,7 +277,7 @@ func (r *Runtime) withTx(ctx context.Context, fn func(*sql.Tx) error) error {
 	defer func() { _ = tx.Rollback() }()
 	// Acquire the SQLite writer reservation before reading scheduler facts. This
 	// prevents deferred read transactions racing into SQLITE_BUSY_SNAPSHOT.
-	if _, err := tx.ExecContext(ctx, "UPDATE jobdb_goals SET payload=payload WHERE 0"); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE jobdb_jobs SET job_id=job_id WHERE 0"); err != nil {
 		return err
 	}
 	if err := fn(tx); err != nil {

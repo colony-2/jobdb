@@ -623,9 +623,6 @@ type GetJobLeaseResponse struct {
 // GoalCandidateFilter defines model for GoalCandidateFilter.
 type GoalCandidateFilter = jobdb.GoalCandidateFilter
 
-// GoalCandidateInfo defines model for GoalCandidateInfo.
-type GoalCandidateInfo = jobdb.GoalCandidateInfo
-
 // GoalFailure defines model for GoalFailure.
 type GoalFailure = jobdb.GoalFailure
 
@@ -662,6 +659,18 @@ type JobDependencyFailure struct {
 
 // JobDependencyFailureCode defines model for JobDependencyFailure.Code.
 type JobDependencyFailureCode string
+
+// JobGoalCapabilities defines model for JobGoalCapabilities.
+type JobGoalCapabilities struct {
+	// AtomicAdmission Fresh publication cannot add a nonterminal member while any member is nonterminal. Does not certify overlap drain or exclusion of obsolete writers.
+	AtomicAdmission bool `json:"atomicAdmission"`
+
+	// ImmutableMembership One immutable primary goal selected only at job creation.
+	ImmutableMembership bool `json:"immutableMembership"`
+
+	// TerminalFailureRecords Protected terminal failure publication and durable goal waiter settlement commit atomically without execution chapters.
+	TerminalFailureRecords bool `json:"terminalFailureRecords"`
+}
 
 // JobHandle defines model for JobHandle.
 type JobHandle struct {
@@ -722,10 +731,15 @@ type JobInfo struct {
 	ExecutionState ExecutionState  `json:"executionState"`
 	GoalId         string          `json:"goalId"`
 	NextRoute      *Route          `json:"nextRoute,omitempty"`
-	OtherGoalIds   []string        `json:"otherGoalIds"`
-	SchemaHash     *JobSchemaHash  `json:"schemaHash,omitempty"`
-	Status         JobStatus       `json:"status"`
-	WaitFor        *[]string       `json:"waitFor,omitempty"`
+
+	// OtherGoalIds Deprecated; always empty. Jobs have only their immutable primary goal.
+	// Deprecated: Membership is the immutable primary goal.
+	OtherGoalIds    []string       `json:"otherGoalIds"`
+	RecordKind      JobRecordKind  `json:"recordKind,omitempty"`
+	SchemaHash      *JobSchemaHash `json:"schemaHash,omitempty"`
+	Status          JobStatus      `json:"status"`
+	TerminalFailure *GoalFailure   `json:"terminalFailure,omitempty"`
+	WaitFor         *[]string      `json:"waitFor,omitempty"`
 }
 
 // JobKey defines model for JobKey.
@@ -742,6 +756,9 @@ type JobPrerequisite struct {
 
 // JobPrerequisiteCondition defines model for JobPrerequisite.Condition.
 type JobPrerequisiteCondition string
+
+// JobRecordKind Read-only protected record discriminator. Missing or empty legacy values mean EXECUTION. Job type and absent chapters do not convey protection.
+type JobRecordKind = jobdb.JobRecordKind
 
 // JobSchemaDocument JobDB schema envelope. Each shape is a JSON Schema draft 2020-12 schema fragment that validates a visible chapter record.
 type JobSchemaDocument = json.RawMessage
@@ -846,11 +863,13 @@ type JobSummary struct {
 	Metadata         *Metadata      `json:"metadata,omitempty"`
 	NextRoute        *Route         `json:"nextRoute,omitempty"`
 	// Deprecated: Not populated by ordinary job lists. Use GetJob for details.
-	OtherGoalIds []string       `json:"otherGoalIds"`
-	ParentJobId  *string        `json:"parentJobId,omitempty"`
-	SchemaHash   *JobSchemaHash `json:"schemaHash,omitempty"`
-	Status       JobStatus      `json:"status"`
-	WaitFor      []string       `json:"waitFor"`
+	OtherGoalIds    []string       `json:"otherGoalIds"`
+	ParentJobId     *string        `json:"parentJobId,omitempty"`
+	RecordKind      JobRecordKind  `json:"recordKind,omitempty"`
+	SchemaHash      *JobSchemaHash `json:"schemaHash,omitempty"`
+	Status          JobStatus      `json:"status"`
+	TerminalFailure *GoalFailure   `json:"terminalFailure,omitempty"`
+	WaitFor         []string       `json:"waitFor"`
 }
 
 // JobTaskFilter defines model for JobTaskFilter.
@@ -2460,6 +2479,9 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+	// GetJobGoalCapabilities request
+	GetJobGoalCapabilities(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetPrimaryGoalSelectionCapability request
 	GetPrimaryGoalSelectionCapability(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -2512,9 +2534,6 @@ type ClientInterface interface {
 
 	// GetGoal request
 	GetGoal(ctx context.Context, tenantId string, goalId string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// AddGoalCandidate request
-	AddGoalCandidate(ctx context.Context, tenantId string, goalId string, jobId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// FailGoalWithBody request with any body
 	FailGoalWithBody(ctx context.Context, tenantId string, goalId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -2694,6 +2713,18 @@ type ClientInterface interface {
 
 	// ArchiveJobSchema request
 	ArchiveJobSchema(ctx context.Context, tenantId TenantId, schemaHash JobSchemaHash, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+func (c *Client) GetJobGoalCapabilities(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetJobGoalCapabilitiesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 func (c *Client) GetPrimaryGoalSelectionCapability(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -2926,18 +2957,6 @@ func (c *Client) ListGoals(ctx context.Context, tenantId string, body ListGoalsJ
 
 func (c *Client) GetGoal(ctx context.Context, tenantId string, goalId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetGoalRequest(c.Server, tenantId, goalId)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) AddGoalCandidate(ctx context.Context, tenantId string, goalId string, jobId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewAddGoalCandidateRequest(c.Server, tenantId, goalId, jobId)
 	if err != nil {
 		return nil, err
 	}
@@ -3776,6 +3795,33 @@ func (c *Client) ArchiveJobSchema(ctx context.Context, tenantId TenantId, schema
 	return c.Client.Do(req)
 }
 
+// NewGetJobGoalCapabilitiesRequest generates requests for GetJobGoalCapabilities
+func NewGetJobGoalCapabilitiesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/capabilities/job-goals")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetPrimaryGoalSelectionCapabilityRequest generates requests for GetPrimaryGoalSelectionCapability
 func NewGetPrimaryGoalSelectionCapabilityRequest(server string) (*http.Request, error) {
 	var err error
@@ -4446,54 +4492,6 @@ func NewGetGoalRequest(server string, tenantId string, goalId string) (*http.Req
 	}
 
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewAddGoalCandidateRequest generates requests for AddGoalCandidate
-func NewAddGoalCandidateRequest(server string, tenantId string, goalId string, jobId string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
-	if err != nil {
-		return nil, err
-	}
-
-	var pathParam1 string
-
-	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "goalId", runtime.ParamLocationPath, goalId)
-	if err != nil {
-		return nil, err
-	}
-
-	var pathParam2 string
-
-	pathParam2, err = runtime.StyleParamWithLocation("simple", false, "jobId", runtime.ParamLocationPath, jobId)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v1/tenants/%s/goals/%s/candidates/%s", pathParam0, pathParam1, pathParam2)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("PUT", queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -7039,6 +7037,9 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
+	// GetJobGoalCapabilitiesWithResponse request
+	GetJobGoalCapabilitiesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetJobGoalCapabilitiesHTTPResponse, error)
+
 	// GetPrimaryGoalSelectionCapabilityWithResponse request
 	GetPrimaryGoalSelectionCapabilityWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetPrimaryGoalSelectionCapabilityHTTPResponse, error)
 
@@ -7091,9 +7092,6 @@ type ClientWithResponsesInterface interface {
 
 	// GetGoalWithResponse request
 	GetGoalWithResponse(ctx context.Context, tenantId string, goalId string, reqEditors ...RequestEditorFn) (*GetGoalHTTPResponse, error)
-
-	// AddGoalCandidateWithResponse request
-	AddGoalCandidateWithResponse(ctx context.Context, tenantId string, goalId string, jobId string, reqEditors ...RequestEditorFn) (*AddGoalCandidateHTTPResponse, error)
 
 	// FailGoalWithBodyWithResponse request with any body
 	FailGoalWithBodyWithResponse(ctx context.Context, tenantId string, goalId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*FailGoalHTTPResponse, error)
@@ -7273,6 +7271,28 @@ type ClientWithResponsesInterface interface {
 
 	// ArchiveJobSchemaWithResponse request
 	ArchiveJobSchemaWithResponse(ctx context.Context, tenantId TenantId, schemaHash JobSchemaHash, reqEditors ...RequestEditorFn) (*ArchiveJobSchemaHTTPResponse, error)
+}
+
+type GetJobGoalCapabilitiesHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *JobGoalCapabilities
+}
+
+// Status returns HTTPResponse.Status
+func (r GetJobGoalCapabilitiesHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetJobGoalCapabilitiesHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
 }
 
 type GetPrimaryGoalSelectionCapabilityHTTPResponse struct {
@@ -7606,28 +7626,6 @@ func (r GetGoalHTTPResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r GetGoalHTTPResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type AddGoalCandidateHTTPResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *GoalCandidateInfo
-}
-
-// Status returns HTTPResponse.Status
-func (r AddGoalCandidateHTTPResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r AddGoalCandidateHTTPResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -8590,6 +8588,15 @@ func (r ArchiveJobSchemaHTTPResponse) StatusCode() int {
 	return 0
 }
 
+// GetJobGoalCapabilitiesWithResponse request returning *GetJobGoalCapabilitiesHTTPResponse
+func (c *ClientWithResponses) GetJobGoalCapabilitiesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetJobGoalCapabilitiesHTTPResponse, error) {
+	rsp, err := c.GetJobGoalCapabilities(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetJobGoalCapabilitiesHTTPResponse(rsp)
+}
+
 // GetPrimaryGoalSelectionCapabilityWithResponse request returning *GetPrimaryGoalSelectionCapabilityHTTPResponse
 func (c *ClientWithResponses) GetPrimaryGoalSelectionCapabilityWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetPrimaryGoalSelectionCapabilityHTTPResponse, error) {
 	rsp, err := c.GetPrimaryGoalSelectionCapability(ctx, reqEditors...)
@@ -8761,15 +8768,6 @@ func (c *ClientWithResponses) GetGoalWithResponse(ctx context.Context, tenantId 
 		return nil, err
 	}
 	return ParseGetGoalHTTPResponse(rsp)
-}
-
-// AddGoalCandidateWithResponse request returning *AddGoalCandidateHTTPResponse
-func (c *ClientWithResponses) AddGoalCandidateWithResponse(ctx context.Context, tenantId string, goalId string, jobId string, reqEditors ...RequestEditorFn) (*AddGoalCandidateHTTPResponse, error) {
-	rsp, err := c.AddGoalCandidate(ctx, tenantId, goalId, jobId, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseAddGoalCandidateHTTPResponse(rsp)
 }
 
 // FailGoalWithBodyWithResponse request with arbitrary body returning *FailGoalHTTPResponse
@@ -9363,6 +9361,32 @@ func (c *ClientWithResponses) ArchiveJobSchemaWithResponse(ctx context.Context, 
 		return nil, err
 	}
 	return ParseArchiveJobSchemaHTTPResponse(rsp)
+}
+
+// ParseGetJobGoalCapabilitiesHTTPResponse parses an HTTP response from a GetJobGoalCapabilitiesWithResponse call
+func ParseGetJobGoalCapabilitiesHTTPResponse(rsp *http.Response) (*GetJobGoalCapabilitiesHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetJobGoalCapabilitiesHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest JobGoalCapabilities
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseGetPrimaryGoalSelectionCapabilityHTTPResponse parses an HTTP response from a GetPrimaryGoalSelectionCapabilityWithResponse call
@@ -10038,32 +10062,6 @@ func ParseGetGoalHTTPResponse(rsp *http.Response) (*GetGoalHTTPResponse, error) 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest GoalInfo
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseAddGoalCandidateHTTPResponse parses an HTTP response from a AddGoalCandidateWithResponse call
-func ParseAddGoalCandidateHTTPResponse(rsp *http.Response) (*AddGoalCandidateHTTPResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &AddGoalCandidateHTTPResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest GoalCandidateInfo
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -11508,6 +11506,9 @@ func ParseArchiveJobSchemaHTTPResponse(rsp *http.Response) (*ArchiveJobSchemaHTT
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// Discover immutable membership, atomic admission and terminal failure support
+	// (GET /v1/capabilities/job-goals)
+	GetJobGoalCapabilities(w http.ResponseWriter, r *http.Request)
 	// Discover complete primary-goal selection support
 	// (GET /v1/capabilities/primary-goal-selection)
 	GetPrimaryGoalSelectionCapability(w http.ResponseWriter, r *http.Request)
@@ -11547,9 +11548,6 @@ type ServerInterface interface {
 
 	// (GET /v1/tenants/{tenantId}/goals/{goalId})
 	GetGoal(w http.ResponseWriter, r *http.Request, tenantId string, goalId string)
-
-	// (PUT /v1/tenants/{tenantId}/goals/{goalId}/candidates/{jobId})
-	AddGoalCandidate(w http.ResponseWriter, r *http.Request, tenantId string, goalId string, jobId string)
 
 	// (POST /v1/tenants/{tenantId}/goals/{goalId}/fail)
 	FailGoal(w http.ResponseWriter, r *http.Request, tenantId string, goalId string)
@@ -11679,6 +11677,12 @@ type ServerInterface interface {
 
 type Unimplemented struct{}
 
+// Discover immutable membership, atomic admission and terminal failure support
+// (GET /v1/capabilities/job-goals)
+func (_ Unimplemented) GetJobGoalCapabilities(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Discover complete primary-goal selection support
 // (GET /v1/capabilities/primary-goal-selection)
 func (_ Unimplemented) GetPrimaryGoalSelectionCapability(w http.ResponseWriter, r *http.Request) {
@@ -11751,11 +11755,6 @@ func (_ Unimplemented) ListGoals(w http.ResponseWriter, r *http.Request, tenantI
 
 // (GET /v1/tenants/{tenantId}/goals/{goalId})
 func (_ Unimplemented) GetGoal(w http.ResponseWriter, r *http.Request, tenantId string, goalId string) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// (PUT /v1/tenants/{tenantId}/goals/{goalId}/candidates/{jobId})
-func (_ Unimplemented) AddGoalCandidate(w http.ResponseWriter, r *http.Request, tenantId string, goalId string, jobId string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -12010,6 +12009,26 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// GetJobGoalCapabilities operation middleware
+func (siw *ServerInterfaceWrapper) GetJobGoalCapabilities(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetJobGoalCapabilities(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // GetPrimaryGoalSelectionCapability operation middleware
 func (siw *ServerInterfaceWrapper) GetPrimaryGoalSelectionCapability(w http.ResponseWriter, r *http.Request) {
@@ -12550,55 +12569,6 @@ func (siw *ServerInterfaceWrapper) GetGoal(w http.ResponseWriter, r *http.Reques
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetGoal(w, r, tenantId, goalId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// AddGoalCandidate operation middleware
-func (siw *ServerInterfaceWrapper) AddGoalCandidate(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "tenantId" -------------
-	var tenantId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "goalId" -------------
-	var goalId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "goalId", chi.URLParam(r, "goalId"), &goalId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "goalId", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "jobId" -------------
-	var jobId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "jobId", chi.URLParam(r, "jobId"), &jobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AddGoalCandidate(w, r, tenantId, goalId, jobId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -15092,6 +15062,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/capabilities/job-goals", wrapper.GetJobGoalCapabilities)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/capabilities/primary-goal-selection", wrapper.GetPrimaryGoalSelectionCapability)
 	})
 	r.Group(func(r chi.Router) {
@@ -15129,9 +15102,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/tenants/{tenantId}/goals/{goalId}", wrapper.GetGoal)
-	})
-	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/v1/tenants/{tenantId}/goals/{goalId}/candidates/{jobId}", wrapper.AddGoalCandidate)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/goals/{goalId}/fail", wrapper.FailGoal)
@@ -15352,6 +15322,22 @@ type UnauthorizedJSONResponse struct {
 	Body ErrorResponse
 
 	Headers UnauthorizedResponseHeaders
+}
+
+type GetJobGoalCapabilitiesRequestObject struct {
+}
+
+type GetJobGoalCapabilitiesResponseObject interface {
+	VisitGetJobGoalCapabilitiesResponse(w http.ResponseWriter) error
+}
+
+type GetJobGoalCapabilities200JSONResponse JobGoalCapabilities
+
+func (response GetJobGoalCapabilities200JSONResponse) VisitGetJobGoalCapabilitiesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type GetPrimaryGoalSelectionCapabilityRequestObject struct {
@@ -16294,25 +16280,6 @@ type GetGoalResponseObject interface {
 type GetGoal200JSONResponse GoalInfo
 
 func (response GetGoal200JSONResponse) VisitGetGoalResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type AddGoalCandidateRequestObject struct {
-	TenantId string `json:"tenantId"`
-	GoalId   string `json:"goalId"`
-	JobId    string `json:"jobId"`
-}
-
-type AddGoalCandidateResponseObject interface {
-	VisitAddGoalCandidateResponse(w http.ResponseWriter) error
-}
-
-type AddGoalCandidate200JSONResponse GoalCandidateInfo
-
-func (response AddGoalCandidate200JSONResponse) VisitAddGoalCandidateResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
 
@@ -17915,6 +17882,9 @@ func (response ArchiveJobSchema200JSONResponse) VisitArchiveJobSchemaResponse(w 
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// Discover immutable membership, atomic admission and terminal failure support
+	// (GET /v1/capabilities/job-goals)
+	GetJobGoalCapabilities(ctx context.Context, request GetJobGoalCapabilitiesRequestObject) (GetJobGoalCapabilitiesResponseObject, error)
 	// Discover complete primary-goal selection support
 	// (GET /v1/capabilities/primary-goal-selection)
 	GetPrimaryGoalSelectionCapability(ctx context.Context, request GetPrimaryGoalSelectionCapabilityRequestObject) (GetPrimaryGoalSelectionCapabilityResponseObject, error)
@@ -17954,9 +17924,6 @@ type StrictServerInterface interface {
 
 	// (GET /v1/tenants/{tenantId}/goals/{goalId})
 	GetGoal(ctx context.Context, request GetGoalRequestObject) (GetGoalResponseObject, error)
-
-	// (PUT /v1/tenants/{tenantId}/goals/{goalId}/candidates/{jobId})
-	AddGoalCandidate(ctx context.Context, request AddGoalCandidateRequestObject) (AddGoalCandidateResponseObject, error)
 
 	// (POST /v1/tenants/{tenantId}/goals/{goalId}/fail)
 	FailGoal(ctx context.Context, request FailGoalRequestObject) (FailGoalResponseObject, error)
@@ -18109,6 +18076,30 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// GetJobGoalCapabilities operation middleware
+func (sh *strictHandler) GetJobGoalCapabilities(w http.ResponseWriter, r *http.Request) {
+	var request GetJobGoalCapabilitiesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetJobGoalCapabilities(ctx, request.(GetJobGoalCapabilitiesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetJobGoalCapabilities")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetJobGoalCapabilitiesResponseObject); ok {
+		if err := validResponse.VisitGetJobGoalCapabilitiesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // GetPrimaryGoalSelectionCapability operation middleware
@@ -18496,34 +18487,6 @@ func (sh *strictHandler) GetGoal(w http.ResponseWriter, r *http.Request, tenantI
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetGoalResponseObject); ok {
 		if err := validResponse.VisitGetGoalResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// AddGoalCandidate operation middleware
-func (sh *strictHandler) AddGoalCandidate(w http.ResponseWriter, r *http.Request, tenantId string, goalId string, jobId string) {
-	var request AddGoalCandidateRequestObject
-
-	request.TenantId = tenantId
-	request.GoalId = goalId
-	request.JobId = jobId
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.AddGoalCandidate(ctx, request.(AddGoalCandidateRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "AddGoalCandidate")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(AddGoalCandidateResponseObject); ok {
-		if err := validResponse.VisitAddGoalCandidateResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

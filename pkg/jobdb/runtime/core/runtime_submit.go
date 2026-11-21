@@ -37,6 +37,12 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	if req.Job.GoalID != "" && !r.SupportsPrimaryGoalSelection() {
 		return jobdb.JobHandle{}, jobdb.ErrPrimaryGoalSelectionUnsupported
 	}
+	if req.Job.GoalID != "" {
+		caps := r.JobGoalCapabilities()
+		if !caps.ImmutableMembership || !caps.AtomicAdmission {
+			return jobdb.JobHandle{}, jobdb.ErrJobGoalSemanticsUnsupported
+		}
+	}
 	if err := jobdb.ValidateIdentifier(req.Job.JobType); err != nil {
 		return jobdb.JobHandle{}, err
 	}

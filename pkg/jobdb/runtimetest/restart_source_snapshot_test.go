@@ -101,7 +101,7 @@ func snapshotInfo() jobdb.JobInfo {
 	index := 1
 	invocation, total := jobdb.Duration(13), jobdb.Duration(17)
 	failure := snapshotFailure()
-	return jobdb.JobInfo{AppendKey: "append", Cell: "cell", CellID: "id", CellRepo: "repo", NextRoute: &jobdb.Route{JobType: "job", TaskType: "task"},
+	return jobdb.JobInfo{RecordKind: jobdb.JobRecordExecution, TerminalFailure: snapshotFailure(), AppendKey: "append", Cell: "cell", CellID: "id", CellRepo: "repo", NextRoute: &jobdb.Route{JobType: "job", TaskType: "task"},
 		CompletionStatus: "done", CompletionDetail: "detail", WaitFor: []string{"wait"},
 		BlockingWait: &jobdb.DependencyWaitInfo{JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}, WaitID: "wait", State: jobdb.DependencyFailed,
 			Deadline: &deadline, FailedDependencyIndex: &index, Failure: failure, Dependencies: []jobdb.DependencyResolution{{Target: jobdb.DependencyTarget{JobID: "job", GoalID: "goal"}, Condition: jobdb.JobPrereqSuccess,
@@ -189,7 +189,7 @@ func TestRestartSourceSnapshotPublicFields(t *testing.T) {
 	for i := 0; i < typ.NumField(); i++ {
 		fields = append(fields, typ.Field(i).Name)
 	}
-	require.Equal(t, []string{"AppendKey", "Cell", "CellID", "CellRepo", "NextRoute", "CompletionStatus", "CompletionDetail", "WaitFor", "BlockingWait", "GoalID", "OtherGoalIDs", "ClientPayload", "ClientPayloadRevision", "ExecutionState", "Status", "Data", "SchemaHash"}, fields)
+	require.Equal(t, []string{"AppendKey", "RecordKind", "TerminalFailure", "Cell", "CellID", "CellRepo", "NextRoute", "CompletionStatus", "CompletionDetail", "WaitFor", "BlockingWait", "GoalID", "OtherGoalIDs", "ClientPayload", "ClientPayloadRevision", "ExecutionState", "Status", "Data", "SchemaHash"}, fields)
 	fixture := snapshotInfo()
 	changes := snapshotChanges(reflect.ValueOf(&fixture).Elem(), "JobInfo", func() {})
 	covered := map[string]bool{"Data": true} // Data's independent matrix follows below.

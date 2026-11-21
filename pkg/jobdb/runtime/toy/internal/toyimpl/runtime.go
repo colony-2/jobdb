@@ -327,6 +327,16 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 		return reserved.Target.Handle(reserved.Key, reserved.GoalID), nil
 	}
 
+	sourceInfo, err := r.GetJob(ctx, req.Job.PriorJobKey)
+	if err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	if err := sourceInfo.ValidateRecord(); err != nil {
+		return jobdb.JobHandle{}, err
+	}
+	if sourceInfo.RecordKind.IsTerminalRecord() {
+		return jobdb.JobHandle{}, jobdb.ErrJobRecordOperationUnsupported
+	}
 	job, executionRestart, resolveErr := runtimecore.ResolveExecutionRestart(ctx, r, req.Job)
 	if resolveErr != nil {
 		return jobdb.JobHandle{}, resolveErr
@@ -572,7 +582,7 @@ func (r *Runtime) CancelJob(ctx context.Context, req jobdb.CancelJobRequest) err
 	record.leased = false
 	record.leaseID = ""
 	r.engine.initGoalsLocked()
-	return (goalstate.Engine{Store: r.engine.goals, Now: now}).Complete(req.JobKey)
+	return (goalstate.Engine{Store: r.engine.goalStoreLocked(), Now: now}).Complete(req.JobKey)
 }
 
 func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jobdb.ExecutionLease, error) {
@@ -810,11 +820,25 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 	if err != nil {
 		return jobdb.JobInfo{}, err
 	}
-	job := jobdb.JobInfo{AppendKey: record.appendKey, Cell: r.engine.cellsLocked(jobKey.TenantId).Cells[record.cell.CellID].Name, CellID: record.cell.CellID, CellRepo: record.cell.CellRepo, NextRoute: jobdb.CloneRoute(&record.route), WaitFor: append([]string(nil), record.waitFor...), CompletionStatus: record.completionStatus, CompletionDetail: record.completionDetail, BlockingWait: blocking, GoalID: record.goalID, OtherGoalIDs: r.engine.otherGoalsLocked(jobKey),
+	job := jobdb.JobInfo{AppendKey: record.appendKey, RecordKind: record.recordKind, TerminalFailure: jobdb.CloneGoalFailure(record.terminalFailure), Cell: r.engine.cellsLocked(jobKey.TenantId).Cells[record.cell.CellID].Name, CellID: record.cell.CellID, CellRepo: record.cell.CellRepo, NextRoute: jobdb.CloneRoute(&record.route), WaitFor: append([]string(nil), record.waitFor...), CompletionStatus: record.completionStatus, CompletionDetail: record.completionDetail, BlockingWait: blocking, GoalID: record.goalID, OtherGoalIDs: r.engine.otherGoalsLocked(jobKey),
 		ClientPayload: cloneJSON(record.clientPayload), ClientPayloadRevision: record.clientPayloadRevision, ExecutionState: toyExecutionState(record.payload),
 		Status:     r.engine.availableStatusLocked(jobKey.TenantId, time.Now(), record),
 		Data:       &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
 		SchemaHash: jobmetadata.SchemaHashFromStoredMetadata(record.metadata),
+	}
+	if record.recordKind.IsTerminalRecord() {
+		if err := validateProtectedToyRecord(record); err != nil {
+			return jobdb.JobInfo{}, err
+		}
+		job.NextRoute = nil
+		job.ExecutionState = jobdb.ExecutionState{}
+	}
+	if err := job.ValidateRecord(); err != nil {
+		return jobdb.JobInfo{}, err
+	}
+	if record.recordKind.IsTerminalRecord() {
+		job.Data = &jobInfoTaskData{err: job.TerminalRecordFailure()}
+		return job, nil
 	}
 	if record.status == jobdb.JobStatusCompleted || record.status == jobdb.JobStatusCancelled {
 		job.Data = &jobInfoTaskData{taskData: record.result, err: record.err}
@@ -857,12 +881,22 @@ func (r *Runtime) ListChapters(ctx context.Context, req jobdb.ListChaptersReques
 		return nil, fmt.Errorf("start ordinal must be >= 0")
 	}
 	r.engine.mu.Lock()
-	defer r.engine.mu.Unlock()
 
 	chapters := r.engine.runtimeChapters[req.JobKey]
 	if chapters == nil {
+		r.engine.mu.Unlock()
+		// Protected records deliberately have no chapter log. Validate their
+		// retained facts before accepting that absence as an empty inventory.
+		info, err := r.GetJob(ctx, req.JobKey)
+		if err != nil {
+			return nil, err
+		}
+		if info.RecordKind.IsTerminalRecord() {
+			return []jobdb.Chapter{}, nil
+		}
 		return nil, jobdb.ErrJobNotFound
 	}
+	defer r.engine.mu.Unlock()
 
 	ordinals := make([]int64, 0, len(chapters))
 	for ordinal := range chapters {
@@ -1321,7 +1355,7 @@ func (r *Runtime) completeLease(ctx context.Context, jobKey jobdb.JobKey, leaseI
 		record.status = jobdb.JobStatusCompleted
 	}
 	r.engine.initGoalsLocked()
-	return (goalstate.Engine{Store: r.engine.goals, Now: now}).Complete(jobKey)
+	return (goalstate.Engine{Store: r.engine.goalStoreLocked(), Now: now}).Complete(jobKey)
 }
 
 func (r *Runtime) ensureCompletionChapter(ctx context.Context, jobKey jobdb.JobKey, leaseID string, schemaHash string, req jobdb.CompleteExecutionRequest) (jobdb.Chapter, error) {
@@ -1416,7 +1450,7 @@ func (r *Runtime) rescheduleLease(jobKey jobdb.JobKey, leaseID string, workerID 
 		state.TaskWait = &workerTaskWait{InputStep: task.InputOrdinal, OutputStep: task.OutputOrdinal, InputHash: task.InputHash, Next: task.ResumeJobType}
 	}
 	r.engine.initGoalsLocked()
-	nextGoals := r.engine.goals.Clone()
+	nextGoals := r.engine.goalStoreLocked().Clone()
 	waitID := ""
 	if record.dependencyWaitID != "" && (req.DependencyWait == nil || req.DependencyWait.WaitID != record.dependencyWaitID) {
 		if err := (goalstate.Engine{Store: nextGoals, Now: time.Now().UTC()}).CloseConsumer(jobKey); err != nil {
@@ -1429,7 +1463,7 @@ func (r *Runtime) rescheduleLease(jobKey jobdb.JobKey, leaseID string, workerID 
 		}
 		waitID = req.DependencyWait.WaitID
 	}
-	r.engine.goals = nextGoals
+	nextGoals.commit()
 	record.dependencyWaitID = waitID
 	record.clientPayload, record.clientPayloadRevision = value, revision
 	record.leased = false
@@ -1759,7 +1793,7 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 		record.payload = mustMarshalWorkerPayload(workerJobPayload{RunPolicy: payloadInfo.RunPolicy})
 		record.step = wait.OutputStep
 		r.engine.initGoalsLocked()
-		if err := (goalstate.Engine{Store: r.engine.goals, Now: now}).Complete(req.JobKey); err != nil {
+		if err := (goalstate.Engine{Store: r.engine.goalStoreLocked(), Now: now}).Complete(req.JobKey); err != nil {
 			return err
 		}
 		return sizeFailure
@@ -2064,7 +2098,7 @@ func (r *Runtime) completePayloadFailure(ctx context.Context, key jobdb.JobKey, 
 	payload.TaskWait = nil
 	record.payload = mustMarshalWorkerPayload(payload)
 	r.engine.initGoalsLocked()
-	return (goalstate.Engine{Store: r.engine.goals, Now: now}).Complete(key)
+	return (goalstate.Engine{Store: r.engine.goalStoreLocked(), Now: now}).Complete(key)
 }
 
 func (r *Runtime) requirePublishedJob(ctx context.Context, key jobdb.JobKey) error {

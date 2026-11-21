@@ -23,7 +23,7 @@ func TestCellColumnsAndCreationReplaySurviveReopen(t *testing.T) {
 	h, err := r.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "t", Cell: "root", JobID: "job", JobType: "work", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, err)
 	for _, q := range []string{
-		`SELECT cell_id,cell_name,cell_repo,payload FROM jobdb_goals WHERE tenant_id='t'`,
+		`SELECT cell_id,cell_name,cell_repo,x'7b7d' FROM jobdb_jobs WHERE goal_origin=1 AND tenant_id='t'`,
 	} {
 		var id, name, repo string
 		var raw []byte

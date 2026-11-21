@@ -76,6 +76,11 @@ func TestPrimaryGoalRoutingChangesAndRedirects(t *testing.T) {
 		t.Run(strconv.Itoa(status), func(t *testing.T) {
 			var ordinary atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/v1/capabilities/job-goals" {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`{"immutableMembership":true,"atomicAdmission":true}`))
+					return
+				}
 				if r.URL.Path == "/v1/capabilities/primary-goal-selection" {
 					w.Header().Set("Content-Type", "application/json")
 					_, _ = w.Write([]byte(`{"supported":true}`))
@@ -112,6 +117,7 @@ func TestPrimaryGoalHTTPAuthorityAndLostResponse(t *testing.T) {
 			ctx := runtimetest.PrimaryGoalContext(context.Background())
 			source, err := celltest.Submit(backend, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "source", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 			require.NoError(t, err)
+			require.NoError(t, backend.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: source.JobKey}))
 			var denied, lose atomic.Bool
 			handler := NewServer(backend)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -224,6 +230,10 @@ func TestPrimaryGoalIncompleteSuccessIsAmbiguous(t *testing.T) {
 	var destination string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/capabilities/job-goals" {
+			_, _ = w.Write([]byte(`{"immutableMembership":true,"atomicAdmission":true}`))
+			return
+		}
 		if r.Method == http.MethodGet {
 			_, _ = w.Write([]byte(`{"supported":true}`))
 			return
@@ -285,4 +295,49 @@ func TestPrimaryGoalGenericAuthorizationBoundaries(t *testing.T) {
 
 func (r *noPrimaryGoalRuntime) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAppendJobRequest) (jobdb.JobHandle, error) {
 	panic("unexpected StartOrAppendJob in test stub")
+}
+
+func TestPrimaryGoalCrossTenantBlockerNondisclosure(t *testing.T) {
+	for _, kind := range []string{"toy", "sqlite"} {
+		t.Run(kind, func(t *testing.T) {
+			var backend jobdb.WorkflowRuntime = toy.New()
+			if kind == "sqlite" {
+				embedded, err := sqlite.StartEmbeddedRuntime(context.Background())
+				require.NoError(t, err)
+				defer embedded.Shutdown()
+				backend = embedded.Runtime
+			}
+			admin := runtimetest.PrimaryGoalContext(context.Background())
+			origin, err := celltest.Submit(backend, admin, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "private", JobID: "origin", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
+			require.NoError(t, err)
+			application := NewServer(backend)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				ctx := jobdb.WithCellAuthority(r.Context(), jobdb.CellAuthority{Principal: "other-tenant", TenantID: "other", Permissions: map[string]bool{"jobs.submit": true}})
+				ctx = jobdb.WithPrimaryGoalSelectionAuthorizer(ctx, func(context.Context, jobdb.GoalKey, jobdb.ResolvedCell) error {
+					return jobdb.ErrPrimaryGoalSelectionForbidden
+				})
+				application.ServeHTTP(w, r.WithContext(ctx))
+			}))
+			defer server.Close()
+			remote, err := New(server.URL, server.Client())
+			require.NoError(t, err)
+			attempt := func(goal string) string {
+				_, err := remote.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "private", JobID: "denied", GoalID: goal, Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
+				require.ErrorIs(t, err, jobdb.ErrPrimaryGoalSelectionForbidden)
+				return err.Error()
+			}
+			active := attempt(origin.GoalID)
+			require.Equal(t, active, attempt("nonexistent"))
+			require.NoError(t, backend.CancelJob(admin, jobdb.CancelJobRequest{JobKey: origin.JobKey}))
+			require.Equal(t, active, attempt(origin.GoalID))
+			_, err = backend.FailGoal(admin, jobdb.FailGoalRequest{GoalKey: jobdb.GoalKey{TenantId: "private", GoalID: origin.GoalID}, Message: "closed"})
+			require.NoError(t, err)
+			require.Equal(t, active, attempt(origin.GoalID))
+			_, err = backend.GetJob(admin, jobdb.JobKey{TenantId: "private", JobId: "denied"})
+			require.ErrorIs(t, err, jobdb.ErrJobNotFound)
+			rows, err := backend.ListJobs(admin, jobdb.ListJobsRequest{TenantIds: []string{"private"}, IncludeHidden: true})
+			require.NoError(t, err)
+			require.Len(t, rows.Jobs, 2)
+		})
+	}
 }

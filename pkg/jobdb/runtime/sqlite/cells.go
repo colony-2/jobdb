@@ -180,7 +180,7 @@ func (r *Runtime) RetireCell(ctx context.Context, req jobdb.RetireCellRequest) (
 			if e != nil || n > 0 {
 				return n > 0, e
 			}
-			e = tx.QueryRowContext(ctx, `SELECT count(*) FROM jobdb_goals g WHERE g.tenant_id=? AND g.state='OPEN' AND g.cell_id=?`, req.TenantID, id).Scan(&n)
+			e = tx.QueryRowContext(ctx, `SELECT count(*) FROM jobdb_jobs g WHERE g.tenant_id=? AND g.cell_id=? AND g.goal_origin=1 AND NOT EXISTS(SELECT 1 FROM jobdb_jobs c WHERE c.tenant_id=g.tenant_id AND c.goal_id=g.goal_id AND c.goal_closure_state IS NOT NULL)`, req.TenantID, id).Scan(&n)
 			if e != nil || n > 0 {
 				return n > 0, e
 			}

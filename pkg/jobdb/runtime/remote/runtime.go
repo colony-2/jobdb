@@ -123,6 +123,11 @@ func submitJobRequestToAPI(ctx context.Context, req jobdb.SubmitJobRequest) (run
 }
 
 func (r *Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
+	if req.Job.ShareGoal {
+		if err := r.requireGoalPublication(ctx, false); err != nil {
+			return jobdb.JobHandle{}, err
+		}
+	}
 	if req.Job.PriorJobKey.TenantId == "" {
 		return jobdb.JobHandle{}, fmt.Errorf("prior job tenantId is required")
 	}
@@ -786,6 +791,11 @@ func (l *remoteExecutionLease) SubmitJob(ctx context.Context, req jobdb.SubmitJo
 }
 
 func (l *remoteExecutionLease) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
+	if req.Job.ShareGoal {
+		if err := l.runtime.requireGoalPublication(ctx, false); err != nil {
+			return jobdb.JobHandle{}, err
+		}
+	}
 	if l.delegation != nil {
 		return jobdb.JobHandle{}, jobdb.ErrLeasePermissionDenied
 	}
@@ -905,6 +915,9 @@ func responseErrorAt(operation string, status int, body []byte, sentinel error, 
 			return err
 		}
 	}
+	if err := goalResponseErrorAt(status, body); err != nil {
+		return err
+	}
 	if status >= 500 || status >= 200 && status < 300 {
 		return jobdb.ClassifyExecutionInfrastructure(&jobdb.RemoteExecutionCause{Code: "runtime_response", Message: "runtime response unavailable or malformed"}, jobdb.ExecutionInfrastructureRuntimeIO, operation, key, ordinal)
 	}
@@ -977,6 +990,9 @@ func responseErrorWithConflict(operation string, status int, body []byte, notFou
 			return err
 		}
 	}
+	if err := goalResponseErrorAt(status, body); err != nil {
+		return err
+	}
 	if status >= 500 || status >= 200 && status < 300 {
 		return jobdb.ClassifyExecutionInfrastructure(&jobdb.RemoteExecutionCause{Code: "runtime_response", Message: "runtime response unavailable or malformed"}, jobdb.ExecutionInfrastructureRuntimeIO, operation, key, ordinal)
 	}
@@ -1029,6 +1045,9 @@ func responseErrorWithConflict(operation string, status int, body []byte, notFou
 }
 
 func explicitJobCreateError(operation string, status int, body []byte, conflict *runtimeapi.ErrorResponse) error {
+	if err := goalResponseErrorAt(status, body); err != nil {
+		return err
+	}
 	if status >= 500 || status >= 200 && status < 300 {
 		return responseError(operation, status, body, nil)
 	}

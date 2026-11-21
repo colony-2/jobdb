@@ -384,6 +384,16 @@ func replayRuntimeJob(ctx context.Context, runtime WorkflowRuntime, spec *replay
 	}
 	replayRuntime := newReplayReadOnlyRuntime(runtime)
 	jobKey := spec.jobKey
+	info, err := replayRuntime.GetJob(ctx, jobKey)
+	if err != nil {
+		return nil, err
+	}
+	if err := info.ValidateRecord(); err != nil {
+		return nil, err
+	}
+	if info.RecordKind.IsTerminalRecord() {
+		return nil, jobdb.ErrJobRecordOperationUnsupported
+	}
 	chapter, err := replayRuntime.GetChapter(ctx, ChapterRef{JobKey: jobKey, Ordinal: 0})
 	if err != nil {
 		if err == ErrChapterNotFound {
@@ -410,10 +420,6 @@ func replayRuntimeJob(ctx context.Context, runtime WorkflowRuntime, spec *replay
 		}
 	}
 
-	info, err := replayRuntime.GetJob(ctx, jobKey)
-	if err != nil {
-		return nil, err
-	}
 	runner := newWorkerRunner(replayRuntime, ws, nil, workerRunnerOptions{
 		GoalID:         info.GoalID,
 		Cell:           jobdb.ResolvedCell{Cell: info.Cell, CellID: info.CellID, CellRepo: info.CellRepo},

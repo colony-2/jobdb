@@ -47,9 +47,9 @@ candidate predicates must match the same candidate. A repository match selects
 the goal without implying repository ownership, and counts still cover the
 whole goal.
 
-Goal `UpdatedAt` and `Revision` describe changes to the goal record itself.
-Candidate attachment, progress, or failure can change counts without changing
-either field. Do not use those fields as a version for candidate statistics.
+Goal `UpdatedAt` and `Revision` describe retained origin/closure facts.
+Member publication, progress, or ordinary failure can change counts without
+changing either field. Do not use those fields as a version for candidate statistics.
 
 ## Dependency discovery
 

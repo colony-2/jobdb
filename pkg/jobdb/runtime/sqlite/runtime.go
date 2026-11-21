@@ -232,6 +232,9 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if err != nil {
 		return jobdb.JobHandle{}, fmt.Errorf("load source job metadata: %w", err)
 	}
+	if prior.recordKind.IsTerminalRecord() {
+		return jobdb.JobHandle{}, jobdb.ErrJobRecordOperationUnsupported
+	}
 	storedMetadata, err := jobdb.BuildJobMetadataEnvelope(jobdb.AppMetadataFromStoredMetadata(prior.metadata), jobdb.RuntimeJobMetadata{SchemaHash: schemaHash, ParentJobID: parentJobID})
 	if err != nil {
 		return jobdb.JobHandle{}, err
@@ -751,10 +754,6 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 	if err != nil {
 		return jobdb.JobInfo{}, err
 	}
-	otherGoals, err := (goalStore{ctx, r.db}).otherGoals(jobKey)
-	if err != nil {
-		return jobdb.JobInfo{}, err
-	}
 	blocking, err := blockingWait(ctx, r.db, row, time.Now().UTC())
 	if err != nil {
 		return jobdb.JobInfo{}, err
@@ -768,11 +767,22 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 		return jobdb.JobInfo{}, err
 	}
 	job := jobdb.JobInfo{AppendKey: row.appendKey.String, Cell: currentCellName, CellID: row.cell.CellID, CellRepo: row.cell.CellRepo, NextRoute: jobdb.CloneRoute(&row.nextRoute), WaitFor: waitFor, CompletionStatus: row.completionStatus.String, CompletionDetail: row.completionDetail.String, BlockingWait: blocking,
-		GoalID: row.goalID, OtherGoalIDs: otherGoals,
+		GoalID: row.goalID, OtherGoalIDs: nil, RecordKind: row.recordKind, TerminalFailure: jobdb.CloneGoalFailure(row.terminalFailure),
 		ClientPayload: cloneJSON(row.clientPayload), ClientPayloadRevision: row.clientPayloadRevision, ExecutionState: jobExecutionState(row.payload),
 		Status:     status,
 		Data:       &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
 		SchemaHash: jobmetadata.SchemaHashFromStoredMetadata(row.metadata),
+	}
+	if row.recordKind.IsTerminalRecord() {
+		job.NextRoute = nil
+		job.ExecutionState = jobdb.ExecutionState{}
+	}
+	if err = job.ValidateRecord(); err != nil {
+		return jobdb.JobInfo{}, err
+	}
+	if row.recordKind.IsTerminalRecord() {
+		job.Data = &jobInfoTaskData{err: job.TerminalRecordFailure()}
+		return job, nil
 	}
 	if row.archivedAtNS.Valid {
 		st, err := r.chapterStore.Story(chapterContext(ctx), storyKeyForJob(jobKey))
@@ -819,7 +829,10 @@ func (r *Runtime) GetChapter(ctx context.Context, ref jobdb.ChapterRef) (result 
 		return jobdb.Chapter{}, fmt.Errorf("invalid chapter reference")
 	}
 	defer func() { failure = jobdb.ClassifyRuntimeIO(failure, "get_chapter", &ref.JobKey, &ref.Ordinal) }()
-	if err := r.requirePublishedJob(ctx, ref.JobKey); err != nil {
+	if err := r.requireExecutionJob(ctx, ref.JobKey); err != nil {
+		if errors.Is(err, jobdb.ErrJobRecordOperationUnsupported) {
+			return jobdb.Chapter{}, jobdb.ErrChapterNotFound
+		}
 		return jobdb.Chapter{}, err
 	}
 
@@ -845,7 +858,10 @@ func (r *Runtime) ListChapters(ctx context.Context, req jobdb.ListChaptersReques
 		return nil, fmt.Errorf("invalid chapter range")
 	}
 	defer func() { failure = jobdb.ClassifyRuntimeIO(failure, "list_chapters", &req.JobKey, nil) }()
-	if err := r.requirePublishedJob(ctx, req.JobKey); err != nil {
+	if err := r.requireExecutionJob(ctx, req.JobKey); err != nil {
+		if errors.Is(err, jobdb.ErrJobRecordOperationUnsupported) {
+			return []jobdb.Chapter{}, nil
+		}
 		return nil, err
 	}
 
@@ -1062,7 +1078,7 @@ func normalizeStoredArtifacts(in []jobdb.StoredArtifact) []jobdb.StoredArtifact 
 }
 
 func (r *Runtime) OpenArtifact(ctx context.Context, ref jobdb.ArtifactRef) (jobdb.ArtifactReader, error) {
-	if err := r.requirePublishedJob(ctx, ref.JobKey); err != nil {
+	if err := r.requireExecutionJob(ctx, ref.JobKey); err != nil {
 		return nil, err
 	}
 
@@ -1450,4 +1466,18 @@ func (r *Runtime) requirePublishedJob(ctx context.Context, key jobdb.JobKey) err
 	}
 	_, err := r.loadJobRow(ctxOrBackground(ctx), key)
 	return err
+}
+
+func (r *Runtime) requireExecutionJob(ctx context.Context, key jobdb.JobKey) error {
+	if err := r.validate(); err != nil {
+		return err
+	}
+	row, err := r.loadJobRow(ctxOrBackground(ctx), key)
+	if err != nil {
+		return err
+	}
+	if row.recordKind.IsTerminalRecord() {
+		return jobdb.ErrJobRecordOperationUnsupported
+	}
+	return nil
 }

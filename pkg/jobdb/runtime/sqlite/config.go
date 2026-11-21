@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -162,6 +163,9 @@ func NewFromConfig(ctx context.Context, cfg Config) (*Runtime, error) {
 		}
 	}()
 
+	if err := refuseLegacy(ctx, db); err != nil {
+		return nil, err
+	}
 	if err := configureSQLite(ctx, db); err != nil {
 		return nil, err
 	}
@@ -365,7 +369,7 @@ func resolveDSN(cfg Config) (dsn string, dbPath string, err error) {
 	if err != nil {
 		return "", "", fmt.Errorf("sqlite runtime: resolve db path: %w", err)
 	}
-	return abs, abs, nil
+	return (&url.URL{Scheme: "file", Path: abs}).String(), abs, nil
 }
 
 func resolveBlobDir(cfg Config, dbPath string) (string, error) {

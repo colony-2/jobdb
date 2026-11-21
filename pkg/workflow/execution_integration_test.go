@@ -1152,7 +1152,7 @@ type executionCacheRuntime struct {
 	config, secret atomic.Int32
 }
 type executionCacheLease struct {
-	jobdb.ExecutionLease
+	jobdb.RenewableExecutionLease
 	r *executionCacheRuntime
 }
 
@@ -1161,7 +1161,20 @@ func (r *executionCacheRuntime) GetJobLease(c context.Context, q jobdb.GetJobLea
 	if e != nil {
 		return nil, e
 	}
-	return &executionCacheLease{l, r}, nil
+	renewable, ok := l.(jobdb.RenewableExecutionLease)
+	if !ok {
+		return nil, fmt.Errorf("cache fixture requires a renewable lease")
+	}
+	return &executionCacheLease{renewable, r}, nil
+}
+func (l *executionCacheLease) Renew(ctx context.Context) (jobdb.RenewableExecutionLease, error) {
+	// Keep the SQLite lease's renewal capability and the cache probes on every
+	// refreshed handle. Hiding renewal lets a slow race run outlive its lease.
+	renewed, err := l.RenewableExecutionLease.Renew(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &executionCacheLease{renewed, l.r}, nil
 }
 func (l *executionCacheLease) GetConfiguration(context.Context) (jobdb.ConfigurationSnapshot, error) {
 	n := l.r.config.Add(1)

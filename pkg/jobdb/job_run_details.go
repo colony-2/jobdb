@@ -23,13 +23,21 @@ type ExecutionHistoryEntry struct {
 type GetJobRunResponse struct {
 	Execution []ExecutionHistoryEntry
 	Job       JobRunSummary
-	Start     JobStart
-	Attempts  []JobAttempt
+	// Start is meaningful only for execution records. Protected terminal
+	// records have no start input, execution entries or attempts.
+	Start    JobStart
+	Attempts []JobAttempt
 }
 
 type JobRunSummary struct {
-	AvailableAt      time.Time
-	GoalID           string
+	AvailableAt     time.Time
+	Cell            string
+	CellID          string
+	CellRepo        string
+	RecordKind      JobRecordKind
+	TerminalFailure *GoalFailure
+	GoalID          string
+	// Deprecated: always empty; membership is the immutable primary GoalID.
 	OtherGoalIDs     []string
 	BlockingWait     *DependencyWaitInfo
 	JobKey           JobKey

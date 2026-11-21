@@ -2,8 +2,8 @@ package toyimpl
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -18,29 +18,18 @@ type preparedGoalJob struct {
 }
 
 func (e *ToyEngine) initGoalsLocked() {
-	if e.goals != nil {
-		return
+	if e.goalWaits == nil {
+		e.goalWaits = map[jobdb.DependencyWaitKey]jobdb.DependencyWaitInfo{}
+		e.preparedGoals = map[jobdb.JobKey]preparedGoalJob{}
+		e.goalRequests = map[jobdb.GoalKey]jobdb.JobKey{}
 	}
-	e.preparedGoals = map[jobdb.JobKey]preparedGoalJob{}
-	e.goalRequests = map[jobdb.GoalKey]jobdb.JobKey{}
-	e.goals = goalstate.NewMemory(func(k jobdb.JobKey) (goalstate.Job, error) {
-		r := e.jobRecords[k]
-		if r == nil {
-			return goalstate.Job{}, jobdb.ErrJobNotFound
-		}
-		return goalJob(k, r), nil
-	}, func(k jobdb.GoalKey) []goalstate.Job {
-		out := []goalstate.Job{}
-		for key, r := range e.jobRecords {
-			if key.TenantId == k.TenantId && r.goalID == k.GoalID {
-				out = append(out, goalJob(key, r))
-			}
-		}
-		return out
-	})
 }
 func goalJob(k jobdb.JobKey, r *jobRecord) goalstate.Job {
-	return goalstate.Job{Key: k, GoalID: r.goalID, Terminal: r.archived != nil || r.cancelled, Success: r.archived != nil && (r.completionStatus == "success" || r.completionStatus == "succeeded"), CreatedAt: r.createdAt}
+	kind := r.recordKind
+	if kind == "" {
+		kind = jobdb.JobRecordExecution
+	}
+	return goalstate.Job{Key: k, RecordKind: kind, GoalID: r.goalID, Terminal: r.archived != nil || r.cancelled, Success: r.archived != nil && (r.completionStatus == "success" || r.completionStatus == "succeeded"), CreatedAt: r.createdAt}
 }
 func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (goalstate.Prepared, error) {
 	if ctx != nil {
@@ -108,7 +97,7 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (go
 			return goalstate.Prepared{}, goalstate.PreparationMismatch(old.Request.Descriptor, req.Descriptor)
 		}
 		if req.SelectedGoalID != "" {
-			g, err := e.goals.Goal(jobdb.GoalKey{TenantId: key.TenantId, GoalID: req.SelectedGoalID})
+			g, err := e.goalStoreLocked().Goal(jobdb.GoalKey{TenantId: key.TenantId, GoalID: req.SelectedGoalID})
 			if err != nil {
 				return goalstate.Prepared{}, err
 			}
@@ -131,7 +120,7 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (go
 	goalID := ksuid.New().String()
 	if req.SelectedGoalID != "" {
 		goalID = req.SelectedGoalID
-		g, err := e.goals.Goal(jobdb.GoalKey{TenantId: key.TenantId, GoalID: goalID})
+		g, err := e.goalStoreLocked().Goal(jobdb.GoalKey{TenantId: key.TenantId, GoalID: goalID})
 		if err != nil {
 			return goalstate.Prepared{}, err
 		}
@@ -145,7 +134,7 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (go
 			return goalstate.Prepared{}, jobdb.ErrJobNotFound
 		}
 		goalID = source.goalID
-		g, err := e.goals.Goal(jobdb.GoalKey{TenantId: key.TenantId, GoalID: goalID})
+		g, err := e.goalStoreLocked().Goal(jobdb.GoalKey{TenantId: key.TenantId, GoalID: goalID})
 		if err != nil {
 			return goalstate.Prepared{}, err
 		}
@@ -162,7 +151,8 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (go
 }
 
 // publishGoalLocked is called with the new job provisionally inserted. It
-// commits a copy of goal state only after all validations succeed.
+// commits staged waiter state only after all validations succeed. The provisional
+// origin is removed by the caller on error, together with the unpublished job.
 func (e *ToyEngine) publishGoalLocked(ctx context.Context, key jobdb.JobKey, record *jobRecord) error {
 	e.initGoalsLocked()
 	p, ok := e.preparedGoals[key]
@@ -174,7 +164,7 @@ func (e *ToyEngine) publishGoalLocked(ctx context.Context, key jobdb.JobKey, rec
 		return err
 	}
 	record.cell = target
-	state := e.goals.Clone()
+	state := e.goalStoreLocked().Clone()
 	gk := jobdb.GoalKey{TenantId: key.TenantId, GoalID: p.GoalID}
 	record.goalID = p.GoalID
 	record.key = key
@@ -186,11 +176,17 @@ func (e *ToyEngine) publishGoalLocked(ctx context.Context, key jobdb.JobKey, rec
 		if err := goalstate.ValidateSelectedGoal(ctx, p.Request, target, g); err != nil {
 			return err
 		}
-		if g.State != jobdb.GoalOpen {
-			return jobdb.ErrGoalConflict
+		if err := state.checkAdmission(gk, key); err != nil {
+			return err
 		}
 	} else {
-		state.SaveGoal(jobdb.GoalInfo{Cell: record.cell.Cell, CellID: record.cell.CellID, CellRepo: record.cell.CellRepo, GoalKey: gk, State: jobdb.GoalOpen, Revision: 1, CreatedAt: record.createdAt, UpdatedAt: record.createdAt})
+		if _, err := state.Goal(gk); !errors.Is(err, jobdb.ErrGoalNotFound) {
+			if err != nil {
+				return err
+			}
+			return jobdb.ErrGoalConflict
+		}
+		record.goalOrigin = true
 	}
 	engine := goalstate.Engine{Store: state, Now: time.Now().UTC()}
 	if len(p.Request.Dependencies) > 0 {
@@ -208,7 +204,7 @@ func (e *ToyEngine) publishGoalLocked(ctx context.Context, key jobdb.JobKey, rec
 		p.Request.Target = target
 		e.preparedGoals[key] = p
 	}
-	e.goals = state
+	state.commit()
 	e.cells[key.TenantId] = cells
 	return nil
 }
@@ -219,29 +215,33 @@ func (r *Runtime) GetGoal(ctx context.Context, k jobdb.GoalKey) (jobdb.GoalInfo,
 	r.engine.mu.Lock()
 	defer r.engine.mu.Unlock()
 	r.engine.initGoalsLocked()
-	return r.engine.goals.Goal(k)
-}
-func (r *Runtime) AddGoalCandidate(ctx context.Context, req jobdb.AddGoalCandidateRequest) (jobdb.GoalCandidateInfo, error) {
-	r.engine.mu.Lock()
-	defer r.engine.mu.Unlock()
-	r.engine.initGoalsLocked()
-	s := r.engine.goals.Clone()
-	out, err := (goalstate.Engine{Store: s, Now: time.Now().UTC()}).Add(req)
-	if err == nil {
-		r.engine.goals = s
-	}
-	return out, err
+	return r.engine.goalStoreLocked().Goal(k)
 }
 func (r *Runtime) FailGoal(ctx context.Context, req jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
+	if err := req.Validate(); err != nil {
+		return jobdb.GoalInfo{}, err
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return jobdb.GoalInfo{}, err
+	}
 	r.engine.mu.Lock()
 	defer r.engine.mu.Unlock()
 	r.engine.initGoalsLocked()
-	s := r.engine.goals.Clone()
-	out, err := (goalstate.Engine{Store: s, Now: time.Now().UTC()}).Fail(req)
-	if err == nil {
-		r.engine.goals = s
+	tx := &toyFailureTransaction{toyGoalStore: r.engine.goalStoreLocked().Clone()}
+	out, err := (goalstate.Engine{Store: tx, Now: time.Now().UTC()}).FailWithRecord(req)
+	if err != nil {
+		return jobdb.GoalInfo{}, err
 	}
-	return out, err
+	if err := ctx.Err(); err != nil {
+		return jobdb.GoalInfo{}, err
+	}
+	// No fallible operation follows publication. Readers share this mutex, so
+	// the retained job, closure and settled waits become visible together.
+	tx.commit()
+	return out, nil
 }
 func (r *Runtime) GetDependencyWait(ctx context.Context, key jobdb.DependencyWaitKey) (jobdb.DependencyWaitInfo, error) {
 	r.engine.mu.Lock()
@@ -251,29 +251,21 @@ func (r *Runtime) GetDependencyWait(ctx context.Context, key jobdb.DependencyWai
 	if e.jobRecords[key.JobKey] == nil {
 		return jobdb.DependencyWaitInfo{}, jobdb.ErrJobNotFound
 	}
-	w, err := e.goals.Wait(key)
+	w, err := e.goalStoreLocked().Wait(key)
 	if err != nil {
 		return w, err
 	}
-	return (goalstate.Engine{Store: e.goals, Now: time.Now().UTC()}).Evaluate(w)
+	return (goalstate.Engine{Store: e.goalStoreLocked(), Now: time.Now().UTC()}).Evaluate(w)
 }
 func (e *ToyEngine) otherGoalsLocked(key jobdb.JobKey) []string {
-	e.initGoalsLocked()
-	out := []string{}
-	for k := range e.goals.Extras {
-		if k.Goal.TenantId == key.TenantId && k.JobID == key.JobId {
-			out = append(out, k.Goal.GoalID)
-		}
-	}
-	sort.Strings(out)
-	return out
+	return []string{}
 }
 func (e *ToyEngine) dependencyReadyLocked(record *jobRecord, now time.Time) (bool, error) {
 	if record.dependencyWaitID == "" {
 		return true, nil
 	}
 	e.initGoalsLocked()
-	w, err := e.goals.Wait(jobdb.DependencyWaitKey{JobKey: record.key, WaitID: record.dependencyWaitID})
+	w, err := e.goalStoreLocked().Wait(jobdb.DependencyWaitKey{JobKey: record.key, WaitID: record.dependencyWaitID})
 	if err != nil {
 		return false, fmt.Errorf("wait for job %s: %w", record.key, err)
 	}
@@ -298,3 +290,9 @@ func (r *Runtime) DiscardJobPreparation(ctx context.Context, key jobdb.JobKey) e
 }
 
 func (r *Runtime) SupportsPrimaryGoalSelection() bool { return true }
+
+// JobGoalCapabilities describes guarantees enforced by this backend's scheduler
+// transaction. It does not certify deployment writer exclusion or overlap drain.
+func (r *Runtime) JobGoalCapabilities() jobdb.JobGoalCapabilities {
+	return jobdb.JobGoalCapabilities{ImmutableMembership: true, AtomicAdmission: true, TerminalFailureRecords: true}
+}

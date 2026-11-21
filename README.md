@@ -15,8 +15,8 @@ names can change; old names remain aliases. Repo and metadata updates use PATCH
 with an ETag. Cells are retired, never deleted.
 
 The earlier named-cell transition has a separate storage and client upgrade
-boundary for pre-cell deployments. Lease events preserve format-11 storage and
-require no coordinated client upgrade.
+boundary for pre-cell deployments. SQLite now initializes retained-job format
+13; formats 11/12 require [manual conversion](docs/MIGRATION-IMMUTABLE-GOALS.md).
 Explicitly create cells against the **JobDB API URL** before submitting jobs:
 
 ```bash
@@ -225,8 +225,17 @@ storage, CLI administration, and lease-scoped secret resolution.
 SQLite and toy runtimes record lease events automatically with existing constructors
 and CLI invocations. Legacy implementations retain the same base interfaces;
 use `jobdb.ListLeaseEvents(ctx, runtime, req)` to query optional support and handle
-`ErrLeaseEventsUnsupported`. SQLite keeps base format 11 and installs the additive
-extension transactionally at startup, preserving existing data. Known format-12
-databases are validated and normalized automatically. Pre-upgrade activity and
+`ErrLeaseEventsUnsupported`. SQLite format 13 includes event storage. Legacy formats 11/12 require explicit
+manual conversion, which preserves retained events. Pre-upgrade activity and
 historical writers leave partial history; no backfill is fabricated.
 See [lease event compatibility and upgrades](docs/GUIDE-LEASE-EVENTS.md).
+
+
+Job-goal membership is immutable and selected at creation. Toy and SQLite reject
+fresh same-goal publication while any retained member is nonterminal. The former
+attachment method, HTTP mutation and CLI command are removed after Cortex, c2j and PostgreSQL consumer retirement; member reads and
+deprecated empty `OtherGoalIDs` remain. PostgreSQL backend conversion and
+terminal-record consumer integration follow shared contract publication. See [the specification](docs/SPEC-Job-Goals.md) and
+[manual SQLite upgrade](docs/MIGRATION-IMMUTABLE-GOALS.md) for primary-wins losses,
+backups, format refusal, capability limits and required writer exclusion/overlap
+drain before deployment activation.

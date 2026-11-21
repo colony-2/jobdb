@@ -41,15 +41,8 @@ type proxyServer struct {
 	tokens             *leaseTokenSigner
 }
 
-// legacyProxyServer alone implements the temporary candidate mutation port.
-// The retained server has no attachment method or mutation-bearing embedding.
-type legacyProxyServer struct {
-	*proxyServer
-	mutator jobdb.GoalCandidateMutator
-}
-
 var _ runtimeapi.ConsumerStrictServerInterface = (*proxyServer)(nil)
-var _ runtimeapi.StrictServerInterface = (*legacyProxyServer)(nil)
+var _ runtimeapi.StrictServerInterface = (*proxyServer)(nil)
 
 // ServerOptions configures the JobDB runtime HTTP handler.
 type ServerOptions struct {
@@ -62,8 +55,7 @@ type ServerOptions struct {
 	LeaseTokenAudience string
 }
 
-// NewServer builds the legacy handler, including candidate attachment.
-// Consumers retiring attachment should use NewConsumerServer.
+// NewServer builds a handler for retained runtime operations.
 func NewServer(runtime jobdb.WorkflowRuntime) http.Handler {
 	handler, err := newServer(runtime, newLeaseTokenSigner())
 	if err != nil {
@@ -75,13 +67,13 @@ func NewServer(runtime jobdb.WorkflowRuntime) http.Handler {
 // NewServerWithOptions builds a JobDB runtime HTTP handler with explicit
 // server configuration.
 func NewServerWithOptions(runtime jobdb.WorkflowRuntime, opts ServerOptions) (http.Handler, error) {
-	return newServerWithOptions(runtime, runtime, opts)
+	return newServerWithOptions(runtime, opts)
 }
 
 // NewConsumerServer builds a handler for retained runtime operations. Candidate
 // PUT is absent from its registered routes; no mutation implementation is needed.
 func NewConsumerServer(runtime jobdb.ConsumerRuntime) http.Handler {
-	handler, err := newRuntimeServer(runtime, nil, newLeaseTokenSigner())
+	handler, err := newRuntimeServer(runtime, newLeaseTokenSigner())
 	if err != nil {
 		panic(err)
 	}
@@ -92,23 +84,23 @@ func NewConsumerServer(runtime jobdb.ConsumerRuntime) http.Handler {
 // Decorators must explicitly forward configuration administration, schema and
 // tokenized lease operations when they support them, just as for NewServer.
 func NewConsumerServerWithOptions(runtime jobdb.ConsumerRuntime, opts ServerOptions) (http.Handler, error) {
-	return newServerWithOptions(runtime, nil, opts)
+	return newServerWithOptions(runtime, opts)
 }
 
-func newServerWithOptions(runtime jobdb.ConsumerRuntime, mutator jobdb.GoalCandidateMutator, opts ServerOptions) (http.Handler, error) {
+func newServerWithOptions(runtime jobdb.ConsumerRuntime, opts ServerOptions) (http.Handler, error) {
 	tokens, err := newLeaseTokenSignerWithKey(opts.LeaseTokenSigningKey)
 	if err != nil {
 		return nil, err
 	}
 	tokens.audience = opts.LeaseTokenAudience
-	return newRuntimeServer(runtime, mutator, tokens)
+	return newRuntimeServer(runtime, tokens)
 }
 
 func newServer(runtime jobdb.WorkflowRuntime, tokens *leaseTokenSigner) (http.Handler, error) {
-	return newRuntimeServer(runtime, runtime, tokens)
+	return newRuntimeServer(runtime, tokens)
 }
 
-func newRuntimeServer(runtime jobdb.ConsumerRuntime, mutator jobdb.GoalCandidateMutator, tokens *leaseTokenSigner) (http.Handler, error) {
+func newRuntimeServer(runtime jobdb.ConsumerRuntime, tokens *leaseTokenSigner) (http.Handler, error) {
 	if runtime == nil {
 		return nil, errors.New("runtime is required")
 	}
@@ -210,16 +202,13 @@ func newRuntimeServer(runtime jobdb.ConsumerRuntime, mutator jobdb.GoalCandidate
 	}
 	router := chi.NewRouter()
 	middlewares := []runtimeapi.StrictMiddlewareFunc{strictRequestFields}
-	var handler http.Handler
-	if mutator == nil {
-		strict := runtimeapi.NewConsumerStrictHandlerWithOptions(server, middlewares, strictOptions)
-		handler = runtimeapi.ConsumerHandlerFromMux(strict, router)
-	} else {
-		strict := runtimeapi.NewStrictHandlerWithOptions(&legacyProxyServer{server, mutator}, middlewares, strictOptions)
-		handler = runtimeapi.HandlerFromMux(strict, router)
-	}
+	strict := runtimeapi.NewConsumerStrictHandlerWithOptions(server, middlewares, strictOptions)
+	handler := runtimeapi.ConsumerHandlerFromMux(strict, router)
 	devHandler := server.devSecretHandler()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.EscapedPath() == "/v1/capabilities/job-goals" {
+			w.Header().Set("Cache-Control", "no-store")
+		}
 		if isPrimaryGoalSelectionPath(r.URL.EscapedPath()) {
 			w.Header().Set("Cache-Control", "no-store")
 			if r.Header.Get("X-JobDB-Lease-Token") != "" || isDelegationToken(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")) {
@@ -571,6 +560,9 @@ func (s *proxyServer) SubmitRestartJob(ctx context.Context, request runtimeapi.S
 	if err != nil {
 		return nil, badRequest(err.Error())
 	}
+	if req.Job.ShareGoal && !supportsGoalPublication(s.runtime, false) {
+		return nil, jobdb.ErrJobGoalSemanticsUnsupported
+	}
 	handle, err := s.runtime.SubmitRestartJob(ctx, req)
 	if err != nil {
 		return nil, err
@@ -585,6 +577,9 @@ func (s *proxyServer) PutRestartJob(ctx context.Context, request runtimeapi.PutR
 	req, err := submitRestartJobRequestFromAPI(*request.Body, request.TenantId, request.JobId)
 	if err != nil {
 		return nil, badRequest(err.Error())
+	}
+	if req.Job.ShareGoal && !supportsGoalPublication(s.runtime, false) {
+		return nil, jobdb.ErrJobGoalSemanticsUnsupported
 	}
 	handle, err := s.runtime.SubmitRestartJob(ctx, req)
 	if err != nil {
@@ -1018,6 +1013,9 @@ func (s *proxyServer) SubmitRestartJobWithLease(ctx context.Context, request run
 		return nil, badRequest(err.Error())
 	}
 	ctx = leaseauth.WithClaims(ctx, claims.leaseAuthClaims())
+	if req.Job.ShareGoal && !supportsGoalPublication(s.runtime, false) {
+		return nil, jobdb.ErrJobGoalSemanticsUnsupported
+	}
 	handle, err := ops.SubmitRestartJobWithLeaseByID(ctx, jobKey, request.LeaseId, claims.WorkerID, req)
 	if err != nil {
 		return nil, err
@@ -1043,6 +1041,9 @@ func (s *proxyServer) PutRestartJobWithLease(ctx context.Context, request runtim
 		return nil, badRequest(err.Error())
 	}
 	ctx = leaseauth.WithClaims(ctx, claims.leaseAuthClaims())
+	if req.Job.ShareGoal && !supportsGoalPublication(s.runtime, false) {
+		return nil, jobdb.ErrJobGoalSemanticsUnsupported
+	}
 	handle, err := ops.SubmitRestartJobWithLeaseByID(ctx, jobKey, request.LeaseId, claims.WorkerID, req)
 	if err != nil {
 		return nil, err

@@ -43,24 +43,20 @@ changes and visibility changes can affect later pages. Refresh the first page to
 find newer activity. Traversal is exact for an unchanged dataset, including tied
 timestamps; it is not a gap-free export or replication cursor.
 
-## Compatibility and automatic upgrades
+## Compatibility and manual upgrades
 
-SQLite retains base format 11. Ordinary startup automatically installs the event
-table and indexes in one transaction without changing that marker. Repeated
-startup preserves existing records and signing keys without synthetic backfill.
-Databases already marked
-12 by ea45f87 are checked against the known base and event definitions, then
-transactionally normalized to 11 without replacing jobs, cells, goals, leases,
-chapters, events or signing keys. Unknown formats and inconsistent schemas are
-rejected without changing their data or marker. This extension does not introduce
-support for unrelated older base formats.
+Fresh SQLite storage uses format 13 with lease-event tables. Constructors refuse
+legacy 11/12 without changing their marker or opening ancillary stores. Use the
+[manual immutable-goal migration](MIGRATION-IMMUTABLE-GOALS.md), with all writers
+stopped and a consistent backup. Conversion preserves every retained event and
+signing key; it does not fabricate missing historical events. Unknown formats
+and inconsistent definitions are rejected. Mixed obsolete writers are not a
+supported format-13 cutover.
 
-Authentic pre-event format-11 code (f92ae253a5da7a6b81944d0bdf4cadb085772140)
-accepts the additive schema and can continue legacy reads and writes. Mixed old/new
-writers and pre-upgrade activity produce **partial history**: old writers do not record
-events. Existing acquisitions are never backfilled. A pre-upgrade lease may have
-only renewal events, and empty history cannot establish that a job never ran.
-Toy retains history only for its engine lifetime.
+Historical pre-event writers and activity leave partial history. Existing
+acquisitions are never backfilled. A pre-upgrade lease may have only renewal
+events, and empty history cannot establish that a job never ran. Toy retains
+history only for its engine lifetime.
 
 The oldest event is not proof of complete history. The mandatory interface is an
 intentional source break: custom runtimes, schedulers and wrappers must implement
@@ -70,7 +66,7 @@ publication do not wait for downstream deployment; there is no mixed-version
 server compatibility promise.
 
 Event inserts remain atomic with lease mutations: insertion failure rolls back
-acquisition or renewal. Failed schema installation rolls back completely and can
+acquisition or renewal. Failed explicit conversion rolls back completely and can
 be retried after correcting the error; saved data must never be reset to upgrade.
 
 ## Backend integration

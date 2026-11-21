@@ -19,18 +19,16 @@ func TestGoalDiscovery(t *testing.T) {
 		b, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "b", JobType: "special", Data: jobdb.NewTaskDataOrPanic(nil), Metadata: json.RawMessage(`{"repo":"repo-b"}`)}})
 		require.NoError(t, err)
 		c := goalSubmit(t, r, "c")
-		_, err = r.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: goalKey(a), JobID: b.JobKey.JobId})
-		require.NoError(t, err)
-		original, err := r.GetGoal(ctx, goalKey(a))
+		original, err := r.GetGoal(ctx, goalKey(b))
 		require.NoError(t, err)
 		require.NoError(t, r.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: b.JobKey}))
 		page, err := r.ListGoals(ctx, jobdb.ListGoalsRequest{TenantId: "tenant", Candidate: &jobdb.GoalCandidateFilter{MetadataEquals: []jobdb.MetadataPredicate{{Path: []string{"repo"}, Values: []any{"repo-b"}}}}})
 		require.NoError(t, err)
-		require.Len(t, page.Goals, 2)
+		require.Len(t, page.Goals, 1)
 		for _, g := range page.Goals {
-			if g.GoalKey == goalKey(a) {
-				require.EqualValues(t, 2, g.CandidateCount)
-				require.EqualValues(t, 1, g.NonTerminalCandidateCount)
+			if g.GoalKey == goalKey(b) {
+				require.EqualValues(t, 1, g.CandidateCount)
+				require.Zero(t, g.NonTerminalCandidateCount)
 				require.EqualValues(t, 1, g.TerminalCandidateCount)
 				require.Equal(t, original.Revision, g.Revision)
 				require.True(t, original.UpdatedAt.Equal(g.UpdatedAt))
@@ -41,10 +39,10 @@ func TestGoalDiscovery(t *testing.T) {
 		require.EqualValues(t, 1, deleted.DeletedCount)
 		hidden, err := r.ListGoals(ctx, jobdb.ListGoalsRequest{TenantId: "tenant", Candidate: &jobdb.GoalCandidateFilter{JobIDs: []string{b.JobKey.JobId}}})
 		require.NoError(t, err)
-		require.Len(t, hidden.Goals, 2)
+		require.Len(t, hidden.Goals, 1)
 		for _, g := range hidden.Goals {
-			if g.GoalKey == goalKey(a) {
-				require.EqualValues(t, 2, g.CandidateCount)
+			if g.GoalKey == goalKey(b) {
+				require.EqualValues(t, 1, g.CandidateCount)
 				require.EqualValues(t, 1, g.TerminalCandidateCount)
 			}
 		}
@@ -78,7 +76,7 @@ func TestGoalDiscovery(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, page.Goals, 1)
 		require.Zero(t, page.Goals[0].NonTerminalCandidateCount)
-		require.EqualValues(t, 2, page.Goals[0].TerminalCandidateCount)
+		require.EqualValues(t, 1, page.Goals[0].TerminalCandidateCount)
 		failed, err := r.FailGoal(ctx, jobdb.FailGoalRequest{GoalKey: goalKey(a), Message: "no more attempts"})
 		require.NoError(t, err)
 		page, err = r.ListGoals(ctx, jobdb.ListGoalsRequest{TenantId: "tenant", States: []jobdb.GoalState{jobdb.GoalFailed}, UpdatedAfter: &failed.UpdatedAt})

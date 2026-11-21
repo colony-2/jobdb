@@ -42,8 +42,6 @@ func TestGoalDurabilityAndIndependentWriters(t *testing.T) {
 	}
 	a, b := submit("a"), submit("b")
 	g := jobdb.GoalKey{TenantId: "tenant", GoalID: a.GoalID}
-	_, err = r1.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: g, JobID: b.JobKey.JobId})
-	require.NoError(t, err)
 	var wg sync.WaitGroup
 	errs := make(chan error, 2)
 	for i, rt := range []*Runtime{r1, r2} {
@@ -69,7 +67,7 @@ func TestGoalDurabilityAndIndependentWriters(t *testing.T) {
 	winner, err := r1.GetGoal(ctx, g)
 	require.NoError(t, err)
 	require.EqualValues(t, 2, winner.Revision)
-	require.Contains(t, []string{"a", "b"}, winner.SuccessfulJobID)
+	require.Equal(t, "a", winner.SuccessfulJobID)
 	r3, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	defer r3.Close(ctx)
@@ -77,8 +75,8 @@ func TestGoalDurabilityAndIndependentWriters(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, winner, durable)
 	var links int
-	require.NoError(t, r3.db.QueryRow("SELECT count(*) FROM jobdb_goal_candidates").Scan(&links))
-	require.Equal(t, 1, links)
+	require.NoError(t, r3.db.QueryRow("SELECT count(*) FROM sqlite_master WHERE name IN ('jobdb_goal_candidates','jobdb_goals')").Scan(&links))
+	require.Zero(t, links)
 }
 func TestGoalReservationSurvivesReopenBeforePublication(t *testing.T) {
 	ctx := celltest.Context(context.Background())

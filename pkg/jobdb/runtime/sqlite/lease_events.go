@@ -154,19 +154,7 @@ func leaseEventQuery(req jobdb.ListLeaseEventsRequest, ids []string, pos *cellst
 	}
 	add("e.event_type", types)
 	join := ""
-	if len(req.GoalIDs) > 0 {
-		// One deduplicated relation; no evaluator or procedural queries.
-		join = " LEFT JOIN (SELECT DISTINCT tenant_id,job_id FROM jobdb_goal_candidates WHERE tenant_id=? AND goal_id IN (" + placeholders(len(req.GoalIDs)) + ")) g ON g.tenant_id=e.tenant_id AND g.job_id=e.job_id"
-		prefix := []any{req.TenantID}
-		for _, v := range req.GoalIDs {
-			prefix = append(prefix, v)
-		}
-		args = append(prefix, args...)
-		where = append(where, "(e.goal_id IN ("+placeholders(len(req.GoalIDs))+") OR g.job_id IS NOT NULL)")
-		for _, v := range req.GoalIDs {
-			args = append(args, v)
-		}
-	}
+	add("e.goal_id", req.GoalIDs)
 	if !req.IncludeHidden {
 		where = append(where, "(f.hidden_at_ns IS NULL)")
 	}

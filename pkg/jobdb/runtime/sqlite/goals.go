@@ -24,122 +24,7 @@ type goalStore struct {
 }
 
 func goalEngine(ctx context.Context, q goalQuery) goalstate.Engine {
-	return goalstate.Engine{Store: goalStore{ctx, q}, Now: time.Now().UTC()}
-}
-func (s goalStore) Job(key jobdb.JobKey) (goalstate.Job, error) {
-	var j goalstate.Job
-	var archived sql.NullInt64
-	var status sql.NullString
-	var created int64
-	err := s.q.QueryRowContext(s.ctx, `SELECT goal_id,archived_at_ns,completion_status,created_at_ns FROM jobdb_jobs WHERE tenant_id=? AND job_id=?`, key.TenantId, key.JobId).Scan(&j.GoalID, &archived, &status, &created)
-	if err == sql.ErrNoRows {
-		err = jobdb.ErrJobNotFound
-	}
-	j.Key = key
-	j.Terminal = archived.Valid
-	j.Success = j.Terminal && (status.String == "success" || status.String == "succeeded")
-	j.CreatedAt = timeFromNS(created)
-	return j, err
-}
-func (s goalStore) Goal(key jobdb.GoalKey) (jobdb.GoalInfo, error) {
-	var raw []byte
-	var g jobdb.GoalInfo
-	err := s.q.QueryRowContext(s.ctx, `SELECT payload,cell_id,cell_name,cell_repo FROM jobdb_goals WHERE tenant_id=? AND goal_id=?`, key.TenantId, key.GoalID).Scan(&raw, &g.CellID, &g.Cell, &g.CellRepo)
-	if err == sql.ErrNoRows {
-		return g, jobdb.ErrGoalNotFound
-	}
-	if err != nil {
-		return g, err
-	}
-	err = json.Unmarshal(raw, &g)
-	return g, err
-}
-func (s goalStore) SaveGoal(g jobdb.GoalInfo) error {
-	raw, err := withoutCellJSON(g)
-	if err != nil {
-		return err
-	}
-	_, err = s.q.ExecContext(s.ctx, `INSERT INTO jobdb_goals(tenant_id,goal_id,payload,state,created_at_ns,updated_at_ns,cell_id,cell_name,cell_repo) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(tenant_id,goal_id) DO UPDATE SET payload=excluded.payload,state=excluded.state,updated_at_ns=excluded.updated_at_ns`, g.GoalKey.TenantId, g.GoalKey.GoalID, raw, g.State, g.CreatedAt.UnixNano(), g.UpdatedAt.UnixNano(), g.CellID, g.Cell, g.CellRepo)
-	return err
-}
-func (s goalStore) Candidates(key jobdb.GoalKey) ([]goalstate.Job, error) {
-	rows, err := s.q.QueryContext(s.ctx, `SELECT job_id FROM jobdb_jobs WHERE tenant_id=? AND goal_id=? UNION SELECT job_id FROM jobdb_goal_candidates WHERE tenant_id=? AND goal_id=? ORDER BY job_id`, key.TenantId, key.GoalID, key.TenantId, key.GoalID)
-	if err != nil {
-		return nil, err
-	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]goalstate.Job, 0, len(ids))
-	for _, id := range ids {
-		j, err := s.Job(jobdb.JobKey{TenantId: key.TenantId, JobId: id})
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, j)
-	}
-	return out, nil
-}
-func (s goalStore) Goals(key jobdb.JobKey) ([]jobdb.GoalKey, error) {
-	j, err := s.Job(key)
-	if err != nil {
-		return nil, err
-	}
-	ids, err := s.otherGoals(key)
-	if err != nil {
-		return nil, err
-	}
-	out := []jobdb.GoalKey{{TenantId: key.TenantId, GoalID: j.GoalID}}
-	for _, id := range ids {
-		out = append(out, jobdb.GoalKey{TenantId: key.TenantId, GoalID: id})
-	}
-	return out, nil
-}
-func (s goalStore) otherGoals(key jobdb.JobKey) ([]string, error) {
-	rows, err := s.q.QueryContext(s.ctx, `SELECT goal_id FROM jobdb_goal_candidates WHERE tenant_id=? AND job_id=? ORDER BY goal_id`, key.TenantId, key.JobId)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []string{}
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
-}
-func (s goalStore) Candidate(key jobdb.GoalKey, id string) (time.Time, bool, error) {
-	j, err := s.Job(jobdb.JobKey{TenantId: key.TenantId, JobId: id})
-	if err != nil {
-		return time.Time{}, false, err
-	}
-	if j.GoalID == key.GoalID {
-		return j.CreatedAt, true, nil
-	}
-	var at int64
-	err = s.q.QueryRowContext(s.ctx, `SELECT added_at_ns FROM jobdb_goal_candidates WHERE tenant_id=? AND goal_id=? AND job_id=?`, key.TenantId, key.GoalID, id).Scan(&at)
-	if err == sql.ErrNoRows {
-		return time.Time{}, false, nil
-	}
-	return timeFromNS(at), err == nil, err
-}
-func (s goalStore) InsertCandidate(key jobdb.GoalKey, id string, at time.Time) error {
-	_, err := s.q.ExecContext(s.ctx, `INSERT INTO jobdb_goal_candidates(tenant_id,goal_id,job_id,added_at_ns) VALUES(?,?,?,?)`, key.TenantId, key.GoalID, id, timeToNS(at))
-	return err
+	return goalstate.Engine{Store: retainedQueryStore(ctx, q), Now: time.Now().UTC()}
 }
 func (s goalStore) Wait(key jobdb.DependencyWaitKey) (jobdb.DependencyWaitInfo, error) {
 	var raw []byte
@@ -220,16 +105,11 @@ func (r *Runtime) GetGoal(ctx context.Context, key jobdb.GoalKey) (jobdb.GoalInf
 	if err := key.Validate(); err != nil {
 		return jobdb.GoalInfo{}, err
 	}
-	return (goalStore{ctxOrBackground(ctx), r.db}).Goal(key)
-}
-func (r *Runtime) AddGoalCandidate(ctx context.Context, req jobdb.AddGoalCandidateRequest) (out jobdb.GoalCandidateInfo, err error) {
-	ctx = ctxOrBackground(ctx)
-	err = r.withTx(ctx, func(tx *sql.Tx) error { var e error; out, e = goalEngine(ctx, tx).Add(req); return e })
-	return
+	return retainedQueryStore(ctxOrBackground(ctx), r.db).Goal(key)
 }
 func (r *Runtime) FailGoal(ctx context.Context, req jobdb.FailGoalRequest) (out jobdb.GoalInfo, err error) {
 	ctx = ctxOrBackground(ctx)
-	err = r.withTx(ctx, func(tx *sql.Tx) error { var e error; out, e = goalEngine(ctx, tx).Fail(req); return e })
+	err = r.withTx(ctx, func(tx *sql.Tx) error { var e error; out, e = goalEngine(ctx, tx).FailWithRecord(req); return e })
 	return
 }
 func (r *Runtime) GetDependencyWait(ctx context.Context, key jobdb.DependencyWaitKey) (jobdb.DependencyWaitInfo, error) {
@@ -242,7 +122,7 @@ func (r *Runtime) GetDependencyWait(ctx context.Context, key jobdb.DependencyWai
 	}
 	defer tx.Rollback()
 	now := time.Now().UTC()
-	store := goalStore{ctx, tx}
+	store := retainedStore(ctx, tx)
 	if _, err := store.Job(key.JobKey); err != nil {
 		return jobdb.DependencyWaitInfo{}, err
 	}
@@ -339,7 +219,7 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (ou
 				if count != 0 {
 					return jobdb.ErrSubmissionReceiptUnavailable
 				}
-				g, e := (goalStore{ctx, tx}).Goal(jobdb.GoalKey{TenantId: req.Key.TenantId, GoalID: req.SelectedGoalID})
+				g, e := retainedStore(ctx, tx).Goal(jobdb.GoalKey{TenantId: req.Key.TenantId, GoalID: req.SelectedGoalID})
 				if e != nil {
 					return e
 				}
@@ -372,7 +252,7 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (ou
 		goalID = ksuid.New().String()
 		if req.SelectedGoalID != "" {
 			goalID = req.SelectedGoalID
-			g, e := (goalStore{ctx, tx}).Goal(jobdb.GoalKey{TenantId: req.Key.TenantId, GoalID: goalID})
+			g, e := retainedStore(ctx, tx).Goal(jobdb.GoalKey{TenantId: req.Key.TenantId, GoalID: goalID})
 			if e != nil {
 				return e
 			}
@@ -382,12 +262,12 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (ou
 		}
 
 		if req.ShareGoal {
-			j, e := (goalStore{ctx, tx}).Job(jobdb.JobKey{TenantId: req.Key.TenantId, JobId: req.PriorJobID})
+			j, e := retainedStore(ctx, tx).Job(jobdb.JobKey{TenantId: req.Key.TenantId, JobId: req.PriorJobID})
 			if e != nil {
 				return e
 			}
 			goalID = j.GoalID
-			g, e := (goalStore{ctx, tx}).Goal(jobdb.GoalKey{TenantId: req.Key.TenantId, GoalID: goalID})
+			g, e := retainedStore(ctx, tx).Goal(jobdb.GoalKey{TenantId: req.Key.TenantId, GoalID: goalID})
 			if e != nil {
 				return e
 			}
@@ -412,7 +292,7 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (ou
 	})
 	return
 }
-func publishGoal(ctx context.Context, tx *sql.Tx, key jobdb.JobKey, target jobdb.ResolvedCell, now time.Time) (string, []jobdb.Dependency, error) {
+func publishGoal(ctx context.Context, tx *sql.Tx, key jobdb.JobKey, target jobdb.ResolvedCell) (string, []jobdb.Dependency, error) {
 	var goalID, descriptor string
 	var shared bool
 	var raw []byte
@@ -426,7 +306,7 @@ func publishGoal(ctx context.Context, tx *sql.Tx, key jobdb.JobKey, target jobdb
 			return "", nil, err
 		}
 	}
-	s := goalStore{ctx, tx}
+	s := retainedStore(ctx, tx)
 	gk := jobdb.GoalKey{TenantId: key.TenantId, GoalID: goalID}
 	if shared {
 		g, err := s.Goal(gk)
@@ -442,50 +322,13 @@ func publishGoal(ctx context.Context, tx *sql.Tx, key jobdb.JobKey, target jobdb
 				return "", nil, err
 			}
 		}
-		if g.State != jobdb.GoalOpen {
-			return "", nil, jobdb.ErrGoalConflict
-		}
-	} else {
-		if err = s.SaveGoal(jobdb.GoalInfo{Cell: target.Cell, CellID: target.CellID, CellRepo: target.CellRepo, GoalKey: gk, State: jobdb.GoalOpen, Revision: 1, CreatedAt: now, UpdatedAt: now}); err != nil {
+		if err = s.CheckAdmission(gk); err != nil {
 			return "", nil, err
 		}
 	}
 	return goalID, deps, nil
 }
 
-// Fetch additional associations only for the returned page, through the reverse index.
-func (r *Runtime) batchOtherGoals(ctx context.Context, jobs []jobdb.JobSummary) (map[jobdb.JobKey][]string, error) {
-	out := map[jobdb.JobKey][]string{}
-	tenants := map[string][]string{}
-	for _, j := range jobs {
-		tenants[j.JobKey.TenantId] = append(tenants[j.JobKey.TenantId], j.JobKey.JobId)
-	}
-	for tenant, ids := range tenants {
-		args := []any{tenant}
-		for _, id := range ids {
-			args = append(args, id)
-		}
-		rows, err := r.db.QueryContext(ctx, "SELECT job_id,goal_id FROM jobdb_goal_candidates WHERE tenant_id=? AND job_id IN ("+placeholders(len(ids))+") ORDER BY job_id,goal_id", args...)
-		if err != nil {
-			return nil, err
-		}
-		for rows.Next() {
-			var id, g string
-			if err = rows.Scan(&id, &g); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			k := jobdb.JobKey{TenantId: tenant, JobId: id}
-			out[k] = append(out[k], g)
-		}
-		err = rows.Err()
-		rows.Close()
-		if err != nil {
-			return nil, err
-		}
-	}
-	return out, nil
-}
 func placeholders(n int) string { return strings.TrimSuffix(strings.Repeat("?,", n), ",") }
 func goalListPredicate(req jobdb.ListJobsRequest) (string, []any) {
 	tenants := placeholders(len(req.TenantIds))
@@ -499,14 +342,9 @@ func goalListPredicate(req jobdb.ListJobsRequest) (string, []any) {
 	}
 	if len(req.GoalIDs) > 0 {
 		goals := placeholders(len(req.GoalIDs))
-		where += " AND (tenant_id,job_id) IN (SELECT tenant_id,job_id FROM jobdb_jobs WHERE tenant_id IN (" + tenants + ") AND goal_id IN (" + goals + ") UNION SELECT tenant_id,job_id FROM jobdb_goal_candidates WHERE tenant_id IN (" + tenants + ") AND goal_id IN (" + goals + "))"
-		for i := 0; i < 2; i++ {
-			for _, id := range req.TenantIds {
-				args = append(args, id)
-			}
-			for _, id := range req.GoalIDs {
-				args = append(args, id)
-			}
+		where += " AND goal_id IN (" + goals + ")"
+		for _, id := range req.GoalIDs {
+			args = append(args, id)
 		}
 	}
 	return where, args
@@ -517,4 +355,10 @@ func (r *Runtime) DiscardJobPreparation(ctx context.Context, key jobdb.JobKey) e
 		_, err := tx.ExecContext(ctx, `DELETE FROM jobdb_goal_preparations WHERE tenant_id=? AND job_id=? AND NOT EXISTS(SELECT 1 FROM jobdb_jobs j WHERE j.tenant_id=? AND j.job_id=?)`, key.TenantId, key.JobId, key.TenantId, key.JobId)
 		return err
 	})
+}
+
+// JobGoalCapabilities describes guarantees enforced by this backend's scheduler
+// transaction. It does not certify deployment writer exclusion or overlap drain.
+func (r *Runtime) JobGoalCapabilities() jobdb.JobGoalCapabilities {
+	return jobdb.JobGoalCapabilities{ImmutableMembership: true, AtomicAdmission: true, TerminalFailureRecords: true}
 }

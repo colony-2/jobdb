@@ -14,7 +14,6 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/crashconcern"
-	"github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/cellstate"
 	"github.com/segmentio/ksuid"
@@ -50,7 +49,7 @@ type ToyEngine struct {
 	leaseEventSequence                int64
 	cells                             map[string]*cellstate.State
 	maxChapterApplicationPayloadBytes int64
-	goals                             *goalstate.Memory
+	goalWaits                         map[jobdb.DependencyWaitKey]jobdb.DependencyWaitInfo
 	preparedGoals                     map[jobdb.JobKey]preparedGoalJob
 	goalRequests                      map[jobdb.GoalKey]jobdb.JobKey
 	configurationLimits               jobdb.ConfigurationLimits
@@ -73,9 +72,21 @@ type runtimeArtifactKey struct {
 	name    string
 }
 
+// Origin and first closure belong to retained jobs, including hidden records.
+// The successful execution or protected failure holds its own closure.
+type toyGoalClosure struct {
+	state  jobdb.GoalState
+	at     time.Time
+	winner string
+}
+
 type jobRecord struct {
 	appendKey             string
 	appendGeneration      int64
+	goalOrigin            bool
+	goalClosure           *toyGoalClosure
+	recordKind            jobdb.JobRecordKind
+	terminalFailure       *jobdb.GoalFailure
 	cell                  jobdb.ResolvedCell
 	key                   jobdb.JobKey
 	goalID                string
@@ -292,6 +303,11 @@ func NewToyEngine(opts ...Option) *ToyEngine {
 func (e *ToyEngine) GetJobRun(ctx context.Context, req jobdb.GetJobRunRequest) (jobdb.GetJobRunResponse, error) {
 	e.mu.Lock()
 	record, ok := e.jobRecords[req.JobKey]
+	var cell jobdb.ResolvedCell
+	if ok {
+		cell = record.cell
+		cell.Cell = e.cellsLocked(req.JobKey.TenantId).Cells[cell.CellID].Name
+	}
 	e.mu.Unlock()
 	if !ok {
 		return jobdb.GetJobRunResponse{}, fmt.Errorf("job %s not found", req.JobKey)
@@ -302,6 +318,8 @@ func (e *ToyEngine) GetJobRun(ctx context.Context, req jobdb.GetJobRunRequest) (
 	record.mu.Lock()
 	resp := jobdb.GetJobRunResponse{
 		Job: jobdb.JobRunSummary{
+			Cell: cell.Cell, CellID: cell.CellID, CellRepo: cell.CellRepo,
+			RecordKind: record.recordKind, TerminalFailure: jobdb.CloneGoalFailure(record.terminalFailure), GoalID: record.goalID,
 			JobKey:           req.JobKey,
 			JobType:          record.jobType,
 			Status:           record.currentStatus(time.Now()),
@@ -310,6 +328,15 @@ func (e *ToyEngine) GetJobRun(ctx context.Context, req jobdb.GetJobRunRequest) (
 			CreatedAt:        record.createdAt,
 			ArchivedAt:       record.archived,
 		},
+	}
+	if err := resp.Job.ValidateRecord(); err != nil {
+		record.mu.Unlock()
+		return jobdb.GetJobRunResponse{}, err
+	}
+	if record.recordKind.IsTerminalRecord() {
+		err := validateProtectedToyRecord(record)
+		record.mu.Unlock()
+		return resp, err
 	}
 
 	if len(record.metadata) > 0 {
@@ -951,7 +978,7 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 			e.mu.Unlock()
 			return jobdb.ListJobsResponse{}, err
 		}
-		summary := jobdb.JobSummary{Cell: e.cellsLocked(key.TenantId).Cells[rec.cell.CellID].Name, CellID: rec.cell.CellID, CellRepo: rec.cell.CellRepo, BlockingWaitSummary: blocking, GoalID: rec.goalID,
+		summary := jobdb.JobSummary{RecordKind: rec.recordKind, TerminalFailure: jobdb.CloneGoalFailure(rec.terminalFailure), Cell: e.cellsLocked(key.TenantId).Cells[rec.cell.CellID].Name, CellID: rec.cell.CellID, CellRepo: rec.cell.CellRepo, BlockingWaitSummary: blocking, GoalID: rec.goalID,
 			JobKey:                key,
 			Status:                status,
 			CompletionStatus:      rec.completionStatus,
@@ -971,6 +998,20 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 			Metadata:              metadataCopy,
 			SchemaHash:            jobmetadata.SchemaHashFromStoredMetadata(rec.metadata),
 			ParentJobID:           parentJobID, AppendKey: rec.appendKey,
+		}
+		if rec.recordKind.IsTerminalRecord() {
+			if err := validateProtectedToyRecord(rec); err != nil {
+				rec.mu.Unlock()
+				e.mu.Unlock()
+				return jobdb.ListJobsResponse{}, err
+			}
+			summary.NextRoute = nil
+			summary.ExecutionState = jobdb.ExecutionState{}
+		}
+		if err := summary.ValidateRecord(); err != nil {
+			rec.mu.Unlock()
+			e.mu.Unlock()
+			return jobdb.ListJobsResponse{}, err
 		}
 		rec.mu.Unlock()
 		records = append(records, summary)

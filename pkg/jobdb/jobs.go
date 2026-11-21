@@ -84,16 +84,19 @@ const (
 )
 
 type JobInfo struct {
-	AppendKey             string
-	Cell                  string
-	CellID                string
-	CellRepo              string
-	NextRoute             *Route
-	CompletionStatus      string
-	CompletionDetail      string
-	WaitFor               []string
-	BlockingWait          *DependencyWaitInfo
-	GoalID                string
+	AppendKey        string
+	RecordKind       JobRecordKind
+	TerminalFailure  *GoalFailure
+	Cell             string
+	CellID           string
+	CellRepo         string
+	NextRoute        *Route
+	CompletionStatus string
+	CompletionDetail string
+	WaitFor          []string
+	BlockingWait     *DependencyWaitInfo
+	GoalID           string
+	// Deprecated: always empty; membership is the immutable primary GoalID.
 	OtherGoalIDs          []string
 	ClientPayload         json.RawMessage
 	ClientPayloadRevision int64

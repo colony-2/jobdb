@@ -350,9 +350,16 @@ func TestExecutionAlternateDeadlines(t *testing.T) {
 		for _, mode := range []string{"deadline-first", "alternate-first", "scope", "completed"} {
 			t.Run(backend+"/"+mode, func(t *testing.T) {
 				rt := alternateRuntime(t, backend)
+				budget := 250 * time.Millisecond
+				if backend != "toy" {
+					// Test expiry of a durable wait, after its storage/HTTP handoff.
+					// A 250 ms scope can instead cancel that initial HTTP request
+					// under race instrumentation, leaving an uncertain publication.
+					budget = 2 * time.Second
+				}
 				call := invocation("answer")
 				call.Alternate = &wf.TaskAlternateAfter{TaskType: "fallback", After: time.Hour}
-				call.Policy.TotalTimeout = jobdb.AsDuration(250 * time.Millisecond)
+				call.Policy.TotalTimeout = jobdb.AsDuration(budget)
 				if mode == "alternate-first" {
 					call.Alternate.After = 0
 				}
@@ -364,7 +371,7 @@ func TestExecutionAlternateDeadlines(t *testing.T) {
 						return c.DoTask(call, func(context.Context) (jobdb.TaskData, error) { return in, nil })
 					}
 					if mode == "scope" {
-						return c.DoScope("budget", wf.ScopeOptions{TotalTimeout: 250 * time.Millisecond}, task)
+						return c.DoScope("budget", wf.ScopeOptions{TotalTimeout: budget}, task)
 					}
 					return task(c)
 				}}
@@ -375,6 +382,7 @@ func TestExecutionAlternateDeadlines(t *testing.T) {
 				key := submitExecutionTest(t, rt, w)
 				out, err := runExecutionTest(t, rt, key, w, fallback)
 				require.NoError(t, err)
+				require.Equal(t, wf.JobRunSuspended, out.Status, "persist the wait before exercising its deadline")
 				if out.Status == wf.JobRunSuspended {
 					wait := executionWait(t, rt, key)
 					engine, err := wf.NewEngineBuilder().WithRuntime(rt).BuildEngine()
