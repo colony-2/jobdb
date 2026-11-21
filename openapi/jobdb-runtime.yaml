@@ -680,6 +680,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: lease_permission_denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: job_schema_not_found
           content:
@@ -724,6 +730,12 @@ paths:
                 $ref: '#/components/schemas/JobHandle'
         '400':
           description: invalid_append_request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: lease_permission_denied
           content:
             application/json:
               schema:

@@ -1251,16 +1251,20 @@ func cloneStringSlice(values *[]string) []string {
 }
 
 func writePayloadSizeError(w http.ResponseWriter, err error) bool {
-	var size *jobdb.ChapterApplicationPayloadError
-	if !errors.As(err, &size) {
+	if !errors.Is(err, jobdb.ErrChapterApplicationPayloadTooLarge) {
 		return false
+	}
+	message := jobdb.ErrChapterApplicationPayloadTooLarge.Error()
+	var size *jobdb.ChapterApplicationPayloadError
+	if errors.As(err, &size) && size != nil {
+		message = size.Error()
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusRequestEntityTooLarge)
 	_ = json.NewEncoder(w).Encode(struct {
 		Code    string                                `json:"code"`
 		Message string                                `json:"message"`
-		Details *jobdb.ChapterApplicationPayloadError `json:"details"`
-	}{jobdb.ChapterApplicationPayloadTooLargeCode, size.Error(), size})
+		Details *jobdb.ChapterApplicationPayloadError `json:"details,omitempty"`
+	}{jobdb.ChapterApplicationPayloadTooLargeCode, message, size})
 	return true
 }

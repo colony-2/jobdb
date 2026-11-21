@@ -1192,8 +1192,11 @@ func payloadSizeResponseError(body []byte) error {
 		Code    string                                `json:"code"`
 		Details *jobdb.ChapterApplicationPayloadError `json:"details"`
 	}
-	if json.Unmarshal(body, &v) == nil && v.Code == jobdb.ChapterApplicationPayloadTooLargeCode && v.Details != nil {
-		return v.Details
+	if json.Unmarshal(body, &v) == nil && v.Code == jobdb.ChapterApplicationPayloadTooLargeCode {
+		if v.Details != nil {
+			return v.Details
+		}
+		return jobdb.ErrChapterApplicationPayloadTooLarge
 	}
 	return nil
 }

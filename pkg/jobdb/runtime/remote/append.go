@@ -107,6 +107,12 @@ func (s *proxyServer) StartOrAppendJobWithLease(ctx context.Context, q runtimeap
 	return runtimeapi.StartOrAppendJobWithLease200JSONResponse(toAPIJobHandle(h)), nil
 }
 func writeAppendError(w http.ResponseWriter, err error) bool {
+	if errors.Is(err, jobdb.ErrLeasePermissionDenied) {
+		writeAPIError(w, http.StatusForbidden, runtimeapi.ErrorResponse{
+			Code: runtimeapi.ErrorCodeLeasePermissionDenied, Message: jobdb.ErrLeasePermissionDenied.Error(),
+		})
+		return true
+	}
 	status, code := 0, ""
 	if errors.Is(err, jobdb.ErrInvalidAppendRequest) {
 		status, code = 400, "invalid_append_request"

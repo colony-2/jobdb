@@ -7749,6 +7749,7 @@ type StartOrAppendJobHTTPResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *JobHandle
 	JSON400      *ErrorResponse
+	JSON403      *ErrorResponse
 	JSON404      *ErrorResponse
 	JSON409      *ErrorResponse
 	JSON413      *ErrorResponse
@@ -8406,6 +8407,7 @@ type StartOrAppendJobWithLeaseHTTPResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *JobHandle
 	JSON400      *ErrorResponse
+	JSON403      *ErrorResponse
 	JSON404      *ErrorResponse
 	JSON409      *ErrorResponse
 	JSON413      *ErrorResponse
@@ -10244,6 +10246,13 @@ func ParseStartOrAppendJobHTTPResponse(rsp *http.Response) (*StartOrAppendJobHTT
 		}
 		response.JSON400 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -11246,6 +11255,13 @@ func ParseStartOrAppendJobWithLeaseHTTPResponse(rsp *http.Response) (*StartOrApp
 			return nil, err
 		}
 		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest ErrorResponse
@@ -16438,6 +16454,15 @@ func (response StartOrAppendJob400JSONResponse) VisitStartOrAppendJobResponse(w 
 	return json.NewEncoder(w).Encode(response)
 }
 
+type StartOrAppendJob403JSONResponse ErrorResponse
+
+func (response StartOrAppendJob403JSONResponse) VisitStartOrAppendJobResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type StartOrAppendJob404JSONResponse ErrorResponse
 
 func (response StartOrAppendJob404JSONResponse) VisitStartOrAppendJobResponse(w http.ResponseWriter) error {
@@ -17620,6 +17645,15 @@ type StartOrAppendJobWithLease400JSONResponse ErrorResponse
 func (response StartOrAppendJobWithLease400JSONResponse) VisitStartOrAppendJobWithLeaseResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type StartOrAppendJobWithLease403JSONResponse ErrorResponse
+
+func (response StartOrAppendJobWithLease403JSONResponse) VisitStartOrAppendJobWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
 
 	return json.NewEncoder(w).Encode(response)
 }

@@ -80,6 +80,12 @@ class PublishedModuleTest(unittest.TestCase):
             output = self.workspace
         elif args == ["go", "env", "GOFLAGS"]:
             output = self.flags
+        elif args == ["go", "test", "-count=1", "./..."]:
+            self.assertEqual(env["EXPECTED_JOBDB_VERSION"], VERSION)
+            fixture = (consumer / "append_test.go").read_text()
+            self.assertIn("TestPublishedCancelledReads", fixture)
+            self.assertIn("TestPublishedSemanticAppend", fixture)
+            output = "ok example.invalid/jobdb-published-consumer"
         elif args == ["go", "run", "."]:
             self.assertEqual(env["EXPECTED_JOBDB_VERSION"], VERSION)
             self.assertIn("CurrentBuildInfo", (consumer / "main.go").read_text())
@@ -195,7 +201,7 @@ class PublishedModuleTest(unittest.TestCase):
         for args, error in ((prefix, "resolution failed"),
                             (prefix, subprocess.TimeoutExpired(prefix, 300)),
                             (["go", "mod", "download"], "download failed"),
-                            (["go", "test"], "external examples failed"),
+                            (["go", "test"], "external cancellation/append behavior failed"),
                             (["go", "run"], "external consumer failed")):
             with self.subTest(command=args, error=error):
                 self.failure = (args, error)

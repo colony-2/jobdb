@@ -96,6 +96,8 @@ def verify(commit, report):
             examples = examples.replace("package jobdb_test", "package main")
             examples = examples.replace("func Example", "func Example_jobdb")
             (consumer / "execution_test.go").write_text(examples, encoding="utf-8")
+            fixture = Path("scripts/testdata/published-append-consumer/main_test.go").read_text(encoding="utf-8")
+            (consumer / "append_test.go").write_text(fixture, encoding="utf-8")
             (consumer / "main.go").write_text('''package main
 import (
  "context"
@@ -116,8 +118,10 @@ func main() {
 }
 ''', encoding="utf-8")
             run(["go", "mod", "tidy"])
-            run(["go", "test", "-count=1", "./..."])
             env["EXPECTED_JOBDB_VERSION"] = version
+            behavioral_output = run(["go", "test", "-count=1", "./..."])
+            lines += ["Direct/HTTP cancelled reads and semantic append behavior:", "",
+                      "```text", behavioral_output.strip(), "```", ""]
             observed = run(["go", "run", "."]).strip()
             if observed != version:
                 raise ValueError(f"Linked build version {observed} differs from {version}")
@@ -130,7 +134,7 @@ func main() {
             lines += ["Commands completed:", "",
                       f"- `go list -m -json {MODULE}@{commit}`",
                       f"- `go mod download -json {MODULE}@{version}`", "",
-                      "Public classifier, optional reader and build-info examples compiled and ran.", "",
+                      "Public examples and direct/HTTP cancellation and append regressions compiled and ran.", "",
                       f"Linked CurrentBuildInfo version: `{observed}`", "",
                       "- `go test -count=1 ./...`", "- `go run .`", "",
                       "Result: passed."]

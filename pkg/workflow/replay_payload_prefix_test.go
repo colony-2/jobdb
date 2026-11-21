@@ -192,7 +192,15 @@ func TestReplayPayloadAcceptedPrefix(t *testing.T) {
 				if !external {
 					tasks = append(tasks, rejected)
 				}
-				outcome, err := runExecutionTest(t, rt, key, w, tasks...)
+				// Encoding a rejected payload can outlast the shared helper's one-second
+				// lease while Reschedule/Complete blocks renewal under the session lock.
+				// This fixture tests retained-prefix replay, not authority expiration.
+				run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{
+					JobKey: key, JobWorker: w, TaskWorkers: tasks, WorkerID: "execution-test",
+					LeaseDuration: 10 * time.Second, ConsumerVersions: map[string]string{"c2j": "X", "pulse": "Y"},
+				})
+				require.NoError(t, err)
+				outcome, err := run.Run(nil)
 				require.NoError(t, err)
 				if acceptedWait {
 					require.Equal(t, wf.JobRunSuspended, outcome.Status)

@@ -95,6 +95,13 @@ func (r *Runtime) GetJob(ctx context.Context, key jobdb.JobKey) (jobdb.JobInfo, 
 		SimpleTaskData: jobdb.SimpleTaskData{Data: append(jobdb.Data(nil), payload...), Artifacts: artifacts},
 		Kind:           kind,
 	}
+	// A cancelled job can retain input/control data as its final chapter.
+	// DecodeChapter above still validates the entire stored record.
+	switch chapter.Body.(type) {
+	case jobdb.JobStartChapter, jobdb.AdditionalInputChapter, jobdb.RestartExtraChapter, jobdb.ExecutionChapter:
+		info.Data = &runtimeJobData{taskData: data}
+		return info, nil
+	}
 	var dataErr error
 	decodeOutcome := func(target any, makeError func() error) error {
 		if err := json.Unmarshal(payload, target); err != nil {

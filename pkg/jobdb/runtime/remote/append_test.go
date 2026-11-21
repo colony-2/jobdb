@@ -199,8 +199,15 @@ func TestGroupedGenuineLeaseLoss(t *testing.T) {
 					require.NotNil(t, next)
 					require.NotEqual(t, owner.leaseID, next.LeaseID())
 				}
+				probe := groupedProbe(t, f)
+				client, err := New(f.server.URL, f.server.Client())
+				require.NoError(t, err)
+				owner.runtime = client
+				before := groupedState(t, f)
 				_, err = owner.StartOrAppendJob(ctx, q)
 				require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
+				require.Zero(t, probe.calls)
+				require.Equal(t, before, groupedState(t, f))
 				require.NotErrorIs(t, err, jobdb.ErrJobSchemaNotFound)
 				require.Empty(t, groupedJobs(t, f.backend))
 			})
@@ -260,6 +267,9 @@ func TestGroupedTransportFailureAfterAcceptance(t *testing.T) {
 					submit, credential := groupedSubmitter(t, f, client, mode)
 					_, err = submit(ctx, q)
 					require.ErrorIs(t, err, lost)
+					var infrastructure *jobdb.ExecutionInfrastructureError
+					require.ErrorAs(t, err, &infrastructure)
+					require.Equal(t, jobdb.ExecutionInfrastructureRuntimeIO, infrastructure.Reason)
 					require.NotErrorIs(t, err, jobdb.ErrJobSchemaNotFound)
 					require.NotErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
 					require.Len(t, paths, 1)

@@ -31,7 +31,9 @@ func RunSubmissionAvailabilityConformance(t *testing.T, harnesses ...Harness) {
 					if parent {
 						owner, err := submit(ctx, availabilityRequest("owner", "owner", nil))
 						require.NoError(t, err)
-						lease, err := f.Runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: owner.JobKey, WorkerID: "owner", Routes: []jobdb.Route{{JobType: "owner"}}, LeaseDuration: time.Minute})
+						// This authority spans the entire parallel admission matrix, including
+						// real availability waits on race-instrumented SQLite/HTTP.
+						lease, err := f.Runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: owner.JobKey, WorkerID: "owner", Routes: []jobdb.Route{{JobType: "owner"}}, LeaseDuration: 5 * time.Minute})
 						require.NoError(t, err)
 						require.NotNil(t, lease)
 						submit = lease.SubmitJob
@@ -57,7 +59,7 @@ func RunSubmissionAvailabilityWithSubmit(t *testing.T, rt jobdb.ConsumerRuntime,
 				name := fmt.Sprintf("%s/time-first=%v/poll=%v", kind, timeFirst, poll)
 				t.Run(name, func(t *testing.T) {
 					t.Parallel()
-					ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 15*time.Second)
+					ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 30*time.Second)
 					defer cancel()
 					id := fmt.Sprintf("%s-%v-%v", kind, timeFirst, poll)
 					var producers []jobdb.JobHandle
@@ -79,10 +81,29 @@ func RunSubmissionAvailabilityWithSubmit(t *testing.T, rt jobdb.ConsumerRuntime,
 						}
 						deps = append(deps, d)
 					}
-					available := time.Now().UTC().Add(3 * time.Second)
+					lead := 3 * time.Second
+					if kind == "all-of" && !timeFirst {
+						// Three producer completions, intervening denial probes and stored
+						// projections must finish before observing the time gate alone.
+						// Those SQLite/HTTP calls exceed three seconds under -race.
+						lead = 10 * time.Second
+					}
+					available := time.Now().UTC().Add(lead)
 					// The shared admission matrix uses a cross-backend microsecond instant.
 					// Backend-specific tests cover finer scheduling precision.
 					available = available.Truncate(time.Microsecond)
+					waitForAvailability := func() {
+						t.Helper()
+						if wait := time.Until(available); wait > 0 {
+							timer := time.NewTimer(wait)
+							defer timer.Stop()
+							select {
+							case <-timer.C:
+							case <-ctx.Done():
+								require.NoError(t, ctx.Err())
+							}
+						}
+					}
 					req := availabilityRequest("consumer-"+id, "child", &available)
 					req.Job.Dependencies = deps
 					req.Job.Metadata, _ = json.Marshal(map[string]string{"consumer": id})
@@ -133,9 +154,7 @@ func RunSubmissionAvailabilityWithSubmit(t *testing.T, rt jobdb.ConsumerRuntime,
 					}
 					deny()
 					if timeFirst {
-						for time.Now().Before(available) {
-							time.Sleep(10 * time.Millisecond)
-						}
+						waitForAvailability()
 						deny()
 					}
 					for i, p := range producers {
@@ -164,6 +183,10 @@ func RunSubmissionAvailabilityWithSubmit(t *testing.T, rt jobdb.ConsumerRuntime,
 						}
 					}
 					if l == nil {
+						// The explicit probes above cover rejection before availability.
+						// Avoid polling the shared backend while waiting for the time gate:
+						// under -race those requests can delay another case's setup.
+						waitForAvailability()
 						require.Eventually(t, func() bool { l = acquire(); return l != nil }, 5*time.Second, 10*time.Millisecond)
 					}
 					require.False(t, time.Now().Before(available))

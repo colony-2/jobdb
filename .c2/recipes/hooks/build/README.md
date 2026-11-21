@@ -8,11 +8,11 @@ accepted but never interpreted as shell code. Checks always cover the whole repo
 | Workflow behavior | Native task |
 | --- | --- |
 | `test.yaml`: Linux ARM64 Go tests with integration tag | `test_integration`: `go test -count=1 -p=2 -timeout=20m -v -tags=integration -exec "python3 $PWD/scripts/verify-test-exec.py" ./...` |
-| `test.yaml`: workflow/provider and shared/embedded runtime race check | `test_races`: `GOMAXPROCS=2 go test -count=1 -timeout=20m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/... ./pkg/jobdb/runtimetest` |
+| `test.yaml`: workflow/provider and shared/embedded runtime race check | `test_races`: `GOMAXPROCS=2 go test -count=1 -timeout=25m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/... ./pkg/jobdb/runtimetest` |
 | Immutable-goal migration, admission and protected records | `test_integration`: focused goal/terminal/manual-migration/availability/restart checks; `test_races`: three repetitions of independent goal writers and controlled closure/admission/wait commit orders |
 | Crash-concern live state, expiry and same-job recovery | `test_integration`: three repetitions of the built-in and HTTP `crash_concern_excludes_ready_work` conformance cases, with a five-minute package budget |
 | Infrastructure preservation, provenance and synchronous legacy renewal | `test_races`: `go test -count=1 -p=1 -timeout=20m -v -race ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/remote -run 'TestInfrastructure\|TestProvenance\|TestLegacyKeepAlive'` |
-| Completion fallback, input recovery, ignored SDK failures and HTTP source identity | `test_races`: ten race-instrumented repetitions of `TestInfrastructureCompletionSource`, `TestExecutionUncertainFinalCompletion`, `TestInfrastructureSDKFailures`, `TestInfrastructureHTTPFallbackRetainsKnownSource`, `TestInfrastructureHTTPOperationSource`, `TestInfrastructureHTTPArtifactBodySource` and `TestExecutionRecoveryInputSnapshots` in workflow and HTTP |
+| Completion fallback, input recovery, accepted-prefix replay, ignored SDK failures and HTTP source identity | `test_races`: ten race-instrumented repetitions of `TestInfrastructureCompletionSource`, `TestExecutionUncertainFinalCompletion`, `TestInfrastructureSDKFailures`, `TestInfrastructureHTTPFallbackRetainsKnownSource`, `TestInfrastructureHTTPOperationSource`, `TestInfrastructureHTTPArtifactBodySource`, `TestExecutionRecoveryInputSnapshots` and `TestReplayPayloadAcceptedPrefix` in workflow and HTTP |
 | Generated runtime inventories and public API snapshot | `test_integration`: checksum both generated HTTP inventories before/after `go generate`, then check the combined public API snapshot |
 | Published-module receipt acceptance and failure cases | `test_integration`: Python standard-library unit fixtures for `verify-published-module.py`; actual availability requires an explicit check of a published commit |
 | Immutable-goal external consumer checks | `test_integration`: rejection fixtures for `check-published-goals.py` and public toy/SQLite consumer tests in the complete integration sweep; external acquisition/execution follows publication |
@@ -26,8 +26,10 @@ requires CGO and the declared native GCC toolchain. Build/package parallelism is
 avoid compiling other packages during timing-sensitive workflow race tests. The
 integration suite keeps Go’s native CPU-aware default. The race task sets
 `GOMAXPROCS=2` for the Go command, compiler tools and test subprocesses to bound
-thread pressure. Its explicit `-timeout=20m` prevents the full workflow package
-from hitting Go’s default ten-minute limit while tests are still progressing.
+thread pressure. Its explicit `-timeout=25m` bounds each initial-sweep package and avoids Go’s
+default ten-minute limit while tests are still progressing. HTTP took 18.6
+minutes in the returned run before the longer all-of fixture waits; twenty-five
+minutes allows those waits and leaves headroom for worker load.
 The upstream `-parallel=2` limit also bounds parallel test fixtures. Remote runtime
 and public JobDB package coverage remain included. No tests are excluded, and
 race instrumentation remains enabled.
@@ -41,6 +43,19 @@ package fails verification while preserving all four evidence artifacts.
 The ten-repeat selection also includes input-snapshot recovery across toy,
 SQLite and HTTP. Its lease stays valid until the append fault fires; expiry is
 then explicit, keeping recovery independent of storage and HTTP speed.
+
+The accepted-prefix replay fixture uses a ten-second lease for its initial live
+execution, matching the existing oversized-payload execution fixture. Its former
+one-second lease could expire during race-instrumented HTTP payload rejection
+while a terminal mutation blocks renewal. Replay still checks the exact retained
+prefix, terminal payload failure, read-only operations and unchanged durable
+history. Live fixture VH-042 passes the broad sweep and fails only when this
+test is selected with count ten, proving the repeated gate retains its failure
+and all four evidence artifacts. Lease expiry and renewal failure tests retain
+their own deliberately short authority windows.
+The repeated-failure fixtures also supply the toy runtime package selected by
+the hook, so each reaches its intended injected failure rather than stopping at
+a missing fixture package.
 
 Integration first retains current main's generated-file checks for both legacy and
 consumer HTTP inventories and its public API snapshot check. The snapshot includes
@@ -56,7 +71,7 @@ beneath its scratch working directory. The launcher removes the inherited home
 variable only in those test processes so embedded-postgres cannot write to the
 worker's home. Other tests keep their source working directory and fixture access.
 The workflow/provider race command uses a twenty-minute per-package timeout in
-both CI and the native hook. The native hook also exercises core, SQLite and HTTP
+CI; the broader native initial sweep uses twenty-five minutes. The native hook also exercises core, SQLite and HTTP
 infrastructure/provenance races, including synchronous legacy renewal shutdown.
 It then repeats completion fallback, ignored SDK failure and HTTP origin regressions ten
 times under the race detector. These include ordinary provider errors and valid
@@ -82,15 +97,26 @@ Cancellation is not caught. Full logs are exported as native artifact references
 Scoped Git transport remains intact; enclosing job identity and opt-in remote
 runtime/Postgres settings are cleared before testing.
 
-Timeouts belong to command inputs: two minutes for environment/reporting and
-thirty minutes for integration and sixty minutes for races, with a
-twenty-minute Go package timeout for both complete suites. A native run passed
-integration and the 603-second workflow race package, then exhausted the old
-thirty-minute command budget during progressing HTTP conformance. A forty-five-minute
-rerun passed workflow, HTTP and core races before its outer deadline interrupted
-progressing SQLite checks. The sixty-minute outer race budget covers cold
-compilation and all four mandatory commands. It retains every package, repetition,
-assertion, parallelism bound and per-package timeout. Durable states have no wall-clock deadline,
+Timeouts belong to command inputs: two minutes for environment/reporting,
+thirty minutes for integration and ninety minutes for the race operation.
+The returned 45-minute race run timed out during SQLite's initial sweep, after
+workflow took 760.523 seconds and HTTP took 1116.582 seconds. It had not reached
+either preservation command. The aggregate budget allows cold compilation,
+three long serial suites (workflow, HTTP and SQLite), the smaller packages and
+the goal-race command and both preservation commands; Bash records elapsed time for each command. Every
+assertion, test selection and thread limit remains intact. Initial-sweep packages
+have a twenty-five-minute limit; preservation commands keep twenty-minute limits, and repeated goal races keep
+the upstream ten-minute limit. Integration retains its twenty-minute package limit.
+The shared availability fixture gives the dependencies-first all-of case ten
+seconds to complete its three producers and denial/read probes before observing
+the time gate alone. The returned HTTP/SQLite race failure took 3.71 seconds,
+exceeding the former three-second fixture window. Explicit pre-availability rejection probes remain. A context-aware timer then
+waits for eligibility before the five-second acquisition budget starts, avoiding
+the former 10 ms HTTP/SQLite polling loop that delayed other cases' setup. The
+matrix's parent authority lasts five minutes and each case has a thirty-second
+context. Dependency-first/time-first ordering, all acquisition/authority choices,
+future-observation assertions and real-time eligibility checks remain required.
+Durable states have no wall-clock deadline,
 so suspension or delayed result collection cannot expire an already successful
 command. Command timeouts and all aggregate evidence requirements still gate a pass.
 
@@ -187,3 +213,16 @@ failed verification, the diagnostic marker, all four artifacts and unchanged
 fixture source. This proves a checker-fixture failure cannot be silently omitted.
 The published-module consumer README gives the post-publication command and
 explains the fresh caches, exact origins/checksums and actual API execution.
+
+The integration hook also runs `scripts/testdata/published-append-consumer`
+explicitly because Go excludes `testdata` from `./...`. This exercises the public
+SQLite/HTTP cancellation and semantic append fixture against the candidate. The
+publication verifier copies that same fixture into its separate downloaded-module
+consumer and requires its behavioral checks to pass, alongside linked build
+identity and the existing public examples. Candidate execution establishes source
+behavior; the later external execution establishes published behavior.
+
+Live fixture VH-041 forces the public consumer test to fail. It requires failed
+verification, successful independent races, all four evidence artifacts and an
+unchanged fixture checkout. Use the documented ten-minute case budget for these
+live fixtures; their isolated Go caches require fresh compilation.

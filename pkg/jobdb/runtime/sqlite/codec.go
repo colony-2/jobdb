@@ -214,6 +214,11 @@ func chapterToTaskData(chapter story.Chapter, jobKey jobdb.JobKey) (result jobdb
 }
 
 func envelopeToTaskData(env chapterEnvelope, artifacts []jobdb.Artifact) (jobdb.TaskData, error) {
+	// Validate the chapter body before deciding whether it contains an outcome.
+	// Cancellation can archive an input or control chapter without an outcome.
+	if _, err := runtimecodec.ChapterBodyFromWire(env.ChapterType, env.PayloadKind, env.Payload); err != nil {
+		return nil, err
+	}
 	copiedArtifacts := make([]jobdb.Artifact, 0, len(artifacts))
 	for _, art := range artifacts {
 		copiedArtifacts = append(copiedArtifacts, art)
@@ -222,6 +227,11 @@ func envelopeToTaskData(env chapterEnvelope, artifacts []jobdb.Artifact) (jobdb.
 	td := &jobdb.EnvelopedTaskData{
 		SimpleTaskData: jobdb.SimpleTaskData{Data: jobdb.Data(payload), Artifacts: copiedArtifacts},
 		Kind:           env.PayloadKind,
+	}
+	switch env.ChapterType {
+	case runtimecodec.ChapterTypeJobStart, runtimecodec.ChapterTypeAdditionalInput,
+		runtimecodec.ChapterTypeRestartExtra, "Execution":
+		return td, nil
 	}
 	switch env.PayloadKind {
 	case payloadKindApp:

@@ -132,15 +132,19 @@
         },
         {
           "type": "cel_true",
-          "expr": "calls.filter(c, c.node_path.endsWith(\"/test_races/test_races\"))[0].inputs.run.contains(\"go test -count=1 -timeout=20m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/...\")"
+          "expr": "calls.filter(c, c.node_path.endsWith(\"/test_races/test_races\"))[0].inputs.run.contains(\"go test -count=1 -timeout=25m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/...\")"
         },
         {
           "type": "cel_true",
-          "expr": "calls.filter(c, c.node_path.endsWith(\"/test_races/test_races\")).all(c, c.inputs.env.GOMAXPROCS == \"2\" && c.inputs.run.contains(\"-timeout=20m\") && c.inputs.run.contains(\"-parallel=2\") && c.inputs.timeout == \"60m\")"
+          "expr": "calls.filter(c, c.node_path.endsWith(\"/test_races/test_races\")).all(c, c.inputs.env.GOMAXPROCS == \"2\" && c.inputs.run.contains(\"-timeout=25m\") && c.inputs.run.contains(\"-parallel=2\") && c.inputs.timeout == \"90m\" && c.inputs.run.contains(\"time go test -count=1 -timeout=25m\") && c.inputs.run.contains(\"time go test -count=1 -p=1 -timeout=20m\") && c.inputs.run.contains(\"time go test -count=10 -p=1 -timeout=20m\"))"
         },
         {
           "type": "cel_true",
           "expr": "calls.filter(c, c.node_path.endsWith(\"/test_integration/test_integration\"))[0].inputs.run.contains(\"python3 -B -m unittest discover -s scripts -p 'test_verify_published_module.py' -v\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path.endsWith(\"/test_races/test_races\"))[0].inputs.run.contains(\"TestExecutionRecoveryInputSnapshots|TestReplayPayloadAcceptedPrefix\")"
         }
       ]
     },
