@@ -3,6 +3,7 @@ import base64
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -35,6 +36,7 @@ class PublishedModuleTest(unittest.TestCase):
         self.consumer_mod = {}
         self.workspace, self.flags = "off", ""
         self.calls = []
+        self.expected_transport = {}
 
     def run_command(self, args, **kwargs):
         self.calls.append(args)
@@ -48,6 +50,8 @@ class PublishedModuleTest(unittest.TestCase):
         self.assertEqual(env["GOPROXY"], "direct")
         self.assertEqual(env["GOTOOLCHAIN"], "local")
         self.assertEqual(env["GOPRIVATE"], "github.com/colony-2/*")
+        for key, value in self.expected_transport.items():
+            self.assertEqual(env[key], value, key)
         if args == ["go", "version"]:
             self.assertEqual(list(cache.iterdir()), [])
         if self.failure and args[:len(self.failure[0])] == self.failure[0]:
@@ -114,6 +118,20 @@ class PublishedModuleTest(unittest.TestCase):
         self.assertIn(f"Downloaded version: `{VERSION}`", report)
         self.assertIn(["go", "test", "-count=1", "./..."], self.calls)
         self.assertIn(["go", "run", "."], self.calls)
+
+    def test_direct_git_routing_preserves_transport(self):
+        # Public and private GitHub modules share the operator-managed Git route.
+        self.expected_transport = {
+            "GONOPROXY": "operator.example/*", "GONOSUMDB": "operator.example/*",
+            "PUBLICATION_TEST_TRANSPORT": "preserved",
+        }
+        inherited = dict(self.expected_transport, GOPROXY="https://proxy.invalid",
+                         GOPRIVATE="*", GOWORK="/inherited/go.work",
+                         GOFLAGS="-modfile=/inherited/go.mod", GOTOOLCHAIN="auto")
+        with patch.dict(os.environ, inherited):
+            report = self.verify()
+        self.assertIn("GOPROXY=direct", report)
+        self.assertNotIn("proxy.golang.org", report)
 
     def test_commit_and_checkout_rejected_before_resolution(self):
         for commit, head in (("main", COMMIT), ("b" * 40, COMMIT)):

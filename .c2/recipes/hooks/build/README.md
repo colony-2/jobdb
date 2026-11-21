@@ -13,7 +13,7 @@ accepted but never interpreted as shell code. Checks always cover the whole repo
 | Infrastructure preservation, provenance and synchronous legacy renewal | `test_races`: `go test -count=1 -p=1 -timeout=20m -v -race ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/remote -run 'TestInfrastructure\|TestProvenance\|TestLegacyKeepAlive'` |
 | Completion fallback, input recovery, ignored SDK failures and HTTP source identity | `test_races`: ten race-instrumented repetitions of `TestInfrastructureCompletionSource`, `TestExecutionUncertainFinalCompletion`, `TestInfrastructureSDKFailures`, `TestInfrastructureHTTPFallbackRetainsKnownSource`, `TestInfrastructureHTTPOperationSource`, `TestInfrastructureHTTPArtifactBodySource` and `TestExecutionRecoveryInputSnapshots` in workflow and HTTP |
 | Generated runtime inventories and public API snapshot | `test_integration`: checksum both generated HTTP inventories before/after `go generate`, then check the combined public API snapshot |
-| Published-module receipt acceptance and failure cases | `test_integration`: Python standard-library unit fixtures for `verify-published-module.py`; actual module availability is checked after publication |
+| Published-module receipt acceptance and failure cases | `test_integration`: Python standard-library unit fixtures for `verify-published-module.py`; actual availability requires an explicit check of a published commit |
 | Tools/platform metadata | `check_environment` |
 | Local result and durable evidence | `summarize` |
 
@@ -80,9 +80,13 @@ Cancellation is not caught. Full logs are exported as native artifact references
 Scoped Git transport remains intact; enclosing job identity and opt-in remote
 runtime/Postgres settings are cleared before testing.
 
-Timeouts belong to command inputs: two minutes for environment/reporting and
-thirty minutes for each test suite, with a twenty-minute Go package timeout for
-the race suite. Durable states have no wall-clock deadline,
+Timeouts belong to command inputs: two minutes for environment/reporting,
+thirty minutes for integration and forty-five minutes for the race operation.
+A fresh-cache local run of the complete race script exceeded the former
+thirty-minute operation budget before its initial command finished. The outer
+budget covers cold compilation and all three mandatory commands; every
+twenty-minute Go package timeout, assertion and thread limit remains intact.
+Durable states have no wall-clock deadline,
 so suspension or delayed result collection cannot expire an already successful
 command. Command timeouts and all aggregate evidence requirements still gate a pass.
 
@@ -122,34 +126,41 @@ Use the local candidate-loading suites above for source acceptance; do not treat
 submission or the preparation command as verification success. Runtime owners
 must repair restore-artifact delivery before claiming that child route works.
 
-`publish.yaml` checks normal module consumption after the managed Git publication.
-It passes the actual full `merged_hash` to `scripts/verify-published-module.py`;
-the helper requires the checkout to match that commit. It creates an external
-consumer and an empty module cache, disables workspace mode, clears `GOFLAGS`,
-and resolves and downloads JobDB through the normal Git route without replacements.
+The optional `scripts/verify-published-module.py` checks an explicitly supplied,
+already-published full commit. Upstream removed the repository's publish hook;
+this helper does not run automatically after publication. For a read-only check,
+run it from a checkout whose HEAD matches the published commit:
+
+```sh
+python3 -B scripts/verify-published-module.py FULL_PUBLISHED_HASH module-consumption.md
+```
+
+It creates an external consumer with an empty module cache, disables workspace
+mode, clears `GOFLAGS` and uses `GOPROXY=direct`. Public and private GitHub modules
+use the operator-managed Git transport. There is no public Go proxy workaround
+or override of inherited `GONOPROXY`/`GONOSUMDB`. Verify actual retrieval rather
+than treating a gateway configuration change as proof of availability.
+
 Both origins must identify Git, a nonblank URL and the publication commit, and
 both versions must agree. Download `Sum` and `GoModSum` must be valid `h1:`
 SHA-256 checksums, and the module archive must exist in the fresh cache.
-The exported `module-consumption.md` records the full commit, resolved and
-downloaded versions, complete unmodified origin objects, both Go checksums and
-the archive's byte count and SHA-256. The archive checksum is separate from Go's
-content checksum. Resolution or download failure fails the
-hook; the helper does not merge, push, substitute another commit or retry.
-
-This check uses the same scoped Git transport available for private module
-resolution in the verification hook. It needs no publishing credential or JobDB
-secret. The managed flow retains Git publication; this hook verifies availability
-of its result. A failed check does not undo a publication that already completed.
+The report retains complete origins, versions, checksums and archive facts.
+It then runs executable public examples, external consumer tests and linked
+`CurrentBuildInfo` assertions without replacements. A failed check records the
+failure; it does not merge, push, substitute another commit or retry.
 
 Receipt acceptance and failure fixtures run without publishing:
 
 ```sh
-python3 -m unittest discover -s scripts -p 'test_verify_published_module.py' -v
+python3 -B -m unittest discover -s scripts -p 'test_verify_published_module.py' -v
 ```
 
-They check exact identities, origins, versions, checksums, archives, isolation and
-readable failures using controlled command responses. Actual module availability
-still requires the configured post-publication check.
+They check exact identities, origins, versions, checksums, archives, isolation,
+direct routing despite an inherited public proxy, preserved transport settings
+and readable failures using controlled command responses. Live fixture VH-040
+proves that a failing receipt regression rejects verification while independent
+races and all four evidence artifacts survive. Actual availability requires a
+real fresh-consumer check of the exact published commit.
 
 The completion source fixture passes integration and the initial races, then fails
 only the ten-repeat completion regression. It requires a failed verdict, all four

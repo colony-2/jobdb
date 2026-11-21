@@ -108,7 +108,8 @@ state:
           unset C2J_TENANT_ID C2J_OBJECT_OUTBOX JOBDB_EXTERNAL_REMOTE_BASE_URL JOBDB_EXTERNAL_REMOTE_NAME JOBDB_EXTERNAL_REMOTE_ONLY JOBDB_CHAPTER_POSTGRES_DSN
           # Scoped Git transport credentials remain available for module downloads.
           # Check receipt acceptance before the candidate can be published.
-          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p 'test_verify_published_module.py' -v
+          printf '%s\n' 'Command: python3 -B -m unittest discover -s scripts -p test_verify_published_module.py -v'
+          python3 -B -m unittest discover -s scripts -p 'test_verify_published_module.py' -v
           # Check both route inventories and public signatures before exercising them.
           sha256sum pkg/jobdb/internal/runtimeapi/zz{,_consumer}_generated.go > "$scratch/generated.sha256"
           go generate ./pkg/jobdb/internal/runtimeapi
@@ -219,7 +220,7 @@ state:
       inputs:
         shell: bash
         working_directory: ${{ context.environment.op.worktree_path }}
-        timeout: 30m
+        timeout: 45m
         continue_on_error: true
         capture_diagnostics: always
         env:
@@ -252,7 +253,7 @@ state:
           # -p bounds packages; separately bound t.Parallel fixtures under race overhead.
           # Preserve the availability matrix's future window and every assertion.
           # The complete race-instrumented workflow package exceeds Go's 10m default.
-          # Give each package 20m within this command's 30m outer limit.
+          # Give each package 20m within this command's 45m outer limit.
           printf '%s\n' "Command: go test -count=1 -timeout=20m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/... ./pkg/jobdb/runtimetest"
           go test -count=1 -timeout=20m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/... ./pkg/jobdb/runtimetest
           printf '%s\n' "Command: go test -count=1 -p=1 -timeout=20m -v -race ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/remote -run 'TestInfrastructure|TestProvenance|TestLegacyKeepAlive'"
