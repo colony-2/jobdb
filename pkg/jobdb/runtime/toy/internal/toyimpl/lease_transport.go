@@ -15,7 +15,12 @@ func (r *Runtime) KeepAliveLeaseByID(ctx context.Context, jobKey jobdb.JobKey, l
 	return err
 }
 
-func (r *Runtime) KeepAliveLeaseByIDWithExpiry(_ context.Context, jobKey jobdb.JobKey, leaseID string, workerID string, leaseDuration time.Duration) (time.Time, error) {
+func (r *Runtime) KeepAliveLeaseByIDWithExpiry(ctx context.Context, jobKey jobdb.JobKey, leaseID string, workerID string, leaseDuration time.Duration) (time.Time, error) {
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, jobKey.TenantId); projectErr != nil {
+		var projectZero0 time.Time
+		return projectZero0, projectErr
+	}
+
 	r.engine.mu.Lock()
 	defer r.engine.mu.Unlock()
 	record := r.engine.jobRecords[jobKey]
@@ -35,10 +40,18 @@ func (r *Runtime) KeepAliveLeaseByIDWithExpiry(_ context.Context, jobKey jobdb.J
 }
 
 func (r *Runtime) CompleteJobWithLeaseByID(ctx context.Context, jobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.CompleteExecutionRequest) error {
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, jobKey.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	return r.completeLease(ctx, jobKey, leaseID, workerID, req)
 }
 
-func (r *Runtime) RescheduleJobWithLeaseByID(_ context.Context, jobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.RescheduleExecutionRequest) error {
+func (r *Runtime) RescheduleJobWithLeaseByID(ctx context.Context, jobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.RescheduleExecutionRequest) error {
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, jobKey.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	return r.rescheduleLease(jobKey, leaseID, workerID, req)
 }
 

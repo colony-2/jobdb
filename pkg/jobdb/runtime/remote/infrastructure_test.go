@@ -32,7 +32,7 @@ func TestInfrastructureHTTPRoundTrip(t *testing.T) {
 	for _, reason := range []jobdb.ExecutionInfrastructureReason{jobdb.ExecutionInfrastructureDeterminism, jobdb.ExecutionInfrastructureDurableDecode, jobdb.ExecutionInfrastructureRuntimeIO} {
 		for _, ordinal := range []*int64{nil, &zero} {
 			t.Run(string(reason)+"/ordinal", func(t *testing.T) {
-				backend := toy.New()
+				backend := toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 				cause := errors.New("payload password capability stack secret")
 				if reason == jobdb.ExecutionInfrastructureDeterminism {
 					cause = errors.Join(cause, jobdb.ErrWorkflowNotDeterministic)

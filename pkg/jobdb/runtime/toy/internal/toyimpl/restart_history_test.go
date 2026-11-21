@@ -17,7 +17,7 @@ import (
 
 func TestRestartDoesNotRevalidateInheritedChapters(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	rt := New(WithMaxChapterApplicationPayloadBytes(2 * 1024 * 1024))
+	rt := New(WithMaxChapterApplicationPayloadBytes(2*1024*1024), WithProjects(celltest.UnrestrictedProjects{}))
 	source, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "legacy", JobType: "legacy", Data: jobdb.NewTaskDataOrPanic(strings.Repeat("x", 300000))}})
 	require.NoError(t, err)
 	leases, err := rt.PollWork(ctx, jobdb.PollWorkRequest{TenantId: "tenant", WorkerID: "writer", Routes: []jobdb.Route{{JobType: "legacy"}}, Limit: 1})
@@ -43,7 +43,7 @@ func TestRestartDoesNotRevalidateInheritedChapters(t *testing.T) {
 
 func TestRestartRetainedArtifactContents(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	rt := New()
+	rt := New(WithProjects(celltest.UnrestrictedProjects{}))
 	submit := func(tenant string) jobdb.JobHandle {
 		h, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: tenant, JobID: "source", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic("original", jobdb.NewArtifactFromBytes("recipe", []byte(tenant)), jobdb.NewArtifactFromBytes("empty", []byte{}))}})
 		require.NoError(t, err)
@@ -103,7 +103,7 @@ func TestRestartMissingArtifactAndPublicationFailureLeaveNoDestination(t *testin
 	for _, failure := range []string{"missing-bytes", "decode", "publication"} {
 		t.Run(failure, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			rt := New()
+			rt := New(WithProjects(celltest.UnrestrictedProjects{}))
 			source, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "source", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic("original", jobdb.NewArtifactFromBytes("a", []byte("first")), jobdb.NewArtifactFromBytes("b", []byte("second")))}})
 			require.NoError(t, err)
 			req := jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: source.JobKey, JobID: "destination"}}

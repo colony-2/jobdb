@@ -18,6 +18,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/blobstore"
 	sqliterowstore "github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/sqlite"
+	"github.com/colony-2/jobdb/pkg/jobdb/projectcatalog"
 	sqlitesecrets "github.com/colony-2/jobdb/pkg/jobdb/secrets/sqlite"
 	"github.com/segmentio/ksuid"
 	_ "modernc.org/sqlite"
@@ -32,6 +33,9 @@ const (
 
 // Config describes a local SQLite-backed jobdb runtime.
 type Config struct {
+	// Projects provides the catalog and durable write admission. Constructors never import projects.
+	Projects jobdb.ProjectControl
+
 	// MaxChapterApplicationPayloadBytes limits summed application bytes per chapter.
 	// Zero uses 256 KiB; negative values are invalid. Metadata and artifacts are excluded.
 	MaxChapterApplicationPayloadBytes int64
@@ -60,6 +64,9 @@ type Config struct {
 // Runtime is a SQLite WorkflowRuntime that composes scheduler rows, chapter
 // rows, and Go CDK blob artifact storage.
 type Runtime struct {
+	jobdb.ProjectCatalog
+	projects jobdb.ProjectAdmission
+
 	maxChapterApplicationPayloadBytes int64
 	*configuration.Service
 	secretProvider jobdb.SecretProvider
@@ -102,14 +109,23 @@ func New(db *sql.DB, opts ...Option) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	storeConfig, err := configuration.NewSQLStore(context.Background(), db, configuration.SQLite)
+	if cfg.projects == nil {
+		catalogStore, e := projectcatalog.NewSQLStore(db, projectcatalog.SQLite)
+		if e != nil {
+			return nil, e
+		}
+		cfg.projects = &projectcatalog.Service{Store: catalogStore}
+	}
+	storeConfig, err := configuration.NewSQLStore(context.Background(), db, configuration.SQLite, cfg.projects)
 	if err != nil {
 		_ = chapterStore.Close(context.Background())
 		return nil, err
 	}
+
 	rt := &Runtime{
+		ProjectCatalog: cfg.projects, projects: cfg.projects,
 		maxChapterApplicationPayloadBytes: cfg.maxChapterApplicationPayloadBytes,
-		Service:                           &configuration.Service{Store: storeConfig, Limits: cfg.configurationLimits},
+		Service:                           &configuration.Service{Store: storeConfig, Limits: cfg.configurationLimits, Projects: cfg.projects},
 		db:                                db,
 		chapterStore:                      chapterStore,
 		logger:                            cfg.logger,
@@ -194,7 +210,14 @@ func NewFromConfig(ctx context.Context, cfg Config) (*Runtime, error) {
 			return nil, err
 		}
 	}
-	storeConfig, err := configuration.NewSQLStore(ctx, db, configuration.SQLite)
+	if cfg.Projects == nil {
+		catalogStore, e := projectcatalog.NewSQLStore(db, projectcatalog.SQLite)
+		if e != nil {
+			return nil, e
+		}
+		cfg.Projects = &projectcatalog.Service{Store: catalogStore}
+	}
+	storeConfig, err := configuration.NewSQLStore(ctx, db, configuration.SQLite, cfg.Projects)
 	if err != nil {
 		_ = chapterStore.Close(ctx)
 		if store != nil {
@@ -202,10 +225,12 @@ func NewFromConfig(ctx context.Context, cfg Config) (*Runtime, error) {
 		}
 		return nil, err
 	}
+
 	cleanupDB = false
 	rt := &Runtime{
+		ProjectCatalog: cfg.Projects, projects: cfg.Projects,
 		maxChapterApplicationPayloadBytes: cfg.MaxChapterApplicationPayloadBytes,
-		Service:                           &configuration.Service{Store: storeConfig, Limits: cfg.ConfigurationLimits},
+		Service:                           &configuration.Service{Store: storeConfig, Limits: cfg.ConfigurationLimits, Projects: cfg.Projects},
 		db:                                db,
 		ownsDB:                            true,
 		chapterStore:                      chapterStore,
@@ -247,6 +272,8 @@ func (r *Runtime) Close(ctx context.Context) error {
 }
 
 type runtimeOptions struct {
+	projects jobdb.ProjectControl
+
 	maxChapterApplicationPayloadBytes int64
 	configurationLimits               jobdb.ConfigurationLimits
 	secretProvider                    jobdb.SecretProvider
@@ -423,3 +450,8 @@ func WithMaxChapterApplicationPayloadBytes(limit int64) Option {
 	return func(o *runtimeOptions) { o.maxChapterApplicationPayloadBytes = limit }
 }
 func (r *Runtime) ChapterApplicationPayloadLimit() int64 { return r.maxChapterApplicationPayloadBytes }
+
+// WithProjects composes an explicit catalog, primarily for independent stores.
+func WithProjects(projects jobdb.ProjectControl) Option {
+	return func(o *runtimeOptions) { o.projects = projects }
+}

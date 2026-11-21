@@ -51,9 +51,9 @@ func TestPrimaryGoalOrdinaryLeaseEncodingRejectsSelection(t *testing.T) {
 func TestPrimaryGoalHTTPConformance(t *testing.T) {
 	for _, name := range []string{"toy", "sqlite"} {
 		t.Run(name, func(t *testing.T) {
-			var backend jobdb.WorkflowRuntime = toy.New()
+			var backend jobdb.WorkflowRuntime = toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 			if name == "sqlite" {
-				embedded, err := sqlite.StartEmbeddedRuntime(context.Background())
+				embedded, err := sqlite.StartEmbeddedRuntime(context.Background(), sqlite.WithProjects(celltest.UnrestrictedProjects{}))
 				require.NoError(t, err)
 				defer embedded.Shutdown()
 				backend = embedded.Runtime
@@ -107,9 +107,9 @@ func TestPrimaryGoalRoutingChangesAndRedirects(t *testing.T) {
 func TestPrimaryGoalHTTPAuthorityAndLostResponse(t *testing.T) {
 	for _, name := range []string{"toy", "sqlite"} {
 		t.Run(name, func(t *testing.T) {
-			var backend jobdb.WorkflowRuntime = toy.New()
+			var backend jobdb.WorkflowRuntime = toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 			if name == "sqlite" {
-				embedded, err := sqlite.StartEmbeddedRuntime(context.Background())
+				embedded, err := sqlite.StartEmbeddedRuntime(context.Background(), sqlite.WithProjects(celltest.UnrestrictedProjects{}))
 				require.NoError(t, err)
 				defer embedded.Shutdown()
 				backend = embedded.Runtime
@@ -175,7 +175,7 @@ func (r *noPrimaryGoalRuntime) SubmitJob(ctx context.Context, req jobdb.SubmitJo
 	return r.WorkflowRuntime.SubmitJob(ctx, req)
 }
 func TestPrimaryGoalUnsupportedBackendAndProtectedIngress(t *testing.T) {
-	backend := toy.New()
+	backend := toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 	unsupported := &noPrimaryGoalRuntime{WorkflowRuntime: backend, ConfigurationAdmin: backend}
 	req := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "dest", GoalID: "goal", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}}
 	ordinary := req
@@ -252,7 +252,7 @@ func TestPrimaryGoalIncompleteSuccessIsAmbiguous(t *testing.T) {
 func TestPrimaryGoalGenericAuthorizationBoundaries(t *testing.T) {
 	for _, mode := range []string{"missing-hook", "submit-only", "denying-hook", "no-destination-authority"} {
 		t.Run(mode, func(t *testing.T) {
-			backend := toy.New()
+			backend := toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 			ctx := celltest.Context(context.Background())
 			source, err := celltest.Submit(backend, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "source", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 			require.NoError(t, err)
@@ -300,9 +300,9 @@ func (r *noPrimaryGoalRuntime) StartOrAppendJob(ctx context.Context, req jobdb.S
 func TestPrimaryGoalCrossTenantBlockerNondisclosure(t *testing.T) {
 	for _, kind := range []string{"toy", "sqlite"} {
 		t.Run(kind, func(t *testing.T) {
-			var backend jobdb.WorkflowRuntime = toy.New()
+			var backend jobdb.WorkflowRuntime = toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 			if kind == "sqlite" {
-				embedded, err := sqlite.StartEmbeddedRuntime(context.Background())
+				embedded, err := sqlite.StartEmbeddedRuntime(context.Background(), sqlite.WithProjects(celltest.UnrestrictedProjects{}))
 				require.NoError(t, err)
 				defer embedded.Shutdown()
 				backend = embedded.Runtime

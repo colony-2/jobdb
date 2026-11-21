@@ -1,5 +1,7 @@
 package postgres_test
 
+import "github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 import (
 	"context"
 	"database/sql"
@@ -28,11 +30,11 @@ func TestSchemaStoreComposesWithRuntimeCore(t *testing.T) {
 		t.Fatalf("open Postgres: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	store, err := schemapostgres.NewSQLDB(ctx, db)
+	store, err := schemapostgres.NewSQLDB(ctx, db, celltest.UnrestrictedProjects{})
 	if err != nil {
 		t.Fatalf("new schema store: %v", err)
 	}
-	registry, err := runtimecore.NewSchemaRegistry(runtimecore.SchemaRegistryConfig{Store: store})
+	registry, err := runtimecore.NewSchemaRegistry(runtimecore.SchemaRegistryConfig{Projects: celltest.UnrestrictedProjects{}, Store: store})
 	if err != nil {
 		t.Fatalf("new schema registry: %v", err)
 	}

@@ -32,8 +32,10 @@ func Clone(s jobdb.ConfigurationSnapshot) jobdb.ConfigurationSnapshot {
 }
 
 // MemoryStore is the toy backend's authoritative storage, not a client cache.
-// Its zero value is ready to use.
+// Reads support its zero value; writes require explicit project admission.
 type MemoryStore struct {
+	Projects jobdb.ProjectAdmission
+
 	mu      sync.Mutex
 	tenants map[string]jobdb.ConfigurationSnapshot
 }
@@ -54,6 +56,10 @@ func (s *MemoryStore) Read(ctx context.Context, tenant string) (jobdb.Configurat
 	return s.current(tenant), nil
 }
 func (s *MemoryStore) Update(ctx context.Context, tenant string, change func(jobdb.ConfigurationSnapshot) (jobdb.ConfigurationSnapshot, error)) (jobdb.ConfigurationSnapshot, error) {
+	if err := jobdb.RequireProjectWrite(ctx, s.Projects, tenant); err != nil {
+		return jobdb.ConfigurationSnapshot{}, err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := ctx.Err(); err != nil {

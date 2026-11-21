@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -16,17 +15,17 @@ import (
 func newGoalsCmd() *cobra.Command {
 	var tenant, baseURL, message string
 	root := &cobra.Command{Use: "goals", Short: "Inspect goals and record explicit failure", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
-	root.PersistentFlags().StringVarP(&tenant, "tenant", "t", "", "tenant ID (required)")
+	addProjectSelector(root, &tenant, true)
 	root.PersistentFlags().StringVarP(&baseURL, "url", "u", "http://127.0.0.1:9047", "runtime server URL")
 	client := func() (*remote.Runtime, error) {
 		if strings.TrimSpace(tenant) == "" {
-			return nil, fmt.Errorf("--tenant is required")
+			return nil, fmt.Errorf("--project is required")
 		}
 		base, err := url.Parse(baseURL)
 		if err != nil || (base.Scheme != "http" && base.Scheme != "https") || base.Host == "" || base.User != nil || base.RawQuery != "" || base.Fragment != "" {
 			return nil, fmt.Errorf("--url must be an HTTP(S) server URL without credentials, query, or fragment")
 		}
-		return remote.New(strings.TrimRight(base.String(), "/"), &http.Client{Transport: configurationAuthTransport{token: os.Getenv("JOBDB_BEARER_TOKEN")}})
+		return remote.NewProjectRuntime(strings.TrimRight(base.String(), "/"), &http.Client{Transport: configurationAuthTransport{token: os.Getenv("JOBDB_BEARER_TOKEN")}})
 	}
 	get := &cobra.Command{Use: "get GOAL_ID", Short: "Print a goal's committed state as JSON", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		rt, err := client()
@@ -37,7 +36,7 @@ func newGoalsCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
+		return encodeProjectCLI(cmd.OutOrStdout(), out)
 	}}
 	fail := &cobra.Command{Use: "fail GOAL_ID --message REASON", Short: "Fail a goal without cancelling its candidate jobs", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		rt, err := client()
@@ -48,7 +47,7 @@ func newGoalsCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
+		return encodeProjectCLI(cmd.OutOrStdout(), out)
 	}}
 	fail.Flags().StringVarP(&message, "message", "m", "", "human explanation (required)")
 	var pageToken string
@@ -63,7 +62,7 @@ func newGoalsCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
+		return encodeProjectCLI(cmd.OutOrStdout(), out)
 	}}
 	candidates.Flags().StringVar(&pageToken, "page-token", "", "continuation token")
 	candidates.Flags().IntVar(&pageSize, "page-size", jobdb.DefaultListJobsPageSize, "maximum jobs per page")

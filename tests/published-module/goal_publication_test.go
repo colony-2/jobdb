@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/projectcatalog"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 )
@@ -19,15 +20,18 @@ func TestPublishedGoals(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite"} {
 		t.Run(backend, func(t *testing.T) {
 			ctx := jobdb.WithCellAuthority(context.Background(), jobdb.CellAuthority{
-				Principal: "publication-test", TenantID: "publication", Permissions: map[string]bool{
+				Principal: "publication-test", TenantID: "c2", Permissions: map[string]bool{
 					"cells.create": true, "cells.get": true, "jobs.submit": true, "jobs.get": true, "jobs.list": true, "jobs.acquire": true,
 				},
 			})
 			ctx = jobdb.WithPrimaryGoalSelectionAuthorizer(ctx, func(context.Context, jobdb.GoalKey, jobdb.ResolvedCell) error { return nil })
+			catalog := &projectcatalog.Service{Store: &projectcatalog.MemoryStore{}}
+			admin := jobdb.WithProjectAdministration(ctx, func(context.Context) error { return nil })
+			must(t, catalog.Install(admin, projectcatalog.Installation{Manifest: projectcatalog.InstallationDigest([]byte("isolated publication fixture")), Seeds: []projectcatalog.Seed{{ID: "c2", Name: "c2"}}}))
 			var rt jobdb.WorkflowRuntime
-			cfg := sqlite.Config{DBPath: filepath.Join(t.TempDir(), "goals.db")}
+			cfg := sqlite.Config{Projects: catalog, DBPath: filepath.Join(t.TempDir(), "goals.db")}
 			if backend == "toy" {
-				rt = toy.New()
+				rt = toy.New(toy.WithProjects(catalog))
 			} else {
 				r, err := sqlite.NewFromConfig(ctx, cfg)
 				must(t, err)
@@ -42,10 +46,10 @@ func TestPublishedGoals(t *testing.T) {
 			if !ok {
 				t.Fatal("cell registration unavailable")
 			}
-			_, err := cells.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "publication", Name: "work", Repo: "example.com/publication/work"})
+			_, err := cells.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "c2", Name: "work", Repo: "example.com/publication/work"})
 			must(t, err)
 			request := func(id, goal string) jobdb.SubmitJobRequest {
-				return jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "publication", JobID: id, GoalID: goal,
+				return jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "c2", JobID: id, GoalID: goal,
 					Cell: "work", CellRepo: "example.com/publication/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}}
 			}
 			origin, err := rt.SubmitJob(ctx, request("origin", ""))
@@ -59,11 +63,11 @@ func TestPublishedGoals(t *testing.T) {
 			}
 			_, err = rt.SubmitJob(ctx, request("competitor", origin.GoalID))
 			mustBe(t, err, jobdb.ErrGoalConflict)
-			_, err = rt.GetJob(ctx, jobdb.JobKey{TenantId: "publication", JobId: "competitor"})
+			_, err = rt.GetJob(ctx, jobdb.JobKey{TenantId: "c2", JobId: "competitor"})
 			mustBe(t, err, jobdb.ErrJobNotFound)
 			t.Log("selected admission rejected competing publication")
 
-			key := jobdb.GoalKey{TenantId: "publication", GoalID: origin.GoalID}
+			key := jobdb.GoalKey{TenantId: "c2", GoalID: origin.GoalID}
 			failReq := jobdb.FailGoalRequest{GoalKey: key, Message: "  permanent 保存\nreason  "}
 			failed, err := rt.FailGoal(ctx, failReq)
 			must(t, err)

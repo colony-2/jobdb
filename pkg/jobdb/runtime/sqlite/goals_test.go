@@ -28,7 +28,7 @@ func TestPreCellFormatRejected(t *testing.T) {
 }
 func TestGoalDurabilityAndIndependentWriters(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	cfg := Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")}
+	cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")}
 	r1, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	defer r1.Close(ctx)
@@ -80,7 +80,7 @@ func TestGoalDurabilityAndIndependentWriters(t *testing.T) {
 }
 func TestGoalReservationSurvivesReopenBeforePublication(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	cfg := Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")}
+	cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")}
 	r, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	req := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "new", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}}

@@ -31,7 +31,7 @@ func TestConsumerRuntimeMethodSets(t *testing.T) {
 			require.Equal(t, method.Type, legacy.Type, method.Name)
 		}
 	}
-	rt := retainedRuntime{toy.New()}
+	rt := retainedRuntime{toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))}
 	_, found := reflect.TypeOf(rt).MethodByName("AddGoalCandidate")
 	require.False(t, found)
 }
@@ -65,7 +65,7 @@ func (r *runReadProbe) ListChapters(ctx context.Context, req jobdb.ListChaptersR
 	return r.JobRunReader.ListChapters(ctx, req)
 }
 func TestJobRunNarrowReader(t *testing.T) {
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	defer cancel()
 	h, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "job", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic("input")}})

@@ -16,7 +16,7 @@ import (
 
 func TestProvenanceSQLitePhysicalPagesAndAuthorizationProjection(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	r, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+	r, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 	require.NoError(t, err)
 	defer r.Close(ctx)
 	h, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "provenance", Cell: "test", CellRepo: "example.test/test", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})

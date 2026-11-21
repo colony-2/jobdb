@@ -26,9 +26,9 @@ func TestBundledPrimaryGoalSelection(t *testing.T) {
 	for _, name := range []string{"toy", "sqlite"} {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
-			var backend jobdb.WorkflowRuntime = toy.New()
+			var backend jobdb.WorkflowRuntime = toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 			if name == "sqlite" {
-				r, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "selection.db")})
+				r, err := sqlite.NewFromConfig(ctx, sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "selection.db")})
 				require.NoError(t, err)
 				t.Cleanup(func() { require.NoError(t, r.Close(ctx)) })
 				backend = r
@@ -147,6 +147,7 @@ func TestBundledServePathsPrimaryGoalSelection(t *testing.T) {
 			called := false
 			serveHTTPFunc = func(ctx context.Context, _ string, handler http.Handler, cleanup func(context.Context) error) error {
 				called = true
+				scope := createServingProject(t, handler)
 				if cleanup != nil {
 					defer cleanup(ctx)
 				}
@@ -154,10 +155,10 @@ func TestBundledServePathsPrimaryGoalSelection(t *testing.T) {
 				defer server.Close()
 				rt, err := remote.New(server.URL, server.Client())
 				require.NoError(t, err)
-				source, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "source", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
+				source, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: scope, JobID: "source", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 				require.NoError(t, err)
 				require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: source.JobKey}))
-				h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "selected", GoalID: source.GoalID, Cell: source.Cell, CellRepo: source.CellRepo, JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
+				h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: scope, JobID: "selected", GoalID: source.GoalID, Cell: source.Cell, CellRepo: source.CellRepo, JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 				require.NoError(t, err)
 				expected := source
 				expected.JobKey.JobId = "selected"
@@ -165,7 +166,11 @@ func TestBundledServePathsPrimaryGoalSelection(t *testing.T) {
 				return nil
 			}
 			cmd := newRootCmd()
-			cmd.SetArgs([]string{backend, "--db", filepath.Join(t.TempDir(), "serve.db")})
+			dbPath := filepath.Join(t.TempDir(), "serve.db")
+			if backend == "sqlite" {
+				initializeCLIProjectFixture(t, dbPath)
+			}
+			cmd.SetArgs([]string{backend, "--db", dbPath})
 			require.NoError(t, cmd.ExecuteContext(context.Background()))
 			require.True(t, called)
 		})

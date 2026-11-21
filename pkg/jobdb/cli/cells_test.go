@@ -1,5 +1,7 @@
 package cli
 
+import "github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 import (
 	"bytes"
 	"encoding/json"
@@ -14,7 +16,7 @@ import (
 )
 
 func TestCreateCellCommand(t *testing.T) {
-	backend := toy.New()
+	backend := toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 	server := httptest.NewServer(localCellAdministration(remote.NewServer(backend)))
 	defer server.Close()
 	run := func(repo string) (jobdb.Cell, error) {
@@ -54,7 +56,7 @@ func TestCreateCellCommandAuthentication(t *testing.T) {
 }
 
 func TestCreateOrdinaryCellCommand(t *testing.T) {
-	backend := toy.New()
+	backend := toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 	server := httptest.NewServer(localCellAdministration(remote.NewServer(backend)))
 	defer server.Close()
 	cmd := newCellCmd()

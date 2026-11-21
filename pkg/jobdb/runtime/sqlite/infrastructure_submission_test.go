@@ -20,7 +20,7 @@ func TestInfrastructureChildStorageFailurePreservesParent(t *testing.T) {
 		for _, mode := range []string{"submit", "restart", "append", "invalid"} {
 			t.Run(map[bool]string{false: "direct", true: "http"}[overHTTP]+"/"+mode, func(t *testing.T) {
 				ctx := celltest.Context(context.Background())
-				r, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+				r, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 				require.NoError(t, err)
 				defer r.Close(ctx)
 				var runtime jobdb.WorkflowRuntime = r

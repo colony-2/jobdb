@@ -14,7 +14,7 @@ import (
 func TestPrimaryClaimPreservesFutureAlternate(t *testing.T) {
 	for _, method := range []string{"poll", "get"} {
 		t.Run(method, func(t *testing.T) {
-			rt := New()
+			rt := New(WithProjects(celltest.UnrestrictedProjects{}))
 			c, err := rt.CreateCell(celltest.Context(context.Background()), jobdb.CreateCellRequest{TenantID: "tenant", Name: "test", Repo: "example.test/test"})
 			require.NoError(t, err)
 			key := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
@@ -65,7 +65,7 @@ func TestExpiredLeaseActivatesAlternateRouteInSamePoll(t *testing.T) {
 		leased: true, leaseID: "expired", leaseExpiresAt: now.Add(-time.Second),
 		status: jobdb.JobStatusActive,
 	}
-	New().advanceRecordStateLocked("tenant", now, record)
+	New(WithProjects(celltest.UnrestrictedProjects{})).advanceRecordStateLocked("tenant", now, record)
 	if record.leased || effectiveRoute(record, now) != fallback || record.status != jobdb.JobStatusReady {
 		t.Fatalf("expired lease did not release to fallback: leased=%v route=%+v status=%s", record.leased, record.route, record.status)
 	}
@@ -74,7 +74,7 @@ func TestExpiredLeaseActivatesAlternateRouteInSamePoll(t *testing.T) {
 func TestAvailableRoutesDiscoveryTracksTimeWithoutMutation(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := celltest.Context(context.Background())
-		rt := New()
+		rt := New(WithProjects(celltest.UnrestrictedProjects{}))
 		c, err := rt.CreateCell(celltest.Context(context.Background()), jobdb.CreateCellRequest{TenantID: "tenant", Name: "test", Repo: "example.test/test"})
 		require.NoError(t, err)
 		primary := jobdb.Route{JobType: "job", TaskType: "input"}

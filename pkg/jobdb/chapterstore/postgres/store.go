@@ -26,6 +26,8 @@ import (
 // Config selects artifact storage for a Postgres-backed chapter log. Providers
 // for non-local BlobStoreURI schemes are registered through optional imports.
 type Config struct {
+	Projects jobdb.ProjectAdmission
+
 	BlobStoreURI           string
 	MaxInlineArtifactBytes int64
 	Logger                 *slog.Logger
@@ -34,6 +36,8 @@ type Config struct {
 // Store implements runtimecore.ChapterLog without exposing chapterstore
 // internals to external runtime packages.
 type Store struct {
+	projects jobdb.ProjectAdmission
+
 	inner *chapterstore.Store
 }
 
@@ -83,7 +87,7 @@ func newStore(ctx context.Context, rows *postgresrows.Store, cfg Config) (*Store
 		}
 		return nil, err
 	}
-	return &Store{inner: inner}, nil
+	return &Store{projects: cfg.Projects, inner: inner}, nil
 }
 
 // Close releases artifact storage and any database connection opened by OpenDSN.
@@ -95,6 +99,10 @@ func (s *Store) Close(ctx context.Context) error {
 }
 
 func (s *Store) Create(ctx context.Context, key runtimecore.ChapterLogKey, initial runtimecore.EncodedChapter) error {
+	if err := jobdb.RequireProjectWrite(ctx, s.projects, key.JobKey.TenantId); err != nil {
+		return err
+	}
+
 	if initial.Ordinal != 0 {
 		return fmt.Errorf("postgres chapter log: initial chapter ordinal must be zero")
 	}
@@ -107,6 +115,10 @@ func (s *Store) Create(ctx context.Context, key runtimecore.ChapterLogKey, initi
 }
 
 func (s *Store) ClonePrefix(ctx context.Context, req runtimecore.ClonePrefixRequest) error {
+	if err := jobdb.RequireProjectWrite(ctx, s.projects, req.DestinationKey.JobKey.TenantId); err != nil {
+		return err
+	}
+
 	opts := story.CloneOptions{DestinationKey: storyKey(req.DestinationKey), LastOrdinal: req.LastOrdinal}
 	if req.Append != nil {
 		if req.Append.Ordinal != req.LastOrdinal+1 {
@@ -123,6 +135,10 @@ func (s *Store) ClonePrefix(ctx context.Context, req runtimecore.ClonePrefixRequ
 }
 
 func (s *Store) Append(ctx context.Context, key runtimecore.ChapterLogKey, chapter runtimecore.EncodedChapter) error {
+	if err := jobdb.RequireProjectWrite(ctx, s.projects, key.JobKey.TenantId); err != nil {
+		return err
+	}
+
 	stored, err := toStoryChapter(chapter)
 	if err != nil {
 		return err

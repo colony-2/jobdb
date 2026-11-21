@@ -13,7 +13,7 @@ import (
 
 func TestCellColumnsAndCreationReplaySurviveReopen(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	cfg := Config{DBPath: t.TempDir() + "/cells.db"}
+	cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: t.TempDir() + "/cells.db"}
 	r, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	defer func() { _ = r.Close(ctx) }()

@@ -80,7 +80,7 @@ func TestSubmissionAvailabilityInvalidPublicationAndRetry(t *testing.T) {
 		for _, bad := range []time.Time{submissionAvailabilityMin.Add(-time.Nanosecond), submissionAvailabilityMax.Add(time.Nanosecond), time.Date(2300, 1, 1, 0, 0, 0, 0, time.UTC), {}} {
 			t.Run(fmt.Sprintf("selected=%v/%s", selected, bad.Format(time.RFC3339Nano)), func(t *testing.T) {
 				ctx := runtimetest.PrimaryGoalContext(context.Background())
-				cfg := Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")}
+				cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")}
 				rt, err := NewFromConfig(ctx, cfg)
 				require.NoError(t, err)
 				defer func() { require.NoError(t, rt.Close(ctx)) }()
@@ -136,7 +136,7 @@ func TestSubmissionAvailabilityEquivalentRetriesAndReopen(t *testing.T) {
 		for _, at := range []time.Time{submissionAvailabilityMin, time.Unix(0, 0).UTC(), submissionAvailabilityMax} {
 			t.Run(fmt.Sprintf("selected=%v/%s", selected, at.Format(time.RFC3339Nano)), func(t *testing.T) {
 				ctx := runtimetest.PrimaryGoalContext(context.Background())
-				cfg := Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")}
+				cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")}
 				rt, err := NewFromConfig(ctx, cfg)
 				require.NoError(t, err)
 				defer func() { require.NoError(t, rt.Close(ctx)) }()
@@ -182,7 +182,7 @@ func TestSubmissionAvailabilityStagedReconciliation(t *testing.T) {
 	for _, selected := range []bool{false, true} {
 		t.Run(fmt.Sprintf("selected=%v", selected), func(t *testing.T) {
 			ctx := runtimetest.PrimaryGoalContext(context.Background())
-			rt, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+			rt, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 			require.NoError(t, err)
 			defer rt.Close(ctx)
 			p, dependency := availabilityRangeProducer(t, rt, ctx, selected)
@@ -235,7 +235,7 @@ func TestSubmissionAvailabilityStagedReconciliation(t *testing.T) {
 
 func TestSubmissionAvailabilityParentLeaseRejectsInvalid(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	rt, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+	rt, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 	require.NoError(t, err)
 	defer rt.Close(ctx)
 	p, err := celltest.Submit(rt, ctx, availabilityRangeRequest("producer", nil))
@@ -253,7 +253,7 @@ func TestSubmissionAvailabilityParentLeaseRejectsInvalid(t *testing.T) {
 
 func TestSubmissionAvailabilityEpochEligibility(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	rt, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+	rt, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 	require.NoError(t, err)
 	defer rt.Close(ctx)
 	epoch := time.Unix(0, 0).UTC()
@@ -279,7 +279,7 @@ func TestSubmissionAvailabilityEpochEligibility(t *testing.T) {
 
 func TestSubmissionAvailabilityOldTimezoneReceipt(t *testing.T) {
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
-	rt, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+	rt, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 	require.NoError(t, err)
 	defer rt.Close(ctx)
 	p, err := celltest.Submit(rt, ctx, availabilityRangeRequest("producer", nil))

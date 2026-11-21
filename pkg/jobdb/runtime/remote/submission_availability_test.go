@@ -34,7 +34,7 @@ func assertRemoteAvailabilityAbsent(t *testing.T, rt jobdb.WorkflowRuntime, id s
 
 func TestHTTPSubmissionAvailabilityRangeAndRetries(t *testing.T) {
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
-	backend, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+	backend, err := sqlite.NewFromConfig(ctx, sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, backend.Close(ctx)) })
 	application := NewServer(backend)

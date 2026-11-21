@@ -54,7 +54,7 @@ func TestRuntimeReadsChapterThroughPublicPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{},
+	runtime, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Configurations: &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}},
 		Scheduler: readTestScheduler{}, Chapters: readTestChapters{encoded: encoded},
 		Schemas: readTestSchemas{},
 	})

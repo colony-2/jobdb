@@ -18,7 +18,7 @@ import (
 )
 
 func TestRemoteRuntimeSupportsExplicitRestartJobIDs(t *testing.T) {
-	underlying := toyruntime.New()
+	underlying := toyruntime.New(toyruntime.WithProjects(celltest.UnrestrictedProjects{}))
 	tenantID := "tenant-restart-id"
 	builder := workflow.NewEngineBuilder().WithRuntime(underlying).WithWorkerTenantId(tenantID)
 	builder.PlusWorkers(remoteRestartSequenceJob{}, remoteRestartAddOneTask{}, remoteRestartDoubleTask{})

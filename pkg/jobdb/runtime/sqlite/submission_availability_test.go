@@ -18,7 +18,7 @@ func TestSubmissionAvailabilityBoundaryAndReopen(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/time-first=%v", kind, timeFirst), func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 15*time.Second)
 				defer cancel()
-				cfg := Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")}
+				cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")}
 				rt, err := NewFromConfig(ctx, cfg)
 				require.NoError(t, err)
 				defer func() { require.NoError(t, rt.Close(ctx)) }()

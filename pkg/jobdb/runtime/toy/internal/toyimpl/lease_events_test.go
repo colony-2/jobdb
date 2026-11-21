@@ -11,7 +11,7 @@ import (
 )
 
 func TestLeaseEventConcurrentRenewalAndRead(t *testing.T) {
-	r := New()
+	r := New(WithProjects(celltest.UnrestrictedProjects{}))
 	ctx := celltest.Context(context.Background())
 	h, e := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "job", Cell: "test", CellRepo: "example.test/test", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, e)
@@ -56,7 +56,7 @@ func TestLeaseEventConcurrentRenewalAndRead(t *testing.T) {
 func TestLeaseEventCancellationDeletionRaces(t *testing.T) {
 	for _, deletion := range []bool{false, true} {
 		for iteration := 0; iteration < 8; iteration++ {
-			r := New()
+			r := New(WithProjects(celltest.UnrestrictedProjects{}))
 			ctx := celltest.Context(context.Background())
 			h, e := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "job", Cell: "test", CellRepo: "example.test/test", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
 			require.NoError(t, e)
@@ -97,7 +97,7 @@ func TestLeaseEventCancellationDeletionRaces(t *testing.T) {
 }
 
 func TestLeaseEventsDefaultEnabled(t *testing.T) {
-	r := New()
+	r := New(WithProjects(celltest.UnrestrictedProjects{}))
 	ctx := celltest.Context(context.Background())
 	h, e := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "job", Cell: "test", CellRepo: "example.test/test", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, e)

@@ -59,6 +59,11 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 		available := req.Job.AvailableAt.UTC()
 		req.Job.AvailableAt = &available
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.Job.TenantId); projectErr != nil {
+		var projectZero0 jobdb.JobHandle
+		return projectZero0, projectErr
+	}
+
 	prep, err := goalstate.SubmitPreparation(ctx, req, parentJobID)
 	if err != nil {
 		return jobdb.JobHandle{}, err
@@ -187,6 +192,11 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if err := runtimecore.ValidateRestartApplicationPayload(ctx, req.Job, r.ChapterApplicationPayloadLimit()); err != nil {
 		return jobdb.JobHandle{}, err
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.Job.PriorJobKey.TenantId); projectErr != nil {
+		var projectZero0 jobdb.JobHandle
+		return projectZero0, projectErr
+	}
+
 	prep, err := goalstate.RestartPreparation(ctx, req, parentJobID)
 	if err != nil {
 		return jobdb.JobHandle{}, err
@@ -391,6 +401,10 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 }
 
 func (r *Runtime) CancelJob(ctx context.Context, req jobdb.CancelJobRequest) error {
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.JobKey.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -445,6 +459,11 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 	if len(req.Routes) == 0 {
 		return nil, nil
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.TenantId); projectErr != nil {
+		var projectZero0 []jobdb.ExecutionLease
+		return projectZero0, projectErr
+	}
+
 	for {
 		leases, err := r.pollOnce(ctx, req)
 		if err != nil || len(leases) > 0 || req.LongPollUntil == nil || !time.Now().Before(*req.LongPollUntil) {
@@ -626,6 +645,9 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 	}
 	if len(capSet) == 0 {
 		return nil, fmt.Errorf("at least one route is required")
+	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.JobKey.TenantId); projectErr != nil {
+		return nil, projectErr
 	}
 	var lease *executionLease
 	err := r.withTx(ctx, func(tx *sql.Tx) error {
@@ -942,6 +964,10 @@ func (r *Runtime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) e
 	if err := r.ensureNextVisibleChapterOrdinal(ctx, req.Ref.JobKey, req.Ref.Ordinal); err != nil {
 		return err
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.Ref.JobKey.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	chapter, attached, err := r.prepareChapterWrite(ctx, req)
 	if err != nil {
 		return err
@@ -1126,6 +1152,10 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	if err := r.validate(); err != nil {
 		return err
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.JobKey.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	jobKey := req.JobKey
 	row, err := r.loadJobRow(ctx, jobKey)
 	if err != nil {

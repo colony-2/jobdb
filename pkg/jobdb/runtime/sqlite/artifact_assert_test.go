@@ -8,7 +8,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
-func assertStartArtifact(t *testing.T, ctx context.Context, runtime *Runtime, jobKey jobdb.JobKey, name string, want []byte) {
+func assertStartArtifact(t *testing.T, ctx context.Context, runtime jobdb.ConsumerRuntime, jobKey jobdb.JobKey, name string, want []byte) {
 	t.Helper()
 	chapter, err := runtime.GetChapter(ctx, jobdb.ChapterRef{JobKey: jobKey, Ordinal: 0})
 	if err != nil {

@@ -82,7 +82,7 @@ func TestAppendRecoveryAfterReopen(t *testing.T) {
 		for _, successor := range []bool{false, true} {
 			t.Run(fmt.Sprintf("legacy=%v/successor=%v", legacy, successor), func(t *testing.T) {
 				ctx := celltest.Context(context.Background())
-				cfg := Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")}
+				cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")}
 				r, err := NewFromConfig(ctx, cfg)
 				require.NoError(t, err)
 				defer func() { require.NoError(t, r.Close(ctx)) }()
@@ -112,7 +112,7 @@ func TestAppendRecoveryAfterReopen(t *testing.T) {
 					q.Job.Job.Metadata = json.RawMessage(`{"owner":"winner"}`)
 					q.Job.Job.ClientPayloadUpdate = &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"winner":true}`)}
 					scheduler := &appendPublicationFault{appendScheduler: appendScheduler{r}, fail: true}
-					_, err = (runtimecore.AppendService{Scheduler: scheduler, Chapters: appendChapters{r}, Schemas: r}).StartOrAppendJob(ctx, q)
+					_, err = (runtimecore.AppendService{Projects: celltest.UnrestrictedProjects{}, Scheduler: scheduler, Chapters: appendChapters{r}, Schemas: r}).StartOrAppendJob(ctx, q)
 					var failure *jobdb.ExecutionInfrastructureError
 					require.ErrorAs(t, err, &failure)
 					require.Equal(t, jobdb.ExecutionInfrastructureRuntimeIO, failure.Reason)
@@ -176,7 +176,7 @@ func TestAppendRecoveryAfterReopen(t *testing.T) {
 
 func TestAppendLegacyChainAndOrdering(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	cfg := Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")}
+	cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")}
 	r, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, r.Close(ctx)) }()

@@ -328,7 +328,7 @@ func TestExecutionUncertainAppend(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
 			path := filepath.Join(t.TempDir(), "uncertain.db")
-			base, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path})
+			base, err := sqlite.NewFromConfig(ctx, sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: path})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, base.Close(ctx)) })
 			db, err := sql.Open("sqlite", path)
@@ -394,7 +394,7 @@ func inputSnapshotRecoveryRuntime(t *testing.T, backend string) (jobdb.WorkflowR
 	}
 	ctx := celltest.Context(context.Background())
 	path := filepath.Join(t.TempDir(), "input-recovery.db")
-	storage, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path})
+	storage, err := sqlite.NewFromConfig(ctx, sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: path})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, storage.Close(ctx)) })
 	db, err := sql.Open("sqlite", path)

@@ -19,7 +19,7 @@ import (
 func leaseEventFixture(t *testing.T) (*Runtime, Config, jobdb.JobKey) {
 	t.Helper()
 	ctx := celltest.Context(context.Background())
-	cfg := Config{DBPath: filepath.Join(t.TempDir(), "events.db")}
+	cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "events.db")}
 	r, e := NewFromConfig(ctx, cfg)
 	require.NoError(t, e)
 	t.Cleanup(func() { r.Close(ctx) })

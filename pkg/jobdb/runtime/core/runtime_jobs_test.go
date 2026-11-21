@@ -1,5 +1,7 @@
 package runtimecore_test
 
+import "github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 import (
 	"context"
 	"encoding/json"
@@ -29,7 +31,7 @@ func TestCompletionSummaryUsesOnlyScheduler(t *testing.T) {
 				// A cancellation request is not evidence of terminal completion.
 				row.CancelRequested = true
 			}
-			rt, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: listTestScheduler{rows: []runtimecore.StoredJob{row}}, Chapters: noSummaryHistory{}, Schemas: readTestSchemas{}})
+			rt, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Configurations: &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}}, Scheduler: listTestScheduler{rows: []runtimecore.StoredJob{row}}, Chapters: noSummaryHistory{}, Schemas: readTestSchemas{}})
 			require.NoError(t, err)
 			listed, err := rt.ListJobs(context.Background(), jobdb.ListJobsRequest{TenantIds: []string{"tenant"}})
 			require.NoError(t, err)
@@ -58,8 +60,7 @@ func TestRuntimeListJobsPassesAvailabilityToScheduler(t *testing.T) {
 	now := time.Date(2026, 10, 16, 1, 0, 0, 0, time.UTC)
 	routes := []jobdb.Route{{JobType: "recipe"}, {JobType: "recipe", TaskType: "fallback"}}
 	calls := 0
-	rt, err := runtimecore.NewRuntime(runtimecore.Config{
-		Configurations: &configuration.MemoryStore{}, Chapters: noSummaryHistory{}, Schemas: readTestSchemas{},
+	rt, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Configurations: &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}}, Chapters: noSummaryHistory{}, Schemas: readTestSchemas{},
 		Now: func() time.Time { return now },
 		Scheduler: listTestScheduler{inspect: func(req runtimecore.ListJobsRequest) {
 			calls++
@@ -101,7 +102,7 @@ func TestRuntimeListJobsKeepsArchivedStoredState(t *testing.T) {
 		AvailableAt: created, ExpiresAt: &expiry, CreatedAt: created,
 		ArchivedAt: &archived, CancelRequested: false,
 	}
-	runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{},
+	runtime, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Configurations: &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}},
 		Scheduler: listTestScheduler{rows: []runtimecore.StoredJob{row}},
 		Chapters:  readTestChapters{}, Schemas: readTestSchemas{},
 	})
@@ -137,7 +138,7 @@ func TestRuntimeCompactListProjectsWaitIdentityOnly(t *testing.T) {
 		ClientPayload:       json.RawMessage(`{"large":"payload"}`), RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 3}},
 		WaitForJobIDs: []string{"dependency"},
 	}
-	r, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: listTestScheduler{rows: []runtimecore.StoredJob{row}}, Chapters: noSummaryHistory{}, Schemas: readTestSchemas{}})
+	r, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Configurations: &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}}, Scheduler: listTestScheduler{rows: []runtimecore.StoredJob{row}}, Chapters: noSummaryHistory{}, Schemas: readTestSchemas{}})
 	require.NoError(t, err)
 	page, err := r.ListJobs(context.Background(), jobdb.ListJobsRequest{TenantIds: []string{"tenant"}})
 	require.NoError(t, err)

@@ -64,7 +64,7 @@ func TestCellNamesDoNotInterceptJobRPCs(t *testing.T) {
 		{"registry-example", "cells"},
 	} {
 		t.Run(tc.tenant+"/"+tc.job, func(t *testing.T) {
-			server := httptest.NewServer(celltest.Handler(NewServer(toy.New())))
+			server := httptest.NewServer(celltest.Handler(NewServer(toy.New(toy.WithProjects(celltest.UnrestrictedProjects{})))))
 			defer server.Close()
 			client, err := New(server.URL, server.Client())
 			require.NoError(t, err)
@@ -93,7 +93,7 @@ func TestCellNamesDoNotInterceptJobRPCs(t *testing.T) {
 }
 
 func TestCellHTTPPatchValidation(t *testing.T) {
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 	ctx := celltest.Context(context.Background())
 	c, err := rt.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "t", Name: "root", Repo: "github.com/org/root"})
 	require.NoError(t, err)
@@ -135,7 +135,7 @@ func TestCellHTTPPatchValidation(t *testing.T) {
 }
 
 func TestCellHTTPRequiresAuthority(t *testing.T) {
-	handler := NewServer(toy.New())
+	handler := NewServer(toy.New(toy.WithProjects(celltest.UnrestrictedProjects{})))
 	for _, method := range []string{http.MethodGet, http.MethodPatch} {
 		req := httptest.NewRequest(method, "/v1/tenants/t/cells/missing", strings.NewReader(`{"description":"new"}`))
 		req.Header.Set("Content-Type", "application/json")
@@ -146,7 +146,7 @@ func TestCellHTTPRequiresAuthority(t *testing.T) {
 }
 
 func TestCellDelegationCeilings(t *testing.T) {
-	backend := toy.New()
+	backend := toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 	server := httptest.NewServer(celltest.Handler(NewServer(backend)))
 	defer server.Close()
 	client, err := New(server.URL, server.Client())

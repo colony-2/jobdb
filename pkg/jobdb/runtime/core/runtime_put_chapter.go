@@ -53,6 +53,10 @@ func (r *Runtime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) e
 	}); err != nil {
 		return err
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.Ref.JobKey.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	logKey := ChapterLogKey{JobKey: req.Ref.JobKey}
 	count, err := r.chapters.Count(ctx, logKey)
 	if err != nil {

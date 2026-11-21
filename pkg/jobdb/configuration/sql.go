@@ -22,13 +22,15 @@ const (
 // READ COMMITTED. Update serializes writers with a row lock (Postgres) or a write
 // transaction (SQLite). The caller owns the database and its lifecycle.
 type SQLStore struct {
+	projects jobdb.ProjectAdmission
+
 	db      *sql.DB
 	dialect SQLDialect
 }
 
 // NewSQLStore initializes the additive configuration table in a runtime database.
 // JSON is stored as bytes (not JSONB), preserving arbitrary JSON numbers exactly.
-func NewSQLStore(ctx context.Context, db *sql.DB, dialect SQLDialect) (*SQLStore, error) {
+func NewSQLStore(ctx context.Context, db *sql.DB, dialect SQLDialect, projects ...jobdb.ProjectAdmission) (*SQLStore, error) {
 	if db == nil {
 		return nil, fmt.Errorf("configuration database is required")
 	}
@@ -44,7 +46,14 @@ func NewSQLStore(ctx context.Context, db *sql.DB, dialect SQLDialect) (*SQLStore
 	if err != nil {
 		return nil, SafeError(err)
 	}
-	return &SQLStore{db: db, dialect: dialect}, nil
+	if len(projects) > 1 {
+		return nil, fmt.Errorf("exactly one project admission may be supplied")
+	}
+	var admission jobdb.ProjectAdmission
+	if len(projects) == 1 {
+		admission = projects[0]
+	}
+	return &SQLStore{db: db, dialect: dialect, projects: admission}, nil
 }
 func (s *SQLStore) Read(ctx context.Context, tenant string) (jobdb.ConfigurationSnapshot, error) {
 	var raw []byte
@@ -65,6 +74,10 @@ func decodeStored(raw []byte) (jobdb.ConfigurationSnapshot, error) {
 	return v, nil
 }
 func (s *SQLStore) Update(ctx context.Context, tenant string, change func(jobdb.ConfigurationSnapshot) (jobdb.ConfigurationSnapshot, error)) (jobdb.ConfigurationSnapshot, error) {
+	if err := jobdb.RequireProjectWrite(ctx, s.projects, tenant); err != nil {
+		return jobdb.ConfigurationSnapshot{}, err
+	}
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return jobdb.ConfigurationSnapshot{}, sqlError(err)

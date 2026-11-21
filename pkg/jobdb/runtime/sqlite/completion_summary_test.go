@@ -14,7 +14,7 @@ import (
 
 func TestCompletionSummaryExistingRowsWithoutHistory(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	cfg := Config{DBPath: filepath.Join(t.TempDir(), "existing.db")}
+	cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "existing.db")}
 	r, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = r.Close(ctx) })

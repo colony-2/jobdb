@@ -19,9 +19,9 @@ func TestGoalAttachmentRouteRemoved(t *testing.T) {
 			ctx := celltest.Context(context.Background())
 			var rt jobdb.WorkflowRuntime
 			if backend == "toy" {
-				rt = toyruntime.New()
+				rt = toyruntime.New(toyruntime.WithProjects(celltest.UnrestrictedProjects{}))
 			} else {
-				embedded, err := sqliteruntime.StartEmbeddedRuntime(ctx)
+				embedded, err := sqliteruntime.StartEmbeddedRuntime(ctx, sqliteruntime.WithProjects(celltest.UnrestrictedProjects{}))
 				require.NoError(t, err)
 				t.Cleanup(embedded.Shutdown)
 				rt = embedded.Runtime

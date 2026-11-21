@@ -28,7 +28,7 @@ func (r *clearCrashRecorder) ClearCrashConcern(ctx context.Context, req jobdb.Cl
 
 func TestClearCrashConcernCLI(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	backend := toy.New()
+	backend := toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 	h, err := celltest.Submit(backend, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "c2", JobID: "flapping", Cell: "test", CellRepo: "example.test/test", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, err)
 	acquire := func() jobdb.ExecutionLease {
@@ -73,7 +73,7 @@ func TestClearCrashConcernCLI(t *testing.T) {
 	require.Equal(t, jobdb.ClearCrashConcernRequest{JobKey: h.JobKey, WorkerID: "operator", Reason: "worker fixed"}, recorder.request)
 	out, err = run("reset-crash-concern", "-t", "c2", "flapping", "-j")
 	require.NoError(t, err)
-	require.JSONEq(t, `{"tenantId":"c2","jobId":"flapping","cleared":true}`, out)
+	require.JSONEq(t, `{"projectId":"c2","jobId":"flapping","cleared":true}`, out)
 	_, err = run("clear-crash-concern", "-t", "wrong", "flapping")
 	require.ErrorIs(t, err, jobdb.ErrJobNotFound)
 	require.NotNil(t, acquire(), "the command must restore acquisition")

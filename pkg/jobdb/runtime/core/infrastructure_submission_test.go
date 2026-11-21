@@ -40,7 +40,7 @@ func TestInfrastructureSubmissionPortFailuresKeepCause(t *testing.T) {
 			if operation != "create" {
 				scheduler.failure = cause
 			}
-			r := &Runtime{scheduler: scheduler, chapters: submissionFaultChapters{failure: cause}, schemas: &SchemaRegistry{}, now: time.Now}
+			r := &Runtime{projects: celltest.UnrestrictedProjects{}, scheduler: scheduler, chapters: submissionFaultChapters{failure: cause}, schemas: &SchemaRegistry{}, now: time.Now}
 			var err error
 			key := jobdb.JobKey{TenantId: "tenant", JobId: "child"}
 			if operation == "restart-prepare" {

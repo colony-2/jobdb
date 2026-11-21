@@ -17,7 +17,7 @@ import (
 func waitingTaskFixture(t *testing.T) (*Runtime, Config, jobdb.CompleteTaskIfWaitingRequest) {
 	t.Helper()
 	ctx := celltest.Context(context.Background())
-	cfg := Config{DBPath: filepath.Join(t.TempDir(), "jobdb.db")}
+	cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobdb.db")}
 	r, err := NewFromConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)

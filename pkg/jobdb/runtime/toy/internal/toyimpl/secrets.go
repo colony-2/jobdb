@@ -43,6 +43,9 @@ func (r *Runtime) resolveSecrets(ctx context.Context, access secretsbroker.Acces
 		if len(record.metadata) > 0 && json.Unmarshal(record.metadata, &envelope) != nil {
 			return secretsbroker.Snapshot{}, jobdb.ErrSecretResolutionFailed
 		}
+		if err := jobdb.RequireProjectWrite(ctx, r.projects, access.JobKey.TenantId); err != nil {
+			return secretsbroker.Snapshot{}, err
+		}
 		return secretsbroker.Snapshot{Cell: record.cell, AppMetadata: envelope.App, LeaseExpiresAt: record.leaseExpiresAt}, nil
 	})
 }

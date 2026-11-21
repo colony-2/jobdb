@@ -31,6 +31,11 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 	if len(selector.JobTypes) == 0 && len(selector.Tasks) == 0 {
 		return nil, nil
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.TenantId); projectErr != nil {
+		var projectZero0 []jobdb.ExecutionLease
+		return projectZero0, projectErr
+	}
+
 	workerID := req.WorkerID
 	if workerID == "" {
 		workerID = "jobdb-core-" + ksuid.New().String()
@@ -78,6 +83,11 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 	if len(selector.JobTypes) == 0 && len(selector.Tasks) == 0 {
 		return nil, nil
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.JobKey.TenantId); projectErr != nil {
+		var projectZero0 jobdb.ExecutionLease
+		return projectZero0, projectErr
+	}
+
 	workerID := req.WorkerID
 	if workerID == "" {
 		workerID = "jobdb-core-" + ksuid.New().String()
@@ -166,9 +176,14 @@ func (l *executionLease) checkExpiry() error {
 func (l *executionLease) LeaseSchemaHash() string { return l.snapshot.SchemaHash }
 
 func (l *executionLease) KeepAlive(ctx context.Context) error {
+
 	if l == nil || l.runtime == nil {
 		return fmt.Errorf("runtime is required for lease keepalive")
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, l.runtime.projects, l.snapshot.Identity.JobKey.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	l.keepAliveMu.Lock()
 	defer l.keepAliveMu.Unlock()
 	l.mu.Lock()
@@ -237,12 +252,17 @@ func (l *executionLease) StopKeepAlive() {
 }
 
 func (l *executionLease) Complete(ctx context.Context, req jobdb.CompleteExecutionRequest) error {
+
 	if _, _, err := clientpayload.Apply(l.snapshot.ClientPayload, l.snapshot.ClientPayloadRevision, req.ClientPayloadUpdate); err != nil {
 		return err
 	}
 	if err := l.requireCurrent(ctx); err != nil {
 		return err
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, l.runtime.projects, l.snapshot.Identity.JobKey.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	if err := l.runtime.ensureCompletionChapter(ctx, l.snapshot.Identity.JobKey, req); err != nil {
 		return err
 	}
@@ -262,6 +282,7 @@ func (l *executionLease) Complete(ctx context.Context, req jobdb.CompleteExecuti
 }
 
 func (l *executionLease) Reschedule(ctx context.Context, req jobdb.RescheduleExecutionRequest) error {
+
 	if err := l.requireCurrent(ctx); err != nil {
 		return err
 	}
@@ -291,6 +312,10 @@ func (l *executionLease) Reschedule(ctx context.Context, req jobdb.RescheduleExe
 	if req.AlternateRoute != nil {
 		mutation.AlternateRoute = &AlternateRoute{JobType: req.AlternateRoute.JobType, TaskType: req.AlternateRoute.TaskType, After: *req.AlternateAfter}
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, l.runtime.projects, l.snapshot.Identity.JobKey.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	_, err = l.runtime.scheduler.RescheduleLease(ctx, mutation)
 	if err == nil {
 		l.StopKeepAlive()

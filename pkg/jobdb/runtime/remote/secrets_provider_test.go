@@ -29,9 +29,9 @@ func (f testSecretProvider) ResolveSecrets(ctx context.Context, req jobdb.Secret
 func providerRuntime(t *testing.T, backend string, provider jobdb.SecretProvider) jobdb.WorkflowRuntime {
 	t.Helper()
 	if backend == "toy" {
-		return toy.New(toy.WithSecretProvider(provider))
+		return toy.New(toy.WithSecretProvider(provider), toy.WithProjects(celltest.UnrestrictedProjects{}))
 	}
-	r, err := sqliteruntime.NewFromConfig(celltest.Context(context.Background()), sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), SecretProvider: provider})
+	r, err := sqliteruntime.NewFromConfig(celltest.Context(context.Background()), sqliteruntime.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db"), SecretProvider: provider})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, r.Close(celltest.Context(context.Background()))) })
 	return r
@@ -114,7 +114,7 @@ func TestToyProviderReceivesOnlySignedPrincipal(t *testing.T) {
 	backend := toy.New(toy.WithSecretProvider(testSecretProvider(func(_ context.Context, req jobdb.SecretResolveRequest) (jobdb.SecretResolveResult, error) {
 		received <- req
 		return jobdb.SecretResolveResult{}, nil
-	})))
+	})), toy.WithProjects(celltest.UnrestrictedProjects{}))
 	signer := newLeaseTokenSigner()
 	handler, err := newServer(backend, signer)
 	require.NoError(t, err)

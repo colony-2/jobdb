@@ -11,6 +11,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/projectcatalog"
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -51,6 +53,7 @@ func newRootCmd() *cobra.Command {
 
 	cmd.AddCommand(
 		newCellCmd(),
+		newProjectsCmd(),
 		newSQLiteCmd(&listenAddr, &dbPath, &sqliteDSN, &blobDir, &blobStoreURI, &secretProvidersFile),
 		newSecretsCmd(),
 		newConfigurationCmd(),
@@ -112,7 +115,12 @@ func runToy(ctx context.Context, listenAddr string, providersFile string, limits
 		return err
 	}
 	defer providers.close()
-	runtime := toyruntime.New(toyruntime.WithSecretProvider(providers.provider), toyruntime.WithMaxChapterApplicationPayloadBytes(limit))
+	catalog := &projectcatalog.Service{Store: &projectcatalog.MemoryStore{}}
+	admin := jobdb.WithProjectAdministration(ctx, func(context.Context) error { return nil })
+	if err := catalog.Install(admin, projectcatalog.Installation{Manifest: projectcatalog.InstallationDigest([]byte("explicit fresh in-memory toy runtime; no retained stores"))}); err != nil {
+		return err
+	}
+	runtime := toyruntime.New(toyruntime.WithProjects(catalog), toyruntime.WithSecretProvider(providers.provider), toyruntime.WithMaxChapterApplicationPayloadBytes(limit))
 	if providers.provider == nil {
 		slog.Info("no secret providers configured", "development_admin_provider", "none")
 	}

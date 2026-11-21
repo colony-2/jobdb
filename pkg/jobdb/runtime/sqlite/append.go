@@ -21,7 +21,7 @@ type appendScheduler struct{ *Runtime }
 type appendChapters struct{ r *Runtime }
 
 func (r *Runtime) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAppendJobRequest) (jobdb.JobHandle, error) {
-	return (runtimecore.AppendService{Scheduler: appendScheduler{r}, Chapters: appendChapters{r}, Schemas: r, PayloadLimit: r.ChapterApplicationPayloadLimit()}).StartOrAppendJob(ctx, req)
+	return (runtimecore.AppendService{Projects: r.projects, Scheduler: appendScheduler{r}, Chapters: appendChapters{r}, Schemas: r, PayloadLimit: r.ChapterApplicationPayloadLimit()}).StartOrAppendJob(ctx, req)
 }
 func (s appendScheduler) ResolveAppendCell(ctx context.Context, j jobdb.SubmitJob) (jobdb.ResolvedCell, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})

@@ -45,6 +45,8 @@ func WithJobIDGenerator(gen JobIDGenerator) Option {
 
 // ToyEngine holds the in-memory state backing the toy WorkflowRuntime.
 type ToyEngine struct {
+	projects jobdb.ProjectControl
+
 	leaseEvents                       []jobdb.LeaseEvent
 	leaseEventSequence                int64
 	cells                             map[string]*cellstate.State
@@ -1179,4 +1181,8 @@ func WithMaxChapterApplicationPayloadBytes(limit int64) Option {
 		panic("chapter application payload limit cannot be negative")
 	}
 	return func(e *ToyEngine) { e.maxChapterApplicationPayloadBytes = limit }
+}
+
+func WithProjects(projects jobdb.ProjectControl) Option {
+	return func(e *ToyEngine) { e.projects = projects }
 }

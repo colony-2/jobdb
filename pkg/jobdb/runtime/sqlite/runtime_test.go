@@ -16,7 +16,7 @@ import (
 
 func TestRuntimeSubmitJobCreatesInitialChapter(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	embedded, err := StartEmbeddedRuntime(ctx)
+	embedded, err := StartEmbeddedRuntime(ctx, WithProjects(celltest.UnrestrictedProjects{}))
 	if err != nil {
 		t.Fatalf("start runtime: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestRuntimeSubmitJobCreatesInitialChapter(t *testing.T) {
 
 func TestRuntimeThroughRemoteServerSubmitJob(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	embedded, err := StartEmbeddedRuntime(ctx)
+	embedded, err := StartEmbeddedRuntime(ctx, WithProjects(celltest.UnrestrictedProjects{}))
 	if err != nil {
 		t.Fatalf("start runtime: %v", err)
 	}
@@ -73,8 +73,7 @@ func TestRuntimeThroughRemoteServerSubmitJob(t *testing.T) {
 }
 
 func TestNewFromConfigProviderBlobStoreURIRequiresExplicitImport(t *testing.T) {
-	_, err := NewFromConfig(celltest.Context(context.Background()), Config{
-		DBPath:       filepath.Join(t.TempDir(), "jobdb.db"),
+	_, err := NewFromConfig(celltest.Context(context.Background()), Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobdb.db"),
 		BlobStoreURI: "s3://jobdb-artifacts?region=us-east-1",
 	})
 	if err == nil {

@@ -1,5 +1,7 @@
 package runtimecore_test
 
+import "github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 import (
 	"context"
 	"encoding/json"
@@ -26,7 +28,7 @@ func (s *renewalTestScheduler) KeepAliveLease(_ context.Context, m runtimecore.L
 func TestCoreRenewReturnsAuthoritativeSnapshotWithoutAcquisition(t *testing.T) {
 	key := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 	scheduler := &renewalTestScheduler{snapshot: runtimecore.LeaseSnapshot{Identity: runtimecore.LeaseIdentity{JobKey: key, LeaseID: "lease", WorkerID: "owner", ExpiresAt: time.Now().Add(time.Minute)}, RouteJobType: "job", WorkKind: runtimecore.WorkKindTask, TaskWork: &runtimecore.TaskWork{TaskType: "task", ResumeJobType: "job", InputOrdinal: 2, OutputOrdinal: 3, InputHash: "hash"}, ClientPayload: json.RawMessage(`{"cursor":3}`), ClientPayloadRevision: 4, SchemaHash: "schema", Duration: time.Minute}}
-	runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: scheduler, Chapters: readTestChapters{}, Schemas: readTestSchemas{}})
+	runtime, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Configurations: &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}}, Scheduler: scheduler, Chapters: readTestChapters{}, Schemas: readTestSchemas{}})
 	require.NoError(t, err)
 	lease, err := runtime.RenewExecutionLeaseByID(context.Background(), key, "lease", "owner", time.Minute)
 	require.NoError(t, err)
@@ -50,7 +52,7 @@ func TestCoreValidateLeaseDoesNotRenewOrReturnPayload(t *testing.T) {
 	key := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 	expiry := time.Now().Add(time.Minute)
 	scheduler := &secretScheduler{row: runtimecore.StoredJob{JobKey: key, Store: jobdb.JobStoreActive, Lease: &runtimecore.LeaseIdentity{JobKey: key, LeaseID: "lease", WorkerID: "worker", ExpiresAt: expiry}}}
-	runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: scheduler, Chapters: readTestChapters{}, Schemas: readTestSchemas{}})
+	runtime, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Configurations: &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}}, Scheduler: scheduler, Chapters: readTestChapters{}, Schemas: readTestSchemas{}})
 	require.NoError(t, err)
 	valid, err := runtime.ValidateExecutionLeaseByID(ctx, key, "lease", "worker")
 	require.NoError(t, err)

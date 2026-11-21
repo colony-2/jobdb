@@ -13,7 +13,7 @@ import (
 
 func TestCrashConcernBlocksTaskAndAlternateClaims(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	r := New()
+	r := New(WithProjects(celltest.UnrestrictedProjects{}))
 	h, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "job", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, err)
 	lease, err := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "job"}}})
@@ -57,7 +57,7 @@ func TestCrashConcernBlocksTaskAndAlternateClaims(t *testing.T) {
 
 func TestCrashConcernRenewalAndReschedule(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	r := New()
+	r := New(WithProjects(celltest.UnrestrictedProjects{}))
 	h, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "job", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, err)
 	get := func() jobdb.ExecutionLease {

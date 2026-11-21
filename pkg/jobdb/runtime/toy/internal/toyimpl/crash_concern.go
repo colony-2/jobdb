@@ -17,6 +17,10 @@ func (r *Runtime) ClearCrashConcern(ctx context.Context, req jobdb.ClearCrashCon
 			return err
 		}
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.JobKey.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	r.engine.mu.Lock()
 	defer r.engine.mu.Unlock()
 	record := r.engine.jobRecords[req.JobKey]

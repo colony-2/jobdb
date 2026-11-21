@@ -29,7 +29,7 @@ func check(t *testing.T, err error) {
 func localRuntime(t *testing.T) (*sqlite.Runtime, context.Context) {
 	t.Helper()
 	ctx := celltest.Context(context.Background())
-	r, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "consumer.db")})
+	r, err := sqlite.NewFromConfig(ctx, sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "consumer.db")})
 	check(t, err)
 	t.Cleanup(func() { check(t, r.Close(ctx)) })
 	_, err = r.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "tenant", Name: "test", Repo: "example.test/test"})

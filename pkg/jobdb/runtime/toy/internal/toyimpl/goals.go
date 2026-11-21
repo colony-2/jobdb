@@ -32,6 +32,11 @@ func goalJob(k jobdb.JobKey, r *jobRecord) goalstate.Job {
 	return goalstate.Job{Key: k, RecordKind: kind, GoalID: r.goalID, Terminal: r.archived != nil || r.cancelled, Success: r.archived != nil && (r.completionStatus == "success" || r.completionStatus == "succeeded"), CreatedAt: r.createdAt}
 }
 func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (goalstate.Prepared, error) {
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.Key.TenantId); projectErr != nil {
+		var projectZero0 goalstate.Prepared
+		return projectZero0, projectErr
+	}
+
 	if ctx != nil {
 		if err := ctx.Err(); err != nil {
 			return goalstate.Prepared{}, err
@@ -227,6 +232,9 @@ func (r *Runtime) FailGoal(ctx context.Context, req jobdb.FailGoalRequest) (jobd
 	if err := ctx.Err(); err != nil {
 		return jobdb.GoalInfo{}, err
 	}
+	if err := jobdb.RequireProjectWrite(ctx, r.projects, req.GoalKey.TenantId); err != nil {
+		return jobdb.GoalInfo{}, err
+	}
 	r.engine.mu.Lock()
 	defer r.engine.mu.Unlock()
 	r.engine.initGoalsLocked()
@@ -273,6 +281,10 @@ func (e *ToyEngine) dependencyReadyLocked(record *jobRecord, now time.Time) (boo
 }
 
 func (r *Runtime) DiscardJobPreparation(ctx context.Context, key jobdb.JobKey) error {
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, key.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	r.engine.mu.Lock()
 	defer r.engine.mu.Unlock()
 	e := r.engine

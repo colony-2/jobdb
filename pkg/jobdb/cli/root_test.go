@@ -24,7 +24,7 @@ func TestRootCommandDefaultsToSQLite(t *testing.T) {
 		gotListenAddr = listenAddr
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/dev/v1/tenants/tenant/secrets/set", strings.NewReader(`{"name":"token","value":"local-value"}`)))
-		if recorder.Code != http.StatusNoContent {
+		if recorder.Code != http.StatusServiceUnavailable {
 			t.Fatalf("default SQLite secret administration status = %d: %s", recorder.Code, recorder.Body.String())
 		}
 		if cleanup != nil {

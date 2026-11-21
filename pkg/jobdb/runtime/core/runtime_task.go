@@ -31,6 +31,10 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	if err := req.JobKey.Validate(); err != nil {
 		return err
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.JobKey.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	waiting, err := r.scheduler.GetWaitingTask(ctx, req.JobKey)
 	if err != nil {
 		return err

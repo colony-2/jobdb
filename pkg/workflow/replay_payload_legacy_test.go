@@ -24,7 +24,7 @@ func TestReplayRetainedOversizedPayload(t *testing.T) {
 			t.Run(transport+"/"+field, func(t *testing.T) {
 				ctx := celltest.Context(context.Background())
 				path := filepath.Join(t.TempDir(), "legacy.db")
-				historical, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path, MaxChapterApplicationPayloadBytes: 64 * 1024})
+				historical, err := sqlite.NewFromConfig(ctx, sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: path, MaxChapterApplicationPayloadBytes: 64 * 1024})
 				require.NoError(t, err)
 				large := jobdb.NewTaskDataOrPanic(strings.Repeat(field, 1500))
 				largeRaw, err := large.GetData()
@@ -86,7 +86,7 @@ func TestReplayRetainedOversizedPayload(t *testing.T) {
 					require.Positive(t, retainedOrdinal)
 				}
 				require.NoError(t, historical.Close(ctx))
-				current, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path, MaxChapterApplicationPayloadBytes: 128})
+				current, err := sqlite.NewFromConfig(ctx, sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: path, MaxChapterApplicationPayloadBytes: 128})
 				require.NoError(t, err)
 				defer current.Close(ctx)
 				var rt jobdb.WorkflowRuntime = current

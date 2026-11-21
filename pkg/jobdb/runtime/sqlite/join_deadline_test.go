@@ -13,7 +13,7 @@ import (
 
 func TestJoinDeadlineSurvivesReopen(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	cfg := Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")}
+	cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")}
 	rt, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	submit := func(id string) jobdb.JobKey {

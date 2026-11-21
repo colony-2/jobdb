@@ -23,7 +23,7 @@ func TestLeaseEventStartupPreservesSavedState(t *testing.T) {
 		t.Run(fmt.Sprint(format), func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
 			dir := t.TempDir()
-			cfg := Config{DBPath: filepath.Join(dir, "saved.db")}
+			cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(dir, "saved.db")}
 			r, e := NewFromConfig(ctx, cfg)
 			require.NoError(t, e)
 			h, e := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "saved", Cell: "test", CellRepo: "example.test/test", JobType: "job", Data: &jobdb.SimpleTaskData{Data: []byte(`{"saved":true}`), Artifacts: []jobdb.Artifact{jobdb.NewArtifactFromBytes("input.txt", []byte("saved artifact bytes\x00"))}}}})

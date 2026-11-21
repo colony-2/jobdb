@@ -47,7 +47,7 @@ func TestInfrastructureSameJobCrashConcernRecovery(t *testing.T) {
 	for _, httpPath := range []bool{false, true} {
 		t.Run(map[bool]string{false: "direct", true: "http"}[httpPath], func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			cfg := Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")}
+			cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")}
 			r, err := NewFromConfig(ctx, cfg)
 			require.NoError(t, err)
 			defer func() { require.NoError(t, r.Close(ctx)) }()
@@ -164,7 +164,7 @@ func TestInfrastructureCorruptOwnedRecordsPreserveState(t *testing.T) {
 		for _, kind := range []string{"execution_protocol", "reconstruction", "task_error_envelope", "terminal_result"} {
 			t.Run(fmt.Sprintf("http=%v/%s", httpPath, kind), func(t *testing.T) {
 				ctx := celltest.Context(context.Background())
-				r, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+				r, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 				require.NoError(t, err)
 				defer r.Close(ctx)
 				var runtime jobdb.WorkflowRuntime = r

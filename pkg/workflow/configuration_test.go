@@ -95,11 +95,11 @@ func TestConfigurationContextsAreCachedAndInvocationBound(t *testing.T) {
 					var rt jobdb.WorkflowRuntime
 					var service *configuration.Service
 					if backend == "toy" {
-						r := toy.New()
+						r := toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 						rt = r
 						service = r.Service
 					} else {
-						r, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+						r, err := sqlite.NewFromConfig(ctx, sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 						require.NoError(t, err)
 						defer r.Close(ctx)
 						rt = r
@@ -275,8 +275,8 @@ func TestTaskConfigurationContextExpiresWhileJobLeaseRemainsLive(t *testing.T) {
 	// scheduling delays could otherwise expire admission and strand the receiver.
 	synctest.Test(t, func(t *testing.T) {
 		ctx := celltest.Context(context.Background())
-		provider := &configurationCountingStore{Store: &configuration.MemoryStore{}}
-		runtime := toy.New()
+		provider := &configurationCountingStore{Store: &configuration.MemoryStore{Projects:celltest.UnrestrictedProjects{}}}
+		runtime := toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 		runtime.Service.Store = provider
 		task := &expiredConfigurationTask{captured: make(chan TaskContext, 1), release: make(chan struct{})}
 		job := &catchesConfigurationTaskTimeout{task: task}

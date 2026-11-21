@@ -133,6 +133,10 @@ func (s *proxyServer) devSecretHandler() http.Handler {
 				err = admin.RemoveDevSecret(r.Context(), tenant, name)
 			}
 			if err != nil {
+				if isProjectError(err) {
+					projectError(w, err)
+					return
+				}
 				secretsutil.WriteError(w, err)
 				return
 			}

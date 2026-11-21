@@ -13,7 +13,7 @@ import sys
 import tempfile
 
 binary = Path(sys.argv[1]).resolve()
-if binary.name not in {"postgres.test", "configuration.test"}:
+if binary.name not in {"postgres.test", "configuration.test", "projectcatalog.test"}:
     os.execv(str(binary), [str(binary), *sys.argv[2:]])
 
 scratch = Path(tempfile.mkdtemp(prefix="postgres-test-", dir=os.environ["TMPDIR"]))

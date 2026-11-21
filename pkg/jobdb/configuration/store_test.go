@@ -1,5 +1,7 @@
 package configuration_test
 
+import "github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 import (
 	"context"
 	"database/sql"
@@ -21,20 +23,23 @@ import (
 )
 
 func TestStores(t *testing.T) {
-	t.Run("memory", func(t *testing.T) { s := &configuration.MemoryStore{}; exerciseStore(t, s, s) })
+	t.Run("memory", func(t *testing.T) {
+		s := &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}}
+		exerciseStore(t, s, s)
+	})
 	t.Run("sqlite", func(t *testing.T) {
 		dsn := filepath.Join(t.TempDir(), "config.db") + "?_pragma=busy_timeout(10000)"
 		open := func() *configuration.SQLStore {
 			db, err := sql.Open("sqlite", dsn)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = db.Close() })
-			s, err := configuration.NewSQLStore(context.Background(), db, configuration.SQLite)
+			s, err := configuration.NewSQLStore(context.Background(), db, configuration.SQLite, celltest.UnrestrictedProjects{})
 			require.NoError(t, err)
 			return s
 		}
 		a, b := open(), open()
 		exerciseStore(t, a, b)
-		reopened := &configuration.Service{Store: open()}
+		reopened := &configuration.Service{Projects: celltest.UnrestrictedProjects{}, Store: open()}
 		got, err := reopened.GetTenantConfiguration(context.Background(), "tenant")
 		require.NoError(t, err)
 		require.Contains(t, got.Values, "n")
@@ -53,7 +58,7 @@ func TestStores(t *testing.T) {
 			db, err := sql.Open("postgres", cfg.GetConnectionURL())
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = db.Close() })
-			s, err := configuration.NewSQLStore(context.Background(), db, configuration.Postgres)
+			s, err := configuration.NewSQLStore(context.Background(), db, configuration.Postgres, celltest.UnrestrictedProjects{})
 			require.NoError(t, err)
 			return s
 		}
@@ -63,8 +68,8 @@ func TestStores(t *testing.T) {
 func exerciseStore(t *testing.T, a, b configuration.Store) {
 	t.Helper()
 	ctx := context.Background()
-	s := &configuration.Service{Store: a}
-	other := &configuration.Service{Store: b}
+	s := &configuration.Service{Projects: celltest.UnrestrictedProjects{}, Store: a}
+	other := &configuration.Service{Projects: celltest.UnrestrictedProjects{}, Store: b}
 	empty, err := s.GetTenantConfiguration(ctx, "tenant")
 	require.NoError(t, err)
 	require.NotNil(t, empty.Values)
@@ -152,7 +157,7 @@ func exerciseStore(t *testing.T, a, b configuration.Store) {
 	require.NotEqual(t, rev, recreated)
 	require.NotEqual(t, deleted, recreated)
 	// Lower limits do not prevent removing entries to recover an oversized tenant.
-	small := &configuration.Service{Store: a, Limits: jobdb.ConfigurationLimits{MaxEntries: 1}}
+	small := &configuration.Service{Projects: celltest.UnrestrictedProjects{}, Store: a, Limits: jobdb.ConfigurationLimits{MaxEntries: 1}}
 	_, err = small.GetTenantConfiguration(ctx, "many")
 	require.ErrorIs(t, err, jobdb.ErrConfigurationReadTooLarge)
 	_, err = small.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "many", Name: "extra", Value: json.RawMessage(`1`)})
@@ -165,7 +170,7 @@ func exerciseStore(t *testing.T, a, b configuration.Store) {
 	require.NoError(t, err)
 }
 func TestValidationAndLimits(t *testing.T) {
-	s := &configuration.Service{Store: &configuration.MemoryStore{}, Limits: jobdb.ConfigurationLimits{MaxValueBytes: 32, MaxNameBytes: 8, MaxEntries: 1, MaxSnapshotBytes: 128}}
+	s := &configuration.Service{Projects: celltest.UnrestrictedProjects{}, Store: &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}}, Limits: jobdb.ConfigurationLimits{MaxValueBytes: 32, MaxNameBytes: 8, MaxEntries: 1, MaxSnapshotBytes: 128}}
 	for _, raw := range []string{"", `{"x":1,"x":2}`, `{"a":{"b":1,"b":2}}`, `1 2`, `"\ud800"`, string([]byte{'"', 255, '"'})} {
 		_, err := s.SetTenantConfigurationValue(context.Background(), jobdb.SetTenantConfigurationValueRequest{TenantID: "t", Name: "x", Value: json.RawMessage(raw)})
 		require.ErrorIs(t, err, jobdb.ErrInvalidConfigurationRequest)

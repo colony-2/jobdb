@@ -54,14 +54,14 @@ func TestRemoteRuntimeLeaseAndMetadataRoundTrip(t *testing.T) {
 		{
 			name: "toy",
 			new: func(t *testing.T) (jobdb.WorkflowRuntime, func()) {
-				return toyruntime.New(), func() {}
+				return toyruntime.New(toyruntime.WithProjects(celltest.UnrestrictedProjects{})), func() {}
 			},
 		},
 		{
 			name: "sqlite",
 			new: func(t *testing.T) (jobdb.WorkflowRuntime, func()) {
 				t.Helper()
-				embedded, err := sqliteruntime.StartEmbeddedRuntime(celltest.Context(context.Background()))
+				embedded, err := sqliteruntime.StartEmbeddedRuntime(celltest.Context(context.Background()), sqliteruntime.WithProjects(celltest.UnrestrictedProjects{}))
 				if err != nil {
 					t.Fatalf("start embedded SQLite runtime: %v", err)
 				}
@@ -184,7 +184,7 @@ func TestRemoteRuntimePollWorkRequiresTenantId(t *testing.T) {
 }
 
 func TestRemoteServerPollWorkRejectsInvalidTenantId(t *testing.T) {
-	server := httptest.NewServer(celltest.Handler(NewServer(toyruntime.New())))
+	server := httptest.NewServer(celltest.Handler(NewServer(toyruntime.New(toyruntime.WithProjects(celltest.UnrestrictedProjects{})))))
 	defer server.Close()
 
 	tests := []struct {
@@ -231,14 +231,14 @@ func TestRemoteRuntimeChapterAndArtifactRoundTrip(t *testing.T) {
 		{
 			name: "toy",
 			new: func(t *testing.T) (jobdb.WorkflowRuntime, func()) {
-				return toyruntime.New(), func() {}
+				return toyruntime.New(toyruntime.WithProjects(celltest.UnrestrictedProjects{})), func() {}
 			},
 		},
 		{
 			name: "sqlite",
 			new: func(t *testing.T) (jobdb.WorkflowRuntime, func()) {
 				t.Helper()
-				embedded, err := sqliteruntime.StartEmbeddedRuntime(celltest.Context(context.Background()))
+				embedded, err := sqliteruntime.StartEmbeddedRuntime(celltest.Context(context.Background()), sqliteruntime.WithProjects(celltest.UnrestrictedProjects{}))
 				if err != nil {
 					t.Fatalf("start embedded SQLite runtime: %v", err)
 				}
@@ -367,7 +367,7 @@ func TestRemoteRuntimeChapterAndArtifactRoundTrip(t *testing.T) {
 }
 
 func TestRemoteRuntimeSupportsExplicitJobIDs(t *testing.T) {
-	underlying := toyruntime.New()
+	underlying := toyruntime.New(toyruntime.WithProjects(celltest.UnrestrictedProjects{}))
 	server := httptest.NewServer(celltest.Handler(NewServer(underlying)))
 	defer server.Close()
 
@@ -423,7 +423,7 @@ func TestRemoteRuntimeSupportsExplicitJobIDs(t *testing.T) {
 }
 
 func TestRemoteRuntimeSchemaRegistryRoundTrip(t *testing.T) {
-	underlying := toyruntime.New()
+	underlying := toyruntime.New(toyruntime.WithProjects(celltest.UnrestrictedProjects{}))
 	server := httptest.NewServer(celltest.Handler(NewServer(underlying)))
 	defer server.Close()
 
@@ -550,7 +550,7 @@ func TestRemoteRuntimeSchemaRegistryRoundTrip(t *testing.T) {
 }
 
 func TestRemoteRuntimeSchemaValidationErrors(t *testing.T) {
-	underlying := toyruntime.New()
+	underlying := toyruntime.New(toyruntime.WithProjects(celltest.UnrestrictedProjects{}))
 	server := httptest.NewServer(celltest.Handler(NewServer(underlying)))
 	defer server.Close()
 

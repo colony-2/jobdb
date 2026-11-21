@@ -16,6 +16,10 @@ func (r *Runtime) CancelJob(ctx context.Context, req jobdb.CancelJobRequest) err
 	if err := req.JobKey.Validate(); err != nil {
 		return err
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.JobKey.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	workerID := req.WorkerID
 	if workerID == "" {
 		workerID = "jobdb-core-" + ksuid.New().String()

@@ -14,7 +14,7 @@ import (
 )
 
 func TestClearCrashConcernHTTPValidation(t *testing.T) {
-	r := toy.New()
+	r := toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 	_, err := celltest.Submit(r, celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
 		TenantId: "tenant", JobID: "job", Cell: "test", CellRepo: "example.test/test", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1),
 	}})

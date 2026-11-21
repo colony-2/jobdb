@@ -37,9 +37,9 @@ func TestPluginCollectionThroughRuntimeAndWorkflow(t *testing.T) {
 				require.NoError(t, err)
 				var runtime jobdb.WorkflowRuntime
 				if backend == "toy" {
-					runtime = toy.New(toy.WithSecretProvider(collection))
+					runtime = toy.New(toy.WithSecretProvider(collection), toy.WithProjects(celltest.UnrestrictedProjects{}))
 				} else {
-					r, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), SecretProvider: collection})
+					r, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db"), SecretProvider: collection})
 					require.NoError(t, err)
 					t.Cleanup(func() { r.Close(ctx) })
 					runtime = r
@@ -154,7 +154,7 @@ func (p gatedProvider) ResolveSecrets(ctx context.Context, r jobdb.SecretResolve
 func TestPluginResultRejectedAfterLeaseRevocation(t *testing.T) {
 	p := fixture(t)
 	gate := gatedProvider{p, make(chan struct{}), make(chan struct{})}
-	runtime := toy.New(toy.WithSecretProvider(gate))
+	runtime := toy.New(toy.WithSecretProvider(gate), toy.WithProjects(celltest.UnrestrictedProjects{}))
 	ctx := celltest.Context(context.Background())
 	job, err := celltest.Submit(runtime, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "test", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, err)

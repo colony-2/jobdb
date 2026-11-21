@@ -135,6 +135,10 @@ func newRuntimeServer(runtime jobdb.ConsumerRuntime, tokens *leaseTokenSigner) (
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		},
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			if isProjectError(err) {
+				projectError(w, err)
+				return
+			}
 			if writeInfrastructureError(w, err) {
 				return
 			}
@@ -205,7 +209,14 @@ func newRuntimeServer(runtime jobdb.ConsumerRuntime, tokens *leaseTokenSigner) (
 	strict := runtimeapi.NewConsumerStrictHandlerWithOptions(server, middlewares, strictOptions)
 	handler := runtimeapi.ConsumerHandlerFromMux(strict, router)
 	devHandler := server.devSecretHandler()
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return projectCatalogHandler(runtime, projectResourceHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if id, ok := r.Context().Value(projectRequestKey{}).(string); ok {
+			// Preserve the original protected handler's denial before revealing
+			// catalog state. Successful reads require an active installation;
+			// mutations also require runtime admission before any effects.
+			p, _ := runtime.(jobdb.ProjectExistence)
+			w = &projectExistenceWriter{ResponseWriter: w, ctx: r.Context(), projects: p, id: id}
+		}
 		if r.URL.EscapedPath() == "/v1/capabilities/job-goals" {
 			w.Header().Set("Cache-Control", "no-store")
 		}
@@ -281,7 +292,7 @@ func newRuntimeServer(runtime jobdb.ConsumerRuntime, tokens *leaseTokenSigner) (
 			}
 		}
 		handler.ServeHTTP(w, r)
-	}), nil
+	}))), nil
 }
 
 func rejectLegacyPollWorkFields(r *http.Request) error {

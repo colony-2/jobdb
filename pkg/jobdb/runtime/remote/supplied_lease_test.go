@@ -21,7 +21,7 @@ import (
 
 func TestLeaseCapabilityBindingAndRedaction(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	backend := toy.New()
+	backend := toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 	server := httptest.NewServer(celltest.Handler(NewServer(backend)))
 	defer server.Close()
 	client, err := New(server.URL, server.Client())
@@ -108,9 +108,9 @@ func TestUnexpiredCapabilityCannotAppendAfterCancellation(t *testing.T) {
 	for _, kind := range []string{"toy", "sqlite"} {
 		t.Run(kind, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			var backend jobdb.WorkflowRuntime = toy.New()
+			var backend jobdb.WorkflowRuntime = toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 			if kind == "sqlite" {
-				embedded, err := sqliteruntime.StartEmbeddedRuntime(ctx)
+				embedded, err := sqliteruntime.StartEmbeddedRuntime(ctx, sqliteruntime.WithProjects(celltest.UnrestrictedProjects{}))
 				require.NoError(t, err)
 				t.Cleanup(embedded.Shutdown)
 				backend = embedded.Runtime

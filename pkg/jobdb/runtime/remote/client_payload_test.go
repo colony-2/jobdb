@@ -36,10 +36,10 @@ func runPayloadAndRouteConformance(t *testing.T, run func(*testing.T, ...runtime
 				name = "remote-" + name
 			}
 			run(t, runtimetest.Harness{Name: name, New: func(tb testing.TB) runtimetest.Fixture {
-				var runtime jobdb.ConsumerRuntime = toyruntime.New()
+				var runtime jobdb.ConsumerRuntime = toyruntime.New(toyruntime.WithProjects(celltest.UnrestrictedProjects{}))
 				cleanup := func() {}
 				if kind == "sqlite" {
-					embedded, err := sqliteruntime.NewFromConfig(celltest.Context(context.Background()), sqliteruntime.Config{DBPath: tb.TempDir() + "/jobdb.db"})
+					embedded, err := sqliteruntime.NewFromConfig(celltest.Context(context.Background()), sqliteruntime.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: tb.TempDir() + "/jobdb.db"})
 					if err != nil {
 						tb.Fatal(err)
 					}

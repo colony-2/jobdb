@@ -24,14 +24,19 @@ func (e *EmbeddedRuntime) Shutdown() {
 	}
 }
 
-func StartEmbeddedRuntime(ctx context.Context) (*EmbeddedRuntime, error) {
+func StartEmbeddedRuntime(ctx context.Context, opts ...Option) (*EmbeddedRuntime, error) {
 	dir, err := testingTempDir()
 	if err != nil {
 		return nil, err
 	}
+	options := runtimeOptions{}
+	for _, opt := range opts {
+		opt(&options)
+	}
 	rt, err := NewFromConfig(ctx, Config{
-		DBPath:  filepath.Join(dir, "jobdb.db"),
-		BlobDir: filepath.Join(dir, "blobs"),
+		Projects: options.projects,
+		DBPath:   filepath.Join(dir, "jobdb.db"),
+		BlobDir:  filepath.Join(dir, "blobs"),
 	})
 	if err != nil {
 		_ = os.RemoveAll(dir)

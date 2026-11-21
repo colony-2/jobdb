@@ -39,7 +39,7 @@ Set JOBDB_BEARER_TOKEN if your deployment requires bearer authentication.`,
   jobdb jobs delete -t c2 --all`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(tenant) == "" {
-				return fmt.Errorf("--tenant (-t) is required: %w", jobdb.ErrInvalidJobDeletion)
+				return fmt.Errorf("--project is required: %w", jobdb.ErrInvalidJobDeletion)
 			}
 			req := jobdb.DeleteJobsRequest{TenantID: tenant, JobIDs: args, All: all, DryRun: dryRun}
 			if cmd.Flags().Changed("older-than") && cmd.Flags().Changed("created-before") {
@@ -81,7 +81,7 @@ Set JOBDB_BEARER_TOKEN if your deployment requires bearer authentication.`,
 				return fmt.Errorf("--url (-u) must be an HTTP(S) server URL without credentials, query, or fragment")
 			}
 			client := &http.Client{Transport: configurationAuthTransport{token: os.Getenv("JOBDB_BEARER_TOKEN")}}
-			rt, err := remote.New(strings.TrimRight(base.String(), "/"), client)
+			rt, err := remote.NewProjectRuntime(strings.TrimRight(base.String(), "/"), client)
 			if err != nil {
 				return err
 			}
@@ -100,7 +100,7 @@ Set JOBDB_BEARER_TOKEN if your deployment requires bearer authentication.`,
 			return err
 		},
 	}
-	cmd.Flags().StringVarP(&tenant, "tenant", "t", "", "tenant ID (required)")
+	addProjectSelector(cmd, &tenant, false)
 	cmd.Flags().StringVarP(&baseURL, "url", "u", "http://127.0.0.1:9047", "runtime server URL")
 	cmd.Flags().StringVarP(&olderThan, "older-than", "o", "", "creation age, e.g. 30d or 12h; a day is 24 hours")
 	cmd.Flags().StringVarP(&before, "created-before", "b", "", "exclusive creation-time cutoff in RFC3339 format")

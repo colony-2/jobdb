@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -105,7 +106,7 @@ func TestGoalMigrationConvertsPreservingRetainedState(t *testing.T) {
 			// Reopen through the real runtime. Fixture executions have no chapters;
 			// protected inspection and exact replay must not need them.
 			u := url.URL{Scheme: "file", Path: path}
-			rt, err := NewFromConfig(context.Background(), Config{DSN: u.String(), BlobDir: filepath.Join(t.TempDir(), "blobs")})
+			rt, err := NewFromConfig(context.Background(), Config{Projects: celltest.UnrestrictedProjects{}, DSN: u.String(), BlobDir: filepath.Join(t.TempDir(), "blobs")})
 			require.NoError(t, err)
 			defer rt.Close(context.Background())
 			info, err := rt.GetJob(context.Background(), marker)
@@ -255,7 +256,7 @@ func TestGoalMigrationRealLegacyRuntimePreservesReaders(t *testing.T) {
 			report, err := MigrateGoals(context.Background(), path)
 			require.NoError(t, err, "%+v", report.Issues)
 			ctx := runtimetest.PrimaryGoalContext(context.Background())
-			r, err := NewFromConfig(ctx, Config{DBPath: path})
+			r, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: path})
 			require.NoError(t, err)
 			defer r.Close(ctx)
 			after := compatibilitySnapshot(t, r.db)
@@ -301,7 +302,7 @@ func TestGoalMigrationConvertedCellRetirement(t *testing.T) {
 	require.NoError(t, db.Close())
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
 	u := url.URL{Scheme: "file", Path: path}
-	r, err := NewFromConfig(ctx, Config{DSN: u.String(), BlobDir: filepath.Join(t.TempDir(), "blobs")})
+	r, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DSN: u.String(), BlobDir: filepath.Join(t.TempDir(), "blobs")})
 	require.NoError(t, err)
 	defer r.Close(ctx)
 	cell, err := r.GetCell(ctx, jobdb.CellKey{TenantID: "tenant", CellID: "cell"})

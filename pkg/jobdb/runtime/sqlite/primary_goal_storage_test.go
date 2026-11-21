@@ -18,7 +18,7 @@ import (
 
 func TestPrimaryGoalReceiptReopenCleanupAndPurge(t *testing.T) {
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
-	cfg := Config{DBPath: filepath.Join(t.TempDir(), "receipts.db")}
+	cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "receipts.db")}
 	r, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	defer func() { _ = r.Close(ctx) }()
@@ -61,7 +61,7 @@ func TestPrimaryGoalReceiptReopenCleanupAndPurge(t *testing.T) {
 
 func TestPrimaryGoalUnknownIdentityAndUnavailableReceipt(t *testing.T) {
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
-	embedded, err := StartEmbeddedRuntime(ctx)
+	embedded, err := StartEmbeddedRuntime(ctx, WithProjects(celltest.UnrestrictedProjects{}))
 	require.NoError(t, err)
 	defer embedded.Shutdown()
 	r := embedded.Runtime
@@ -111,7 +111,7 @@ func TestPrimaryGoalUnknownIdentityAndUnavailableReceipt(t *testing.T) {
 
 func TestPrimaryGoalPreparationReopen(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	cfg := Config{DBPath: filepath.Join(t.TempDir(), "legacy.db")}
+	cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "legacy.db")}
 	r, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	_, err = r.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "tenant", Name: "work", Repo: "example.test/work"})
@@ -148,14 +148,14 @@ func (s *primaryCoreScheduler) CreateJob(ctx context.Context, req runtimecore.Cr
 
 func TestPrimaryGoalCoreRetainedReceipt(t *testing.T) {
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
-	storage, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "core.db")})
+	storage, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "core.db")})
 	require.NoError(t, err)
 	defer storage.Close(ctx)
 	source, err := celltest.Submit(storage, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "source", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	require.NoError(t, err)
 	require.NoError(t, storage.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: source.JobKey}))
 	scheduler := &coreEventScheduler{r: storage, CellRuntime: storage, GoalScheduler: storage}
-	cfg := runtimecore.Config{Scheduler: scheduler, Chapters: coreEventChapters{r: storage}, Schemas: sqliteSchemaStore{runtime: storage}, Configurations: storage.Service.Store}
+	cfg := runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Scheduler: scheduler, Chapters: coreEventChapters{r: storage}, Schemas: sqliteSchemaStore{runtime: storage}, Configurations: storage.Service.Store}
 	unsupported, err := runtimecore.NewRuntime(cfg)
 	require.NoError(t, err)
 	req := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "dest", GoalID: source.GoalID, Cell: source.Cell, CellRepo: source.CellRepo, JobType: "work", Data: jobdb.NewTaskDataOrPanic("new")}}
@@ -180,7 +180,7 @@ func TestPrimaryGoalCoreRetainedReceipt(t *testing.T) {
 
 func TestPrimaryGoalIndependentWriters(t *testing.T) {
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
-	cfg := Config{DBPath: filepath.Join(t.TempDir(), "writers.db")}
+	cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "writers.db")}
 	first, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	defer first.Close(ctx)

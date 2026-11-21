@@ -21,6 +21,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/leaseauth"
+	"github.com/colony-2/jobdb/pkg/jobdb/projectcatalog"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 	"github.com/segmentio/ksuid"
 )
@@ -41,6 +42,9 @@ type workerTaskWait struct {
 
 // Runtime is an in-memory WorkflowRuntime used by the shared jobdb engine.
 type Runtime struct {
+	jobdb.ProjectCatalog
+	projects jobdb.ProjectAdmission
+
 	*configuration.Service
 	engine *ToyEngine
 }
@@ -49,7 +53,10 @@ var _ jobdb.WorkflowRuntime = (*Runtime)(nil)
 
 func New(opts ...Option) *Runtime {
 	engine := NewToyEngine(opts...)
-	return &Runtime{engine: engine, Service: &configuration.Service{Store: &configuration.MemoryStore{}, Limits: engine.configurationLimits}}
+	if engine.projects == nil {
+		engine.projects = &projectcatalog.Service{Store: &projectcatalog.MemoryStore{}}
+	}
+	return &Runtime{ProjectCatalog: engine.projects, projects: engine.projects, engine: engine, Service: &configuration.Service{Store: &configuration.MemoryStore{Projects: engine.projects}, Limits: engine.configurationLimits, Projects: engine.projects}}
 }
 
 func (r *Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {
@@ -82,6 +89,11 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	if err := runtimecore.ValidateSubmissionApplicationPayload(ctx, req.Job, r.ChapterApplicationPayloadLimit()); err != nil {
 		return jobdb.JobHandle{}, err
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.Job.TenantId); projectErr != nil {
+		var projectZero0 jobdb.JobHandle
+		return projectZero0, projectErr
+	}
+
 	prep, err := goalstate.SubmitPreparation(ctx, req, parentJobID)
 	if err != nil {
 		return jobdb.JobHandle{}, err
@@ -308,6 +320,11 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if err := runtimecore.ValidateRestartApplicationPayload(ctx, req.Job, r.ChapterApplicationPayloadLimit()); err != nil {
 		return jobdb.JobHandle{}, err
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.Job.PriorJobKey.TenantId); projectErr != nil {
+		var projectZero0 jobdb.JobHandle
+		return projectZero0, projectErr
+	}
+
 	preparation, err := goalstate.RestartPreparation(ctx, req, parentJobID)
 	if err != nil {
 		return jobdb.JobHandle{}, err
@@ -561,6 +578,10 @@ func (r *Runtime) existingEquivalentRestartJob(jobKey jobdb.JobKey, job jobdb.Su
 }
 
 func (r *Runtime) CancelJob(ctx context.Context, req jobdb.CancelJobRequest) error {
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.JobKey.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	record := r.engine.getJobRecord(req.JobKey)
 	if record == nil {
 		return jobdb.ErrJobNotFound
@@ -603,6 +624,11 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 	metadataPredicates, err := normalizeMetadataPredicates(req.MetadataEquals)
 	if err != nil {
 		return nil, err
+	}
+
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.TenantId); projectErr != nil {
+		var projectZero0 []jobdb.ExecutionLease
+		return projectZero0, projectErr
 	}
 
 	r.engine.mu.Lock()
@@ -706,6 +732,11 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 	}
 	if len(capSet) == 0 {
 		return nil, fmt.Errorf("at least one route is required")
+	}
+
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.JobKey.TenantId); projectErr != nil {
+		var projectZero0 jobdb.ExecutionLease
+		return projectZero0, projectErr
 	}
 
 	r.engine.mu.Lock()
@@ -918,6 +949,10 @@ func (r *Runtime) ListChapters(ctx context.Context, req jobdb.ListChaptersReques
 }
 
 func (r *Runtime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) error {
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.Ref.JobKey.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	if req.LeaseID == "" {
 		return fmt.Errorf("lease id is required for PutChapter")
 	}
@@ -1295,6 +1330,10 @@ func (e *ToyEngine) availableStatusLocked(tenantId string, now time.Time, record
 }
 
 func (r *Runtime) completeLease(ctx context.Context, jobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.CompleteExecutionRequest) error {
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, jobKey.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	if req.Chapter != nil && jobdb.ChapterPayloadFailure(*req.Chapter) {
 		return r.completePayloadFailure(ctx, jobKey, leaseID, workerID, req)
 	}
@@ -1416,6 +1455,10 @@ func (r *Runtime) existingRuntimeChapter(jobKey jobdb.JobKey, ordinal int64) (jo
 }
 
 func (r *Runtime) rescheduleLease(jobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.RescheduleExecutionRequest) error {
+	if projectErr := jobdb.RequireProjectWrite(context.Background(), r.projects, jobKey.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	record := r.engine.getJobRecord(jobKey)
 	if record == nil {
 		return jobdb.ErrJobNotFound
@@ -1556,6 +1599,7 @@ func (l *runtimeLease) checkExpiry() error {
 }
 func (l *runtimeLease) LeaseSchemaHash() string { return l.schemaHash }
 func (l *runtimeLease) KeepAlive(ctx context.Context) error {
+
 	if err := l.checkExpiry(); err != nil {
 		return err
 	}
@@ -1570,12 +1614,14 @@ func (l *runtimeLease) KeepAlive(ctx context.Context) error {
 
 func (l *runtimeLease) StopKeepAlive() {}
 func (l *runtimeLease) Complete(ctx context.Context, req jobdb.CompleteExecutionRequest) error {
+
 	if err := l.checkExpiry(); err != nil {
 		return err
 	}
 	return l.runtime.completeLease(ctx, l.jobKey, l.leaseID, l.workerID, req)
 }
 func (l *runtimeLease) Reschedule(ctx context.Context, req jobdb.RescheduleExecutionRequest) error {
+
 	if err := l.checkExpiry(); err != nil {
 		return err
 	}
@@ -1605,12 +1651,17 @@ func toyLeaseDurationOrDefault(d time.Duration) time.Duration {
 }
 
 func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteTaskIfWaitingRequest) error {
+
 	if err := req.Route.Validate(); err != nil {
 		return err
 	}
 	if req.Route.TaskType == "" {
 		return fmt.Errorf("task route required")
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.JobKey.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	r.engine.mu.Lock()
 	record := r.engine.jobRecords[req.JobKey]
 	if record == nil {

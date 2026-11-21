@@ -13,7 +13,7 @@ import (
 
 func TestSchemaRegistryLifecycle(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	rt := New()
+	rt := New(WithProjects(celltest.UnrestrictedProjects{}))
 	schema := []byte(`{"chapterShape":{"type":"object","properties":{"ordinal":{"type":"integer"}}}}`)
 
 	registered, err := rt.RegisterJobSchema(ctx, jobdb.RegisterJobSchemaRequest{
@@ -69,7 +69,7 @@ func TestSchemaRegistryLifecycle(t *testing.T) {
 }
 
 func TestSchemaRegistryMissing(t *testing.T) {
-	rt := New()
+	rt := New(WithProjects(celltest.UnrestrictedProjects{}))
 	errHash := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
 	_, err := rt.GetJobSchema(celltest.Context(context.Background()), jobdb.JobSchemaKey{TenantId: "tenant-schema", SchemaHash: errHash})
 	if !errors.Is(err, jobdb.ErrJobSchemaNotFound) {
@@ -79,7 +79,7 @@ func TestSchemaRegistryMissing(t *testing.T) {
 
 func TestSubmitJobSchemaAssociation(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	rt := New()
+	rt := New(WithProjects(celltest.UnrestrictedProjects{}))
 	tenantID := "tenant-schema-submit"
 	schema := chapterValidationSchemaForTest()
 

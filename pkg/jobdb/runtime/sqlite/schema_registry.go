@@ -74,8 +74,9 @@ func (r *Runtime) coreSchemaRegistry() (*runtimecore.SchemaRegistry, error) {
 		return nil, err
 	}
 	return runtimecore.NewSchemaRegistry(runtimecore.SchemaRegistryConfig{
-		Store: sqliteSchemaStore{runtime: r},
-		Now:   timeNowUTC,
+		Projects: r.projects,
+		Store:    sqliteSchemaStore{runtime: r},
+		Now:      timeNowUTC,
 	})
 }
 

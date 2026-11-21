@@ -44,6 +44,11 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	if parentErr != nil {
 		return jobdb.JobHandle{}, parentErr
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.Job.PriorJobKey.TenantId); projectErr != nil {
+		var projectZero0 jobdb.JobHandle
+		return projectZero0, projectErr
+	}
+
 	preparation, err := goalstate.RestartPreparation(ctx, req, parentJobID)
 	if err != nil {
 		return jobdb.JobHandle{}, err

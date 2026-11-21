@@ -21,21 +21,21 @@ import (
 func newSecretsCmd() *cobra.Command {
 	var tenant, baseURL string
 	root := &cobra.Command{Use: "secrets", Short: "Manage SQLite development/prototype secrets", Args: cobra.NoArgs}
-	root.PersistentFlags().StringVarP(&tenant, "tenant", "t", "", "tenant ID (required)")
+	addProjectSelector(root, &tenant, true)
 	root.PersistentFlags().StringVarP(&baseURL, "url", "u", "http://127.0.0.1:9047", "SQLite runtime server URL")
 	for _, op := range []string{"set", "remove"} {
 		var valueFile string
-		cmd := &cobra.Command{Use: op + " NAME", Short: op + " a tenant secret (SQLite development only)", Args: cobra.ExactArgs(1)}
+		cmd := &cobra.Command{Use: op + " NAME", Short: op + " a project secret (SQLite development only)", Args: cobra.ExactArgs(1)}
 		if op == "set" {
 			cmd.Aliases = []string{"add"}
 			cmd.Flags().StringVarP(&valueFile, "value-file", "f", "", "UTF-8 value file, or - for stdin (required)")
 		}
 		cmd.RunE = func(cmd *cobra.Command, args []string) error {
 			if tenant == "" {
-				return fmt.Errorf("--tenant (-t) is required: %w", jobdb.ErrInvalidSecretRequest)
+				return fmt.Errorf("--project is required: %w", jobdb.ErrInvalidSecretRequest)
 			}
 			if !utf8.ValidString(tenant) {
-				return fmt.Errorf("--tenant (-t) must be valid UTF-8: %w", jobdb.ErrInvalidSecretRequest)
+				return fmt.Errorf("--project must be valid UTF-8: %w", jobdb.ErrInvalidSecretRequest)
 			}
 			if args[0] == "" || !utf8.ValidString(args[0]) {
 				return fmt.Errorf("secret name must be nonempty UTF-8: %w", jobdb.ErrInvalidSecretRequest)
@@ -92,7 +92,7 @@ func newSecretsCmd() *cobra.Command {
 			if resp.StatusCode != http.StatusNoContent {
 				return fmt.Errorf("secret administration server returned HTTP %d: %w", resp.StatusCode, secretsutil.StatusError(resp.StatusCode))
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s secret %q for tenant %q\n", op, args[0], tenant)
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s secret %q for project %q\n", op, args[0], tenant)
 			return err
 		}
 		root.AddCommand(cmd)

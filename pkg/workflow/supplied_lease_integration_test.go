@@ -52,7 +52,7 @@ type suppliedFixture struct {
 func newSuppliedFixture(t *testing.T) *suppliedFixture {
 	t.Helper()
 	ctx := celltest.Context(context.Background())
-	backend, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+	backend, err := sqlite.NewFromConfig(ctx, sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, backend.Close(ctx)) })
 	f := &suppliedFixture{backend: backend}
@@ -362,7 +362,7 @@ func TestSuppliedLeaseDamagedRenewalResponseStopsExecution(t *testing.T) {
 	}
 }
 func TestSuppliedInMemoryLease(t *testing.T) {
-	backend := toy.New()
+	backend := toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 	ctx := celltest.Context(context.Background())
 	handle, err := celltest.Submit(backend, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "supplied", Data: jobdb.NewTaskDataOrPanic(3)}})
 	require.NoError(t, err)

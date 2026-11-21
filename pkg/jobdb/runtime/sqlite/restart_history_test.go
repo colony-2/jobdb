@@ -28,7 +28,7 @@ func TestRestartLinksLegacyHistoryWithoutRevalidation(t *testing.T) {
 			counted := &listCountingConnector{dsn: filepath.Join(t.TempDir(), "restart.db"), drv: &modernsqlite.Driver{}}
 			db := sql.OpenDB(counted)
 			defer db.Close()
-			local, err := New(db, WithMaxChapterApplicationPayloadBytes(2*1024*1024))
+			local, err := New(db, WithMaxChapterApplicationPayloadBytes(2*1024*1024), WithProjects(celltest.UnrestrictedProjects{}))
 			require.NoError(t, err)
 			defer local.Close(ctx)
 			source, err := celltest.Submit(local, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "source", JobType: "legacy", Data: jobdb.NewTaskDataOrPanic(nil)}})
@@ -133,7 +133,7 @@ func TestRestartLinksLegacyHistoryWithoutRevalidation(t *testing.T) {
 
 func TestRestartSubmissionMissingChapterIdentity(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	rt, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "identity.db")})
+	rt, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "identity.db")})
 	require.NoError(t, err)
 	defer rt.Close(ctx)
 	source, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic("original")}})

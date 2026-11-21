@@ -19,7 +19,7 @@ func (s *coreEventScheduler) JobGoalCapabilities() jobdb.JobGoalCapabilities {
 
 func TestRetainedCoreGoalScheduler(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	storage, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "goals.db")})
+	storage, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "goals.db")})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, storage.Close(ctx)) })
 	scheduler := &coreEventScheduler{r: storage, CellRuntime: storage, GoalScheduler: storage}
@@ -27,7 +27,7 @@ func TestRetainedCoreGoalScheduler(t *testing.T) {
 		_, found := typ.MethodByName("AddGoalCandidate")
 		require.False(t, found, typ.String())
 	}
-	cfg := runtimecore.Config{Scheduler: scheduler, Chapters: coreEventChapters{r: storage}, Schemas: sqliteSchemaStore{runtime: storage}, Configurations: storage.Service.Store}
+	cfg := runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Scheduler: scheduler, Chapters: coreEventChapters{r: storage}, Schemas: sqliteSchemaStore{runtime: storage}, Configurations: storage.Service.Store}
 	core, err := runtimecore.NewRuntime(cfg)
 	require.NoError(t, err)
 	view := struct{ jobdb.ConsumerRuntime }{core}

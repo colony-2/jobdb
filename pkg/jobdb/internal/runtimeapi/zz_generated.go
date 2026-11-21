@@ -1514,6 +1514,9 @@ type PageToken = string
 // ParentJobId defines model for ParentJobId.
 type ParentJobId = string
 
+// ProjectId defines model for ProjectId.
+type ProjectId = string
+
 // StartOrdinal defines model for StartOrdinal.
 type StartOrdinal = int64
 

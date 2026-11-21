@@ -654,7 +654,7 @@ func alternateExpiryRuntime(t *testing.T, backend string) (jobdb.WorkflowRuntime
 	t.Helper()
 	ctx := celltest.Context(context.Background())
 	path := filepath.Join(t.TempDir(), "expiry.db")
-	base, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path})
+	base, err := sqlite.NewFromConfig(ctx, sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: path})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, base.Close(ctx)) })
 	db, err := sql.Open("sqlite", path)

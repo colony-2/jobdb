@@ -44,6 +44,9 @@ func (r *Runtime) resolveSecrets(ctx context.Context, access secretsbroker.Acces
 			return secretsbroker.Snapshot{}, err
 		}
 
+		if err := jobdb.RequireProjectWrite(ctx, r.projects, access.JobKey.TenantId); err != nil {
+			return secretsbroker.Snapshot{}, err
+		}
 		return secretsbroker.Snapshot{Cell: row.Cell, AppMetadata: append(json.RawMessage(nil), row.AppMetadata...), LeaseExpiresAt: snapshot.Identity.ExpiresAt}, nil
 	})
 }

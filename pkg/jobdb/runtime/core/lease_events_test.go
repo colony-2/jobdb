@@ -25,7 +25,7 @@ func (s *eventTestScheduler) ListLeaseEvents(_ context.Context, q jobdb.ListLeas
 }
 func TestLeaseEventCoreForwardsOnlyScheduler(t *testing.T) {
 	s := &eventTestScheduler{}
-	rt, e := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: s, Chapters: noSummaryHistory{}, Schemas: readTestSchemas{}})
+	rt, e := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Configurations: &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}}, Scheduler: s, Chapters: noSummaryHistory{}, Schemas: readTestSchemas{}})
 	require.NoError(t, e)
 	var port jobdb.WorkflowRuntime = rt
 	var _ runtimecore.Scheduler = s

@@ -147,6 +147,17 @@ func (r *Runtime) cellMutation(ctx context.Context, tenant string, fn func(*sql.
 	})
 }
 func (r *Runtime) CreateCell(ctx context.Context, req jobdb.CreateCellRequest) (out jobdb.Cell, err error) {
+	normalized, validationErr := cellstate.ValidateCreate(ctx, req)
+	if validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	req = normalized
+
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.TenantID); projectErr != nil {
+		var projectZero0 jobdb.Cell
+		return projectZero0, projectErr
+	}
+
 	err = r.cellMutation(ctx, req.TenantID, func(_ *sql.Tx, s *cellstate.State) error { var e error; out, e = s.Create(ctx, req); return e })
 	return
 }
@@ -159,6 +170,21 @@ func (r *Runtime) ListCells(ctx context.Context, req jobdb.ListCellsRequest) (ou
 	return
 }
 func (r *Runtime) UpdateCell(ctx context.Context, req jobdb.UpdateCellRequest) (out jobdb.Cell, err error) {
+	current, validationErr := r.GetCell(ctx, req.CellKey)
+	if validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	if validationErr = jobdb.AuthorizeCell(ctx, req.TenantID, current.ID, "cells.update"); validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	if validationErr = jobdb.CheckCellRevision(req.IfMatch, current.Revision); validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.TenantID); projectErr != nil {
+		var projectZero0 jobdb.Cell
+		return projectZero0, projectErr
+	}
+
 	err = r.cellMutation(ctx, req.TenantID, func(tx *sql.Tx, s *cellstate.State) error {
 		var e error
 		out, e = s.Update(ctx, req)
@@ -167,6 +193,21 @@ func (r *Runtime) UpdateCell(ctx context.Context, req jobdb.UpdateCellRequest) (
 	return
 }
 func (r *Runtime) RetireCell(ctx context.Context, req jobdb.RetireCellRequest) (out jobdb.Cell, err error) {
+	current, validationErr := r.GetCell(ctx, req.CellKey)
+	if validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	if validationErr = jobdb.AuthorizeCell(ctx, req.TenantID, current.ID, "cells.retire"); validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	if validationErr = jobdb.CheckCellRevision(req.IfMatch, current.Revision); validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.TenantID); projectErr != nil {
+		var projectZero0 jobdb.Cell
+		return projectZero0, projectErr
+	}
+
 	err = r.cellMutation(ctx, req.TenantID, func(tx *sql.Tx, s *cellstate.State) error {
 		var e error
 		out, e = s.Retire(ctx, req, func(id string) (bool, error) {
@@ -331,6 +372,14 @@ func (l *executionLease) LookupCell(ctx context.Context, name string) (jobdb.Res
 }
 
 func (r *Runtime) CreateCellWithLeaseByID(ctx context.Context, key jobdb.JobKey, leaseID, workerID string, req jobdb.CreateCellRequest) (out jobdb.Cell, err error) {
+	if _, validationErr := r.ValidateExecutionLeaseByID(ctx, key, leaseID, workerID); validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, key.TenantId); projectErr != nil {
+		var projectZero0 jobdb.Cell
+		return projectZero0, projectErr
+	}
+
 	p := cellstate.LeaseProof{JobKey: key, LeaseID: leaseID, WorkerID: workerID}
 	ctx = cellstate.WithLease(ctx, p)
 	err = r.cellMutation(ctx, key.TenantId, func(tx *sql.Tx, s *cellstate.State) error {

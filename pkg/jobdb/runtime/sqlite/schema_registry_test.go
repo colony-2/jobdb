@@ -13,7 +13,7 @@ import (
 
 func TestSchemaRegistryLifecycle(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	embedded, err := StartEmbeddedRuntime(ctx)
+	embedded, err := StartEmbeddedRuntime(ctx, WithProjects(celltest.UnrestrictedProjects{}))
 	if err != nil {
 		t.Fatalf("start runtime: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestSchemaRegistryLifecycle(t *testing.T) {
 
 func TestSchemaRegistryMissing(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	embedded, err := StartEmbeddedRuntime(ctx)
+	embedded, err := StartEmbeddedRuntime(ctx, WithProjects(celltest.UnrestrictedProjects{}))
 	if err != nil {
 		t.Fatalf("start runtime: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestSchemaRegistryMissing(t *testing.T) {
 
 func TestSubmitJobSchemaAssociation(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	embedded, err := StartEmbeddedRuntime(ctx)
+	embedded, err := StartEmbeddedRuntime(ctx, WithProjects(celltest.UnrestrictedProjects{}))
 	if err != nil {
 		t.Fatalf("start runtime: %v", err)
 	}

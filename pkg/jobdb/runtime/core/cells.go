@@ -8,10 +8,29 @@ import (
 )
 
 func (r *Runtime) CreateCell(ctx context.Context, q jobdb.CreateCellRequest) (jobdb.Cell, error) {
+	normalized, validationErr := cellstate.ValidateCreate(ctx, q)
+	if validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	q = normalized
+
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, q.TenantID); projectErr != nil {
+		var projectZero0 jobdb.Cell
+		return projectZero0, projectErr
+	}
+
 	return r.scheduler.CreateCell(ctx, q)
 }
 
 func (r *Runtime) CreateCellWithLeaseByID(ctx context.Context, key jobdb.JobKey, leaseID, workerID string, req jobdb.CreateCellRequest) (jobdb.Cell, error) {
+	if _, validationErr := r.ValidateExecutionLeaseByID(ctx, key, leaseID, workerID); validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, key.TenantId); projectErr != nil {
+		var projectZero0 jobdb.Cell
+		return projectZero0, projectErr
+	}
+
 	return r.scheduler.CreateCellWithLeaseByID(ctx, key, leaseID, workerID, req)
 }
 
@@ -29,9 +48,39 @@ func (r *Runtime) ListCells(ctx context.Context, q jobdb.ListCellsRequest) (jobd
 	return r.scheduler.ListCells(ctx, q)
 }
 func (r *Runtime) UpdateCell(ctx context.Context, q jobdb.UpdateCellRequest) (jobdb.Cell, error) {
+	current, validationErr := r.GetCell(ctx, q.CellKey)
+	if validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	if validationErr = jobdb.AuthorizeCell(ctx, q.TenantID, current.ID, "cells.update"); validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	if validationErr = jobdb.CheckCellRevision(q.IfMatch, current.Revision); validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, q.TenantID); projectErr != nil {
+		var projectZero0 jobdb.Cell
+		return projectZero0, projectErr
+	}
+
 	return r.scheduler.UpdateCell(ctx, q)
 }
 func (r *Runtime) RetireCell(ctx context.Context, q jobdb.RetireCellRequest) (jobdb.Cell, error) {
+	current, validationErr := r.GetCell(ctx, q.CellKey)
+	if validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	if validationErr = jobdb.AuthorizeCell(ctx, q.TenantID, current.ID, "cells.retire"); validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	if validationErr = jobdb.CheckCellRevision(q.IfMatch, current.Revision); validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, q.TenantID); projectErr != nil {
+		var projectZero0 jobdb.Cell
+		return projectZero0, projectErr
+	}
+
 	return r.scheduler.RetireCell(ctx, q)
 }
 func (r *Runtime) ResolveCellWithLeaseByID(ctx context.Context, key jobdb.JobKey, leaseID, workerID, name string) (jobdb.ResolvedCell, error) {

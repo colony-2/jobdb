@@ -1,5 +1,7 @@
 package runtimecore_test
 
+import "github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 import (
 	"context"
 	"encoding/json"
@@ -62,7 +64,7 @@ func TestCoreSecretsUseIndependentProvider(t *testing.T) {
 		expiry := req.Lease.AuthorizedNotAfter
 		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: fmt.Sprint(calls), LeaseBound: true, ExpiresAt: &expiry}}}, nil
 	})
-	runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: scheduler, Chapters: &readTestChapters{}, Schemas: readTestSchemas{}, SecretProvider: provider})
+	runtime, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Configurations: &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}}, Scheduler: scheduler, Chapters: &readTestChapters{}, Schemas: readTestSchemas{}, SecretProvider: provider})
 	require.NoError(t, err)
 	lease, err := runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "job"}}})
 	require.NoError(t, err)
@@ -111,7 +113,7 @@ func TestCoreLeaseHandleExpiryAfterIndependentRenewal(t *testing.T) {
 				}
 				return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{req.Names[0]: {Value: "value"}}}, nil
 			})
-			runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: scheduler, Chapters: &readTestChapters{}, Schemas: readTestSchemas{}, SecretProvider: provider})
+			runtime, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Configurations: &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}}, Scheduler: scheduler, Chapters: &readTestChapters{}, Schemas: readTestSchemas{}, SecretProvider: provider})
 			require.NoError(t, err)
 			issued, err := runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "job"}}})
 			require.NoError(t, err)

@@ -49,7 +49,8 @@ func (r *Runtime) coreSchemaRegistry() (*runtimecore.SchemaRegistry, error) {
 		return nil, fmt.Errorf("toy runtime is required")
 	}
 	return runtimecore.NewSchemaRegistry(runtimecore.SchemaRegistryConfig{
-		Store: toySchemaStore{runtime: r},
+		Projects: r.projects,
+		Store:    toySchemaStore{runtime: r},
 	})
 }
 

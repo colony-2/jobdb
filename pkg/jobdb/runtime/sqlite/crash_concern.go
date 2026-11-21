@@ -17,6 +17,10 @@ func (r *Runtime) ClearCrashConcern(ctx context.Context, req jobdb.ClearCrashCon
 		return err
 	}
 	ctx = ctxOrBackground(ctx)
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.JobKey.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	return r.withTx(ctx, func(tx *sql.Tx) error {
 		var archived, hidden, expires sql.NullInt64
 		var cancelled bool

@@ -108,6 +108,14 @@ func (r *Runtime) GetGoal(ctx context.Context, key jobdb.GoalKey) (jobdb.GoalInf
 	return retainedQueryStore(ctxOrBackground(ctx), r.db).Goal(key)
 }
 func (r *Runtime) FailGoal(ctx context.Context, req jobdb.FailGoalRequest) (out jobdb.GoalInfo, err error) {
+	if err := req.Validate(); err != nil {
+		return jobdb.GoalInfo{}, err
+	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.GoalKey.TenantId); projectErr != nil {
+		var projectZero0 jobdb.GoalInfo
+		return projectZero0, projectErr
+	}
+
 	ctx = ctxOrBackground(ctx)
 	err = r.withTx(ctx, func(tx *sql.Tx) error { var e error; out, e = goalEngine(ctx, tx).FailWithRecord(req); return e })
 	return
@@ -166,6 +174,11 @@ func structuredWaitReady(ctx context.Context, q queryer, row jobRow, now time.Ti
 
 // PrepareJob reserves identities without publishing a job or goal.
 func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (out goalstate.Prepared, err error) {
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.Key.TenantId); projectErr != nil {
+		var projectZero0 goalstate.Prepared
+		return projectZero0, projectErr
+	}
+
 	if req, err = normalizeSubmissionAvailability(req); err != nil {
 		return out, err
 	}
@@ -351,6 +364,10 @@ func goalListPredicate(req jobdb.ListJobsRequest) (string, []any) {
 }
 
 func (r *Runtime) DiscardJobPreparation(ctx context.Context, key jobdb.JobKey) error {
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, key.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	return r.withTx(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `DELETE FROM jobdb_goal_preparations WHERE tenant_id=? AND job_id=? AND NOT EXISTS(SELECT 1 FROM jobdb_jobs j WHERE j.tenant_id=? AND j.job_id=?)`, key.TenantId, key.JobId, key.TenantId, key.JobId)
 		return err

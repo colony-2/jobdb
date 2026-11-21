@@ -22,9 +22,9 @@ func TestCells(t *testing.T) {
 		t.Run(backend, func(t *testing.T) {
 			var rt jobdb.WorkflowRuntime
 			if backend == "toy" || backend == "remote-toy" {
-				rt = toy.New()
+				rt = toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 			} else {
-				r, e := sqlite.NewFromConfig(context.Background(), sqlite.Config{DBPath: t.TempDir() + "/jobdb.db"})
+				r, e := sqlite.NewFromConfig(context.Background(), sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: t.TempDir() + "/jobdb.db"})
 				require.NoError(t, e)
 				t.Cleanup(func() { _ = r.Close(context.Background()) })
 				rt = r
@@ -43,7 +43,7 @@ func TestCells(t *testing.T) {
 
 func TestCellTransactionsAcrossSQLiteConnections(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	cfg := sqlite.Config{DBPath: t.TempDir() + "/cells.db"}
+	cfg := sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: t.TempDir() + "/cells.db"}
 	first, err := sqlite.NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	defer first.Close(ctx)
@@ -89,9 +89,9 @@ func TestCellSelectorsRestrictDiscoveryAndAcquisition(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite"} {
 		t.Run(backend, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			var rt jobdb.WorkflowRuntime = toy.New()
+			var rt jobdb.WorkflowRuntime = toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 			if backend == "sqlite" {
-				r, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: t.TempDir() + "/db"})
+				r, err := sqlite.NewFromConfig(ctx, sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: t.TempDir() + "/db"})
 				require.NoError(t, err)
 				defer r.Close(ctx)
 				rt = r
@@ -139,10 +139,10 @@ func TestPendingPreparationPreventsRetirementAfterRename(t *testing.T) {
 		DiscardJobPreparation(context.Context, jobdb.JobKey) error
 	}
 	ctx := celltest.Context(context.Background())
-	sqliteRuntime, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: t.TempDir() + "/cells.db"})
+	sqliteRuntime, err := sqlite.NewFromConfig(ctx, sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: t.TempDir() + "/cells.db"})
 	require.NoError(t, err)
 	defer sqliteRuntime.Close(ctx)
-	for name, rt := range map[string]preparedRuntime{"toy": toy.New(), "sqlite": sqliteRuntime} {
+	for name, rt := range map[string]preparedRuntime{"toy": toy.New(toy.WithProjects(celltest.UnrestrictedProjects{})), "sqlite": sqliteRuntime} {
 		t.Run(name, func(t *testing.T) {
 			c, err := rt.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "t", Name: "work", Repo: "example.test/work"})
 			require.NoError(t, err)

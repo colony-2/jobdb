@@ -1,5 +1,7 @@
 package runtimetest
 
+import "github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 import (
 	"context"
 	"errors"
@@ -25,7 +27,7 @@ func TestLeaseEventConformanceCompatibility(t *testing.T) {
 	mode := os.Getenv("JOBDB_EVENT_CONFORMANCE_MODE")
 	if mode != "" {
 		h := Harness{Name: "probe", New: func(testing.TB) Fixture {
-			native := toy.New()
+			native := toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 			var r jobdb.ConsumerRuntime = native
 			if strings.Contains(mode, "forwarded") {
 				r = forwardingEventWrapper{r}

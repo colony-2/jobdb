@@ -20,7 +20,7 @@ import (
 func TestRestartStagesDatabaseBackedOutputBeforeWriter(t *testing.T) {
 	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 5*time.Second)
 	defer cancel()
-	rt, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "reader.db")})
+	rt, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "reader.db")})
 	require.NoError(t, err)
 	defer rt.Close(context.Background())
 	want := []byte("source artifact opened through SQLite")
@@ -57,7 +57,7 @@ func TestRestartPublicationFailureRollsBackHistory(t *testing.T) {
 					ctx := celltest.Context(context.Background())
 					dir := t.TempDir()
 					blobs := filepath.Join(dir, "blobs")
-					local, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(dir, "restart.db"), BlobDir: blobs, MaxInlineArtifactBytes: 16})
+					local, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(dir, "restart.db"), BlobDir: blobs, MaxInlineArtifactBytes: 16})
 					require.NoError(t, err)
 					defer local.Close(ctx)
 					var rt jobdb.WorkflowRuntime = local

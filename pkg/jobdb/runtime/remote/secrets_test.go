@@ -26,7 +26,7 @@ import (
 func secretsSQLite(t *testing.T) *sqliteruntime.Runtime {
 	t.Helper()
 	dir := t.TempDir()
-	r, err := sqliteruntime.NewFromConfig(celltest.Context(context.Background()), sqliteruntime.Config{DBPath: filepath.Join(dir, "jobs.db")})
+	r, err := sqliteruntime.NewFromConfig(celltest.Context(context.Background()), sqliteruntime.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(dir, "jobs.db")})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, r.Close(celltest.Context(context.Background()))) })
 	return r
@@ -164,7 +164,7 @@ func TestSignedSecretPrincipalAndRenewal(t *testing.T) {
 func secretString(s string) *string { return &s }
 
 func TestSecretsUnavailableBackendsAndSafeClientErrors(t *testing.T) {
-	server := httptest.NewServer(celltest.Handler(NewServer(toy.New())))
+	server := httptest.NewServer(celltest.Handler(NewServer(toy.New(toy.WithProjects(celltest.UnrestrictedProjects{})))))
 	defer server.Close()
 	client, err := New(server.URL, server.Client())
 	require.NoError(t, err)
@@ -173,7 +173,7 @@ func TestSecretsUnavailableBackendsAndSafeClientErrors(t *testing.T) {
 	require.ErrorIs(t, err, jobdb.ErrNoSecretProvider)
 	status, _ := secretHTTP(t, server.URL, "/dev/v1/tenants/a/secrets/set", "", `{"name":"token","value":"value"}`)
 	require.Equal(t, 404, status)
-	embedded, err := sqliteruntime.StartEmbeddedRuntime(celltest.Context(context.Background()))
+	embedded, err := sqliteruntime.StartEmbeddedRuntime(celltest.Context(context.Background()), sqliteruntime.WithProjects(celltest.UnrestrictedProjects{}))
 	require.NoError(t, err)
 	defer embedded.Shutdown()
 	local := httptest.NewServer(celltest.Handler(NewServer(embedded.Runtime)))

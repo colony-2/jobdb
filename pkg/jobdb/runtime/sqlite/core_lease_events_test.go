@@ -36,11 +36,10 @@ func runCoreSQLiteConformance(t *testing.T, run func(*testing.T, ...runtimetest.
 		}
 		run(t, runtimetest.Harness{Name: name, New: func(tb testing.TB) runtimetest.Fixture {
 			ctx := celltest.Context(context.Background())
-			storage, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(tb.TempDir(), "core.db")})
+			storage, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(tb.TempDir(), "core.db")})
 			require.NoError(tb, err)
 			tb.Cleanup(func() { require.NoError(tb, storage.Close(ctx)) })
-			core, err := runtimecore.NewRuntime(runtimecore.Config{
-				Scheduler: &coreEventScheduler{r: storage, CellRuntime: storage, GoalScheduler: storage}, Chapters: coreEventChapters{r: storage},
+			core, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Scheduler: &coreEventScheduler{r: storage, CellRuntime: storage, GoalScheduler: storage}, Chapters: coreEventChapters{r: storage},
 				Schemas: sqliteSchemaStore{runtime: storage}, Configurations: storage.Service.Store,
 			})
 			require.NoError(tb, err)

@@ -14,7 +14,7 @@ import (
 
 func TestCrashConcernPersistenceAndReset(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	cfg := Config{DBPath: filepath.Join(t.TempDir(), "job.db")}
+	cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "job.db")}
 	r, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = r.Close(ctx) })
@@ -97,7 +97,7 @@ alternate_job_type='job',alternate_task_type='fallback',alternate_at_ns=?`, cras
 
 func TestClearCrashConcernPreservesSchedulingAndRejectsFinalJobs(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	r, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "job.db")})
+	r, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "job.db")})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = r.Close(ctx) })
 	h, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", Cell: "test", CellRepo: "example.test/test", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})

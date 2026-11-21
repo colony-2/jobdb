@@ -19,7 +19,7 @@ import (
 
 func parentSQLite(t *testing.T) *Runtime {
 	t.Helper()
-	r, err := NewFromConfig(context.Background(), Config{DBPath: filepath.Join(t.TempDir(), "parent.db")})
+	r, err := NewFromConfig(context.Background(), Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "parent.db")})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, r.Close(context.Background())) })
 	return r
@@ -84,7 +84,7 @@ func TestParentIdentityCoreStagingAndExistingShortcuts(t *testing.T) {
 					}
 				}}
 				scheduler := &parentGateScheduler{coreEventScheduler: &coreEventScheduler{r: storage, CellRuntime: storage, GoalScheduler: storage}}
-				r, err := runtimecore.NewRuntime(runtimecore.Config{Scheduler: scheduler, Chapters: chapters, Schemas: sqliteSchemaStore{runtime: storage}, Configurations: storage.Service.Store})
+				r, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Scheduler: scheduler, Chapters: chapters, Schemas: sqliteSchemaStore{runtime: storage}, Configurations: storage.Service.Store})
 				require.NoError(t, err)
 				submit := func(id string) jobdb.JobHandle {
 					h, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: id, Cell: "test", CellRepo: "example.test/test", JobType: "work", Data: jobdb.NewTaskDataOrPanic(1)}})
@@ -153,7 +153,7 @@ func TestParentIdentityCorePublishedRetryRechecksLease(t *testing.T) {
 	storage := parentSQLite(t)
 	ctx := celltest.Context(context.Background())
 	scheduler := &parentGateScheduler{coreEventScheduler: &coreEventScheduler{r: storage, CellRuntime: storage, GoalScheduler: storage}}
-	r, err := runtimecore.NewRuntime(runtimecore.Config{Scheduler: scheduler, Chapters: coreEventChapters{r: storage}, Schemas: sqliteSchemaStore{runtime: storage}, Configurations: storage.Service.Store})
+	r, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Scheduler: scheduler, Chapters: coreEventChapters{r: storage}, Schemas: sqliteSchemaStore{runtime: storage}, Configurations: storage.Service.Store})
 	require.NoError(t, err)
 	parent, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "A", Cell: "test", CellRepo: "example.test/test", JobType: "work", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, err)
@@ -180,7 +180,7 @@ func TestParentIdentityCoreRejectsUntrustedLeaseContext(t *testing.T) {
 	storage := parentSQLite(t)
 	ctx := celltest.Context(context.Background())
 	scheduler := &parentGateScheduler{coreEventScheduler: &coreEventScheduler{r: storage, CellRuntime: storage, GoalScheduler: storage}}
-	r, err := runtimecore.NewRuntime(runtimecore.Config{Scheduler: scheduler, Chapters: coreEventChapters{r: storage}, Schemas: sqliteSchemaStore{runtime: storage}, Configurations: storage.Service.Store})
+	r, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Scheduler: scheduler, Chapters: coreEventChapters{r: storage}, Schemas: sqliteSchemaStore{runtime: storage}, Configurations: storage.Service.Store})
 	require.NoError(t, err)
 	parent, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "A", Cell: "test", CellRepo: "example.test/test", JobType: "work", Data: jobdb.NewTaskDataOrPanic(1)}})
 	require.NoError(t, err)

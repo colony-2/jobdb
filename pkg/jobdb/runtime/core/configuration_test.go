@@ -1,5 +1,7 @@
 package runtimecore_test
 
+import "github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 import (
 	"context"
 	"encoding/json"
@@ -25,10 +27,10 @@ func TestCoreConfigurationRequiresStoreAndLiveLease(t *testing.T) {
 	ctx := context.Background()
 	key := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 	scheduler := &secretScheduler{row: runtimecore.StoredJob{JobKey: key, Store: jobdb.JobStoreActive, Lease: &runtimecore.LeaseIdentity{JobKey: key, LeaseID: "lease", WorkerID: "worker", ExpiresAt: time.Now().Add(time.Minute)}}}
-	cfg := runtimecore.Config{Scheduler: scheduler, Chapters: &readTestChapters{}, Schemas: readTestSchemas{}}
+	cfg := runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Scheduler: scheduler, Chapters: &readTestChapters{}, Schemas: readTestSchemas{}}
 	_, err := runtimecore.NewRuntime(cfg)
 	require.ErrorContains(t, err, "configuration store is required")
-	backing := &configuration.MemoryStore{}
+	backing := &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}}
 	calls := 0
 	store := interceptedConfigurationStore{Store: backing}
 	store.read = func(ctx context.Context, tenant string) (jobdb.ConfigurationSnapshot, error) {
@@ -70,11 +72,11 @@ func TestCoreConfigurationTokenExpiryAndDeadlineDiscardResults(t *testing.T) {
 	ctx := context.Background()
 	key := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 	scheduler := &secretScheduler{row: runtimecore.StoredJob{JobKey: key, Store: jobdb.JobStoreActive, Lease: &runtimecore.LeaseIdentity{JobKey: key, LeaseID: "lease", WorkerID: "worker", ExpiresAt: time.Now().Add(time.Minute)}}}
-	store := interceptedConfigurationStore{Store: &configuration.MemoryStore{}, read: func(ctx context.Context, _ string) (jobdb.ConfigurationSnapshot, error) {
+	store := interceptedConfigurationStore{Store: &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}}, read: func(ctx context.Context, _ string) (jobdb.ConfigurationSnapshot, error) {
 		<-ctx.Done()
 		return configuration.Empty(), nil
 	}}
-	rt, err := runtimecore.NewRuntime(runtimecore.Config{Scheduler: scheduler, Chapters: &readTestChapters{}, Schemas: readTestSchemas{}, Configurations: store, ConfigurationLimits: jobdb.ConfigurationLimits{ReadTimeout: 20 * time.Millisecond}})
+	rt, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Scheduler: scheduler, Chapters: &readTestChapters{}, Schemas: readTestSchemas{}, Configurations: store, ConfigurationLimits: jobdb.ConfigurationLimits{ReadTimeout: 20 * time.Millisecond}})
 	require.NoError(t, err)
 	req := jobdb.GetConfigurationRequest{JobKey: key, LeaseID: "lease"}
 	claims := leaseauth.Claims{TenantID: "tenant", JobID: "job", LeaseID: "lease", WorkerID: "worker", ExpiresAt: time.Now().Add(time.Minute)}

@@ -7,6 +7,25 @@ backends.
 Use the server when you want a standalone runtime process that workers and other
 clients can talk to over the remote runtime protocol.
 
+## Stable project IDs
+
+Public HTTP and CLI use immutable project IDs. Internal Go/storage `tenant`
+fields retain their names and mean project ID. Existing `c2` keeps both ID and
+name `c2`; names never address resources. The tenant HTTP family remains available
+through manual deployment. See [catalog, admission and upgrade details](docs/DESIGN-Project-Catalog.md).
+
+Resource writes require an explicitly installed catalog. For a fresh SQLite
+database, first run `jobdb project installation initialize --database jobdb.db
+--participants-sha256 SHA256` with the SHA-256 of the independently verified
+participant inventory. Formats 11/12 require the separate explicit goal migration first.
+For existing format-13 storage, fence writers, inspect
+and explicitly install approved legacy identities as described in the guide.
+Opening a server does not import projects. After starting it, use
+`jobdb project create NAME --request-id SAVED_ID`, then use the returned ID with
+`--project ID` for cells and other operations. `--tenant/-t` remains an input alias.
+Save creation RequestIDs for retries. Project renaming and a new authorization
+system are outside this change.
+
 ## Named cells and the hard break
 
 Jobs require a cell name. A cell has a stable generated ID, a unique tenant-local
@@ -20,8 +39,8 @@ boundary for pre-cell deployments. SQLite now initializes retained-job format
 Explicitly create cells against the **JobDB API URL** before submitting jobs:
 
 ```bash
-jobdb cell create --name root --tenant acme --repo github.com/acme/root --url http://localhost:9047
-jobdb cell create --name payments --tenant acme --repo github.com/acme/payments --url http://localhost:9047
+jobdb cell create --name root --project PROJECT_ID --repo github.com/acme/root --url http://localhost:9047
+jobdb cell create --name payments --project PROJECT_ID --repo github.com/acme/payments --url http://localhost:9047
 ```
 
 Submission never creates a cell. `cellRepo` optionally asserts an existing

@@ -59,6 +59,11 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	if parentErr != nil {
 		return jobdb.JobHandle{}, parentErr
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.Job.TenantId); projectErr != nil {
+		var projectZero0 jobdb.JobHandle
+		return projectZero0, projectErr
+	}
+
 	preparation, err := goalstate.SubmitPreparation(ctx, req, parentJobID)
 	if err != nil {
 		return jobdb.JobHandle{}, err

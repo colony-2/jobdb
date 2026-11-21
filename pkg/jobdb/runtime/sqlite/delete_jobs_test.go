@@ -13,7 +13,7 @@ import (
 
 func TestDeletionPersistsAndRollsBackAtomically(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	cfg := Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")}
+	cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")}
 	rt, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	for _, id := range []string{"a", "b"} {

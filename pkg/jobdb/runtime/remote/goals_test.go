@@ -24,9 +24,9 @@ func goalRuntimes(t *testing.T, run func(*testing.T, jobdb.WorkflowRuntime)) {
 			t.Run(backend+"/"+transport, func(t *testing.T) {
 				var runtime jobdb.WorkflowRuntime
 				if backend == "toy" {
-					runtime = toyruntime.New()
+					runtime = toyruntime.New(toyruntime.WithProjects(celltest.UnrestrictedProjects{}))
 				} else {
-					embedded, err := sqliteruntime.StartEmbeddedRuntime(celltest.Context(context.Background()))
+					embedded, err := sqliteruntime.StartEmbeddedRuntime(celltest.Context(context.Background()), sqliteruntime.WithProjects(celltest.UnrestrictedProjects{}))
 					require.NoError(t, err)
 					t.Cleanup(embedded.Shutdown)
 					runtime = embedded.Runtime

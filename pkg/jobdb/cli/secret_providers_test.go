@@ -113,10 +113,11 @@ func TestCLIComposesSQLiteAndPluginAndKeepsLocalAdministration(t *testing.T) {
 			original := serveHTTPFunc
 			defer func() { serveHTTPFunc = original }()
 			serveHTTPFunc = func(ctx context.Context, _ string, handler http.Handler, cleanup func(context.Context) error) error {
+				scope := createServingProject(t, handler)
 				s := httptest.NewServer(celltest.Handler(handler))
 				defer s.Close()
 				admin := func(op string, payload string) {
-					resp, err := s.Client().Post(s.URL+"/dev/v1/tenants/tenant/secrets/"+op, "application/json", bytes.NewBufferString(payload))
+					resp, err := s.Client().Post(s.URL+"/dev/v1/tenants/"+scope+"/secrets/"+op, "application/json", bytes.NewBufferString(payload))
 					require.NoError(t, err)
 					defer resp.Body.Close()
 					require.Equal(t, 204, resp.StatusCode)
@@ -124,7 +125,7 @@ func TestCLIComposesSQLiteAndPluginAndKeepsLocalAdministration(t *testing.T) {
 				admin("set", `{"name":"token","value":"local"}`)
 				runtime, err := remote.New(s.URL, s.Client())
 				require.NoError(t, err)
-				job, err := celltest.Submit(runtime, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "test", Data: jobdb.NewTaskDataOrPanic(1)}})
+				job, err := celltest.Submit(runtime, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: scope, JobType: "test", Data: jobdb.NewTaskDataOrPanic(1)}})
 				require.NoError(t, err)
 				lease, err := runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: job.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "test"}}, LeaseDuration: time.Minute})
 				require.NoError(t, err)
@@ -148,6 +149,9 @@ func TestCLIComposesSQLiteAndPluginAndKeepsLocalAdministration(t *testing.T) {
 					return cleanup(ctx)
 				}
 				return nil
+			}
+			if mode != "toy" {
+				initializeCLIProjectFixture(t, filepath.Join(dir, "jobs.db"))
 			}
 			args := []string{"--db", filepath.Join(dir, "jobs.db"), "--secret-providers-file", path}
 			if mode != "default" {
@@ -217,9 +221,9 @@ func TestConfiguredCollectionDoesNotExposeImplicitAdmin(t *testing.T) {
 		var runtime jobdb.WorkflowRuntime
 		want := 404
 		if backend == "toy" {
-			runtime = toy.New(toy.WithSecretProvider(c.provider))
+			runtime = toy.New(toy.WithSecretProvider(c.provider), toy.WithProjects(celltest.UnrestrictedProjects{}))
 		} else {
-			r, err := sqliteruntime.NewFromConfig(celltest.Context(context.Background()), sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), SecretProvider: c.provider})
+			r, err := sqliteruntime.NewFromConfig(celltest.Context(context.Background()), sqliteruntime.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db"), SecretProvider: c.provider})
 			require.NoError(t, err)
 			defer r.Close(celltest.Context(context.Background()))
 			runtime = r

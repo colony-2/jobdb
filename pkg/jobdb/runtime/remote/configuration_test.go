@@ -25,9 +25,9 @@ import (
 func configurationBackend(t *testing.T, kind string) jobdb.WorkflowRuntime {
 	t.Helper()
 	if kind == "toy" {
-		return toy.New()
+		return toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 	}
-	r, err := sqlite.NewFromConfig(celltest.Context(context.Background()), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+	r, err := sqlite.NewFromConfig(celltest.Context(context.Background()), sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, r.Close(celltest.Context(context.Background()))) })
 	return r
@@ -50,7 +50,7 @@ func TestConfigurationConformance(t *testing.T) {
 	}
 }
 func TestConfigurationHTTPValidation(t *testing.T) {
-	rt := toy.New(toy.WithConfigurationLimits(jobdb.ConfigurationLimits{MaxRequestBytes: 256, MaxValueBytes: 64}))
+	rt := toy.New(toy.WithConfigurationLimits(jobdb.ConfigurationLimits{MaxRequestBytes: 256, MaxValueBytes: 64}), toy.WithProjects(celltest.UnrestrictedProjects{}))
 	server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
 	defer server.Close()
 	post := func(path, body, tag string) (int, http.Header, string) {
@@ -150,12 +150,12 @@ func TestConfigurationRemoteNeverCachesAndSanitizesFailures(t *testing.T) {
 func TestConfigurationSQLitePersistsAndLimitsRecover(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "jobs.db")
 	ctx := celltest.Context(context.Background())
-	r, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path})
+	r, err := sqlite.NewFromConfig(ctx, sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: path})
 	require.NoError(t, err)
 	rev, err := r.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "a", Name: "x", Value: json.RawMessage(`"stored-value"`)})
 	require.NoError(t, err)
 	require.NoError(t, r.Close(ctx))
-	r, err = sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path, ConfigurationLimits: jobdb.ConfigurationLimits{MaxValueBytes: 2}})
+	r, err = sqlite.NewFromConfig(ctx, sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: path, ConfigurationLimits: jobdb.ConfigurationLimits{MaxValueBytes: 2}})
 	require.NoError(t, err)
 	defer r.Close(ctx)
 	_, err = r.GetTenantConfiguration(ctx, "a")

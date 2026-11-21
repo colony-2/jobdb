@@ -7,11 +7,15 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
+	"github.com/colony-2/jobdb/pkg/jobdb/projectcatalog"
 )
 
 // Runtime owns JobDB workflow semantics and delegates durable state to its
 // backend ports. Its methods are being moved here from concrete runtimes.
 type Runtime struct {
+	jobdb.ProjectCatalog
+	projects jobdb.ProjectAdmission
+
 	maxChapterApplicationPayloadBytes int64
 	*configuration.Service
 	secretProvider jobdb.SecretProvider
@@ -26,16 +30,20 @@ var _ jobdb.WorkflowRuntime = (*Runtime)(nil)
 
 // NewRuntime wires a JobDB runtime core to backend storage.
 func NewRuntime(cfg Config) (*Runtime, error) {
+	if cfg.Projects == nil {
+		cfg.Projects = &projectcatalog.Service{}
+	}
 	if err := ValidateConfig(cfg); err != nil {
 		return nil, err
 	}
-	schemas, err := NewSchemaRegistry(SchemaRegistryConfig{Store: cfg.Schemas, Now: cfg.Now})
+	schemas, err := NewSchemaRegistry(SchemaRegistryConfig{Store: cfg.Schemas, Now: cfg.Now, Projects: cfg.Projects})
 	if err != nil {
 		return nil, err
 	}
 	return &Runtime{
+		ProjectCatalog: cfg.Projects, projects: cfg.Projects,
 		maxChapterApplicationPayloadBytes: cfg.MaxChapterApplicationPayloadBytes,
-		Service:                           &configuration.Service{Store: cfg.Configurations, Limits: cfg.ConfigurationLimits},
+		Service:                           &configuration.Service{Store: cfg.Configurations, Limits: cfg.ConfigurationLimits, Projects: cfg.Projects},
 		scheduler:                         cfg.Scheduler,
 		secretProvider:                    cfg.SecretProvider,
 		secretLimits:                      cfg.SecretLimits,

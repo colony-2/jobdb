@@ -56,6 +56,11 @@ func (r *Runtime) KeepAliveLeaseByIDWithExpiry(ctx context.Context, key jobdb.Jo
 	if err := r.validate(); err != nil {
 		return time.Time{}, err
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, key.TenantId); projectErr != nil {
+		var projectZero0 time.Time
+		return projectZero0, projectErr
+	}
+
 	updated, err := r.scheduler.KeepAliveLease(ctx, LeaseMutation{
 		Identity: identity, Duration: duration, Now: r.now(),
 	})
@@ -71,6 +76,10 @@ func (r *Runtime) CompleteJobWithLeaseByID(ctx context.Context, key jobdb.JobKey
 	if err != nil {
 		return err
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, key.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	return lease.Complete(ctx, req)
 }
 
@@ -80,6 +89,10 @@ func (r *Runtime) RescheduleJobWithLeaseByID(ctx context.Context, key jobdb.JobK
 	if err != nil {
 		return err
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, key.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	return lease.Reschedule(ctx, req)
 }
 

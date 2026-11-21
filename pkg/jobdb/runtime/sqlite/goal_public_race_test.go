@@ -66,7 +66,7 @@ func waitPublicGoalTransaction(t *testing.T, b *publicGoalBarrier) {
 func publicGoalPair(t *testing.T) (context.Context, Config, *Runtime, *Runtime, jobdb.JobHandle) {
 	t.Helper()
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
-	cfg := Config{DBPath: filepath.Join(t.TempDir(), "public-race.db")}
+	cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "public-race.db")}
 	a, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { a.Close(ctx) })

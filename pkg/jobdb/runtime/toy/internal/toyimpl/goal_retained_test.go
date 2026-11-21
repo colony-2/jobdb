@@ -3,6 +3,7 @@ package toyimpl
 import (
 	"context"
 	"fmt"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"testing"
 	"time"
 
@@ -14,7 +15,7 @@ import (
 
 func TestToyRetainedBlockersAndPreparation(t *testing.T) {
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
-	r := New()
+	r := New(WithProjects(celltest.UnrestrictedProjects{}))
 	h := failureSource(t, r)
 	req := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: h.JobKey.TenantId, JobID: "prepared", GoalID: h.GoalID, Cell: h.Cell, CellRepo: h.CellRepo, JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}}
 	p, err := goalstate.SubmitPreparation(ctx, req, "")
@@ -66,7 +67,7 @@ func TestToyRetainedBlockersAndPreparation(t *testing.T) {
 }
 
 func TestToyRetainedOriginAndClosureOnJobs(t *testing.T) {
-	r := New()
+	r := New(WithProjects(celltest.UnrestrictedProjects{}))
 	h := failureSource(t, r)
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
 	key := jobdb.GoalKey{TenantId: h.JobKey.TenantId, GoalID: h.GoalID}

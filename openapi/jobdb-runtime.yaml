@@ -2056,6 +2056,2218 @@ paths:
           required: true
           schema:
             type: string
+  /v1/projects/{projectId}/cells:
+    get:
+      description: "Requires tenant access and cells.list; include only cells visible under cells.get.\nFilter name matches the current name or a permanent alias, yielding zero or one\nvisible result. state defaults to ACTIVE; ALL includes retired records. Apply\nall filters and visibility before pagination. \n\nSort by immutable ID, with no unfiltered counts. Use cells: [] for empty results\nand omit nextPageToken at the end. Tokens bind tenant, principal, and repeated\nfilters; recheck authorization each page. Traversal is live, not a snapshot.\nRead/name lookup never creates a cell. c2j can submit directly by name without\na preceding lookup; the runtime performs authoritative resolution."
+      operationId: ProjectlistCells
+      parameters:
+        - $ref: '#/components/parameters/NameFilter'
+        - $ref: '#/components/parameters/StateFilter'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/PageToken'
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                cells:
+                  - aliases: []
+                    createdAt: "2026-11-03T20:00:00Z"
+                    description: Customer-facing workloads
+                    id: cell_019d03e9-066b-76b3-9b46-47d306b0aa1f
+                    metadata:
+                      environment: prod
+                      team: payments
+                    name: payments
+                    repo: github.com/colony-2/payments
+                    revision: r1
+                    state: ACTIVE
+                    projectId: acme
+                    updatedAt: "2026-11-03T20:00:00Z"
+              schema:
+                $ref: '#/components/schemas/ProjectListCellsResponse'
+          description: Authorized page, possibly empty.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "500":
+          $ref: '#/components/responses/InternalError'
+      summary: List visible cells in a tenant
+      tags:
+        - projects
+      x-jobdb-authorization:
+        itemPermission: cells.get
+        permission: cells.list
+        resource: tenant
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      description: Requires tenant cells.create. Explicitly register a unique name and canonical repository locator; no Git network operation occurs. Generate an immutable ID, initialize ACTIVE state, and persist description and arbitrary metadata. Name, aliases, and current repository are unique across active and retired cells. Optional requestId is scoped to tenant and principal; identical replay returns the original snapshot after authorization and retirement checks. Different properties return request_conflict. Without requestId, POST is not idempotent. The jobdb cell create command calls this endpoint. All names follow the same rules.
+      operationId: ProjectcreateCell
+      requestBody:
+        content:
+          application/json:
+            example:
+              description: Payments workloads
+              metadata:
+                team: payments
+              name: payments
+              repo: github.com/colony-2/payments
+              requestId: provision-payments-001
+            schema:
+              $ref: '#/components/schemas/CreateCellRequest'
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectCell'
+          description: Cell created, or original successful response replayed for the same requestId.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            ETag:
+              $ref: '#/components/headers/CellETag'
+            Location:
+              description: Relative URI of the created cell, with encoded path segments.
+              example: /v1/projects/acme/cells/cell_019d03e9-066b-76b3-9b46-47d306b0aa1f
+              required: true
+              schema:
+                format: uri-reference
+                type: string
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "409":
+          $ref: '#/components/responses/Conflict'
+        "500":
+          $ref: '#/components/responses/InternalError'
+      summary: Create a cell with a generated immutable ID
+      tags:
+        - projects
+      x-jobdb-authorization:
+        permission: cells.create
+        resource: tenant
+  /v1/projects/{projectId}/cells/{cellId}:
+    get:
+      description: |-
+        Requires tenant access and cells.get. Missing and inaccessible cells both
+        return 404. Retired cells remain readable. Return the current record and ETag.
+        This permission grants no workload access; reads never provision cells.
+      operationId: ProjectgetCell
+      responses:
+        "200":
+          $ref: '#/components/responses/ProjectCellResult'
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "500":
+          $ref: '#/components/responses/InternalError'
+      summary: Read one visible cell
+      tags:
+        - projects
+      x-jobdb-authorization:
+        permission: cells.get
+        resource: cell
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/CellId'
+    patch:
+      description: |-
+        Requires cells.get and cells.update; authorize before preconditions/conflicts.
+        Require a strong current If-Match: missing 428, stale 412, malformed 400.
+        Only active cells can change. Omitted properties remain unchanged; metadata
+        replaces the whole map ({} clears it) and empty description clears it. Metadata
+        values may be arbitrary JSON, including nested objects, arrays, and null. This
+        is typed application/json PATCH, not JSON Merge Patch. Empty patches, null
+        top-level fields, and server-owned fields are invalid.
+
+        Rename reserves the old name as a permanent alias for this ID. Current names
+        and aliases must be unique within the tenant, including retired cells. Rename
+        to the cell's own alias is allowed; remove the new current name from aliases.
+        Normalize repo using the registration contract and enforce unique current repo
+        within the tenant, including retired cells. Repointing releases the former repo
+        locator for reuse. No Git operations, credential changes, or idle-cell check
+        occur. Existing jobs retain their submitted repo snapshots for leases, execution,
+        retry/replay, and restart. Fresh submissions resolve the new mapping and must
+        serialize with PATCH; obsolete repo assertions fail with cell_repo_mismatch.
+
+
+        Atomically validate all properties, revision and uniqueness;
+        any failure rejects the entire PATCH. A no-op, including an equivalent normalized
+        repo, preserves revision/time; otherwise advance both. Updates never change job
+        ownership. Conflict returns 409 cell_conflict, retired target 409 cell_retired.
+      operationId: ProjectupdateCell
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        content:
+          application/json:
+            example:
+              metadata:
+                environment: prod
+                team: payments
+              name: payments-prod
+              repo: github.com/colony-2/payments-service
+            schema:
+              $ref: '#/components/schemas/UpdateCellRequest'
+        required: true
+      responses:
+        "200":
+          $ref: '#/components/responses/ProjectCellResult'
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "409":
+          $ref: '#/components/responses/Conflict'
+        "412":
+          $ref: '#/components/responses/PreconditionFailed'
+        "428":
+          $ref: '#/components/responses/PreconditionRequired'
+        "500":
+          $ref: '#/components/responses/InternalError'
+      summary: Change cell name, repo, description, or metadata
+      tags:
+        - projects
+      x-jobdb-authorization:
+        permissions:
+          - cells.get
+          - cells.update
+        resource: cell
+  /v1/projects/{projectId}/cells/{cellId}/retire:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/CellId'
+    post:
+      description: "Requires cells.get and cells.retire, and current strong If-Match (missing 428,\nstale 412, malformed 400). \nAtomically require no nonterminal jobs (including hidden/waiting/retrying), live\nleases, open goals, or pending submission reservations;\notherwise 409 cell_busy, without cancelling or draining work.\n\nSerialize against submission/registration and acquisition. Set\nRETIRED state and server retiredAt/updatedAt and advance revision. Preserve ID,\nname/aliases, repo, metadata, jobs, and artifacts. Authorized reads continue.\nAll new work, acquisitions and cell updates are denied.\nExisting-job idempotent confirmation may return the already committed job after\ncurrent authorization checks; it creates no new work. There is no delete or\nautomatic resurrection. A repeat with current ETag returns the retired record;\nan old ETag returns 412. Retirement has no Git archive/delete side effect."
+      operationId: ProjectretireCell
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        "200":
+          $ref: '#/components/responses/ProjectCellResult'
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "409":
+          $ref: '#/components/responses/RetirementConflict'
+        "412":
+          $ref: '#/components/responses/PreconditionFailed'
+        "428":
+          $ref: '#/components/responses/PreconditionRequired'
+        "500":
+          $ref: '#/components/responses/InternalError'
+      summary: Retire an idle cell while retaining its identity and history
+      tags:
+        - projects
+      x-jobdb-authorization:
+        permissions:
+          - cells.get
+          - cells.retire
+        resource: cell
+  /v1/projects/{projectId}/configuration:
+    get:
+      description: |
+        Always registered on every backend. Each read returns a coherent current
+        snapshot; no result caching, conditional GET, or pagination. All responses
+        use Cache-Control: no-store. Deployment authentication also applies.
+        Uses administrative authorization, not lease authority. Empty tenants
+        return a valid initial revision and values: {}.
+      operationId: ProjectgetTenantConfiguration
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigurationSnapshot'
+          description: Current snapshot
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+            ETag:
+              description: Quoted tenant revision.
+              required: true
+              schema:
+                type: string
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Invalid request
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Deployment authentication required
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Deployment authorization denied
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Configuration exceeds limits
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Configuration operation failed or stored snapshot exceeds read limits
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Configuration temporarily unavailable
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+      summary: Read the complete tenant configuration
+      tags:
+        - projects
+  /v1/projects/{projectId}/configuration/remove:
+    post:
+      description: |
+        Always registered on every backend. Each read returns a coherent current
+        snapshot; no result caching, conditional GET, or pagination. All responses
+        use Cache-Control: no-store. Deployment authentication also applies.
+        Writes commit atomically. If-Match optionally requires one exact strong
+        ETag for the whole tenant; mismatch returns 412 before mutation. No-op
+        writes preserve revision, including removal of an absent name. A present
+        JSON null is a value, not deletion. Duplicate JSON keys are rejected.
+      operationId: ProjectremoveTenantConfigurationValue
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - description: One quoted revision ETag; weak tags, lists and wildcard are invalid.
+          in: header
+          name: If-Match
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemoveConfigurationBody'
+        required: true
+      responses:
+        "204":
+          description: Mutation committed
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+            ETag:
+              description: Quoted tenant revision.
+              required: true
+              schema:
+                type: string
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Invalid request
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Deployment authentication required
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Deployment authorization denied
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "412":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Configuration revision mismatch
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Configuration exceeds limits
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Configuration operation failed or stored snapshot exceeds read limits
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Configuration temporarily unavailable
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+      summary: Remove one tenant configuration value
+      tags:
+        - projects
+  /v1/projects/{projectId}/configuration/set:
+    post:
+      description: |
+        Always registered on every backend. Each read returns a coherent current
+        snapshot; no result caching, conditional GET, or pagination. All responses
+        use Cache-Control: no-store. Deployment authentication also applies.
+        Writes commit atomically. If-Match optionally requires one exact strong
+        ETag for the whole tenant; mismatch returns 412 before mutation. No-op
+        writes preserve revision, including removal of an absent name. A present
+        JSON null is a value, not deletion. Duplicate JSON keys are rejected.
+      operationId: ProjectsetTenantConfigurationValue
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - description: One quoted revision ETag; weak tags, lists and wildcard are invalid.
+          in: header
+          name: If-Match
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetConfigurationBody'
+        required: true
+      responses:
+        "204":
+          description: Mutation committed
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+            ETag:
+              description: Quoted tenant revision.
+              required: true
+              schema:
+                type: string
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Invalid request
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Deployment authentication required
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Deployment authorization denied
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "412":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Configuration revision mismatch
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Configuration exceeds limits
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Configuration operation failed or stored snapshot exceeds read limits
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Configuration temporarily unavailable
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+      summary: Set one tenant configuration value
+      tags:
+        - projects
+  /v1/projects/{projectId}/dependency-waits/query:
+    post:
+      description: Read-only discovery. Every page is scoped to the authorized tenant.
+      operationId: ProjectlistDependencyWaits
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectListDependencyWaitsRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectListDependencyWaitsResponse'
+          description: Success
+      tags:
+        - projects
+  /v1/projects/{projectId}/goals/{goalId}:
+    get:
+      operationId: ProjectgetGoal
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: goalId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectGoalInfo'
+          description: Success
+      tags:
+        - projects
+  /v1/projects/{projectId}/goals/{goalId}/fail:
+    post:
+      operationId: ProjectfailGoal
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: goalId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FailGoalRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectGoalInfo'
+          description: Success
+      tags:
+        - projects
+  /v1/projects/{projectId}/goals/query:
+    post:
+      description: Read-only discovery. Every page is scoped to the authorized tenant.
+      operationId: ProjectlistGoals
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectListGoalsRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectListGoalsResponse'
+          description: Success
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs:
+    post:
+      description: |
+        Submits a new job and writes the initial chapter (ordinal `0`). Any
+        input artifacts are attached as part of that chapter creation. The
+        server generates the job ID.
+      operationId: ProjectsubmitJob
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitJobRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectJobHandle'
+          description: Job submitted
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Chapter application payload exceeds the configured byte budget
+      summary: Submit job
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{jobId}:
+    get:
+      description: |
+        Returns the current job status and a task-data view of the terminal
+        payload when it is available. For non-terminal jobs, clients should
+        treat an absent `data` value as a lazy `TaskData` that will surface the
+        deferred runtime error when accessed.
+      operationId: ProjectgetJob
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectJobInfo'
+          description: Job info
+      summary: Get job
+      tags:
+        - projects
+    put:
+      description: |
+        Submits a new job with the path-supplied job ID and writes the initial
+        chapter (ordinal `0`). This operation is idempotent for equivalent
+        requests: when the job already exists with matching durable state, the
+        runtime returns success; when the durable story exists but the internal
+        runtime record is missing, the runtime repairs that record and returns
+        success. If the existing job's durable state does not match the
+        request, the runtime returns `409 existing_job_mismatch`.
+      operationId: ProjectputJob
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitJobRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectJobHandle'
+          description: Job submitted or confirmed/recovered
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Existing job does not match the requested durable state
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Chapter application payload exceeds the configured byte budget
+      summary: Submit job with explicit job ID
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{jobId}/cancel:
+    post:
+      operationId: ProjectcancelJob
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelJobRequest'
+        required: true
+      responses:
+        "204":
+          description: Job cancelled
+      summary: Cancel job
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{jobId}/chapters:
+    get:
+      description: |
+        Returns stored chapters ordered by ascending ordinal within the
+        requested inclusive range. Supplying an `endOrdinal` greater than the
+        highest stored ordinal is allowed and simply returns the available
+        suffix. If `startOrdinal` is above the highest stored ordinal, the
+        response is empty.
+      operationId: ProjectlistChapters
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/StartOrdinal'
+        - $ref: '#/components/parameters/EndOrdinal'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListChaptersResponse'
+          description: Chapter range loaded
+      summary: List chapters
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{jobId}/chapters/{ordinal}:
+    get:
+      operationId: ProjectgetChapter
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/Ordinal'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChapterRecord'
+          description: Chapter loaded
+      summary: Get chapter
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{jobId}/chapters/{ordinal}/artifacts/{name}:
+    get:
+      operationId: ProjectopenArtifact
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/Ordinal'
+        - $ref: '#/components/parameters/ArtifactName'
+      responses:
+        "200":
+          content:
+            application/octet-stream:
+              schema:
+                format: binary
+                type: string
+          description: Artifact bytes
+      summary: Open artifact
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{jobId}/chapters/{ordinal}/commit-if-waiting:
+    post:
+      description: |
+        Conditional chapter commit used to implement
+        `TaskHandle.Finish(...)` above the runtime. The runtime acquires the
+        necessary job-level coordination, verifies the supplied waiting-task
+        guards, writes the chapter at `{ordinal}`, and advances the job
+        atomically. If the job is no longer waiting on the described task, or
+        the supplied guard fields do not match, the runtime must fail with a
+        conflict response rather than silently succeeding.
+      operationId: ProjectcommitChapterIfWaiting
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/Ordinal'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommitChapterIfWaitingRequest'
+        required: true
+      responses:
+        "204":
+          description: Chapter commit applied
+        "409":
+          description: Waiting-task conflict
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Chapter application payload exceeds the configured byte budget
+      summary: Commit chapter if waiting
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{jobId}/clear-crash-concern:
+    post:
+      description: |
+        Operator action using deployment authorization, like cancellation.
+        Delegated lease credentials cannot call this endpoint.
+        Atomically reset the consecutive expired-lease count. Preserve the job ID,
+        history, payload, routing, dependencies, availability, execution deadlines,
+        and lifetime expiration statistics. This does not acquire a lease or
+        immediately execute the job. Other scheduling constraints still apply.
+        Reject live leases, completed, cancelled, or hidden jobs with 409.
+        Clearing an already-clear inactive job succeeds without changing it.
+      operationId: ProjectclearCrashConcern
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        content:
+          application/json:
+            example:
+              reason: Worker deployment repaired
+              workerId: operator
+            schema:
+              $ref: '#/components/schemas/ClearCrashConcernRequest'
+        required: true
+      responses:
+        "204":
+          description: Crash concern cleared; normal scheduling eligibility applies.
+        "400":
+          description: Invalid request.
+        "403":
+          description: Caller is not authorized; delegated lease credentials are denied.
+        "404":
+          description: Job not found in this tenant.
+        "409":
+          description: Job has a live lease or is completed, cancelled, or hidden.
+      security:
+        - bearerAuth: []
+      summary: Clear consecutive crash concern for an inactive job
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{jobId}/dependency-waits/{waitId}:
+    get:
+      operationId: ProjectgetDependencyWait
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: jobId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: waitId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectDependencyWaitInfo'
+          description: Success
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{jobId}/lease:
+    post:
+      description: |
+        Attempts to acquire a lease for one specific job. The response always
+        succeeds at the transport level when the lookup itself succeeds; a
+        missing lease is represented as `lease: null`.
+      operationId: ProjectgetJobLease
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GetJobLeaseRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectGetJobLeaseResponse'
+          description: Lease acquired or currently unavailable
+      summary: Get job lease
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{jobId}/leases/{leaseId}:
+    get:
+      description: Returns only identity, route, validity and delegation policy. Used to import restricted leases without refreshing a current credential.
+      operationId: ProjectinspectLease
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectExecutionLease'
+          description: Authorized result; delegation responses contain no owner credentials or execution payload.
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 400 invalid request; 401 invalid or expired delegation; 403 permission denied or deadline reached; 409 parent lease lost.
+      summary: Validate a delegated lease without renewal
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{jobId}/leases/{leaseId}/add_chapter:
+    post:
+      description: |
+        Commits a chapter in the context of the identified lease, including any
+        attached artifact bytes. The target chapter ordinal is supplied in the
+        request body as `chapter.ordinal`. Artifacts are chapter-scoped
+        attachments, not standalone durable resources. Conflicting writes, such
+        as duplicate ordinals or non-appendable ordinals, must fail rather than
+        being treated as successful no-ops.
+      operationId: ProjectaddChapterWithLease
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddChapterRequest'
+        required: true
+      responses:
+        "204":
+          description: Chapter stored
+        "409":
+          description: Conflicting chapter write
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Chapter application payload exceeds the configured byte budget
+      summary: Add chapter with lease
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{jobId}/leases/{leaseId}/chapters:
+    get:
+      operationId: ProjectlistChaptersWithLease
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+        - $ref: '#/components/parameters/StartOrdinal'
+        - $ref: '#/components/parameters/EndOrdinal'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListChaptersResponse'
+          description: Authorized result; delegation responses contain no owner credentials or execution payload.
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 400 invalid request; 401 invalid or expired delegation; 403 permission denied or deadline reached; 409 parent lease lost.
+      summary: Read only chapters allowed by the lease
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{jobId}/leases/{leaseId}/chapters/{ordinal}:
+    get:
+      operationId: ProjectgetChapterWithLease
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+        - $ref: '#/components/parameters/Ordinal'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChapterRecord'
+          description: Authorized result; delegation responses contain no owner credentials or execution payload.
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 400 invalid request; 401 invalid or expired delegation; 403 permission denied or deadline reached; 409 parent lease lost.
+      summary: Read one chapter allowed by the lease
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{jobId}/leases/{leaseId}/complete:
+    post:
+      description: |
+        Completes the current job attempt in the context of the identified
+        lease.
+      operationId: ProjectcompleteJobWithLease
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteExecutionRequest'
+        required: true
+      responses:
+        "204":
+          description: Job completion applied
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Chapter application payload exceeds the configured byte budget
+      summary: Complete job with lease
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{jobId}/leases/{leaseId}/configuration:
+    get:
+      description: |
+        Always registered on every backend. Each read returns a coherent current
+        snapshot; no result caching, conditional GET, or pagination. All responses
+        use Cache-Control: no-store. Deployment authentication also applies.
+        The token must match tenant, job and lease. Current ownership and token
+        expiry are checked before and after storage I/O. No requested-name list.
+      operationId: ProjectgetConfigurationWithLease
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigurationSnapshot'
+          description: Current snapshot
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+            ETag:
+              description: Quoted tenant revision.
+              required: true
+              schema:
+                type: string
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Invalid request
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Deployment authentication required
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Deployment authorization denied
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Execution lease lost
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Configuration exceeds limits
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Configuration operation failed or stored snapshot exceeds read limits
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Configuration temporarily unavailable
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+      summary: Read current tenant configuration using a live lease
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{jobId}/leases/{leaseId}/delegations:
+    post:
+      description: Issues a macaroon with authenticated permissions and an optional notAfter deadline, valid while the exact parent lease remains live. The Go SDK derives these locally; holders may further narrow the grant offline. No individual revocation.
+      operationId: ProjectcreateLeaseDelegation
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDelegationRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectExecutionLease'
+          description: Authorized result; delegation responses contain no owner credentials or execution payload.
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 400 invalid request; 401 invalid or expired delegation; 403 permission denied or deadline reached; 409 parent lease lost.
+      summary: Create a restricted lease from an owner lease
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{jobId}/leases/{leaseId}/keepalive:
+    post:
+      description: For a delegation, validates the live parent and optional hard deadline and returns a restricted snapshot with the same token. Never extends the parent or the hard deadline. Restrictions remain unchanged.
+      operationId: ProjectkeepAliveLease
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectKeepAliveLeaseResponse'
+          description: Lease extended
+      summary: Keep lease alive
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{jobId}/leases/{leaseId}/reschedule:
+    post:
+      description: |
+        Reschedules the current job in the context of the identified lease.
+      operationId: ProjectrescheduleJobWithLease
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RescheduleExecutionRequest'
+        required: true
+      responses:
+        "204":
+          description: Job rescheduled
+      summary: Reschedule job with lease
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{jobId}/leases/{leaseId}/secrets/resolve:
+    post:
+      description: |
+        Requires a live lease. Principal comes only from a verified signed lease
+        claim; missing claims become nil. Application metadata comes from the job.
+        JobDB never caches provider output or persists resolution results.
+        SQLite supports the development provider; other backends currently
+        return secrets_not_supported (no secret provider configured).
+        All responses use Cache-Control: no-store. Default request/response limits
+        are 64 KiB/1 MiB; SQLite SecretLimits can configure them.
+      operationId: ProjectresolveSecretsWithLease
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveSecretsBody'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecretResolveResult'
+          description: Allowed requested values; unknown and denied names are omitted
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecretError'
+          description: |
+            Sanitized error with no values: 400 invalid_secret_request,
+            409 execution_lease_lost, 413 secret_request_too_large,
+            500 secret_resolution_failed, 501 secrets_not_supported,
+            or 503 secrets_unavailable. Provider failures return no partial values.
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+                type: string
+      summary: Resolve the allowed subset of requested job secrets
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{jobId}/primary-goal:
+    put:
+      description: |
+        Requires explicit destination identity, authenticated tenant, current goal
+        access, explicit selection authority and destination submission authority.
+        Publishes atomically with goal closure and cycle validation. Authorized
+        identical retries return the immutable complete accepted receipt even
+        after closure or soft deletion. Never use ordinary submission as fallback.
+        Execution-lease and delegated credentials are unsupported on this route.
+      operationId: ProjectsubmitJobWithPrimaryGoal
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SelectedSubmitJobRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectJobHandle'
+          description: Original complete accepted identity
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Invalid selected request
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Missing current goal access, selection or submission authority
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Goal or destination is missing
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Closed goal, dependency cycle or immutable request conflict
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Backend or credential route does not support selection
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Committed receipt is unavailable; do not replace destination identity
+      summary: Submit fresh instructions under an existing primary goal
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{jobId}/restart:
+    put:
+      description: |
+        Submits a restart using the path-supplied destination job ID. This
+        operation is idempotent for equivalent requests: when the target job
+        already exists with the same copied restart prefix (and restart extra
+        chapter when requested), the runtime returns success; when that durable
+        state exists but the internal runtime record is missing, the runtime
+        repairs that record and returns success. If the existing durable state
+        does not match the request, the runtime returns
+        `409 existing_job_mismatch`.
+      operationId: ProjectputRestartJob
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectSubmitRestartJobRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectJobHandle'
+          description: Job restart submitted or confirmed/recovered
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Existing job does not match the requested durable state
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Chapter application payload exceeds the configured byte budget
+      summary: Submit restart job with explicit job ID
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{parentJobId}/leases/{leaseId}/cells:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/ParentJobId'
+      - $ref: '#/components/parameters/LeaseId'
+    post:
+      description: Owner leases may create cells in their tenant. Delegated leases require cells.create and the requested name must match its selector. Verify the signed lease, path binding, attenuation, deadline, and live parent before mutation. Creation never expands submission scope. All names, including root, follow the same rules. requestId replay is scoped to the tenant and exact parent lease identity. No Git operation occurs.
+      operationId: ProjectcreateCellWithLease
+      parameters:
+        - in: header
+          name: X-JobDB-Lease-Token
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCellRequest'
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectCell'
+          description: Cell created or original creation replayed.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            ETag:
+              $ref: '#/components/headers/CellETag'
+            Location:
+              description: URI of the created cell.
+              schema:
+                format: uri-reference
+                type: string
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "409":
+          $ref: '#/components/responses/Conflict'
+        "500":
+          $ref: '#/components/responses/InternalError'
+      security:
+        - bearerAuth: []
+          leaseToken: []
+      summary: Explicitly create a cell using a live execution lease
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{parentJobId}/leases/{leaseId}/cells/lookup:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/ParentJobId'
+      - $ref: '#/components/parameters/LeaseId'
+    post:
+      description: |
+        Validate the live owning or delegated lease, path binding, and delegation
+        restrictions and deadline. Any valid lease, including an empty delegation,
+        may look up any active cell in its tenant without jobs.submit, a lookup
+        grant, administrative access, or a cell listing grant. Submission cell
+        filters do not restrict lookup. Exact names and permanent aliases return
+        the current canonical name, immutable ID, and registered repository.
+        Each response is a coherent registry snapshot; later calls may observe
+        registry edits. Lookup performs no registry mutation, job submission, Git
+        access, or permission change. Submission and restart independently recheck
+        all existing authority and repository assertions.
+      operationId: ProjectlookupCellWithLease
+      parameters:
+        - in: header
+          name: X-JobDB-Lease-Token
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LookupCellRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolvedCell'
+          description: Current active cell identity and repository.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "409":
+          $ref: '#/components/responses/ResolveConflict'
+        "500":
+          $ref: '#/components/responses/InternalError'
+      security:
+        - leaseToken: []
+      summary: Look up an active cell independently of submission authority
+      tags:
+        - projects
+      x-jobdb-authorization:
+        authority: live execution lease
+        effect: name/ID/repository lookup only
+        target: authenticated lease tenant
+  /v1/projects/{projectId}/jobs/{parentJobId}/leases/{leaseId}/cells/resolve:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/ParentJobId'
+      - $ref: '#/components/parameters/LeaseId'
+    post:
+      description: |-
+        Read-only. Verify the signed live lease, path binding, attenuation, and deadline.
+        Require effective jobs.submit authority and target-cell scope. Normal lease scope includes all registered active cells in the tenant; explicit principal or delegation restrictions may narrow it. A delegation without jobs.submit cannot resolve targets.
+        Return canonical cell name, immutable ID, and registered repo only. This supports
+        name-only c2j requests that must load a recipe before job submission. It grants
+        no cell metadata, job history, or secret access. Job-type/job-ID restrictions
+        remain checked at submission; resolution cannot expand them.
+
+        Missing or inaccessible names return 404. An authorized retired cell returns
+        409 cell_retired. Current names and reserved aliases resolve to the same ID.
+        No registration, job creation, Git network call, or policy mutation occurs.
+        Subsequent submission must recheck authority, repo assertion, and active state.
+      operationId: ProjectresolveCellWithLease
+      parameters:
+        - in: header
+          name: X-JobDB-Lease-Token
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            example:
+              cell: payments
+            schema:
+              $ref: '#/components/schemas/ResolveCellRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                cell: payments
+                cellId: cell_019d03e9-066b-76b3-9b46-47d306b0aa1f
+                cellRepo: github.com/colony-2/payments
+              schema:
+                $ref: '#/components/schemas/ResolvedCell'
+          description: Minimal active cell identity and repository.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "409":
+          $ref: '#/components/responses/ResolveConflict'
+        "500":
+          $ref: '#/components/responses/InternalError'
+      security:
+        - bearerAuth: []
+          leaseToken: []
+      summary: Resolve an active cell name within lease submission scope
+      tags:
+        - projects
+      x-jobdb-authorization:
+        effect: bounded name/ID/repo resolution only
+        permission: jobs.submit
+        target: effective submission cell scope
+  /v1/projects/{projectId}/jobs/{parentJobId}/leases/{leaseId}/jobs:
+    post:
+      description: |
+        Submits a new child job while holding the identified parent job lease.
+        The request body is the same shape as `submitJob`; the parent tenant is
+        taken from the path and the server records the parent job ID in internal
+        job metadata.
+      operationId: ProjectsubmitJobWithLease
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/ParentJobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitJobRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectJobHandle'
+          description: Child job submitted
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Chapter application payload exceeds the configured byte budget
+      summary: Submit child job with lease
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{parentJobId}/leases/{leaseId}/jobs/{childJobId}:
+    put:
+      description: |
+        Submits a new child job with the path-supplied child job ID while
+        holding the identified parent job lease. Equivalent requests are
+        idempotent using the same semantics as `putJob`, including the stored
+        parent job ID.
+      operationId: ProjectputJobWithLease
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/ParentJobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/ChildJobId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitJobRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectJobHandle'
+          description: Child job submitted or confirmed/recovered
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Existing job does not match the requested durable state
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Chapter application payload exceeds the configured byte budget
+      summary: Submit child job with explicit job ID and lease
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{parentJobId}/leases/{leaseId}/jobs/{childJobId}/restart:
+    put:
+      description: |
+        Submits a restart child job with the path-supplied child job ID while
+        holding the identified parent job lease. Equivalent requests are
+        idempotent using the same semantics as `putRestartJob`, including the
+        stored parent job ID.
+      operationId: ProjectputRestartJobWithLease
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/ParentJobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/ChildJobId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectSubmitRestartJobRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectJobHandle'
+          description: Child restart job submitted or confirmed/recovered
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Existing job does not match the requested durable state
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Chapter application payload exceeds the configured byte budget
+      summary: Submit child restart job with explicit job ID and lease
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{parentJobId}/leases/{leaseId}/jobs/restarts:
+    post:
+      description: |
+        Submits a restart child job while holding the identified parent job
+        lease. The prior job tenant must match the path tenant when supplied.
+      operationId: ProjectsubmitRestartJobWithLease
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/ParentJobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectSubmitRestartJobRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectJobHandle'
+          description: Child restart job submitted
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Chapter application payload exceeds the configured byte budget
+      summary: Submit child restart job with lease
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/{parentJobId}/leases/{leaseId}/jobs/start-or-append:
+    post:
+      description: At-least-once append. The first creator chooses the template; shared jobs have no parent identity.
+      operationId: ProjectstartOrAppendJobWithLease
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/ParentJobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartOrAppendJobRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectJobHandle'
+          description: Job accepted
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: invalid_append_request
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: lease_permission_denied
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: job_schema_not_found (or a missing submission lease on the leased route)
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: append_busy or a lost submission lease; callers may explicitly retry append_busy
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Chapter payload too large
+      summary: Start or append to a shared job generation
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/delete:
+    post:
+      description: |
+        Hides matching jobs from job listings and revokes leases.
+        Unfinished jobs are cancelled and cannot be picked up again. Completed
+        outcomes are preserved. Direct job reads remain available. All selectors intersect; jobIds are ORed.
+        createdBefore is exclusive and uses job creation time, not completion time.
+        Requires a selector or explicit all=true. No implicit child cascade.
+        IDs continue to identify the same jobs. History, artifacts, and terminal dependency
+        facts are retained for surviving references; this is not a storage purge.
+        Raw chapter/artifact reads remain available. Dry runs only count matches
+        and do not reserve the selection for a later request.
+      operationId: ProjectdeleteJobs
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteJobsRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteJobsResponse'
+          description: Atomic deletion or dry-run count
+        "400":
+          description: Invalid deletion selector
+        "501":
+          description: Backend does not implement job deletion
+      summary: Delete jobs selected by age, IDs, and application metadata
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/poll:
+    post:
+      operationId: ProjectpollWork
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectPollWorkRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                properties:
+                  leases:
+                    items:
+                      $ref: '#/components/schemas/ProjectExecutionLease'
+                    type: array
+                required:
+                  - leases
+                type: object
+          description: Work leases
+      summary: Poll work
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/query:
+    post:
+      description: |
+        Lists jobs within the tenant identified by the path.
+      operationId: ProjectlistJobs
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectListJobsRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectListJobsResponse'
+          description: Listed jobs
+      summary: List jobs
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/restarts:
+    post:
+      description: |
+        Submits a restart derived from a prior run. Any `extraTaskInput` or
+        `extraTaskOutput` artifacts are written as part of the restart chapter
+        they belong to. The server generates the new job ID.
+      operationId: ProjectsubmitRestartJob
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectSubmitRestartJobRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectJobHandle'
+          description: Job restart submitted
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Chapter application payload exceeds the configured byte budget
+      summary: Submit restart job
+      tags:
+        - projects
+  /v1/projects/{projectId}/jobs/start-or-append:
+    post:
+      description: At-least-once append. The first creator chooses the template; shared jobs have no parent identity.
+      operationId: ProjectstartOrAppendJob
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartOrAppendJobRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectJobHandle'
+          description: Job accepted
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: invalid_append_request
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: lease_permission_denied
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: job_schema_not_found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: append_busy; callers may explicitly retry
+        "413":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Chapter payload too large
+      summary: Start or append to a shared job generation
+      tags:
+        - projects
+  /v1/projects/{projectId}/lease-events/query:
+    post:
+      description: |
+        Read-only live traversal of retained canonical acquisitions and renewals, newest first.
+        Reauthorize every page. Delegated lease credentials are denied. No totals or backfill.
+        Filters are OR within arrays and AND across dimensions; explicit null/empty arrays are invalid.
+        Time bounds are inclusive lower and exclusive upper. Cursors bind normalized scope and page size.
+        Concurrent commits and visibility/membership changes may alter traversal; refresh to find new activity.
+      operationId: ProjectlistLeaseEvents
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListLeaseEventsRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectListLeaseEventsResponse'
+          description: One page, including an empty events array when no visible history exists.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: invalid_request or invalid_lease_event_page_token
+        "401":
+          description: Authentication required
+        "403":
+          description: Permission denied
+          including delegated credentials: null
+        "404":
+          description: Explicit cell absent or inaccessible
+        "500":
+          description: Backend failure
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: lease_events_unsupported (optional capability absent or collection disabled)
+      tags:
+        - projects
+  /v1/projects/{projectId}/schemas:
+    get:
+      operationId: ProjectlistJobSchemas
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - in: query
+          name: state
+          required: false
+          schema:
+            $ref: '#/components/schemas/JobSchemaListState'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectListJobSchemasResponse'
+          description: Schemas listed
+      summary: List job schemas
+      tags:
+        - projects
+    post:
+      description: |
+        Registers an immutable tenant-local JSON Schema. Registering identical
+        content is idempotent and returns the existing schema row.
+      operationId: ProjectregisterJobSchema
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterJobSchemaRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectJobSchemaInfo'
+          description: Schema registered or already present
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Existing schema hash conflicts with different content
+      summary: Register job schema
+      tags:
+        - projects
+  /v1/projects/{projectId}/schemas/{schemaHash}:
+    get:
+      operationId: ProjectgetJobSchema
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobSchemaHash'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectJobSchemaInfo'
+          description: Schema loaded
+      summary: Get job schema
+      tags:
+        - projects
+  /v1/projects/{projectId}/schemas/{schemaHash}/archive:
+    post:
+      description: |
+        Archives a schema for future job creation. Existing mutable jobs that
+        already reference the schema may continue to validate writes with it.
+      operationId: ProjectarchiveJobSchema
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobSchemaHash'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectJobSchemaInfo'
+          description: Schema archived
+      summary: Archive job schema
+      tags:
+        - projects
+
+  /v1/projects:
+    get:
+      operationId: ListProjects
+      tags: [projects]
+      parameters:
+        - {name: name, in: query, schema: {type: string}}
+        - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+        - {name: pageToken, in: query, schema: {type: string}}
+      responses:
+        '200':
+          description: Active catalog entries ordered by ID; requires existing administration authority.
+          headers: {Cache-Control: {$ref: '#/components/headers/NoStore'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/ListProjectsResponse'}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '503': {description: Catalog unavailable or not installed.}
+    post:
+      operationId: CreateProject
+      tags: [projects]
+      description: Atomically create a KSUID identity and immutable RequestID receipt. Equal retries replay the original response, including after deletion. Changed request fields conflict. Requires existing administration authority; a lease or cell grant is insufficient.
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/CreateProjectRequest'}}}
+      responses:
+        '201':
+          description: Original immutable creation response.
+          headers:
+            ETag: {schema: {type: string}, description: Strong project revision.}
+            Location: {schema: {type: string}, description: Project ID resource URI.}
+            Cache-Control: {$ref: '#/components/headers/NoStore'}
+          content: {application/json: {schema: {$ref: '#/components/schemas/Project'}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '503': {description: Catalog unavailable or not installed.}
+  /v1/projects/{projectId}:
+    parameters: [{$ref: '#/components/parameters/ProjectId'}]
+    get:
+      operationId: GetProject
+      tags: [projects]
+      responses:
+        '200':
+          description: Active immutable project, addressed only by ID; requires administration authority.
+          headers:
+            ETag: {schema: {type: string}, description: Strong project revision.}
+            Cache-Control: {$ref: '#/components/headers/NoStore'}
+          content: {application/json: {schema: {$ref: '#/components/schemas/Project'}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {description: Catalog unavailable or not installed.}
+    delete:
+      operationId: DeleteProject
+      tags: [projects]
+      description: Tombstone a provably unused project. Any first-use seal, external use or unknown participant coverage refuses deletion. Receipts and the ID remain reserved. Requires existing administration authority.
+      parameters: [{name: If-Match, in: header, required: true, schema: {type: string}}]
+      responses:
+        '204': {description: Tombstoned; name released.}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '412': {description: Stale project revision.}
+        '428': {description: If-Match required.}
+        '503': {description: Catalog unavailable or not installed.}
+
 components:
   securitySchemes:
     bearerAuth:
@@ -2187,6 +4399,12 @@ components:
       description: Exact current name or permanent alias. Resolves at most one visible cell. Use state=ALL for retired lookup.
       schema:
         $ref: '#/components/schemas/CellName'
+    ProjectId:
+      in: path
+      name: projectId
+      required: true
+      schema:
+        type: string
   schemas:
     LeaseEventType:
       type: string
@@ -4381,6 +6599,757 @@ components:
         cellRepo:
           $ref: '#/components/schemas/CellRepo'
       description: Minimal active target information for loading a recipe/submitting a job. It grants no history, metadata, or secret access.
+    ProjectCell:
+      x-go-type: projectview.Cell
+      x-go-type-import:
+        name: projectview
+        path: github.com/colony-2/jobdb/pkg/jobdb/internal/projectview
+      additionalProperties: false
+      allOf:
+        - else:
+            not:
+              required:
+                - retiredAt
+          if:
+            properties:
+              state:
+                const: RETIRED
+          then:
+            required:
+              - retiredAt
+      properties:
+        aliases:
+          description: Permanent former names from renames of cells created after the hard break, resolving to this ID. Excludes current name. No imported legacy aliases; no removal/reassignment through this API.
+          items:
+            $ref: '#/components/schemas/CellName'
+          readOnly: true
+          type: array
+          uniqueItems: true
+        createdAt:
+          description: Server-assigned creation timestamp, returned in UTC with Z offset.
+          format: date-time
+          readOnly: true
+          type: string
+        description:
+          maxLength: 2048
+          type: string
+        id:
+          $ref: '#/components/schemas/CellId'
+        metadata:
+          $ref: '#/components/schemas/CellMetadata'
+        name:
+          $ref: '#/components/schemas/CellName'
+        projectId:
+          minLength: 1
+          type: string
+        repo:
+          $ref: '#/components/schemas/CellRepo'
+          description: Current registered repository locator; editable through authorized PATCH. Existing jobs keep their submission snapshots.
+        retiredAt:
+          description: Server UTC retirement time; present only for RETIRED cells.
+          format: date-time
+          readOnly: true
+          type: string
+        revision:
+          description: Opaque version; use the quoted ETag for conditional updates.
+          minLength: 1
+          readOnly: true
+          type: string
+        state:
+          $ref: '#/components/schemas/CellState'
+          readOnly: true
+        updatedAt:
+          description: Server mutation timestamp in UTC; initially equals createdAt.
+          format: date-time
+          readOnly: true
+          type: string
+      required:
+        - projectId
+        - id
+        - name
+        - description
+        - metadata
+        - revision
+        - createdAt
+        - updatedAt
+        - repo
+        - state
+        - aliases
+      type: object
+    ProjectDependencyWaitInfo:
+      type: object
+      additionalProperties: false
+      required: [jobKey, waitId, state, dependencies]
+      properties:
+        jobKey: {$ref: '#/components/schemas/ProjectJobKey'}
+        waitId: {type: string}
+        state: {type: string, enum: [PENDING, SATISFIED, FAILED, TIMED_OUT, CANCELLED]}
+        deadline: {type: string, format: date-time}
+        dependencies: {type: array, items: {$ref: '#/components/schemas/DependencyResolution'}}
+        failedDependencyIndex: {type: integer}
+        failure: {$ref: '#/components/schemas/DependencyFailure'}
+    ProjectExecutionLease:
+      type: object
+      required: [leaseId, leaseToken, job, route, executionState, clientPayloadRevision]
+      additionalProperties: false
+      properties:
+        delegation:
+          $ref: '#/components/schemas/DelegationInfo'
+        workerId:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+          description: Safe validity deadline, including capability expiration.
+        clientPayload:
+          x-go-type: json.RawMessage
+          x-go-type-skip-optional-pointer: true
+        clientPayloadRevision:
+          type: string
+          pattern: '^[0-9]+$'
+        executionState:
+          $ref: '#/components/schemas/ExecutionState'
+        leaseId:
+          type: string
+        leaseToken:
+          type: string
+        job:
+          $ref: '#/components/schemas/ProjectJobHandle'
+        route:
+          $ref: '#/components/schemas/Route'
+        schemaHash:
+          $ref: '#/components/schemas/JobSchemaHash'
+    ProjectGetJobLeaseResponse:
+      type: object
+      additionalProperties: false
+      required: [lease]
+      properties:
+        lease:
+          x-go-type: "*ProjectExecutionLease"
+          oneOf:
+            - $ref: '#/components/schemas/ProjectExecutionLease'
+            - type: 'null'
+          description: Targeted lease when the job is currently leaseable; `null` otherwise.
+    ProjectGoalInfo:
+      type: object
+      additionalProperties: false
+      required: [goalKey, state, revision, createdAt, updatedAt, cell, cellId, cellRepo]
+      properties:
+        goalKey: {$ref: '#/components/schemas/ProjectGoalKey'}
+        state: {type: string, enum: [OPEN, SUCCEEDED, FAILED]}
+        revision: {type: string, pattern: '^[0-9]+$'}
+        successfulJobId: {type: string}
+        failure: {$ref: '#/components/schemas/GoalFailure'}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+        closedAt: {type: string, format: date-time}
+        cell:
+          $ref: '#/components/schemas/CellName'
+        cellId:
+          $ref: '#/components/schemas/CellId'
+        cellRepo:
+          $ref: '#/components/schemas/CellRepo'
+    ProjectGoalKey:
+      type: object
+      additionalProperties: false
+      required: [projectId, goalId]
+      properties:
+        projectId: {type: string}
+        goalId: {type: string}
+    ProjectGoalSummary:
+      type: object
+      additionalProperties: false
+      required: [goalKey, state, revision, createdAt, updatedAt, candidateCount, nonTerminalCandidateCount, terminalCandidateCount, unavailableCandidateCount, cell, cellId, cellRepo]
+      properties:
+        goalKey: {$ref: '#/components/schemas/ProjectGoalKey'}
+        state: {type: string, enum: [OPEN, SUCCEEDED, FAILED]}
+        revision: {type: string, pattern: '^[0-9]+$'}
+        successfulJobId: {type: string}
+        failureJobId:
+          type: string
+          description: Exact retained protected failure job, independent of the failure snapshot's jobId.
+        failure: {$ref: '#/components/schemas/GoalFailure'}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+        closedAt: {type: string, format: date-time}
+        candidateCount: {type: integer, format: int64}
+        nonTerminalCandidateCount: {type: integer, format: int64}
+        terminalCandidateCount: {type: integer, format: int64}
+        unavailableCandidateCount: {type: integer, format: int64}
+        cell:
+          $ref: '#/components/schemas/CellName'
+        cellId:
+          $ref: '#/components/schemas/CellId'
+        cellRepo:
+          $ref: '#/components/schemas/CellRepo'
+    ProjectJobHandle:
+      type: object
+      required:
+        - goalId
+        - jobKey
+        - cell
+        - cellId
+        - cellRepo
+      additionalProperties: false
+      properties:
+        goalId:
+          type: string
+        jobKey:
+          $ref: '#/components/schemas/ProjectJobKey'
+        cell:
+          $ref: '#/components/schemas/CellName'
+        cellRepo:
+          $ref: '#/components/schemas/CellRepo'
+        cellId:
+          $ref: '#/components/schemas/CellId'
+    ProjectJobInfo:
+      type: object
+      required:
+        - goalId
+        - otherGoalIds
+        - status
+        - data
+        - executionState
+        - clientPayloadRevision
+        - cell
+        - cellId
+        - cellRepo
+      additionalProperties: false
+      properties:
+        appendKey:
+          type: string
+        recordKind:
+          allOf:
+            - $ref: '#/components/schemas/JobRecordKind'
+          x-go-type-skip-optional-pointer: true
+        terminalFailure:
+          $ref: '#/components/schemas/GoalFailure'
+        nextRoute:
+          $ref: '#/components/schemas/Route'
+        completionStatus:
+          type: string
+          description: Persisted terminal outcome; absent or empty when unavailable.
+        completionDetail:
+          type: string
+          description: Persisted completion diagnostic text.
+        waitFor:
+          type: array
+          items: {type: string}
+        blockingWait:
+          $ref: '#/components/schemas/ProjectDependencyWaitInfo'
+        goalId:
+          type: string
+        otherGoalIds:
+          deprecated: true
+          description: Deprecated; always empty. Jobs have only their immutable primary goal.
+          x-deprecated-reason: Membership is the immutable primary goal.
+          type: array
+          items: {type: string}
+        clientPayload:
+          x-go-type: json.RawMessage
+          x-go-type-skip-optional-pointer: true
+        clientPayloadRevision:
+          type: string
+          pattern: '^[0-9]+$'
+        executionState:
+          $ref: '#/components/schemas/ExecutionState'
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        data:
+          x-go-type: "*StoredTaskData"
+          oneOf:
+            - $ref: '#/components/schemas/StoredTaskData'
+            - type: 'null'
+          description: |
+            Terminal task data when materialized. A `null` value should be
+            treated as a lazily unavailable `TaskData`, for example when the job
+            has not completed yet.
+        schemaHash:
+          $ref: '#/components/schemas/JobSchemaHash'
+        cell:
+          $ref: '#/components/schemas/CellName'
+        cellRepo:
+          $ref: '#/components/schemas/CellRepo'
+        cellId:
+          $ref: '#/components/schemas/CellId'
+    ProjectJobKey:
+      type: object
+      required: [projectId, jobId]
+      additionalProperties: false
+      properties:
+        projectId:
+          type: string
+        jobId:
+          type: string
+    ProjectJobSchemaInfo:
+      type: object
+      required: [projectId, schemaHash, schema, state, createdAt]
+      additionalProperties: false
+      properties:
+        projectId:
+          type: string
+        schemaHash:
+          $ref: '#/components/schemas/JobSchemaHash'
+        schema:
+          $ref: '#/components/schemas/JobSchemaDocument'
+        state:
+          $ref: '#/components/schemas/JobSchemaState'
+        createdAt:
+          type: string
+          format: date-time
+        archivedAt:
+          x-go-type: time.Time
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+    ProjectJobSummary:
+      type: object
+      required:
+        - goalId
+        - otherGoalIds
+        - jobKey
+        - status
+        - jobType
+        - waitFor
+        - availableAt
+        - cancelRequested
+        - createdAt
+        - executionState
+        - clientPayloadRevision
+        - cell
+        - cellId
+        - cellRepo
+      description: List responses include stored completion detail, full opaque client payload and revision, execution state, prerequisites, and application metadata. Only additional memberships and evaluated dependency explanations require detail APIs.
+      additionalProperties: false
+      properties:
+        appendKey:
+          type: string
+        recordKind:
+          allOf:
+            - $ref: '#/components/schemas/JobRecordKind'
+          x-go-type-skip-optional-pointer: true
+        terminalFailure:
+          $ref: '#/components/schemas/GoalFailure'
+        blockingWaitSummary:
+          $ref: '#/components/schemas/DependencyWaitSummary'
+        blockingWait:
+          deprecated: true
+          x-deprecated-reason: Not populated by ordinary job lists. Use GetJob for details.
+          allOf:
+            - $ref: '#/components/schemas/ProjectDependencyWaitInfo'
+        goalId:
+          type: string
+        otherGoalIds:
+          deprecated: true
+          x-deprecated-reason: Not populated by ordinary job lists. Use GetJob for details.
+          type: array
+          items: {type: string}
+        completionStatus:
+          type: string
+          description: Persisted terminal outcome, independent of scheduler status. Absent or empty means unavailable. Unfamiliar values are preserved.
+        completionDetail:
+          type: string
+          description: Persisted terminal completion detail. Empty is valid, including for success.
+        clientPayload:
+          x-go-type: json.RawMessage
+          x-go-type-skip-optional-pointer: true
+        clientPayloadRevision:
+          type: string
+          pattern: '^[0-9]+$'
+        executionState:
+          allOf:
+            - $ref: '#/components/schemas/ExecutionState'
+        jobKey:
+          $ref: '#/components/schemas/ProjectJobKey'
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        jobType:
+          type: string
+        nextRoute:
+          $ref: '#/components/schemas/Route'
+        waitFor:
+          type: array
+          items:
+            type: string
+        availableAt:
+          type: string
+          format: date-time
+        expiresAt:
+          x-go-type: time.Time
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        leaseExpiresAt:
+          x-go-type: time.Time
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        cancelRequested:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        archivedAt:
+          x-go-type: time.Time
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        schemaHash:
+          $ref: '#/components/schemas/JobSchemaHash'
+        parentJobId:
+          type: string
+        cell:
+          $ref: '#/components/schemas/CellName'
+        cellRepo:
+          $ref: '#/components/schemas/CellRepo'
+        cellId:
+          $ref: '#/components/schemas/CellId'
+    ProjectKeepAliveLeaseResponse:
+      type: object
+      additionalProperties: false
+      required: [leaseToken]
+      properties:
+        lease:
+          $ref: '#/components/schemas/ProjectExecutionLease'
+          description: Authoritative renewed snapshot; absent on servers without supplied-lease support.
+        leaseToken:
+          type: string
+    ProjectLeaseEvent:
+      type: object
+      additionalProperties: false
+      description: Immutable scheduler snapshot. Acquisitions require acquisitionSource and omit previousLeaseExpiresAt; renewals require previousLeaseExpiresAt and omit acquisitionSource and previousLeaseId. Tokens and credentials are never returned. Renewal can shorten expiry.
+      required: [eventId, eventType, occurredAt, jobKey, cell, cellId, cellRepo, goalId, jobType, route, leaseId, workerId, leaseExpiresAt]
+      properties:
+        eventId: {type: string}
+        eventType: {$ref: '#/components/schemas/LeaseEventType'}
+        occurredAt: {type: string, format: date-time}
+        jobKey: {$ref: '#/components/schemas/ProjectJobKey'}
+        cell: {type: string}
+        cellId: {type: string}
+        cellRepo: {type: string}
+        goalId: {type: string}
+        jobType: {type: string}
+        route: {$ref: '#/components/schemas/Route'}
+        leaseId: {type: string}
+        workerId: {type: string}
+        leaseExpiresAt: {type: string, format: date-time}
+        previousLeaseExpiresAt: {type: string, format: date-time}
+        acquisitionSource: {$ref: '#/components/schemas/LeaseAcquisitionSource'}
+        previousLeaseId: {type: string}
+    ProjectListCellsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - cells
+      properties:
+        cells:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/ProjectCell'
+        nextPageToken:
+          type: string
+          minLength: 1
+          description: Omitted on the last page; never null or an empty string.
+    ProjectListDependencyWaitsResponse:
+      type: object
+      properties:
+        waits: {type: array, items: {$ref: '#/components/schemas/ProjectDependencyWaitInfo'}}
+        nextPageToken: {type: string}
+    ProjectListGoalsResponse:
+      type: object
+      properties:
+        goals: {type: array, items: {$ref: '#/components/schemas/ProjectGoalSummary'}}
+        nextPageToken: {type: string}
+    ProjectListJobSchemasResponse:
+      type: object
+      required: [schemas]
+      additionalProperties: false
+      properties:
+        schemas:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectJobSchemaInfo'
+    ProjectListJobsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        appendKeys:
+          type: array
+          items:
+            type: string
+        goalIds:
+          type: array
+          items: {type: string}
+        includeHidden:
+          type: boolean
+          default: false
+          description: Include jobs hidden by deleteJobs, for direct history lookup or inspection. Does not make them runnable again.
+        statuses:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobStatus'
+        stores:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobStore'
+        jobTypes:
+          type: array
+          items:
+            type: string
+        jobTasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobTaskFilter'
+        availableRoutes:
+          type: array
+          description: |
+            Return only jobs currently leaseable through one of these routes,
+            using the same eligibility and due-alternate rules as pollWork.
+            Omitted or empty disables this filter. Intersects all other filters
+            before pagination. Read-only: does not acquire a lease or change
+            nextRoute, which remains the stored route. Acquire with the same
+            supported routes; availability can change after listing.
+          items:
+            $ref: '#/components/schemas/Route'
+        jobKeys:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectJobKey'
+        parentJobIds:
+          type: array
+          description: Direct parent job IDs whose children should be returned.
+          items:
+            type: string
+        rootOnly:
+          type: boolean
+          description: Return only jobs without a parent job ID.
+        metadataPredicates:
+          type: array
+          description: |
+            Wire-format projection of `MetadataFilter`. Each predicate is a
+            top-level equality match; multiple `values` on one predicate mean OR
+            on the same field.
+          items:
+            $ref: '#/components/schemas/MetadataPredicate'
+        createdAfter:
+          type: string
+          format: date-time
+        createdBefore:
+          type: string
+          format: date-time
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 200
+        pageToken:
+          type: string
+        cellNames:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/CellName'
+    ProjectListJobsResponse:
+      type: object
+      required: [jobs]
+      additionalProperties: false
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectJobSummary'
+        nextPageToken:
+          type: string
+
+    ProjectListLeaseEventsResponse:
+      example: {events: []}
+      type: object
+      additionalProperties: false
+      required: [events]
+      properties:
+        events:
+          type: array
+          items: {$ref: '#/components/schemas/ProjectLeaseEvent'}
+        nextPageToken: {type: string}
+    ProjectPollWorkRequest:
+      type: object
+      additionalProperties: false
+      required: [projectId, workerId, routes, limit]
+      properties:
+        projectId:
+          type: string
+          minLength: 1
+          description: Required tenant polling target. Polling is scoped only to this tenant.
+        workerId:
+          type: string
+        routes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Route'
+        limit:
+          type: integer
+        longPollUntil:
+          type: string
+          format: date-time
+        leaseDuration:
+          type: string
+          description: Duration string controlling how long acquired leases should be held.
+        metadataEquals:
+          type: array
+          description: |
+            Metadata equality predicates applied during polling. Multiple
+            predicates mean AND across fields; multiple `values` on one
+            predicate mean OR on the same field.
+          items:
+            $ref: '#/components/schemas/MetadataPredicate'
+        cellNames:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/CellName'
+    ProjectSubmitRestartJob:
+      type: object
+      required:
+        - priorJobKey
+        - lastStepToKeep
+        - cell
+      additionalProperties: false
+      properties:
+        shareGoal:
+          type: boolean
+        dependencies:
+          type: array
+          items:
+            $ref: '#/components/schemas/Dependency'
+        clientPayloadUpdate:
+          $ref: '#/components/schemas/ClientPayloadUpdate'
+        priorJobKey:
+          $ref: '#/components/schemas/ProjectJobKey'
+        executionRestart:
+          $ref: '#/components/schemas/ExecutionRestart'
+        lastStepToKeep:
+          type: integer
+          format: int64
+        extraTaskInput:
+          $ref: '#/components/schemas/TaskDataWrite'
+        extraTaskOutput:
+          $ref: '#/components/schemas/TaskDataWrite'
+        schema:
+          $ref: '#/components/schemas/JobSchemaSelector'
+        prerequisites:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobPrerequisite'
+        cell:
+          $ref: '#/components/schemas/CellName'
+        cellRepo:
+          $ref: '#/components/schemas/CellRepo'
+    ProjectSubmitRestartJobRequest:
+      type: object
+      required: [job]
+      additionalProperties: false
+      properties:
+        requestId:
+          type: string
+        job:
+          $ref: '#/components/schemas/ProjectSubmitRestartJob'
+        workerId:
+          type: string
+        requestTime:
+          type: string
+          format: date-time
+    Project:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, metadata, revision, createdAt]
+      properties:
+        id: {type: string, description: Immutable resource address. Existing c2 and inventoried embedded 0 are preserved; creates use KSUIDs.}
+        name: {type: string, pattern: '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$', description: Immutable creation name used only for discovery.}
+        description: {type: string, maxLength: 4096}
+        metadata: {type: object, additionalProperties: true, x-go-type: json.RawMessage}
+        revision: {type: string}
+        createdAt: {type: string, format: date-time}
+    CreateProjectRequest:
+      type: object
+      additionalProperties: false
+      required: [requestId, name]
+      properties:
+        requestId: {type: string, minLength: 1, maxLength: 256}
+        name: {type: string, pattern: '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'}
+        description: {type: string, maxLength: 4096, default: ''}
+        metadata: {type: object, additionalProperties: true, default: {}, x-go-type: json.RawMessage, x-go-type-skip-optional-pointer: true}
+      description: Duplicate keys, supplied IDs, control characters in RequestID, null/nonobject metadata, metadata over 64 KiB/depth 32 and descriptions over 4 KiB are rejected. Request comparison preserves numeric tokens and array order while sorting object keys; historical resource JSON is never canonicalized.
+    ListProjectsResponse:
+      type: object
+      additionalProperties: false
+      required: [projects]
+      properties:
+        projects: {type: array, items: {$ref: '#/components/schemas/Project'}}
+        nextPageToken: {type: string}
+
+    ProjectListGoalsRequest:
+        properties:
+            candidate:
+                $ref: '#/components/schemas/GoalCandidateFilter'
+            createdAfter:
+                format: date-time
+                type: string
+            createdBefore:
+                format: date-time
+                type: string
+            goalIds:
+                items:
+                    type: string
+                type: array
+            pageSize:
+                type: integer
+            pageToken:
+                type: string
+            states:
+                items:
+                    enum:
+                        - OPEN
+                        - SUCCEEDED
+                        - FAILED
+                    type: string
+                type: array
+            updatedAfter:
+                format: date-time
+                type: string
+            updatedBefore:
+                format: date-time
+                type: string
+        type: object
+    ProjectListDependencyWaitsRequest:
+        properties:
+            consumerJobId:
+                type: string
+            pageSize:
+                type: integer
+            pageToken:
+                type: string
+            states:
+                items:
+                    enum:
+                        - PENDING
+                        - SATISFIED
+                        - FAILED
+                        - TIMED_OUT
+                        - CANCELLED
+                    type: string
+                type: array
+            target:
+                $ref: '#/components/schemas/DependencyTarget'
+        type: object
+
   headers:
     NoStore:
       required: true
@@ -4512,3 +7481,14 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+    ProjectCellResult:
+      description: Cell record and ETag. Matching create-request replay returns the original snapshot only while the cell remains active; use GET for current state.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+        ETag:
+          $ref: '#/components/headers/CellETag'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProjectCell'

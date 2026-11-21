@@ -21,7 +21,7 @@ import (
 func cancelledFixture(t *testing.T) (*Runtime, context.Context) {
 	t.Helper()
 	ctx := celltest.Context(context.Background())
-	r, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+	r, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, r.Close(ctx)) })
 	_, err = r.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "tenant", Name: "test", Repo: "example.test/test"})

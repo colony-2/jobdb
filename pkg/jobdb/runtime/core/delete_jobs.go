@@ -42,5 +42,12 @@ func (r *Runtime) DeleteJobs(ctx context.Context, req jobdb.DeleteJobsRequest) (
 	if err != nil {
 		return jobdb.DeleteJobsResponse{}, err
 	}
+	if !req.DryRun {
+		if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.TenantID); projectErr != nil {
+			var projectZero0 jobdb.DeleteJobsResponse
+			return projectZero0, projectErr
+		}
+	}
+
 	return store.DeleteJobs(ctx, DeleteJobsRequest{TenantID: req.TenantID, JobIDs: append([]string(nil), req.JobIDs...), CreatedBefore: req.CreatedBefore, MetadataEquals: predicates, All: req.All, DryRun: req.DryRun, Now: r.now()})
 }

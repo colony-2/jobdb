@@ -78,7 +78,7 @@ func TestGoalDiscoveryFreshSchemaAndReadOnlyProjection(t *testing.T) {
 
 func TestGoalDiscoveryRetainedFiltersBeforePagination(t *testing.T) {
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
-	r, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "discovery.db")})
+	r, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "discovery.db")})
 	require.NoError(t, err)
 	defer r.Close(ctx)
 	expected := []jobdb.GoalInfo{}

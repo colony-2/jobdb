@@ -20,7 +20,7 @@ func runScheduleCleanup(t *testing.T, path string) ([]byte, error) {
 
 func TestUnusedScheduleTableRemovalPreservesJobs(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	cfg := Config{DBPath: filepath.Join(t.TempDir(), "saved.db")}
+	cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "saved.db")}
 	r, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	var count int
@@ -84,7 +84,7 @@ func TestScheduleCleanupRefusesUsedFeature(t *testing.T) {
 	for _, used := range []string{"table", "metadata"} {
 		t.Run(used, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			cfg := Config{DBPath: filepath.Join(t.TempDir(), "used.db")}
+			cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "used.db")}
 			r, err := NewFromConfig(ctx, cfg)
 			require.NoError(t, err)
 			_, err = celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "job", Cell: "test", CellRepo: "example.test/test", JobType: "job", Data: jobdb.NewTaskDataOrPanic(1)}})

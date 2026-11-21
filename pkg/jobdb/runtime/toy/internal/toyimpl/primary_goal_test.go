@@ -14,7 +14,7 @@ import (
 func TestPrimaryGoalUnknownIdentityAndPurge(t *testing.T) {
 	for _, bad := range []string{"state", "identity", "retired", "purge"} {
 		t.Run(bad, func(t *testing.T) {
-			r := New()
+			r := New(WithProjects(celltest.UnrestrictedProjects{}))
 			ctx := runtimetest.PrimaryGoalContext(context.Background())
 			source, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "source", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 			require.NoError(t, err)

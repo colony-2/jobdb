@@ -268,7 +268,7 @@ func TestGoalMigrationCheckBlocksInconsistentInputs(t *testing.T) {
 func TestGoalMigrationCheckRuntimeProducedDatabase(t *testing.T) {
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
 	path := filepath.Join(t.TempDir(), "actual.db")
-	rt, err := NewFromConfig(ctx, Config{DBPath: path})
+	rt, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: path})
 	require.NoError(t, err)
 	defer rt.Close(ctx)
 	source, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "source", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic("input")}})

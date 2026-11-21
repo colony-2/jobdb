@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 	"github.com/stretchr/testify/require"
@@ -54,7 +55,7 @@ func terminalContractStored(kind jobdb.JobRecordKind) runtimecore.StoredJob {
 
 func newTerminalContractCore(t *testing.T, s *terminalContractScheduler, c runtimecore.ChapterLog) *runtimecore.Runtime {
 	t.Helper()
-	rt, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: s, Chapters: c, Schemas: readTestSchemas{}})
+	rt, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Configurations: &configuration.MemoryStore{}, Scheduler: s, Chapters: c, Schemas: readTestSchemas{}})
 	require.NoError(t, err)
 	return rt
 }

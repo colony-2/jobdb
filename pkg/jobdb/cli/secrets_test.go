@@ -23,7 +23,7 @@ import (
 func TestSecretsCLIEndToEnd(t *testing.T) {
 	dir := t.TempDir()
 	ctx := celltest.Context(context.Background())
-	r, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(dir, "jobs.db")})
+	r, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(dir, "jobs.db")})
 	require.NoError(t, err)
 	defer r.Close(ctx)
 	server := httptest.NewServer(celltest.Handler(remote.NewServer(r)))
@@ -101,11 +101,11 @@ func TestSecretsCLILocalValidationDiagnostics(t *testing.T) {
 		message        string
 		invalidRequest bool
 	}{
-		{"set missing tenant", []string{"set", "codex_api_key", "-f", "codex.key"}, "", "--tenant (-t) is required", true},
-		{"add missing tenant", []string{"add", "token", "-f", "-"}, "", "--tenant (-t) is required", true},
-		{"remove missing tenant", []string{"remove", "token"}, "", "--tenant (-t) is required", true},
-		{"empty tenant", []string{"set", "token", "-t", "", "-f", "-"}, "", "--tenant (-t) is required", true},
-		{"invalid tenant", []string{"remove", "token", "-t", invalidUTF8}, "", "--tenant (-t) must be valid UTF-8", true},
+		{"set missing tenant", []string{"set", "codex_api_key", "-f", "codex.key"}, "", "--project is required", true},
+		{"add missing tenant", []string{"add", "token", "-f", "-"}, "", "--project is required", true},
+		{"remove missing tenant", []string{"remove", "token"}, "", "--project is required", true},
+		{"empty tenant", []string{"set", "token", "-t", "", "-f", "-"}, "", "--project is required", true},
+		{"invalid tenant", []string{"remove", "token", "-t", invalidUTF8}, "", "--project must be valid UTF-8", true},
 		{"empty name", []string{"remove", "", "-t", "a"}, "", "secret name must be nonempty UTF-8", true},
 		{"invalid name", []string{"remove", invalidUTF8, "-t", "a"}, "", "secret name must be nonempty UTF-8", true},
 		{"missing file option", []string{"set", "token", "-t", "a"}, "", "--value-file (-f) is required", true},

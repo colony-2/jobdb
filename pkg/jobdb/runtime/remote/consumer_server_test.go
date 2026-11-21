@@ -56,7 +56,7 @@ func consumerFixture(t *testing.T, rt jobdb.ConsumerRuntime) consumerServerRunti
 func consumerBackend(t *testing.T, kind string) jobdb.WorkflowRuntime {
 	t.Helper()
 	if kind == "toy" {
-		return toy.New()
+		return toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 	}
 	return secretsSQLite(t)
 }

@@ -30,13 +30,15 @@ CREATE INDEX IF NOT EXISTS jobdb_schemas_list_idx
 
 // Store implements runtimecore.SchemaStore using a caller-owned database.
 type Store struct {
+	projects jobdb.ProjectAdmission
+
 	db *sql.DB
 }
 
 var _ runtimecore.SchemaStore = (*Store)(nil)
 
 // NewSQLDB migrates the schema table and wraps a caller-owned database.
-func NewSQLDB(ctx context.Context, db *sql.DB) (*Store, error) {
+func NewSQLDB(ctx context.Context, db *sql.DB, projects ...jobdb.ProjectAdmission) (*Store, error) {
 	if db == nil {
 		return nil, fmt.Errorf("postgres schema store: db is required")
 	}
@@ -46,10 +48,21 @@ func NewSQLDB(ctx context.Context, db *sql.DB) (*Store, error) {
 	if _, err := db.ExecContext(ctx, schemaSQL); err != nil {
 		return nil, fmt.Errorf("postgres schema store: migrate: %w", err)
 	}
-	return &Store{db: db}, nil
+	if len(projects) > 1 {
+		return nil, fmt.Errorf("exactly one project admission may be supplied")
+	}
+	var admission jobdb.ProjectAdmission
+	if len(projects) == 1 {
+		admission = projects[0]
+	}
+	return &Store{db: db, projects: admission}, nil
 }
 
 func (s *Store) StoreJobSchema(ctx context.Context, schema runtimecore.StoredJobSchema) (runtimecore.StoredJobSchema, error) {
+	if err := jobdb.RequireProjectWrite(ctx, s.projects, schema.TenantId); err != nil {
+		return runtimecore.StoredJobSchema{}, err
+	}
+
 	ctx = contextOrBackground(ctx)
 	state := schema.State
 	if state == "" {
@@ -120,6 +133,10 @@ WHERE tenant_id = $1`
 }
 
 func (s *Store) ArchiveJobSchema(ctx context.Context, key jobdb.JobSchemaKey, archivedAt time.Time) (runtimecore.StoredJobSchema, error) {
+	if err := jobdb.RequireProjectWrite(ctx, s.projects, key.TenantId); err != nil {
+		return runtimecore.StoredJobSchema{}, err
+	}
+
 	ctx = contextOrBackground(ctx)
 	row, err := scanRow(s.db.QueryRowContext(ctx, `
 UPDATE jobdb_schemas

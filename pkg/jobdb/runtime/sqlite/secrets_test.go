@@ -27,7 +27,7 @@ func (f secretProviderFunc) ResolveSecrets(ctx context.Context, r jobdb.SecretRe
 func secretLeaseFixture(t *testing.T) (*Runtime, jobdb.ExecutionLease) {
 	t.Helper()
 	ctx := celltest.Context(context.Background())
-	embedded, err := StartEmbeddedRuntime(ctx)
+	embedded, err := StartEmbeddedRuntime(ctx, WithProjects(celltest.UnrestrictedProjects{}))
 	require.NoError(t, err)
 	t.Cleanup(embedded.Shutdown)
 	h, err := celltest.Submit(embedded.Runtime, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "job", JobType: "job", Metadata: json.RawMessage(`{"team":"build"}`), Data: jobdb.NewTaskDataOrPanic(1)}})
@@ -204,9 +204,9 @@ func TestDefaultSecretStoreLocationAndPersistence(t *testing.T) {
 				var err error
 				switch constructor {
 				case "path":
-					r, err = NewFromConfig(ctx, Config{DBPath: path})
+					r, err = NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: path})
 				case "dsn":
-					r, err = NewFromConfig(ctx, Config{DSN: dsn, BlobDir: filepath.Join(dir, "blobs")})
+					r, err = NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DSN: dsn, BlobDir: filepath.Join(dir, "blobs")})
 				case "handle":
 					if db == nil {
 						db, err = sql.Open("sqlite", dsn)
@@ -214,7 +214,7 @@ func TestDefaultSecretStoreLocationAndPersistence(t *testing.T) {
 						db.SetMaxOpenConns(1)
 						t.Cleanup(func() { require.NoError(t, db.Close()) })
 					}
-					r, err = New(db, WithBlobStoreURI("blobfs://"+filepath.Join(dir, "blobs")))
+					r, err = New(db, WithBlobStoreURI("blobfs://"+filepath.Join(dir, "blobs")), WithProjects(celltest.UnrestrictedProjects{}))
 				}
 				require.NoError(t, err)
 				t.Cleanup(func() { require.NoError(t, r.Close(ctx)) })
@@ -250,13 +250,13 @@ func TestDefaultMemorySecretStoreIsolation(t *testing.T) {
 				var err error
 				blobURI := "blobfs://" + t.TempDir()
 				if constructor == "config" {
-					r, err = NewFromConfig(ctx, Config{DSN: ":memory:", BlobStoreURI: blobURI})
+					r, err = NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DSN: ":memory:", BlobStoreURI: blobURI})
 				} else {
 					db, openErr := sql.Open("sqlite", ":memory:")
 					require.NoError(t, openErr)
 					db.SetMaxOpenConns(1)
 					t.Cleanup(func() { require.NoError(t, db.Close()) })
-					r, err = New(db, WithBlobStoreURI(blobURI))
+					r, err = New(db, WithBlobStoreURI(blobURI), WithProjects(celltest.UnrestrictedProjects{}))
 				}
 				require.NoError(t, err)
 				t.Cleanup(func() { require.NoError(t, r.Close(ctx)) })
@@ -282,13 +282,13 @@ func TestInjectedProviderOverridesDefaultStore(t *testing.T) {
 			var r *Runtime
 			var err error
 			if constructor == "config" {
-				r, err = NewFromConfig(ctx, Config{DBPath: path, SecretProvider: provider})
+				r, err = NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: path, SecretProvider: provider})
 			} else {
 				db, openErr := sql.Open("sqlite", path)
 				require.NoError(t, openErr)
 				db.SetMaxOpenConns(1)
 				defer db.Close()
-				r, err = New(db, WithSecretProvider(provider), WithBlobStoreURI("blobfs://"+t.TempDir()))
+				r, err = New(db, WithSecretProvider(provider), WithBlobStoreURI("blobfs://"+t.TempDir()), WithProjects(celltest.UnrestrictedProjects{}))
 			}
 			require.NoError(t, err)
 			defer r.Close(ctx)

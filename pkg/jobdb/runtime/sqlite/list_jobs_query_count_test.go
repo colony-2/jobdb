@@ -53,7 +53,7 @@ func (c *listCountingConn) ExecContext(ctx context.Context, query string, args [
 func TestStoredListFieldsUseOneQueryPerPage(t *testing.T) {
 	ctx := celltest.Context(context.Background())
 	path := filepath.Join(t.TempDir(), "list.db")
-	r, err := NewFromConfig(ctx, Config{DBPath: path})
+	r, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: path})
 	require.NoError(t, err)
 	defer r.Close(ctx)
 	policy := jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 4}}

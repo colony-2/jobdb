@@ -50,6 +50,8 @@ type AppendChapterLog interface {
 
 // AppendService shares the algorithm with the embedded runtimes.
 type AppendService struct {
+	Projects jobdb.ProjectAdmission
+
 	Scheduler    AppendScheduler
 	Chapters     AppendChapterLog
 	Schemas      jobdb.JobSchemaRegistry
@@ -58,7 +60,7 @@ type AppendService struct {
 }
 
 func (r *Runtime) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAppendJobRequest) (jobdb.JobHandle, error) {
-	return (AppendService{r.scheduler, r.chapters, r.chapterRegistry(), r.ChapterApplicationPayloadLimit(), r.now}).StartOrAppendJob(ctx, req)
+	return (AppendService{Projects: r.projects, Scheduler: r.scheduler, Chapters: r.chapters, Schemas: r.chapterRegistry(), PayloadLimit: r.ChapterApplicationPayloadLimit(), Now: r.now}).StartOrAppendJob(ctx, req)
 }
 func (s AppendService) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAppendJobRequest) (jobdb.JobHandle, error) {
 	if ctx == nil {
@@ -98,6 +100,10 @@ func (s AppendService) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAp
 			return bad("append artifact names must be unique relative paths")
 		}
 		names[ref.Name] = true
+	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, s.Projects, req.Job.Job.TenantId); projectErr != nil {
+		var projectZero0 jobdb.JobHandle
+		return projectZero0, projectErr
 	}
 	selector := in.Job
 	selector.CellRepo = ""

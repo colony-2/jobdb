@@ -3,6 +3,7 @@ package runtimecore
 import (
 	"context"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/stretchr/testify/require"
 	"sync"
 	"testing"
@@ -27,7 +28,7 @@ func (s *keepaliveBarrierScheduler) KeepAliveLease(ctx context.Context, m LeaseM
 }
 func TestLegacyKeepAliveStopJoinsOwnedRenewal(t *testing.T) {
 	s := &keepaliveBarrierScheduler{entered: make(chan struct{}), cancelled: make(chan struct{}), release: make(chan struct{}), exited: make(chan struct{})}
-	runtime := &Runtime{scheduler: s, now: time.Now}
+	runtime := &Runtime{projects: celltest.UnrestrictedProjects{}, scheduler: s, now: time.Now}
 	lease := &executionLease{runtime: runtime, expiresAt: time.Now().Add(time.Hour), snapshot: LeaseSnapshot{Identity: LeaseIdentity{JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}}, Duration: time.Millisecond}}
 	require.NoError(t, lease.KeepAlive(context.Background()))
 	select {
@@ -60,7 +61,7 @@ func TestLegacyKeepAliveStopJoinsOwnedRenewal(t *testing.T) {
 	}
 }
 func TestLegacyKeepAliveConcurrentStartStop(t *testing.T) {
-	l := &executionLease{runtime: &Runtime{now: time.Now}, expiresAt: time.Now().Add(time.Hour), snapshot: LeaseSnapshot{Duration: time.Hour}}
+	l := &executionLease{runtime: &Runtime{projects: celltest.UnrestrictedProjects{}, now: time.Now}, expiresAt: time.Now().Add(time.Hour), snapshot: LeaseSnapshot{Duration: time.Hour}}
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {
 		wg.Add(1)

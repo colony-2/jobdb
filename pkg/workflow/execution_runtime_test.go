@@ -17,9 +17,9 @@ import (
 
 func alternateRuntime(t *testing.T, backend string) jobdb.WorkflowRuntime {
 	t.Helper()
-	var rt jobdb.WorkflowRuntime = toy.New()
+	var rt jobdb.WorkflowRuntime = toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 	if backend != "toy" {
-		s, err := sqlite.NewFromConfig(celltest.Context(context.Background()), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "job.db")})
+		s, err := sqlite.NewFromConfig(celltest.Context(context.Background()), sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "job.db")})
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = s.Close(celltest.Context(context.Background())) })
 		rt = s

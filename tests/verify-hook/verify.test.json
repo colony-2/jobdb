@@ -145,6 +145,14 @@
         {
           "type": "cel_true",
           "expr": "calls.filter(c, c.node_path.endsWith(\"/test_races/test_races\"))[0].inputs.run.contains(\"TestExecutionRecoveryInputSnapshots|TestReplayPayloadAcceptedPrefix\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path.endsWith(\"/test_races/test_races\"))[0].inputs.run.contains(\"go test -count=10 -p=1 -parallel=2 -timeout=20m -v -race ./pkg/workflow -run '^TestReplayPayloadAcceptedPrefix$/^remote$/^external-input$'\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path.endsWith(\"/test_integration/test_integration\"))[0].inputs.run.contains(\"go test -count=1 -p=1 -timeout=3m -v ./pkg/jobdb/internal/projectapi -run '^TestProjectAppendPermissionDeniedResponses$'\") && calls.filter(c, c.node_path.endsWith(\"/test_races/test_races\"))[0].inputs.run.contains(\"./pkg/jobdb/internal/projectwire ./pkg/jobdb/internal/projectapi\")"
         }
       ]
     },

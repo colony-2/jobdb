@@ -19,7 +19,7 @@ import (
 
 func TestJobsDeleteCLI(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 	h, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "c2", JobID: "selected", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(nil), Metadata: json.RawMessage(`{"recipe":"build","env":"dev"}`)}})
 	require.NoError(t, err)
 	t.Setenv("JOBDB_BEARER_TOKEN", "admin-token")
@@ -28,7 +28,7 @@ func TestJobsDeleteCLI(t *testing.T) {
 	server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		require.Equal(t, "Bearer admin-token", r.Header.Get("Authorization"))
-		require.Equal(t, "/v1/tenants/c2/jobs/delete", r.URL.Path)
+		require.Equal(t, "/v1/projects/c2/jobs/delete", r.URL.Path)
 		handler.ServeHTTP(w, r)
 	})))
 	defer server.Close()

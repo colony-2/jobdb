@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -14,7 +13,7 @@ func addGoalDiscoveryCommands(root *cobra.Command, tenant *string, client func()
 	var goals jobdb.ListGoalsRequest
 	var states, jobTypes, jobIDs []string
 	var createdAfter, createdBefore, updatedAfter, updatedBefore string
-	list := &cobra.Command{Use: "list", Short: "List tenant goals with authoritative state and candidate counts", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+	list := &cobra.Command{Use: "list", Short: "List project goals with authoritative state and candidate counts", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		rt, err := client()
 		if err != nil {
 			return err
@@ -43,7 +42,7 @@ func addGoalDiscoveryCommands(root *cobra.Command, tenant *string, client func()
 		if err != nil {
 			return err
 		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
+		return encodeProjectCLI(cmd.OutOrStdout(), out)
 	}}
 	list.Flags().StringSliceVar(&goals.GoalIDs, "goal-id", nil, "exact goal IDs")
 	list.Flags().StringSliceVar(&states, "state", nil, "OPEN, SUCCEEDED, FAILED")
@@ -79,7 +78,7 @@ func addGoalDiscoveryCommands(root *cobra.Command, tenant *string, client func()
 		if err != nil {
 			return err
 		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
+		return encodeProjectCLI(cmd.OutOrStdout(), out)
 	}}
 	wait.Flags().StringVar(&waits.ConsumerJobID, "consumer-job", "", "consumer job ID (includes retained history)")
 	wait.Flags().StringVar(&goalTarget, "target-goal", "", "goal whose unresolved consumers to list")

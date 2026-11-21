@@ -54,7 +54,7 @@ func (h *goalCaptureHistory) Create(context.Context, runtimecore.ChapterLogKey, 
 func TestGoalCorePublicationAndRestartReservation(t *testing.T) {
 	history := &goalCaptureHistory{}
 	scheduler := &goalCaptureScheduler{history: history}
-	rt, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: scheduler, Chapters: history, Schemas: readTestSchemas{}})
+	rt, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Configurations: &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}}, Scheduler: scheduler, Chapters: history, Schemas: readTestSchemas{}})
 	require.NoError(t, err)
 	deps := []jobdb.Dependency{{Target: jobdb.DependencyTarget{GoalID: "upstream"}, Condition: jobdb.JobPrereqSuccess}}
 	handle, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil), Dependencies: deps}})

@@ -11,3 +11,5 @@ github.com/colony-2/jobdb/pkg/jobdb/clientpayload
 github.com/colony-2/jobdb/pkg/jobdb/secrets/sqlite
 
 github.com/colony-2/jobdb/pkg/jobdb/runtime/cellstate
+github.com/colony-2/jobdb/pkg/jobdb/projectcatalog
+github.com/colony-2/jobdb/pkg/jobdb/configuration

@@ -14,6 +14,7 @@ import (
 	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	chapterpostgres "github.com/colony-2/jobdb/pkg/jobdb/chapterstore/postgres"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 )
@@ -46,7 +47,7 @@ func TestChapterLogRoundTrip(t *testing.T) {
 		}
 	})
 
-	store, err := chapterpostgres.OpenDSN(ctx, cfg.GetConnectionURL(), chapterpostgres.Config{
+	store, err := chapterpostgres.OpenDSN(ctx, cfg.GetConnectionURL(), chapterpostgres.Config{Projects: celltest.UnrestrictedProjects{},
 		BlobStoreURI: "blobfs://" + filepath.ToSlash(filepath.Join(dir, "blobs")),
 	})
 	if err != nil {

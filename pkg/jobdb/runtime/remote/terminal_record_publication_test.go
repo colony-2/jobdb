@@ -22,7 +22,7 @@ import (
 )
 
 func TestToyGoalAdmissionHTTPConformance(t *testing.T) {
-	application := NewServer(toy.New())
+	application := NewServer(toy.New(toy.WithProjects(celltest.UnrestrictedProjects{})))
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		application.ServeHTTP(w, r.WithContext(runtimetest.PrimaryGoalContext(r.Context())))
 	}))
@@ -33,7 +33,7 @@ func TestToyGoalAdmissionHTTPConformance(t *testing.T) {
 }
 
 func TestSQLiteGoalAdmissionHTTPConformance(t *testing.T) {
-	embedded, err := sqlite.StartEmbeddedRuntime(context.Background())
+	embedded, err := sqlite.StartEmbeddedRuntime(context.Background(), sqlite.WithProjects(celltest.UnrestrictedProjects{}))
 	require.NoError(t, err)
 	defer embedded.Shutdown()
 	application := NewServer(embedded.Runtime)
@@ -47,7 +47,7 @@ func TestSQLiteGoalAdmissionHTTPConformance(t *testing.T) {
 }
 
 func TestToyTerminalFailureHTTPConformance(t *testing.T) {
-	application := NewServer(toy.New())
+	application := NewServer(toy.New(toy.WithProjects(celltest.UnrestrictedProjects{})))
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		application.ServeHTTP(w, r.WithContext(runtimetest.PrimaryGoalContext(r.Context())))
 	}))
@@ -58,7 +58,7 @@ func TestToyTerminalFailureHTTPConformance(t *testing.T) {
 }
 
 func TestSQLiteTerminalFailureHTTPConformance(t *testing.T) {
-	embedded, err := sqlite.StartEmbeddedRuntime(context.Background())
+	embedded, err := sqlite.StartEmbeddedRuntime(context.Background(), sqlite.WithProjects(celltest.UnrestrictedProjects{}))
 	require.NoError(t, err)
 	defer embedded.Shutdown()
 	application := NewServer(embedded.Runtime)
@@ -85,7 +85,7 @@ func TestMigratedSQLiteFailureHTTPInspection(t *testing.T) {
 	require.NoError(t, db.Close())
 	_, err = sqlite.MigrateGoals(ctx, path)
 	require.NoError(t, err)
-	backend, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path})
+	backend, err := sqlite.NewFromConfig(ctx, sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: path})
 	require.NoError(t, err)
 	defer backend.Close(ctx)
 	application := NewServer(backend)
@@ -128,7 +128,7 @@ func TestMigratedSQLiteFailureHTTPInspection(t *testing.T) {
 
 func TestSQLiteTerminalFailureHTTPLostResponseReplay(t *testing.T) {
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
-	cfg := sqlite.Config{DBPath: filepath.Join(t.TempDir(), "lost-response.db")}
+	cfg := sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "lost-response.db")}
 	backend, err := sqlite.NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	defer backend.Close(ctx)

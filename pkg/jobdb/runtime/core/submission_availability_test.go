@@ -21,7 +21,7 @@ func TestSubmissionAvailabilityPreservesWideInstants(t *testing.T) {
 			t.Run(fmt.Sprintf("http=%v/year=%d", overHTTP, year), func(t *testing.T) {
 				history := &goalCaptureHistory{}
 				scheduler := &availabilityCaptureScheduler{goalCaptureScheduler: &goalCaptureScheduler{history: history}}
-				core, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: scheduler, Chapters: history, Schemas: readTestSchemas{}})
+				core, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Configurations: &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}}, Scheduler: scheduler, Chapters: history, Schemas: readTestSchemas{}})
 				require.NoError(t, err)
 				var rt jobdb.WorkflowRuntime = core
 				if overHTTP {

@@ -61,6 +61,7 @@ func (l *executionLease) ClientPayloadRevision() int64         { return l.client
 func (l *executionLease) ExecutionState() jobdb.ExecutionState { return jobExecutionState(l.payload) }
 
 func (l *executionLease) KeepAlive(ctx context.Context) error {
+
 	if err := l.checkExpiry(); err != nil {
 		return err
 	}
@@ -77,6 +78,7 @@ func (l *executionLease) KeepAlive(ctx context.Context) error {
 func (l *executionLease) StopKeepAlive() {}
 
 func (l *executionLease) Complete(ctx context.Context, req jobdb.CompleteExecutionRequest) error {
+
 	if err := l.checkExpiry(); err != nil {
 		return err
 	}
@@ -84,6 +86,7 @@ func (l *executionLease) Complete(ctx context.Context, req jobdb.CompleteExecuti
 }
 
 func (l *executionLease) Reschedule(ctx context.Context, req jobdb.RescheduleExecutionRequest) error {
+
 	if err := l.checkExpiry(); err != nil {
 		return err
 	}
@@ -113,6 +116,11 @@ func (r *Runtime) KeepAliveLeaseByID(ctx context.Context, jobKey jobdb.JobKey, l
 }
 
 func (r *Runtime) KeepAliveLeaseByIDWithExpiry(ctx context.Context, jobKey jobdb.JobKey, leaseID string, workerID string, leaseDuration time.Duration) (time.Time, error) {
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, jobKey.TenantId); projectErr != nil {
+		var projectZero0 time.Time
+		return projectZero0, projectErr
+	}
+
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -151,6 +159,10 @@ WHERE tenant_id = ? AND job_id = ? AND lease_id = ?`,
 }
 
 func (r *Runtime) CompleteJobWithLeaseByID(ctx context.Context, jobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.CompleteExecutionRequest) error {
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, jobKey.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -215,6 +227,10 @@ WHERE tenant_id = ? AND job_id = ?`,
 }
 
 func (r *Runtime) RescheduleJobWithLeaseByID(ctx context.Context, jobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.RescheduleExecutionRequest) error {
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, jobKey.TenantId); projectErr != nil {
+		return projectErr
+	}
+
 	if ctx == nil {
 		ctx = context.Background()
 	}

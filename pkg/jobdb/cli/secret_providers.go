@@ -176,15 +176,27 @@ func setLocalSecret(ctx context.Context, store *sqlitesecrets.Store, limits jobd
 	return secretsutil.SafeError(store.Set(ctx, tenant, name, value))
 }
 func (r sqliteAdminRuntime) SetDevSecret(ctx context.Context, tenant, name, value string) error {
+	if err := r.AdmitWrite(ctx, tenant); err != nil {
+		return err
+	}
 	return setLocalSecret(ctx, r.admin, r.SecretResolutionLimits(), tenant, name, value)
 }
 func (r sqliteAdminRuntime) RemoveDevSecret(ctx context.Context, tenant, name string) error {
+	if err := r.AdmitWrite(ctx, tenant); err != nil {
+		return err
+	}
 	return secretsutil.SafeError(r.admin.Remove(ctx, tenant, name))
 }
 func (r toyAdminRuntime) SetDevSecret(ctx context.Context, tenant, name, value string) error {
+	if err := r.AdmitWrite(ctx, tenant); err != nil {
+		return err
+	}
 	return setLocalSecret(ctx, r.admin, r.SecretResolutionLimits(), tenant, name, value)
 }
 func (r toyAdminRuntime) RemoveDevSecret(ctx context.Context, tenant, name string) error {
+	if err := r.AdmitWrite(ctx, tenant); err != nil {
+		return err
+	}
 	return secretsutil.SafeError(r.admin.Remove(ctx, tenant, name))
 }
 func (c *configuredSecrets) wrap(runtime jobdb.WorkflowRuntime) jobdb.WorkflowRuntime {

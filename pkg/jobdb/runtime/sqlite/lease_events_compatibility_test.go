@@ -17,7 +17,7 @@ import (
 
 func TestLeaseEventsDefaultLegacyMutations(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	cfg := Config{DBPath: filepath.Join(t.TempDir(), "legacy.db")}
+	cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "legacy.db")}
 	r, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	defer r.Close(ctx)
@@ -172,7 +172,7 @@ func TestLeaseEventsHistoricalMixedWriter(t *testing.T) {
 		t.Skip("build testdata/historical-writer.go against authentic f92ae253 source and set JOBDB_HISTORICAL_WRITER")
 	}
 	ctx := celltest.Context(context.Background())
-	cfg := Config{DBPath: filepath.Join(t.TempDir(), "mixed.db")}
+	cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "mixed.db")}
 	run := func(id string) {
 		out, e := exec.Command(binary, cfg.DBPath, id).CombinedOutput()
 		require.NoError(t, e, "%s", out)
@@ -206,7 +206,7 @@ func TestLeaseEventConstructorDefault(t *testing.T) {
 	require.NoError(t, e)
 	defer db.Close()
 	db.SetMaxOpenConns(1)
-	r, e := New(db, WithBlobStoreURI("blobfs://"+t.TempDir()))
+	r, e := New(db, WithBlobStoreURI("blobfs://"+t.TempDir()), WithProjects(celltest.UnrestrictedProjects{}))
 	require.NoError(t, e)
 	defer r.Close(context.Background())
 	_, e = r.ListLeaseEvents(celltest.Context(context.Background()), jobdb.ListLeaseEventsRequest{TenantID: "tenant"})
@@ -214,7 +214,7 @@ func TestLeaseEventConstructorDefault(t *testing.T) {
 }
 
 func TestLeaseEventRepeatedMigrationReadOnly(t *testing.T) {
-	cfg := Config{DBPath: filepath.Join(t.TempDir(), "readonly.db")}
+	cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "readonly.db")}
 	r, e := NewFromConfig(context.Background(), cfg)
 	require.NoError(t, e)
 	require.NoError(t, r.Close(context.Background()))

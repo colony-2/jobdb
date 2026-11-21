@@ -43,6 +43,9 @@ func (r *Runtime) resolveSecrets(ctx context.Context, key jobdb.JobKey, leaseID,
 		if len(row.metadata) > 0 && json.Unmarshal(row.metadata, &envelope) != nil {
 			return secretsbroker.Snapshot{}, jobdb.ErrSecretResolutionFailed
 		}
+		if err := jobdb.RequireProjectWrite(ctx, r.projects, key.TenantId); err != nil {
+			return secretsbroker.Snapshot{}, err
+		}
 		return secretsbroker.Snapshot{Cell: row.cell, AppMetadata: envelope.App, LeaseExpiresAt: timeFromNS(row.leaseExpiresAtNS.Int64)}, nil
 	})
 }
@@ -50,6 +53,10 @@ func (r *Runtime) resolveSecrets(ctx context.Context, key jobdb.JobKey, leaseID,
 // SetDevSecret and RemoveDevSecret are development administration operations.
 // HTTP exposure is deliberately limited to runtimes implementing these methods.
 func (r *Runtime) SetDevSecret(ctx context.Context, tenant, name, value string) error {
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, tenant); projectErr != nil {
+		return projectErr
+	}
+
 	if r.devSecrets == nil {
 		return jobdb.ErrDevSecretsNotConfigured
 	}
@@ -63,6 +70,10 @@ func (r *Runtime) SetDevSecret(ctx context.Context, tenant, name, value string) 
 	return r.devSecrets.Set(ctx, tenant, name, value)
 }
 func (r *Runtime) RemoveDevSecret(ctx context.Context, tenant, name string) error {
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, tenant); projectErr != nil {
+		return projectErr
+	}
+
 	if r.devSecrets == nil {
 		return jobdb.ErrDevSecretsNotConfigured
 	}

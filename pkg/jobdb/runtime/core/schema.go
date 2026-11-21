@@ -42,6 +42,8 @@ type ListJobSchemasResponse struct {
 
 // SchemaRegistryConfig wires a validating JobDB schema registry.
 type SchemaRegistryConfig struct {
+	Projects jobdb.ProjectAdmission
+
 	Store SchemaStore
 	Now   func() time.Time
 }
@@ -49,6 +51,8 @@ type SchemaRegistryConfig struct {
 // SchemaRegistry validates schema documents and delegates persistence to a
 // SchemaStore.
 type SchemaRegistry struct {
+	projects jobdb.ProjectAdmission
+
 	store SchemaStore
 	now   func() time.Time
 }
@@ -60,7 +64,7 @@ func NewSchemaRegistry(cfg SchemaRegistryConfig) (*SchemaRegistry, error) {
 	if cfg.Store == nil {
 		return nil, fmt.Errorf("runtime core schema store is required")
 	}
-	return &SchemaRegistry{store: cfg.Store, now: nowFunc(cfg.Now)}, nil
+	return &SchemaRegistry{projects: cfg.Projects, store: cfg.Store, now: nowFunc(cfg.Now)}, nil
 }
 
 // RegisterJobSchema canonicalizes and validates a schema before storing it.
@@ -80,6 +84,10 @@ func (r *SchemaRegistry) RegisterJobSchema(ctx context.Context, req jobdb.Regist
 	}
 	if err := jobschema.ValidateSchemaDocument(hash, canonical); err != nil {
 		return jobdb.JobSchemaInfo{}, err
+	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.TenantId); projectErr != nil {
+		var projectZero0 jobdb.JobSchemaInfo
+		return projectZero0, projectErr
 	}
 	stored, err := r.store.StoreJobSchema(ctx, StoredJobSchema{
 		TenantId:   req.TenantId,
@@ -160,6 +168,11 @@ func (r *SchemaRegistry) ArchiveJobSchema(ctx context.Context, key jobdb.JobSche
 	if err := key.Validate(); err != nil {
 		return jobdb.JobSchemaInfo{}, err
 	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, key.TenantId); projectErr != nil {
+		var projectZero0 jobdb.JobSchemaInfo
+		return projectZero0, projectErr
+	}
+
 	stored, err := r.store.ArchiveJobSchema(ctx, key, r.now())
 	if err != nil {
 		return jobdb.JobSchemaInfo{}, err

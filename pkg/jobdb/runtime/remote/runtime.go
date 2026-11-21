@@ -910,6 +910,9 @@ func responseError(operation string, status int, body []byte, sentinel error) er
 // Request context belongs to locally constructed fallbacks only. A valid typed
 // server error may identify a different source, or explicitly leave it unknown.
 func responseErrorAt(operation string, status int, body []byte, sentinel error, key *jobdb.JobKey, ordinal *int64) error {
+	if err := projectBodyError(body); err != nil {
+		return err
+	}
 	if status == http.StatusInternalServerError {
 		if err := infrastructureResponseError(body); err != nil {
 			return err

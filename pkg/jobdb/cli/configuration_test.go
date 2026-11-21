@@ -25,9 +25,9 @@ import (
 func TestConfigurationCLI(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite"} {
 		t.Run(backend, func(t *testing.T) {
-			var rt jobdb.WorkflowRuntime = toy.New()
+			var rt jobdb.WorkflowRuntime = toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 			if backend == "sqlite" {
-				r, e := sqlite.NewFromConfig(celltest.Context(context.Background()), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+				r, e := sqlite.NewFromConfig(celltest.Context(context.Background()), sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 				require.NoError(t, e)
 				defer r.Close(celltest.Context(context.Background()))
 				rt = r
@@ -64,7 +64,7 @@ func TestConfigurationCLI(t *testing.T) {
 			require.NoError(t, err)
 			_, err = run(`null`, "set", "name", "--json", "-t", "a", "-u", server.URL, "-f", "-", "--if-match", configuration.ETag(got.Revision))
 			require.ErrorIs(t, err, jobdb.ErrConfigurationRevisionMismatch)
-			require.ErrorContains(t, err, "--if-match does not match the current tenant revision")
+			require.ErrorContains(t, err, "--if-match does not match the current project revision")
 			for _, raw := range []string{`null`, `0`, `""`} {
 				_, err = run(raw, "set", "name", "--json", "-t", "a", "-u", server.URL, "-f", "-")
 				require.NoError(t, err)
@@ -170,11 +170,11 @@ func TestConfigurationCLILocalValidationDiagnostics(t *testing.T) {
 		message  string
 		sentinel error
 	}{
-		{"missing tenant", []string{"set", "region", "-f", "config.json"}, "", "--tenant (-t) is required", jobdb.ErrInvalidConfigurationRequest},
-		{"add missing tenant", []string{"add", "region", "-f", "-"}, "", "--tenant (-t) is required", jobdb.ErrInvalidConfigurationRequest},
-		{"remove missing tenant", []string{"remove", "region"}, "", "--tenant (-t) is required", jobdb.ErrInvalidConfigurationRequest},
-		{"empty tenant", []string{"remove", "region", "-t", ""}, "", "--tenant (-t) is required", jobdb.ErrInvalidConfigurationRequest},
-		{"invalid tenant", []string{"remove", "region", "-t", invalidUTF8}, "", "--tenant (-t) must be valid UTF-8", jobdb.ErrInvalidConfigurationRequest},
+		{"missing tenant", []string{"set", "region", "-f", "config.json"}, "", "--project is required", jobdb.ErrInvalidConfigurationRequest},
+		{"add missing tenant", []string{"add", "region", "-f", "-"}, "", "--project is required", jobdb.ErrInvalidConfigurationRequest},
+		{"remove missing tenant", []string{"remove", "region"}, "", "--project is required", jobdb.ErrInvalidConfigurationRequest},
+		{"empty tenant", []string{"remove", "region", "-t", ""}, "", "--project is required", jobdb.ErrInvalidConfigurationRequest},
+		{"invalid tenant", []string{"remove", "region", "-t", invalidUTF8}, "", "--project must be valid UTF-8", jobdb.ErrInvalidConfigurationRequest},
 		{"empty name", []string{"remove", "", "-t", "a"}, "", "configuration name must be nonempty UTF-8", jobdb.ErrInvalidConfigurationRequest},
 		{"invalid name", []string{"remove", invalidUTF8, "-t", "a"}, "", "configuration name must be nonempty UTF-8", jobdb.ErrInvalidConfigurationRequest},
 		{"oversized name", []string{"set", strings.Repeat("x", limits.MaxNameBytes+1), "-t", "a", "-f", "-"}, "null", "configuration name exceeds", jobdb.ErrConfigurationTooLarge},

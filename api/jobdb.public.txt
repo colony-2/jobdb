@@ -246,6 +246,11 @@ type CreateCellRequest struct
 type CreateDelegationRequest struct
   field Permissions DelegationPermissions `json:"permissions"`
   field NotAfter *time.Time `json:"notAfter,omitempty"`
+type CreateProjectRequest struct
+  field RequestID string `json:"requestId"`
+  field Name string `json:"name"`
+  field Description string `json:"description,omitempty"`
+  field Metadata encoding/json.RawMessage `json:"metadata,omitempty"`
 func CurrentBuildInfo func() ModuleBuildInfo
 type Data = encoding/json.RawMessage
 func DecodeDiscoveryPage func(token string, scope string, dimensions int) ([]string, error)
@@ -295,6 +300,9 @@ method DeleteJobsRequest.Validate func() error
 type DeleteJobsResponse struct
   field MatchedCount int64 `json:"matchedCount"`
   field DeletedCount int64 `json:"deletedCount"`
+type DeleteProjectRequest struct
+  field ID string
+  field IfMatch string
 type Dependency struct
   field Target DependencyTarget `json:"target"`
   field Condition JobPrereqCondition `json:"condition"`
@@ -386,6 +394,7 @@ var ErrInvalidJobDeletion error
 var ErrInvalidJobRecord error
 var ErrInvalidLeaseEventPageToken *CellError
 var ErrInvalidLeaseEventRequest *CellError
+var ErrInvalidProject error
 var ErrInvalidSecretRequest error
 var ErrJobCancelled error
 var ErrJobDeletionUnsupported error
@@ -405,6 +414,12 @@ var ErrMissingInputHash error
 var ErrNoSecretProvider error
 var ErrPrimaryGoalSelectionForbidden error
 var ErrPrimaryGoalSelectionUnsupported error
+var ErrProjectAccessDenied error
+var ErrProjectConflict error
+var ErrProjectNotFound error
+var ErrProjectPreconditionRequired error
+var ErrProjectRevisionMismatch error
+var ErrProjectUnavailable error
 var ErrSecretRequestTooLarge error
 var ErrSecretResolutionFailed error
 var ErrSecretsUnavailable error
@@ -982,6 +997,13 @@ method ListLeaseEventsRequest.UnmarshalJSON func(raw []byte) error
 type ListLeaseEventsResponse struct
   field Events []LeaseEvent `json:"events"`
   field NextPageToken string `json:"nextPageToken,omitempty"`
+type ListProjectsRequest struct
+  field Name string
+  field PageToken string
+  field PageSize int
+type ListProjectsResponse struct
+  field Projects []Project `json:"projects"`
+  field NextPageToken string `json:"nextPageToken,omitempty"`
 const MaxAppendInputs untyped int = 1000
 const MaxListJobsPageSize untyped int = 200
 func Metadata func() MetadataFilter
@@ -1035,6 +1057,32 @@ type PollWorkRequest struct
 type PrimaryGoalSelectionAuthorizer func(context.Context, GoalKey, ResolvedCell) error
 type PrimaryGoalSelectionCapability interface
   method SupportsPrimaryGoalSelection func() bool
+type Project struct
+  field ID string `json:"id"`
+  field Name string `json:"name"`
+  field Description string `json:"description"`
+  field Metadata encoding/json.RawMessage `json:"metadata"`
+  field Revision string `json:"revision"`
+  field CreatedAt time.Time `json:"createdAt"`
+type ProjectAdmission interface
+  method AdmitWrite func(context.Context, string) error
+type ProjectCatalog interface
+  method CreateProject func(context.Context, CreateProjectRequest) (ProjectCreation, error)
+  method DeleteProject func(context.Context, DeleteProjectRequest) error
+  method GetProject func(context.Context, string) (Project, error)
+  method ListProjects func(context.Context, ListProjectsRequest) (ListProjectsResponse, error)
+type ProjectControl interface
+  embedded ProjectCatalog
+  embedded ProjectExistence
+  embedded ProjectAdmission
+type ProjectCreation struct
+  field Project Project `json:"project"`
+  field Body encoding/json.RawMessage `json:"body"`
+  field Status int `json:"status"`
+  field ETag string `json:"etag"`
+  field Location string `json:"location"`
+type ProjectExistence interface
+  method CheckProject func(context.Context, string) error
 type PutChapterRequest struct
   field LeaseID string
   field LeaseToken string
@@ -1062,6 +1110,8 @@ type RenewableExecutionLease interface
   method LeaseExpiry func() time.Time
   method LeaseWorkerID func() string
   method Renew func(ctx context.Context) (RenewableExecutionLease, error)
+func RequireProjectAdministration func(ctx context.Context) error
+func RequireProjectWrite func(ctx context.Context, admission ProjectAdmission, tenant string) error
 type RescheduleExecutionRequest struct
   field DependencyWait *DependencyWait
   field NextRoute Route
@@ -1326,11 +1376,13 @@ func ValidateJobSchemaHash func(hash string) error
 func ValidatePrimaryGoalSelection func(job SubmitJob) error
 func WithCellAuthority func(ctx context.Context, a CellAuthority) context.Context
 func WithPrimaryGoalSelectionAuthorizer func(ctx context.Context, authorize PrimaryGoalSelectionAuthorizer) context.Context
+func WithProjectAdministration func(ctx context.Context, authorize func(context.Context) error) context.Context
 func WithTx func(ctx context.Context, tx *gorm.io/gorm.DB) context.Context
 type WorkflowRuntime = ConsumerRuntime
 
 package github.com/colony-2/jobdb/pkg/jobdb/chapterstore/postgres
 type Config struct
+  field Projects github.com/colony-2/jobdb/pkg/jobdb.ProjectAdmission
   field BlobStoreURI string
   field MaxInlineArtifactBytes int64
   field Logger *log/slog.Logger
@@ -1416,6 +1468,7 @@ type AppendScheduler interface
   method ReleaseAppend func(context.Context, LeaseIdentity) error
   method ResolveAppendCell func(context.Context, github.com/colony-2/jobdb/pkg/jobdb.SubmitJob) (github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, error)
 type AppendService struct
+  field Projects github.com/colony-2/jobdb/pkg/jobdb.ProjectAdmission
   field Scheduler AppendScheduler
   field Chapters AppendChapterLog
   field Schemas github.com/colony-2/jobdb/pkg/jobdb.JobSchemaRegistry
@@ -1476,6 +1529,7 @@ type CompletionSnapshot struct
   field ErrorKind string
   field Retryable *bool
 type Config struct
+  field Projects github.com/colony-2/jobdb/pkg/jobdb.ProjectControl
   field MaxChapterApplicationPayloadBytes int64
   field Configurations github.com/colony-2/jobdb/pkg/jobdb/configuration.Store
   field ConfigurationLimits github.com/colony-2/jobdb/pkg/jobdb.ConfigurationLimits
@@ -1626,9 +1680,12 @@ type RescheduleMutation struct
 func ResolveActiveSchemaForNewJob func(ctx context.Context, registry github.com/colony-2/jobdb/pkg/jobdb.JobSchemaRegistry, tenantID string, selector *github.com/colony-2/jobdb/pkg/jobdb.JobSchemaSelector) (string, error)
 func ResolveExecutionRestart func(ctx context.Context, r executionHistoryReader, job github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJob) (github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJob, *github.com/colony-2/jobdb/pkg/jobdb.ExecutionRecord, error)
 type Runtime struct
+  embedded ProjectCatalog github.com/colony-2/jobdb/pkg/jobdb.ProjectCatalog
   embedded Service *github.com/colony-2/jobdb/pkg/jobdb/configuration.Service
+method Runtime.AdmitWrite func(ctx context.Context, id string) error
 method Runtime.CancelJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CancelJobRequest) error
 method Runtime.ChapterApplicationPayloadLimit func() int64
+method Runtime.CheckProject func(ctx context.Context, id string) error
 method Runtime.ClearCrashConcern func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ClearCrashConcernRequest) error
 method Runtime.CompleteJobWithLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.CompleteExecutionRequest) error
 method Runtime.CompleteTaskIfWaiting func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CompleteTaskIfWaitingRequest) error
@@ -1699,6 +1756,7 @@ method SchemaRegistry.GetJobSchema func(ctx context.Context, key github.com/colo
 method SchemaRegistry.ListJobSchemas func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListJobSchemasRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListJobSchemasResponse, error)
 method SchemaRegistry.RegisterJobSchema func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.RegisterJobSchemaRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobSchemaInfo, error)
 type SchemaRegistryConfig struct
+  field Projects github.com/colony-2/jobdb/pkg/jobdb.ProjectAdmission
   field Store SchemaStore
   field Now func() time.Time
 type SchemaStore interface
@@ -1782,7 +1840,7 @@ type WorkSelector struct
   field Tasks []github.com/colony-2/jobdb/pkg/jobdb.JobTaskFilter
 
 package github.com/colony-2/jobdb/pkg/jobdb/schemastore/postgres
-func NewSQLDB func(ctx context.Context, db *database/sql.DB) (*Store, error)
+func NewSQLDB func(ctx context.Context, db *database/sql.DB, projects ...github.com/colony-2/jobdb/pkg/jobdb.ProjectAdmission) (*Store, error)
 type Store struct
 method Store.ArchiveJobSchema func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey, archivedAt time.Time) (github.com/colony-2/jobdb/pkg/jobdb/runtime/core.StoredJobSchema, error)
 method Store.GetJobSchema func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey) (github.com/colony-2/jobdb/pkg/jobdb/runtime/core.StoredJobSchema, error)
@@ -2365,6 +2423,7 @@ func New func(baseURL string, httpClient *net/http.Client, options ...Option) (*
 func NewConsumerServer func(runtime github.com/colony-2/jobdb/pkg/jobdb.ConsumerRuntime) net/http.Handler
 func NewConsumerServerWithOptions func(runtime github.com/colony-2/jobdb/pkg/jobdb.ConsumerRuntime, opts ServerOptions) (net/http.Handler, error)
 func NewDelegationServerWithOptions func(runtime github.com/colony-2/jobdb/pkg/jobdb.ConsumerRuntime, opts ServerOptions) (net/http.Handler, error)
+func NewProjectRuntime func(baseURL string, client *net/http.Client, options ...Option) (*Runtime, error)
 func NewServer func(runtime github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime) net/http.Handler
 func NewServerWithOptions func(runtime github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime, opts ServerOptions) (net/http.Handler, error)
 type Option func(*Runtime)
@@ -2375,7 +2434,9 @@ method Runtime.ClearCrashConcern func(ctx context.Context, req github.com/colony
 method Runtime.CompleteTaskIfWaiting func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CompleteTaskIfWaitingRequest) error
 method Runtime.CreateCell func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.CreateCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method Runtime.CreateDelegation func(ctx context.Context, parent github.com/colony-2/jobdb/pkg/jobdb.ExecutionLease, req github.com/colony-2/jobdb/pkg/jobdb.CreateDelegationRequest) (github.com/colony-2/jobdb/pkg/jobdb.RenewableExecutionLease, error)
+method Runtime.CreateProject func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.CreateProjectRequest) (github.com/colony-2/jobdb/pkg/jobdb.ProjectCreation, error)
 method Runtime.DeleteJobs func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.DeleteJobsRequest) (github.com/colony-2/jobdb/pkg/jobdb.DeleteJobsResponse, error)
+method Runtime.DeleteProject func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.DeleteProjectRequest) error
 method Runtime.FailGoal func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.FailGoalRequest) (github.com/colony-2/jobdb/pkg/jobdb.GoalInfo, error)
 method Runtime.GetCell func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.CellKey) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method Runtime.GetChapter func(ctx context.Context, ref github.com/colony-2/jobdb/pkg/jobdb.ChapterRef) (github.com/colony-2/jobdb/pkg/jobdb.Chapter, error)
@@ -2386,6 +2447,7 @@ method Runtime.GetJob func(ctx context.Context, jobKey github.com/colony-2/jobdb
 method Runtime.GetJobGoalCapabilities func(ctx context.Context) (github.com/colony-2/jobdb/pkg/jobdb.JobGoalCapabilities, error)
 method Runtime.GetJobLease func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.GetJobLeaseRequest) (github.com/colony-2/jobdb/pkg/jobdb.ExecutionLease, error)
 method Runtime.GetJobSchema func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey) (github.com/colony-2/jobdb/pkg/jobdb.JobSchemaInfo, error)
+method Runtime.GetProject func(ctx context.Context, id string) (github.com/colony-2/jobdb/pkg/jobdb.Project, error)
 method Runtime.GetTenantConfiguration func(ctx context.Context, tenant string) (github.com/colony-2/jobdb/pkg/jobdb.ConfigurationSnapshot, error)
 method Runtime.ImportLease func(ctx context.Context, capability LeaseCapability) (github.com/colony-2/jobdb/pkg/jobdb.RenewableExecutionLease, error)
 method Runtime.ListCells func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.ListCellsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListCellsResponse, error)
@@ -2395,6 +2457,7 @@ method Runtime.ListGoals func(ctx context.Context, req github.com/colony-2/jobdb
 method Runtime.ListJobSchemas func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListJobSchemasRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListJobSchemasResponse, error)
 method Runtime.ListJobs func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListJobsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListJobsResponse, error)
 method Runtime.ListLeaseEvents func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ListLeaseEventsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListLeaseEventsResponse, error)
+method Runtime.ListProjects func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.ListProjectsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListProjectsResponse, error)
 method Runtime.OpenArtifact func(ctx context.Context, ref github.com/colony-2/jobdb/pkg/jobdb.ArtifactRef) (github.com/colony-2/jobdb/pkg/jobdb.ArtifactReader, error)
 method Runtime.PollWork func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.PollWorkRequest) ([]github.com/colony-2/jobdb/pkg/jobdb.ExecutionLease, error)
 method Runtime.PutChapter func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.PutChapterRequest) error
@@ -2416,6 +2479,7 @@ func WithConfigurationLimits func(limits github.com/colony-2/jobdb/pkg/jobdb.Con
 package github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite
 func CheckGoalMigration func(ctx context.Context, path string) (report GoalMigrationReport, err error)
 type Config struct
+  field Projects github.com/colony-2/jobdb/pkg/jobdb.ProjectControl
   field MaxChapterApplicationPayloadBytes int64
   field ConfigurationLimits github.com/colony-2/jobdb/pkg/jobdb.ConfigurationLimits
   field SecretProvider github.com/colony-2/jobdb/pkg/jobdb.SecretProvider
@@ -2476,6 +2540,9 @@ type GoalMigrationTenant struct
   field PendingWaitsAffected int `json:"pendingWaitsAffected"`
   field PreparationsAffected int `json:"preparationsAffected"`
   field LiveOverlaps int `json:"liveOverlaps"`
+func InitializeProjectStorage func(ctx context.Context, db *database/sql.DB) error
+func InspectProjectInstallation func(ctx context.Context, db *database/sql.DB, participants string) (ProjectInventory, error)
+func InstallProjectCatalog func(ctx context.Context, db *database/sql.DB, expected ProjectInventory, seeds []github.com/colony-2/jobdb/pkg/jobdb/projectcatalog.Seed) error
 func MigrateGoals func(ctx context.Context, path string) (GoalMigrationReport, error)
 type MigrationRequiredError struct
   field SourceFormat int
@@ -2485,11 +2552,24 @@ method MigrationRequiredError.Unwrap func() error
 func New func(db *database/sql.DB, opts ...Option) (*Runtime, error)
 func NewFromConfig func(ctx context.Context, cfg Config) (*Runtime, error)
 type Option func(*runtimeOptions)
+type ProjectInventory struct
+  field Format int `json:"format"`
+  field Participants string `json:"participants"`
+  field Tables []ProjectTableInventory `json:"tables"`
+  field Scopes []string `json:"scopes"`
+type ProjectTableInventory struct
+  field Name string `json:"name"`
+  field Schema string `json:"schema"`
+  field Rows int `json:"rows"`
+  field Digest string `json:"digest"`
 type Runtime struct
+  embedded ProjectCatalog github.com/colony-2/jobdb/pkg/jobdb.ProjectCatalog
   embedded Service *github.com/colony-2/jobdb/pkg/jobdb/configuration.Service
+method Runtime.AdmitWrite func(ctx context.Context, id string) error
 method Runtime.ArchiveJobSchema func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey) (github.com/colony-2/jobdb/pkg/jobdb.JobSchemaInfo, error)
 method Runtime.CancelJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CancelJobRequest) error
 method Runtime.ChapterApplicationPayloadLimit func() int64
+method Runtime.CheckProject func(ctx context.Context, id string) error
 method Runtime.ClearCrashConcern func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ClearCrashConcernRequest) error
 method Runtime.Close func(ctx context.Context) error
 method Runtime.CompleteJobWithLeaseByID func(ctx context.Context, jobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.CompleteExecutionRequest) error
@@ -2541,12 +2621,13 @@ method Runtime.SubmitRestartJobWithLeaseByID func(ctx context.Context, parentJob
 method Runtime.SupportsPrimaryGoalSelection func() bool
 method Runtime.UpdateCell func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.UpdateCellRequest) (out github.com/colony-2/jobdb/pkg/jobdb.Cell, err error)
 method Runtime.ValidateExecutionLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string) (github.com/colony-2/jobdb/pkg/jobdb.LeaseValidity, error)
-func StartEmbeddedRuntime func(ctx context.Context) (*EmbeddedRuntime, error)
+func StartEmbeddedRuntime func(ctx context.Context, opts ...Option) (*EmbeddedRuntime, error)
 func WithBlobStoreURI func(uri string) Option
 func WithConfigurationLimits func(limits github.com/colony-2/jobdb/pkg/jobdb.ConfigurationLimits) Option
 func WithLogger func(logger *log/slog.Logger) Option
 func WithMaxChapterApplicationPayloadBytes func(limit int64) Option
 func WithMaxInlineArtifactBytes func(limit int64) Option
+func WithProjects func(projects github.com/colony-2/jobdb/pkg/jobdb.ProjectControl) Option
 func WithSecretLimits func(limits github.com/colony-2/jobdb/pkg/jobdb.SecretLimits) Option
 func WithSecretProvider func(provider github.com/colony-2/jobdb/pkg/jobdb.SecretProvider) Option
 func WithWorkerID func(workerID string) Option
@@ -2560,6 +2641,7 @@ func WithConfigurationLimits func(limits github.com/colony-2/jobdb/pkg/jobdb.Con
 func WithJobIDGenerator func(gen JobIDGenerator) Option
 func WithLogger func(logger *log/slog.Logger) Option
 func WithMaxChapterApplicationPayloadBytes func(limit int64) Option
+func WithProjects func(projects github.com/colony-2/jobdb/pkg/jobdb.ProjectControl) Option
 func WithSecretLimits func(limits github.com/colony-2/jobdb/pkg/jobdb.SecretLimits) Option
 func WithSecretProvider func(provider github.com/colony-2/jobdb/pkg/jobdb.SecretProvider) Option
 
@@ -2628,5 +2710,86 @@ method State.Retire func(ctx context.Context, r github.com/colony-2/jobdb/pkg/jo
 method State.Select func(ctx context.Context, tenant string, names []string, permission string) (map[string]bool, error)
 method State.Update func(ctx context.Context, r github.com/colony-2/jobdb/pkg/jobdb.UpdateCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 func UnwrapJobCursor func(token string, binding string) (string, error)
+func ValidateCreate func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CreateCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.CreateCellRequest, error)
 func WithLease func(ctx context.Context, p LeaseProof) context.Context
 func WrapJobCursor func(position string, binding string) string
+
+package github.com/colony-2/jobdb/pkg/jobdb/projectcatalog
+func DecodeCreate func(r io.Reader) (github.com/colony-2/jobdb/pkg/jobdb.CreateProjectRequest, error)
+type Dialect string
+func ETag func(revision string) string
+type Installation struct
+  field Manifest string `json:"manifest"`
+  field Seeds []Seed `json:"seeds"`
+func InstallationDigest func(manifest []byte) string
+type MemoryStore struct
+method MemoryStore.Read func(ctx context.Context) (*State, error)
+method MemoryStore.Update func(ctx context.Context, f func(**State) error) error
+func NewSQLStore func(db *database/sql.DB, dialect Dialect) (*SQLStore, error)
+const Postgres Dialect = "postgres"
+type SQLStore struct
+method SQLStore.CreateSchema func(ctx context.Context) error
+method SQLStore.Read func(ctx context.Context) (*State, error)
+method SQLStore.Update func(ctx context.Context, f func(**State) error) error
+const SQLite Dialect = "sqlite"
+type Seed struct
+  field ID string `json:"id"`
+  field Name string `json:"name"`
+type Service struct
+  field Store Store
+  field CanDelete func(context.Context, string) error
+method Service.AdmitWrite func(ctx context.Context, id string) error
+method Service.CheckProject func(ctx context.Context, id string) error
+method Service.CreateProject func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.CreateProjectRequest) (github.com/colony-2/jobdb/pkg/jobdb.ProjectCreation, error)
+method Service.DeleteProject func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.DeleteProjectRequest) error
+method Service.GetProject func(ctx context.Context, id string) (github.com/colony-2/jobdb/pkg/jobdb.Project, error)
+method Service.Install func(ctx context.Context, in Installation) error
+method Service.ListProjects func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.ListProjectsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListProjectsResponse, error)
+type State struct
+  field Version int `json:"version"`
+  field ID string `json:"id"`
+  field Manifest string `json:"manifest"`
+  field CursorKey []byte `json:"cursorKey"`
+  field Projects map[string]record `json:"projects"`
+  field Receipts map[string]receipt `json:"receipts"`
+type Store interface
+  method Read func(context.Context) (*State, error)
+  method Update func(context.Context, func(**State) error) error
+
+package github.com/colony-2/jobdb/pkg/jobdb/configuration
+func Clone func(s github.com/colony-2/jobdb/pkg/jobdb.ConfigurationSnapshot) github.com/colony-2/jobdb/pkg/jobdb.ConfigurationSnapshot
+func ETag func(revision string) string
+func Empty func() github.com/colony-2/jobdb/pkg/jobdb.ConfigurationSnapshot
+func ErrorStatus func(err error) (int, string)
+type MemoryStore struct
+  field Projects github.com/colony-2/jobdb/pkg/jobdb.ProjectAdmission
+method MemoryStore.Read func(ctx context.Context, tenant string) (github.com/colony-2/jobdb/pkg/jobdb.ConfigurationSnapshot, error)
+method MemoryStore.Update func(ctx context.Context, tenant string, change func(github.com/colony-2/jobdb/pkg/jobdb.ConfigurationSnapshot) (github.com/colony-2/jobdb/pkg/jobdb.ConfigurationSnapshot, error)) (github.com/colony-2/jobdb/pkg/jobdb.ConfigurationSnapshot, error)
+func NewSQLStore func(ctx context.Context, db *database/sql.DB, dialect SQLDialect, projects ...github.com/colony-2/jobdb/pkg/jobdb.ProjectAdmission) (*SQLStore, error)
+func ParseETag func(raw string) (string, error)
+const Postgres SQLDialect = "postgres"
+func ReadJSON func(r io.Reader, limit int, target any) error
+func ResponseError func(status int, body io.Reader) error
+type SQLDialect string
+type SQLStore struct
+method SQLStore.Read func(ctx context.Context, tenant string) (github.com/colony-2/jobdb/pkg/jobdb.ConfigurationSnapshot, error)
+method SQLStore.Update func(ctx context.Context, tenant string, change func(github.com/colony-2/jobdb/pkg/jobdb.ConfigurationSnapshot) (github.com/colony-2/jobdb/pkg/jobdb.ConfigurationSnapshot, error)) (github.com/colony-2/jobdb/pkg/jobdb.ConfigurationSnapshot, error)
+const SQLite SQLDialect = "sqlite"
+func SafeError func(err error) error
+type Service struct
+  field Projects github.com/colony-2/jobdb/pkg/jobdb.ProjectAdmission
+  field Store Store
+  field Limits github.com/colony-2/jobdb/pkg/jobdb.ConfigurationLimits
+method Service.ConfigurationLimits func() github.com/colony-2/jobdb/pkg/jobdb.ConfigurationLimits
+method Service.GetTenantConfiguration func(ctx context.Context, tenant string) (github.com/colony-2/jobdb/pkg/jobdb.ConfigurationSnapshot, error)
+method Service.RemoveTenantConfigurationValue func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.RemoveTenantConfigurationValueRequest) (string, error)
+method Service.SetTenantConfigurationValue func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SetTenantConfigurationValueRequest) (string, error)
+type Store interface
+  method Read func(context.Context, string) (github.com/colony-2/jobdb/pkg/jobdb.ConfigurationSnapshot, error)
+  method Update func(context.Context, string, func(github.com/colony-2/jobdb/pkg/jobdb.ConfigurationSnapshot) (github.com/colony-2/jobdb/pkg/jobdb.ConfigurationSnapshot, error)) (github.com/colony-2/jobdb/pkg/jobdb.ConfigurationSnapshot, error)
+func ValidateName func(name string, l github.com/colony-2/jobdb/pkg/jobdb.ConfigurationLimits) error
+func ValidateRevision func(revision string) bool
+func ValidateSnapshot func(s github.com/colony-2/jobdb/pkg/jobdb.ConfigurationSnapshot, l github.com/colony-2/jobdb/pkg/jobdb.ConfigurationLimits) error
+func ValidateTenant func(tenant string) error
+func ValidateValue func(raw encoding/json.RawMessage, l github.com/colony-2/jobdb/pkg/jobdb.ConfigurationLimits) error
+func WriteError func(w net/http.ResponseWriter, err error)

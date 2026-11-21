@@ -896,9 +896,9 @@ func resultSecretBackends(t *testing.T, test func(*testing.T, jobdb.WorkflowRunt
 	t.Helper()
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
-			var rt jobdb.WorkflowRuntime = toy.New(toy.WithSecretProvider(resultSecretProvider{}))
+			var rt jobdb.WorkflowRuntime = toy.New(toy.WithSecretProvider(resultSecretProvider{}), toy.WithProjects(celltest.UnrestrictedProjects{}))
 			if backend != "toy" {
-				store, err := sqlite.NewFromConfig(celltest.Context(context.Background()), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "observer.db"), SecretProvider: resultSecretProvider{}})
+				store, err := sqlite.NewFromConfig(celltest.Context(context.Background()), sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "observer.db"), SecretProvider: resultSecretProvider{}})
 				require.NoError(t, err)
 				t.Cleanup(func() { _ = store.Close(context.Background()) })
 				rt = store

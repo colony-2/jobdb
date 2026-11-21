@@ -20,10 +20,10 @@ import (
 func TestLeaseEventHTTPAuthorizationAndValidation(t *testing.T) {
 	for _, kind := range []string{"toy", "sqlite"} {
 		t.Run(kind, func(t *testing.T) {
-			var rt jobdb.WorkflowRuntime = toy.New()
+			var rt jobdb.WorkflowRuntime = toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 			ctx := celltest.Context(context.Background())
 			if kind == "sqlite" {
-				embedded, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: t.TempDir() + "/jobdb.db"})
+				embedded, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: t.TempDir() + "/jobdb.db"})
 				require.NoError(t, e)
 				defer embedded.Close(ctx)
 				rt = embedded

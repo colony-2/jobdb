@@ -16,7 +16,7 @@ import (
 )
 
 func TestSQLiteGoalAdmissionConformance(t *testing.T) {
-	embedded, err := StartEmbeddedRuntime(context.Background())
+	embedded, err := StartEmbeddedRuntime(context.Background(), WithProjects(celltest.UnrestrictedProjects{}))
 	require.NoError(t, err)
 	defer embedded.Shutdown()
 	runtimetest.RunGoalAdmissionConformance(t, embedded.Runtime)
@@ -24,7 +24,7 @@ func TestSQLiteGoalAdmissionConformance(t *testing.T) {
 
 func TestGoalAdmissionPublicIndependentWriters(t *testing.T) {
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
-	cfg := Config{DBPath: filepath.Join(t.TempDir(), "admission.db")}
+	cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "admission.db")}
 	a, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	defer a.Close(ctx)
@@ -71,7 +71,7 @@ func TestGoalAdmissionPublicIndependentWriters(t *testing.T) {
 
 func TestGoalAdmissionPublicRetainedBlockersAndPreparation(t *testing.T) {
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
-	r, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "states.db")})
+	r, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "states.db")})
 	require.NoError(t, err)
 	defer r.Close(ctx)
 	for _, state := range []string{"ready", "delayed", "blocked", "expired", "cancel-requested", "task-routed", "hidden"} {
@@ -126,7 +126,7 @@ func TestGoalAdmissionPublicRetainedBlockersAndPreparation(t *testing.T) {
 
 func TestGoalAdmissionPublicSharedRestartRechecks(t *testing.T) {
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
-	r, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "restarts.db")})
+	r, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "restarts.db")})
 	require.NoError(t, err)
 	defer r.Close(ctx)
 	source, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "source", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
@@ -157,7 +157,7 @@ func TestGoalAdmissionPublicSharedRestartRechecks(t *testing.T) {
 
 func TestGoalAdmissionPublicIdenticalTenantGoalStrings(t *testing.T) {
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
-	r, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "tenants.db")})
+	r, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "tenants.db")})
 	require.NoError(t, err)
 	defer r.Close(ctx)
 	origins := map[string]jobdb.JobHandle{}

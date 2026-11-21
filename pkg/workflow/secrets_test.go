@@ -70,7 +70,7 @@ func TestWorkflowContextsResolveSecretsWithoutRecordingOrReplayingValues(t *test
 		t.Run(fmt.Sprint("job-read=", readJob), func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
 			provider := &workflowSecretProvider{}
-			runtime := toy.New(toy.WithSecretProvider(provider))
+			runtime := toy.New(toy.WithSecretProvider(provider), toy.WithProjects(celltest.UnrestrictedProjects{}))
 			job, task := &secretReadingJob{readJob: readJob}, &secretReadingTask{}
 			ws := mustWorkSetForRunnerTest(t, job, task)
 			handle, err := celltest.Submit(runtime, ctx, SubmitJobRequest{Job: SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobType: job.Name(), Data: NewTaskDataOrPanic("input")}})
@@ -171,7 +171,7 @@ func (w *catchesSecretTaskTimeout) Run(ctx ExecutionContext, input JobData) (Job
 func TestTaskSecretContextExpiresWhileJobLeaseRemainsLive(t *testing.T) {
 	ctx := celltest.Context(context.Background())
 	provider := &workflowSecretProvider{}
-	runtime := toy.New(toy.WithSecretProvider(provider))
+	runtime := toy.New(toy.WithSecretProvider(provider), toy.WithProjects(celltest.UnrestrictedProjects{}))
 	task := &expiredSecretTask{captured: make(chan TaskContext, 1), release: make(chan struct{})}
 	job := &catchesSecretTaskTimeout{task: task}
 	ws := mustWorkSetForRunnerTest(t, job, task)

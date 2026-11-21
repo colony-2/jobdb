@@ -1,5 +1,7 @@
 package runtimetest
 
+import "github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 import (
 	"bytes"
 	"context"
@@ -61,7 +63,7 @@ func TestRestartSourceSnapshotIndependentCoreReads(t *testing.T) {
 		Artifacts: []jobdb.StoredArtifact{{Name: "recipe", Digest: "recipe-digest", Size: 16}, {Name: "empty", Digest: "empty-digest", Size: 0}},
 	}})
 	require.NoError(t, err)
-	rt, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: snapshotScheduler{},
+	rt, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Configurations: &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}}, Scheduler: snapshotScheduler{},
 		Chapters: snapshotChapters{chapter: chapter, opens: &opens}, Schemas: snapshotSchemas{}})
 	require.NoError(t, err)
 	key := jobdb.JobKey{TenantId: "tenant", JobId: "source"}

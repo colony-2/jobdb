@@ -54,7 +54,7 @@ SELECT tenant_id,'dormant','PAUSED',1,'historical',x'7b7d',x'7b7d',cell_id,name,
 			require.NoError(t, err, "%+v", check.Issues)
 			require.Equal(t, 11, check.SourceFormat)
 			require.Equal(t, before, compatibilitySnapshot(t, db), "check must be read-only")
-			_, err = NewFromConfig(ctx, Config{DBPath: path})
+			_, err = NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: path})
 			require.ErrorIs(t, err, ErrMigrationRequired)
 			require.Equal(t, before, compatibilitySnapshot(t, db), "constructor must refuse without conversion")
 			report, err := MigrateGoals(ctx, path)
@@ -71,7 +71,7 @@ SELECT tenant_id,'dormant','PAUSED',1,'historical',x'7b7d',x'7b7d',cell_id,name,
 			require.NoError(t, db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name='jobdb_schedules'`).Scan(&schedules))
 			require.Equal(t, map[bool]int{false: 0, true: 1}[dormant], schedules)
 			require.NoError(t, db.Close())
-			r, err := NewFromConfig(ctx, Config{DBPath: path})
+			r, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: path})
 			require.NoError(t, err)
 			defer r.Close(ctx)
 			key := jobdb.JobKey{TenantId: "tenant", JobId: "saved"}

@@ -1,5 +1,7 @@
 package runtimecore
 
+import "github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 import (
 	"context"
 	"encoding/hex"
@@ -83,7 +85,7 @@ type appendFixture struct {
 
 func newAppendFixture() (*appendFixture, AppendService, jobdb.StartOrAppendJobRequest) {
 	f := &appendFixture{cell: jobdb.ResolvedCell{Cell: "test", CellID: "cell", CellRepo: "example.test/test"}, logs: map[jobdb.JobKey][]EncodedChapter{}, facts: map[jobdb.JobKey]CreateJobRequest{}, missing: jobdb.ErrJobNotFound}
-	return f, AppendService{Scheduler: f, Chapters: f}, jobdb.StartOrAppendJobRequest{Job: jobdb.StartOrAppendJob{AppendKey: "key", Job: jobdb.SubmitJob{TenantId: "tenant", Cell: "test", JobType: "batch", Data: jobdb.NewTaskDataOrPanic("winner")}, Append: json.RawMessage(`1`)}}
+	return f, AppendService{Projects: celltest.UnrestrictedProjects{}, Scheduler: f, Chapters: f}, jobdb.StartOrAppendJobRequest{Job: jobdb.StartOrAppendJob{AppendKey: "key", Job: jobdb.SubmitJob{TenantId: "tenant", Cell: "test", JobType: "batch", Data: jobdb.NewTaskDataOrPanic("winner")}, Append: json.RawMessage(`1`)}}
 }
 func (f *appendFixture) ResolveAppendCell(context.Context, jobdb.SubmitJob) (jobdb.ResolvedCell, error) {
 	return f.cell, nil

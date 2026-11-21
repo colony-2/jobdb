@@ -21,7 +21,7 @@ import (
 // Independent clients share only committed storage, never engine state.
 func catchHistoryRuntimes(t *testing.T, backend string) (jobdb.WorkflowRuntime, jobdb.WorkflowRuntime) {
 	t.Helper()
-	cfg := sqlite.Config{DBPath: filepath.Join(t.TempDir(), "catch.db")}
+	cfg := sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "catch.db")}
 	store, err := sqlite.NewFromConfig(celltest.Context(context.Background()), cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close(celltest.Context(context.Background())) })

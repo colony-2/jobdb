@@ -19,33 +19,33 @@ import (
 
 func newConfigurationCmd() *cobra.Command {
 	var tenant, baseURL string
-	root := &cobra.Command{Use: "config", Short: "Manage tenant configuration on any JobDB backend", Args: cobra.NoArgs,
-		Long: `Manage tenant configuration through the public administration API.
+	root := &cobra.Command{Use: "config", Short: "Manage project configuration on any JobDB backend", Args: cobra.NoArgs,
+		Long: `Manage project configuration through the public administration API.
 Values are strings by default; file and stdin contents are preserved exactly.
 Use --json (-j) to parse JSON, such as false or {"region":"eu-west-1"}.
 Set JOBDB_BEARER_TOKEN if your deployment requires bearer authentication.`}
-	root.PersistentFlags().StringVarP(&tenant, "tenant", "t", "", "tenant ID (required)")
+	addProjectSelector(root, &tenant, true)
 	root.PersistentFlags().StringVarP(&baseURL, "url", "u", "http://127.0.0.1:9047", "runtime server URL")
 	for _, op := range []string{"set", "remove"} {
 		var valueFile, etag string
 		var jsonValue bool
-		cmd := &cobra.Command{Use: op + " NAME", Short: op + " a tenant configuration value", Args: cobra.ExactArgs(1)}
-		cmd.Flags().StringVar(&etag, "if-match", "", "require this quoted tenant revision ETag")
+		cmd := &cobra.Command{Use: op + " NAME", Short: op + " a project configuration value", Args: cobra.ExactArgs(1)}
+		cmd.Flags().StringVar(&etag, "if-match", "", "require this quoted project revision ETag")
 		if op == "set" {
 			cmd.Aliases = []string{"add"}
 			cmd.Flags().StringVarP(&valueFile, "value-file", "f", "", "UTF-8 value file, or - for stdin; preserves whitespace (required)")
 			cmd.Flags().BoolVarP(&jsonValue, "json", "j", false, "parse the value as JSON instead of storing it as a string")
-			cmd.Long = "Set a tenant configuration value from a file or stdin. Values are strings by default, including empty input; whitespace is preserved. Use --json (-j) for JSON values."
+			cmd.Long = "Set a project configuration value from a file or stdin. Values are strings by default, including empty input; whitespace is preserved. Use --json (-j) for JSON values."
 			cmd.Example = `  jobdb config set codex_api_base_url -t c2 -f codex.url
   jobdb config set build.defaults -t c2 -f defaults.json --json
   printf '%s' 'false' | jobdb config set enablePreview -t c2 -f - -j`
 		}
 		cmd.RunE = func(cmd *cobra.Command, args []string) error {
 			if tenant == "" {
-				return fmt.Errorf("--tenant (-t) is required: %w", jobdb.ErrInvalidConfigurationRequest)
+				return fmt.Errorf("--project is required: %w", jobdb.ErrInvalidConfigurationRequest)
 			}
 			if err := configuration.ValidateTenant(tenant); err != nil {
-				return fmt.Errorf("--tenant (-t) must be valid UTF-8: %w", err)
+				return fmt.Errorf("--project must be valid UTF-8: %w", err)
 			}
 			limits := (jobdb.ConfigurationLimits{}).WithDefaults()
 			if op == "remove" {
@@ -71,7 +71,7 @@ Set JOBDB_BEARER_TOKEN if your deployment requires bearer authentication.`}
 				return fmt.Errorf("--url (-u) must be an HTTP(S) server URL without credentials, query, or fragment")
 			}
 			client := &http.Client{Transport: configurationAuthTransport{token: os.Getenv("JOBDB_BEARER_TOKEN")}}
-			runtime, err := remote.New(strings.TrimRight(base.String(), "/"), client)
+			runtime, err := remote.NewProjectRuntime(strings.TrimRight(base.String(), "/"), client)
 			if err != nil {
 				return configuration.SafeError(err)
 			}
@@ -119,14 +119,14 @@ Set JOBDB_BEARER_TOKEN if your deployment requires bearer authentication.`}
 				safe := configuration.SafeError(err)
 				switch safe {
 				case jobdb.ErrConfigurationRevisionMismatch:
-					return fmt.Errorf("--if-match does not match the current tenant revision; retrieve the current configuration before retrying: %w", safe)
+					return fmt.Errorf("--if-match does not match the current project revision; retrieve the current configuration before retrying: %w", safe)
 				case jobdb.ErrConfigurationUnavailable:
 					return fmt.Errorf("configuration request could not complete; check --url (-u) and server availability: %w", safe)
 				default:
 					return fmt.Errorf("configuration administration request failed: %w", safe)
 				}
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s configuration %q for tenant %q (ETag %s)\n", op, args[0], tenant, configuration.ETag(revision))
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s configuration %q for project %q (ETag %s)\n", op, args[0], tenant, configuration.ETag(revision))
 			return err
 		}
 		root.AddCommand(cmd)

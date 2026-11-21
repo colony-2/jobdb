@@ -319,13 +319,13 @@ func waitForStatus(t *testing.T, ctx context.Context, check func(context.Context
 
 func newToyHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRuntimeHarness {
 	t.Helper()
-	runtime := toyruntime.New()
+	runtime := toyruntime.New(toyruntime.WithProjects(celltest.UnrestrictedProjects{}))
 	return buildHarness(t, "toy", runtime, true, func() {}, workers...)
 }
 
 func newSQLiteHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRuntimeHarness {
 	t.Helper()
-	embedded, err := sqliteruntime.StartEmbeddedRuntime(celltest.Context(context.Background()))
+	embedded, err := sqliteruntime.StartEmbeddedRuntime(celltest.Context(context.Background()), sqliteruntime.WithProjects(celltest.UnrestrictedProjects{}))
 	if err != nil {
 		t.Fatalf("start embedded sqlite runtime: %v", err)
 	}
@@ -334,7 +334,7 @@ func newSQLiteHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRuntimeHa
 
 func newRemoteToyHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRuntimeHarness {
 	t.Helper()
-	underlying := toyruntime.New()
+	underlying := toyruntime.New(toyruntime.WithProjects(celltest.UnrestrictedProjects{}))
 	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
 	runtime, err := remoteruntime.New(server.URL, server.Client())
 	if err != nil {
@@ -348,7 +348,7 @@ func newRemoteToyHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRuntim
 
 func newRemoteSQLiteHarness(t *testing.T, workers ...workflow.WorkSet) *BuiltRuntimeHarness {
 	t.Helper()
-	embedded, err := sqliteruntime.StartEmbeddedRuntime(celltest.Context(context.Background()))
+	embedded, err := sqliteruntime.StartEmbeddedRuntime(celltest.Context(context.Background()), sqliteruntime.WithProjects(celltest.UnrestrictedProjects{}))
 	if err != nil {
 		t.Fatalf("start embedded sqlite runtime: %v", err)
 	}

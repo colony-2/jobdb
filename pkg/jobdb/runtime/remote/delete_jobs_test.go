@@ -16,7 +16,7 @@ import (
 
 func TestDeleteJobsHTTPValidation(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 	_, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "job", JobType: "job", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	require.NoError(t, err)
 	server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
@@ -47,7 +47,7 @@ type withoutJobDeletion struct {
 }
 
 func TestDeleteJobsUnsupportedBackend(t *testing.T) {
-	base := toy.New()
+	base := toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 	server := httptest.NewServer(celltest.Handler(remote.NewServer(withoutJobDeletion{base, base})))
 	defer server.Close()
 	rt, err := remote.New(server.URL, server.Client())

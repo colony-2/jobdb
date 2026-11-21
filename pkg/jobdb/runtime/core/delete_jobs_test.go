@@ -1,5 +1,7 @@
 package runtimecore_test
 
+import "github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 import (
 	"context"
 	"testing"
@@ -27,7 +29,7 @@ func TestRuntimeJobDeletionPort(t *testing.T) {
 	ctx := context.Background()
 	store := &deleteTestScheduler{}
 	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
-	cfg := runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: store, Chapters: noSummaryHistory{}, Schemas: readTestSchemas{}, Now: func() time.Time { return now }}
+	cfg := runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Configurations: &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}}, Scheduler: store, Chapters: noSummaryHistory{}, Schemas: readTestSchemas{}, Now: func() time.Time { return now }}
 	rt, err := runtimecore.NewRuntime(cfg)
 	require.NoError(t, err)
 	for _, req := range []jobdb.DeleteJobsRequest{{All: true}, {TenantID: "tenant"}, {TenantID: "tenant", All: true, JobIDs: []string{"job"}}, {TenantID: "tenant", JobIDs: []string{""}}} {

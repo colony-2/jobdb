@@ -101,9 +101,9 @@ func TestConfiguredApplicationLimitRejectsWithoutPublishing(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			var rt jobdb.WorkflowRuntime = toy.New(toy.WithMaxChapterApplicationPayloadBytes(64))
+			var rt jobdb.WorkflowRuntime = toy.New(toy.WithMaxChapterApplicationPayloadBytes(64), toy.WithProjects(celltest.UnrestrictedProjects{}))
 			if backend != "toy" {
-				local, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "job.db"), MaxChapterApplicationPayloadBytes: 64})
+				local, err := sqlite.NewFromConfig(ctx, sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "job.db"), MaxChapterApplicationPayloadBytes: 64})
 				require.NoError(t, err)
 				t.Cleanup(func() { _ = local.Close(ctx) })
 				rt = local
@@ -162,7 +162,7 @@ func TestConfiguredLimitRejectsExecutionRestartPayload(t *testing.T) {
 	for _, backend := range []string{"sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			local, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "restart.db"), MaxChapterApplicationPayloadBytes: 64})
+			local, err := sqlite.NewFromConfig(ctx, sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "restart.db"), MaxChapterApplicationPayloadBytes: 64})
 			require.NoError(t, err)
 			defer local.Close(ctx)
 			var rt jobdb.WorkflowRuntime = local

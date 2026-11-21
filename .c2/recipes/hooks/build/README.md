@@ -8,12 +8,12 @@ accepted but never interpreted as shell code. Checks always cover the whole repo
 | Workflow behavior | Native task |
 | --- | --- |
 | `test.yaml`: Linux ARM64 Go tests with integration tag | `test_integration`: `go test -count=1 -p=2 -timeout=20m -v -tags=integration -exec "python3 $PWD/scripts/verify-test-exec.py" ./...` |
-| `test.yaml`: workflow/provider and shared/embedded runtime race check | `test_races`: `GOMAXPROCS=2 go test -count=1 -timeout=25m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/... ./pkg/jobdb/runtimetest` |
+| `test.yaml`: workflow/provider and shared/embedded runtime race check | `test_races`: `GOMAXPROCS=2 go test -count=1 -timeout=25m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/... ./pkg/jobdb/runtimetest ./pkg/jobdb/projectcatalog ./pkg/jobdb/internal/projectwire` |
 | Immutable-goal migration, admission and protected records | `test_integration`: focused goal/terminal/manual-migration/availability/restart checks; `test_races`: three repetitions of independent goal writers and controlled closure/admission/wait commit orders |
 | Crash-concern live state, expiry and same-job recovery | `test_integration`: three repetitions of the built-in and HTTP `crash_concern_excludes_ready_work` conformance cases, with a five-minute package budget |
 | Infrastructure preservation, provenance and synchronous legacy renewal | `test_races`: `go test -count=1 -p=1 -timeout=20m -v -race ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/remote -run 'TestInfrastructure\|TestProvenance\|TestLegacyKeepAlive'` |
 | Completion fallback, input recovery, accepted-prefix replay, ignored SDK failures and HTTP source identity | `test_races`: ten race-instrumented repetitions of `TestInfrastructureCompletionSource`, `TestExecutionUncertainFinalCompletion`, `TestInfrastructureSDKFailures`, `TestInfrastructureHTTPFallbackRetainsKnownSource`, `TestInfrastructureHTTPOperationSource`, `TestInfrastructureHTTPArtifactBodySource`, `TestExecutionRecoveryInputSnapshots` and `TestReplayPayloadAcceptedPrefix` in workflow and HTTP |
-| Generated runtime inventories and public API snapshot | `test_integration`: checksum both generated HTTP inventories before/after `go generate`, then check the combined public API snapshot |
+| Generated runtime inventories and public API snapshot | `test_integration`: checksum legacy, consumer and project HTTP inventories plus project route/envelope plans before/after `go generate`, then check the combined public API snapshot |
 | Published-module receipt acceptance and failure cases | `test_integration`: Python standard-library unit fixtures for `verify-published-module.py`; actual availability requires an explicit check of a published commit |
 | Immutable-goal external consumer checks | `test_integration`: rejection fixtures for `check-published-goals.py` and public toy/SQLite consumer tests in the complete integration sweep; external acquisition/execution follows publication |
 | Tools/platform metadata | `check_environment` |
@@ -57,13 +57,13 @@ The repeated-failure fixtures also supply the toy runtime package selected by
 the hook, so each reaches its intended injected failure rather than stopping at
 a missing fixture package.
 
-Integration first retains current main's generated-file checks for both legacy and
-consumer HTTP inventories and its public API snapshot check. The snapshot includes
+Integration retains the legacy and consumer generated-file checks and public API
+snapshot check, and adds the project HTTP inventory and compiled envelope/route plans. The snapshot includes
 `ConsumerRuntime`, legacy `WorkflowRuntime` and the additive preservation APIs.
 
-The integration audit includes four embedded-PostgreSQL packages:
+The integration audit includes five embedded-PostgreSQL packages:
 `chapterstore/postgres`, `internal/chapterstore/postgres`, `configuration`, and
-`schemastore/postgres`. The Go `-exec` launcher isolates their binaries beneath the
+`schemastore/postgres`, and `projectcatalog`. The Go `-exec` launcher isolates their binaries beneath the
 operation's scratch TMPDIR. When invoked as root it drops supplementary groups,
 GID and UID to `nobody` before startup. A non-root worker keeps its identity.
 PostgreSQL downloads its normal native 17.5.0 archive and uses a separate cache
@@ -127,6 +127,13 @@ service, cloud credentials, privileged mounts, or remote CI are invoked.
 
 Contract regression checks:
 
+Integration explicitly runs `TestGoalCandidatesPreservesTerminalFailure` before
+the complete suite. It invokes the CLI against a loopback runtime and checks the
+protected failure discriminator, complete snapshot, ordinary row, project identity
+and pagination through both selector spellings. The live hook fixture
+`VH-054-goal-candidate-cli-failure` fails only that focused invocation and requires
+rejected integration, successful independent races and all four evidence artifacts.
+
 ```sh
 c2j test run --file tests/verify-hook/verify.test.json
 c2j test run --file tests/verify-hook/absent.test.json
@@ -187,7 +194,7 @@ python3 -B -m unittest discover -s scripts -p 'test_verify_published_module.py' 
 
 They check exact identities, origins, versions, checksums, archives, isolation,
 direct routing despite an inherited public proxy, preserved transport settings
-and readable failures using controlled command responses. Live fixture VH-040
+and readable failures using controlled command responses. Live fixture `VH-040-published-verifier-regression-failure`
 proves that a failing receipt regression rejects verification while independent
 races and all four evidence artifacts survive. Actual availability requires a
 real fresh-consumer check of the exact published commit.
@@ -226,3 +233,34 @@ Live fixture VH-041 forces the public consumer test to fail. It requires failed
 verification, successful independent races, all four evidence artifacts and an
 unchanged fixture checkout. Use the documented ten-minute case budget for these
 live fixtures; their isolated Go caches require fresh compilation.
+
+
+Project catalog verification covers receipt replay after deletion, competing creates,
+query-bound cursors, durable admission seals, SQLite process termination and
+PostgreSQL borrowed handles/search paths. The catalog package runs in the full
+integration sweep and the race suite. These checks do not certify runtime writer
+coverage or any production migration. Live fixture `VH-040-project-catalog-race-failure` verifies that a catalog
+race failure fails the hook and retains all four evidence artifacts.
+
+Project identity-envelope regression tests run under race instrumentation in
+`pkg/jobdb/internal/projectwire`. Live fixture VH-041 injects a failure only in
+that package and requires failed verification with all four evidence artifacts.
+Generated project models, route inventory and envelope plans are hashed before
+regeneration, alongside the retained legacy and consumer output. The public API
+snapshot includes runtime admission composition and explicit SQLite maintenance.
+
+The five race commands retain upstream's 25-minute initial package budget, 90-minute
+operation budget, elapsed-time recording and broad ten-repeat replay selection.
+An additional exact HTTP external-input command repeats that boundary ten times.
+Its live failure fixture injects only for that exact filter, preserving the
+upstream broad-selection failure fixture independently. All live fixtures include
+both the upstream published-append consumer and the project-specific packages.
+
+The project append contract explicitly documents HTTP 403 `lease_permission_denied`
+on ordinary and lease-authorized start-or-append. Integration runs
+`TestProjectAppendPermissionDeniedResponses` against both generated HTTP clients,
+checking typed JSON403 fields, retained body/status, one request, lease headers
+and malformed error-body rejection. The project client package also runs in the
+initial race sweep. Live fixture `VH-055-project-append-permission-decoding-failure`
+proves failure of this focused regression rejects integration while independent
+races complete and all four artifacts survive.

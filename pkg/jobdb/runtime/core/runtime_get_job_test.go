@@ -1,5 +1,7 @@
 package runtimecore_test
 
+import "github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 import (
 	"context"
 	"encoding/json"
@@ -45,7 +47,7 @@ func TestRuntimeGetJobUsesFinalChapterForArchivedData(t *testing.T) {
 		WaitForJobIDs: []string{"dependency"},
 		Completion:    &runtimecore.CompletionSnapshot{Status: "success", Detail: "retained detail"},
 	}}
-	runtime, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{},
+	runtime, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Configurations: &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}},
 		Scheduler: scheduler, Chapters: readTestChapters{encoded: encoded},
 		Schemas: readTestSchemas{},
 	})
@@ -64,7 +66,7 @@ func TestRuntimeGetJobUsesFinalChapterForArchivedData(t *testing.T) {
 		t.Fatalf("archived job data = %s, %v", data, err)
 	}
 	scheduler.job.Store = jobdb.JobStoreActive
-	runtime, err = runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{},
+	runtime, err = runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Configurations: &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}},
 		Scheduler: scheduler, Chapters: readTestChapters{encoded: encoded},
 		Schemas: readTestSchemas{},
 	})

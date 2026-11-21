@@ -26,7 +26,7 @@ func catchFullFixture(t *testing.T) []jobdb.ExecutionRecord {
 }
 func catchFixtureRuntime(t *testing.T, records []jobdb.ExecutionRecord) (jobdb.WorkflowRuntime, jobdb.JobKey) {
 	t.Helper()
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
 	w := wf.ExecutionWorker{JobType: "fixture"}
 	key := submitExecutionTest(t, rt, w)
 	start, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})

@@ -12,7 +12,7 @@ import (
 )
 
 func TestSQLiteTerminalFailurePublicConformance(t *testing.T) {
-	embedded, err := StartEmbeddedRuntime(context.Background())
+	embedded, err := StartEmbeddedRuntime(context.Background(), WithProjects(celltest.UnrestrictedProjects{}))
 	require.NoError(t, err)
 	defer embedded.Shutdown()
 	runtimetest.RunTerminalFailureConformance(t, embedded.Runtime)
@@ -20,7 +20,7 @@ func TestSQLiteTerminalFailurePublicConformance(t *testing.T) {
 
 func TestSQLiteTerminalFailurePublicRollbackAndReopen(t *testing.T) {
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
-	cfg := Config{DBPath: filepath.Join(t.TempDir(), "rollback.db")}
+	cfg := Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "rollback.db")}
 	r, err := NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	defer r.Close(ctx)

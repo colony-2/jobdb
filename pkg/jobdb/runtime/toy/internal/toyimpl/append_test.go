@@ -29,7 +29,7 @@ func (s *appendPublicationFault) CreateJob(ctx context.Context, q runtimecore.Cr
 }
 func appendFixture(t *testing.T) (*Runtime, context.Context, jobdb.StartOrAppendJobRequest) {
 	t.Helper()
-	r := New()
+	r := New(WithProjects(celltest.UnrestrictedProjects{}))
 	ctx := celltest.Context(context.Background())
 	_, err := r.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "tenant", Name: "test", Repo: "example.test/test"})
 	require.NoError(t, err)
@@ -38,7 +38,7 @@ func appendFixture(t *testing.T) (*Runtime, context.Context, jobdb.StartOrAppend
 func TestAppendRecoversCreatorPublication(t *testing.T) {
 	r, ctx, q := appendFixture(t)
 	scheduler := &appendPublicationFault{appendScheduler{r}, true}
-	svc := runtimecore.AppendService{Scheduler: scheduler, Chapters: appendChapters{r}, Schemas: r}
+	svc := runtimecore.AppendService{Projects: celltest.UnrestrictedProjects{}, Scheduler: scheduler, Chapters: appendChapters{r}, Schemas: r}
 	at := time.Now().Add(time.Hour)
 	q.Job.Job.AvailableAt = &at
 	_, err := svc.StartOrAppendJob(ctx, q)

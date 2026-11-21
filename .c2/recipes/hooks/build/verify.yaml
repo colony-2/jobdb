@@ -116,10 +116,18 @@ state:
           printf '%s\n' 'Command: go test -count=1 -timeout=5m ./scripts/testdata/published-append-consumer'
           go test -count=1 -timeout=5m ./scripts/testdata/published-append-consumer
           # Check both route inventories and public signatures before exercising them.
-          sha256sum pkg/jobdb/internal/runtimeapi/zz{,_consumer}_generated.go > "$scratch/generated.sha256"
-          go generate ./pkg/jobdb/internal/runtimeapi
+          sha256sum pkg/jobdb/internal/runtimeapi/zz{,_consumer}_generated.go pkg/jobdb/internal/projectapi/zz_generated.go pkg/jobdb/internal/projectwire/zz_shapes.go pkg/jobdb/runtime/remote/zz_project_routes.go > "$scratch/generated.sha256"
+          go generate ./pkg/jobdb/internal/runtimeapi ./pkg/jobdb/internal/projectapi ./pkg/jobdb/runtime/remote
           sha256sum -c "$scratch/generated.sha256"
           go run ./cmd/jobdb-api-snapshot -packages api/packages.txt -check api/jobdb.public.txt
+          # Check typed permission errors on both generated project append clients.
+          test -s pkg/jobdb/internal/projectapi/append_test.go
+          printf '%s\n' "Command: go test -count=1 -p=1 -timeout=3m -v ./pkg/jobdb/internal/projectapi -run '^TestProjectAppendPermissionDeniedResponses$'"
+          go test -count=1 -p=1 -timeout=3m -v ./pkg/jobdb/internal/projectapi -run '^TestProjectAppendPermissionDeniedResponses$'
+          # Protect terminal record meaning at the actual public CLI boundary.
+          test -s pkg/jobdb/cli/goal_candidates_test.go
+          printf '%s\n' "Command: go test -count=1 -p=1 -timeout=3m -v ./pkg/jobdb/cli -run '^TestGoalCandidatesPreservesTerminalFailure$'"
+          go test -count=1 -p=1 -timeout=3m -v ./pkg/jobdb/cli -run '^TestGoalCandidatesPreservesTerminalFailure$'
           # The complete HTTP transport matrix can exceed Go's 10m default.
           printf '%s\n' 'Command: go test -count=1 -p=2 -timeout=20m -v -tags=integration -exec <python3 absolute-native-launcher> ./...'
           go test -count=1 -p=2 -timeout=20m -v -tags=integration -exec "python3 $PWD/scripts/verify-test-exec.py" ./...
@@ -266,8 +274,8 @@ state:
           # cold compilation also run serially. Budget the aggregate separately
           # from package deadlines. HTTP took 18.6m before the longer fixture waits;
           # allow 25m for the initial sweep and record elapsed stage times.
-          printf '%s\n' "Command: go test -count=1 -timeout=25m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/... ./pkg/jobdb/runtimetest"
-          time go test -count=1 -timeout=25m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/... ./pkg/jobdb/runtimetest
+          printf '%s\n' "Command: go test -count=1 -timeout=25m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/... ./pkg/jobdb/runtimetest ./pkg/jobdb/projectcatalog ./pkg/jobdb/internal/projectwire ./pkg/jobdb/internal/projectapi"
+          time go test -count=1 -timeout=25m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/... ./pkg/jobdb/runtimetest ./pkg/jobdb/projectcatalog ./pkg/jobdb/internal/projectwire ./pkg/jobdb/internal/projectapi
           # Independent writers and both controlled closure/admission/wait commit orders.
           printf '%s\n' "Command: go test -count=3 -p=1 -timeout=10m -v -race ./pkg/jobdb/runtime/sqlite -run 'TestGoalPublic|TestGoalAdmissionPublic|TestSQLiteTerminalFailurePublic'"
           time go test -count=3 -p=1 -timeout=10m -v -race ./pkg/jobdb/runtime/sqlite -run 'TestGoalPublic|TestGoalAdmissionPublic|TestSQLiteTerminalFailurePublic'
@@ -276,6 +284,9 @@ state:
           # Repeat the accepted-prefix payload fixture that failed the broad sweep.
           printf '%s\n' "Command: go test -count=10 -p=1 -timeout=20m -v -race ./pkg/workflow ./pkg/jobdb/runtime/remote -run 'TestInfrastructureCompletionSource|TestExecutionUncertainFinalCompletion|TestInfrastructureSDKFailures|TestInfrastructureHTTPFallbackRetainsKnownSource|TestInfrastructureHTTPOperationSource|TestInfrastructureHTTPArtifactBodySource|TestExecutionRecoveryInputSnapshots|TestReplayPayloadAcceptedPrefix'"
           time go test -count=10 -p=1 -timeout=20m -v -race ./pkg/workflow ./pkg/jobdb/runtime/remote -run 'TestInfrastructureCompletionSource|TestExecutionUncertainFinalCompletion|TestInfrastructureSDKFailures|TestInfrastructureHTTPFallbackRetainsKnownSource|TestInfrastructureHTTPOperationSource|TestInfrastructureHTTPArtifactBodySource|TestExecutionRecoveryInputSnapshots|TestReplayPayloadAcceptedPrefix'
+          # Keep the exact HTTP oversized-input regression separate from the broad selection.
+          printf '%s\n' "Command: go test -count=10 -p=1 -parallel=2 -timeout=20m -v -race ./pkg/workflow -run '^TestReplayPayloadAcceptedPrefix$/^remote$/^external-input$'"
+          time go test -count=10 -p=1 -parallel=2 -timeout=20m -v -race ./pkg/workflow -run '^TestReplayPayloadAcceptedPrefix$/^remote$/^external-input$'
       catch:
         - when: failure.kind != 'cancellation'
           continue:

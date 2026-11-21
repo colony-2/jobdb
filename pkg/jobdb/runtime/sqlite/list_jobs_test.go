@@ -16,7 +16,7 @@ import (
 
 func TestCompactListDoesNotReadDetailsOrGoalDiagnostics(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	r, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "list.db")})
+	r, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "list.db")})
 	require.NoError(t, err)
 	defer r.Close(ctx)
 	producer, err := celltest.Submit(r, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "producer", JobType: "work", Data: jobdb.NewTaskDataOrPanic(1)}})
@@ -53,7 +53,7 @@ func TestCompactListDoesNotReadDetailsOrGoalDiagnostics(t *testing.T) {
 
 func TestCompactListWaitStateAndDeadlineWithoutEvaluation(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	r, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "waits.db")})
+	r, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "waits.db")})
 	require.NoError(t, err)
 	defer r.Close(ctx)
 	for _, tc := range []struct {
@@ -96,7 +96,7 @@ func timePtrForList(at time.Time) *time.Time { at = at.UTC(); return &at }
 
 func TestCompactListFiltersAndCursorTies(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	r, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "pages.db")})
+	r, err := NewFromConfig(ctx, Config{Projects: celltest.UnrestrictedProjects{}, DBPath: filepath.Join(t.TempDir(), "pages.db")})
 	require.NoError(t, err)
 	defer r.Close(ctx)
 	at := time.Now().UTC().Truncate(time.Second)

@@ -78,27 +78,12 @@ func (s *State) unique(c jobdb.Cell) error {
 	return nil
 }
 func (s *State) Create(ctx context.Context, req jobdb.CreateCellRequest) (jobdb.Cell, error) {
-	if e := jobdb.AuthorizeCell(ctx, req.TenantID, "", "cells.create"); e != nil {
-		return jobdb.Cell{}, e
+	var err error
+	req, err = ValidateCreate(ctx, req)
+	if err != nil {
+		return jobdb.Cell{}, err
 	}
-	if e := jobdb.ValidateCellName(req.Name); e != nil {
-		return jobdb.Cell{}, e
-	}
-	repo, e := jobdb.NormalizeCellRepo(req.Repo)
-	if e != nil {
-		return jobdb.Cell{}, e
-	}
-	req.Repo = repo
-	if req.Metadata == nil {
-		req.Metadata = map[string]json.RawMessage{}
-	}
-	if e = jobdb.ValidateCellProperties(req.Description, req.Metadata); e != nil {
-		return jobdb.Cell{}, e
-	}
-	req.Metadata = canonicalMetadata(req.Metadata)
-	if len(req.RequestID) > 128 {
-		return jobdb.Cell{}, jobdb.ErrInvalidCell
-	}
+
 	authority, _ := jobdb.CellAuthorityFromContext(ctx)
 	raw, _ := json.Marshal(req)
 	descriptor := fmt.Sprintf("%x", sha256.Sum256(raw))
@@ -116,9 +101,9 @@ func (s *State) Create(ctx context.Context, req jobdb.CreateCellRequest) (jobdb.
 		}
 	}
 	now := time.Now().UTC()
-	c := jobdb.Cell{TenantID: req.TenantID, ID: ksuid.New().String(), Name: req.Name, Repo: repo, Description: req.Description, Metadata: Clone(req.Metadata), State: jobdb.CellActive, Aliases: []string{}, Revision: ksuid.New().String(), CreatedAt: now, UpdatedAt: now}
-	if e = s.unique(c); e != nil {
-		return jobdb.Cell{}, e
+	c := jobdb.Cell{TenantID: req.TenantID, ID: ksuid.New().String(), Name: req.Name, Repo: req.Repo, Description: req.Description, Metadata: Clone(req.Metadata), State: jobdb.CellActive, Aliases: []string{}, Revision: ksuid.New().String(), CreatedAt: now, UpdatedAt: now}
+	if err = s.unique(c); err != nil {
+		return jobdb.Cell{}, err
 	}
 	s.Cells[c.ID] = c
 	if req.RequestID != "" {
@@ -413,4 +398,32 @@ func canonicalMetadata(input map[string]json.RawMessage) map[string]json.RawMess
 		out[k], _ = json.Marshal(value)
 	}
 	return out
+}
+
+// ValidateCreate checks authority and pure input constraints before admission.
+// It performs no resource or catalog effect and is shared by composed writers.
+func ValidateCreate(ctx context.Context, req jobdb.CreateCellRequest) (jobdb.CreateCellRequest, error) {
+
+	if e := jobdb.AuthorizeCell(ctx, req.TenantID, "", "cells.create"); e != nil {
+		return req, e
+	}
+	if e := jobdb.ValidateCellName(req.Name); e != nil {
+		return req, e
+	}
+	repo, e := jobdb.NormalizeCellRepo(req.Repo)
+	if e != nil {
+		return req, e
+	}
+	req.Repo = repo
+	if req.Metadata == nil {
+		req.Metadata = map[string]json.RawMessage{}
+	}
+	if e = jobdb.ValidateCellProperties(req.Description, req.Metadata); e != nil {
+		return req, e
+	}
+	req.Metadata = canonicalMetadata(req.Metadata)
+	if len(req.RequestID) > 128 {
+		return req, jobdb.ErrInvalidCell
+	}
+	return req, nil
 }

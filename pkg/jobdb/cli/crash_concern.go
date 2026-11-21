@@ -29,14 +29,14 @@ Set JOBDB_BEARER_TOKEN if your deployment requires bearer authentication.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			req := jobdb.ClearCrashConcernRequest{JobKey: jobdb.JobKey{TenantId: tenant, JobId: args[0]}, Reason: reason, WorkerID: worker}
 			if err := req.Validate(); err != nil {
-				return fmt.Errorf("--tenant (-t) and JOB_ID are required: %w", err)
+				return fmt.Errorf("--project and JOB_ID are required: %w", err)
 			}
 			base, err := url.Parse(baseURL)
 			if err != nil || (base.Scheme != "http" && base.Scheme != "https") || base.Host == "" || base.User != nil || base.RawQuery != "" || base.Fragment != "" {
 				return fmt.Errorf("--url (-u) must be an HTTP(S) server URL without credentials, query, or fragment")
 			}
 			client := &http.Client{Transport: configurationAuthTransport{token: os.Getenv("JOBDB_BEARER_TOKEN")}}
-			rt, err := remote.New(strings.TrimRight(base.String(), "/"), client)
+			rt, err := remote.NewProjectRuntime(strings.TrimRight(base.String(), "/"), client)
 			if err != nil {
 				return err
 			}
@@ -45,7 +45,7 @@ Set JOBDB_BEARER_TOKEN if your deployment requires bearer authentication.`,
 			}
 			if jsonOutput {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(struct {
-					TenantID string `json:"tenantId"`
+					TenantID string `json:"projectId"`
 					JobID    string `json:"jobId"`
 					Cleared  bool   `json:"cleared"`
 				}{tenant, args[0], true})
@@ -54,7 +54,7 @@ Set JOBDB_BEARER_TOKEN if your deployment requires bearer authentication.`,
 			return err
 		},
 	}
-	cmd.Flags().StringVarP(&tenant, "tenant", "t", "", "tenant ID (required)")
+	addProjectSelector(cmd, &tenant, false)
 	cmd.Flags().StringVarP(&baseURL, "url", "u", "http://127.0.0.1:9047", "runtime server URL")
 	cmd.Flags().StringVar(&reason, "reason", "", "operator's reason for clearing crash concern")
 	cmd.Flags().StringVar(&worker, "worker-id", "jobdb-cli", "operator identifier for backend tracing")

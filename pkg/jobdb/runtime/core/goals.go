@@ -43,6 +43,9 @@ func (r *Runtime) FailGoal(ctx context.Context, req jobdb.FailGoalRequest) (jobd
 	if !r.JobGoalCapabilities().TerminalFailureRecords {
 		return jobdb.GoalInfo{}, jobdb.ErrJobGoalSemanticsUnsupported
 	}
+	if err := jobdb.RequireProjectWrite(ctx, r.projects, req.GoalKey.TenantId); err != nil {
+		return jobdb.GoalInfo{}, err
+	}
 	return r.scheduler.FailGoal(ctx, req)
 }
 func (r *Runtime) GetDependencyWait(ctx context.Context, k jobdb.DependencyWaitKey) (jobdb.DependencyWaitInfo, error) {

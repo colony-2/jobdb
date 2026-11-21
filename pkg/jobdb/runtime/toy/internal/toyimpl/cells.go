@@ -21,6 +21,17 @@ func (e *ToyEngine) cellsLocked(tenant string) *cellstate.State {
 	return s
 }
 func (r *Runtime) CreateCell(ctx context.Context, req jobdb.CreateCellRequest) (jobdb.Cell, error) {
+	normalized, validationErr := cellstate.ValidateCreate(ctx, req)
+	if validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	req = normalized
+
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.TenantID); projectErr != nil {
+		var projectZero0 jobdb.Cell
+		return projectZero0, projectErr
+	}
+
 	r.engine.mu.Lock()
 	defer r.engine.mu.Unlock()
 	return r.engine.cellsLocked(req.TenantID).Create(ctx, req)
@@ -36,6 +47,21 @@ func (r *Runtime) ListCells(ctx context.Context, req jobdb.ListCellsRequest) (jo
 	return r.engine.cellsLocked(req.TenantID).List(ctx, req)
 }
 func (r *Runtime) UpdateCell(ctx context.Context, req jobdb.UpdateCellRequest) (jobdb.Cell, error) {
+	current, validationErr := r.GetCell(ctx, req.CellKey)
+	if validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	if validationErr = jobdb.AuthorizeCell(ctx, req.TenantID, current.ID, "cells.update"); validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	if validationErr = jobdb.CheckCellRevision(req.IfMatch, current.Revision); validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.TenantID); projectErr != nil {
+		var projectZero0 jobdb.Cell
+		return projectZero0, projectErr
+	}
+
 	r.engine.mu.Lock()
 	defer r.engine.mu.Unlock()
 	state := r.engine.cellsLocked(req.TenantID)
@@ -43,6 +69,21 @@ func (r *Runtime) UpdateCell(ctx context.Context, req jobdb.UpdateCellRequest) (
 	return c, err
 }
 func (r *Runtime) RetireCell(ctx context.Context, req jobdb.RetireCellRequest) (jobdb.Cell, error) {
+	current, validationErr := r.GetCell(ctx, req.CellKey)
+	if validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	if validationErr = jobdb.AuthorizeCell(ctx, req.TenantID, current.ID, "cells.retire"); validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	if validationErr = jobdb.CheckCellRevision(req.IfMatch, current.Revision); validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, req.TenantID); projectErr != nil {
+		var projectZero0 jobdb.Cell
+		return projectZero0, projectErr
+	}
+
 	r.engine.mu.Lock()
 	defer r.engine.mu.Unlock()
 	e := r.engine
@@ -197,6 +238,14 @@ func (l *runtimeLease) LookupCell(ctx context.Context, name string) (jobdb.Resol
 }
 
 func (r *Runtime) CreateCellWithLeaseByID(ctx context.Context, key jobdb.JobKey, leaseID, workerID string, req jobdb.CreateCellRequest) (jobdb.Cell, error) {
+	if _, validationErr := r.ValidateExecutionLeaseByID(ctx, key, leaseID, workerID); validationErr != nil {
+		return jobdb.Cell{}, validationErr
+	}
+	if projectErr := jobdb.RequireProjectWrite(ctx, r.projects, key.TenantId); projectErr != nil {
+		var projectZero0 jobdb.Cell
+		return projectZero0, projectErr
+	}
+
 	p := cellstate.LeaseProof{JobKey: key, LeaseID: leaseID, WorkerID: workerID}
 	ctx = cellstate.WithLease(ctx, p)
 	r.engine.mu.Lock()

@@ -1,5 +1,7 @@
 package runtimecore_test
 
+import "github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 import (
 	"context"
 	"encoding/json"
@@ -15,9 +17,8 @@ import (
 func TestSchemaRegistryCanonicalizesValidatesAndStores(t *testing.T) {
 	store := newMemorySchemaStore()
 	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
-	registry, err := runtimecore.NewSchemaRegistry(runtimecore.SchemaRegistryConfig{
-		Store: store,
-		Now:   func() time.Time { return now },
+	registry, err := runtimecore.NewSchemaRegistry(runtimecore.SchemaRegistryConfig{Projects: celltest.UnrestrictedProjects{}, Store: store,
+		Now: func() time.Time { return now },
 	})
 	if err != nil {
 		t.Fatalf("new schema registry: %v", err)
@@ -54,7 +55,7 @@ func TestSchemaRegistryCanonicalizesValidatesAndStores(t *testing.T) {
 
 func TestResolveActiveSchemaForNewJobRejectsArchived(t *testing.T) {
 	store := newMemorySchemaStore()
-	registry, err := runtimecore.NewSchemaRegistry(runtimecore.SchemaRegistryConfig{Store: store})
+	registry, err := runtimecore.NewSchemaRegistry(runtimecore.SchemaRegistryConfig{Projects: celltest.UnrestrictedProjects{}, Store: store})
 	if err != nil {
 		t.Fatalf("new schema registry: %v", err)
 	}
@@ -79,7 +80,7 @@ func TestResolveActiveSchemaForNewJobRejectsArchived(t *testing.T) {
 
 func TestValidateChapterUsesRegisteredSchema(t *testing.T) {
 	store := newMemorySchemaStore()
-	registry, err := runtimecore.NewSchemaRegistry(runtimecore.SchemaRegistryConfig{Store: store})
+	registry, err := runtimecore.NewSchemaRegistry(runtimecore.SchemaRegistryConfig{Projects: celltest.UnrestrictedProjects{}, Store: store})
 	if err != nil {
 		t.Fatalf("new schema registry: %v", err)
 	}

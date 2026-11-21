@@ -14,10 +14,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestToyGoalAdmissionConformance(t *testing.T) { runtimetest.RunGoalAdmissionConformance(t, New()) }
+func TestToyGoalAdmissionConformance(t *testing.T) {
+	runtimetest.RunGoalAdmissionConformance(t, New(WithProjects(celltest.UnrestrictedProjects{})))
+}
 
 func TestToyTerminalFailureConformance(t *testing.T) {
-	runtimetest.RunTerminalFailureConformance(t, New())
+	runtimetest.RunTerminalFailureConformance(t, New(WithProjects(celltest.UnrestrictedProjects{})))
 }
 
 func failureSource(t *testing.T, r *Runtime) jobdb.JobHandle {
@@ -30,7 +32,7 @@ func failureSource(t *testing.T, r *Runtime) jobdb.JobHandle {
 func TestToyTerminalFailureRollsBackBeforeCommit(t *testing.T) {
 	for _, mode := range []string{"allocation-error", "collision", "preparation", "wrong-tenant", "cancel-before-commit"} {
 		t.Run(mode, func(t *testing.T) {
-			r := New()
+			r := New(WithProjects(celltest.UnrestrictedProjects{}))
 			h := failureSource(t, r)
 			key := jobdb.GoalKey{TenantId: h.JobKey.TenantId, GoalID: h.GoalID}
 			ctx, cancel := context.WithCancel(runtimetest.PrimaryGoalContext(context.Background()))
@@ -78,7 +80,7 @@ func TestToyTerminalFailureRollsBackBeforeCommit(t *testing.T) {
 }
 
 func TestToyTerminalFailureConcurrentReplay(t *testing.T) {
-	r := New()
+	r := New(WithProjects(celltest.UnrestrictedProjects{}))
 	h := failureSource(t, r)
 	req := jobdb.FailGoalRequest{GoalKey: jobdb.GoalKey{TenantId: h.JobKey.TenantId, GoalID: h.GoalID}, Message: "exact"}
 	const count = 16
@@ -116,7 +118,7 @@ func TestToyTerminalFailureConcurrentReplay(t *testing.T) {
 
 func TestToyTerminalFailureSuccessRace(t *testing.T) {
 	for range 16 {
-		r := New()
+		r := New(WithProjects(celltest.UnrestrictedProjects{}))
 		h := failureSource(t, r)
 		ctx := runtimetest.PrimaryGoalContext(context.Background())
 		lease, err := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "work"}}, LeaseDuration: time.Minute})
@@ -158,7 +160,7 @@ func TestToyTerminalFailureSuccessRace(t *testing.T) {
 
 func TestToyTerminalFailureDifferentMessageRace(t *testing.T) {
 	for range 16 {
-		r := New()
+		r := New(WithProjects(celltest.UnrestrictedProjects{}))
 		h := failureSource(t, r)
 		key := jobdb.GoalKey{TenantId: h.JobKey.TenantId, GoalID: h.GoalID}
 		start := make(chan struct{})
@@ -189,7 +191,7 @@ func TestToyTerminalFailureDifferentMessageRace(t *testing.T) {
 }
 
 func TestToyTerminalFailureDoesNotRequireOrGrantSubmission(t *testing.T) {
-	r := New()
+	r := New(WithProjects(celltest.UnrestrictedProjects{}))
 	h := failureSource(t, r)
 	ctx := jobdb.WithCellAuthority(context.Background(), jobdb.CellAuthority{Principal: "operator", TenantID: h.JobKey.TenantId, Permissions: map[string]bool{}})
 	submit := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: h.JobKey.TenantId, JobID: "denied", Cell: h.Cell, CellRepo: h.CellRepo, JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}}

@@ -280,3 +280,24 @@ terminal-record consumer integration follow shared contract publication. See [th
 [manual SQLite upgrade](MIGRATION-IMMUTABLE-GOALS.md) for primary-wins losses,
 backups, format refusal, capability limits and required writer exclusion/overlap
 drain before deployment activation.
+
+## Explicit project catalog
+
+`pkg/jobdb` adds `ProjectCatalog` and `ProjectAdmission` as separate capabilities.
+They do not extend the existing runtime interfaces. Internal tenant fields mean
+immutable project IDs; the catalog name is descriptive and never routes resources.
+`pkg/jobdb/projectcatalog` supplies memory and caller-owned SQLite/PostgreSQL
+storage. See [project catalog design](DESIGN-Project-Catalog.md) for receipts,
+explicit installation, conservative deletion and the required runtime integration.
+
+## Stable project identity
+
+`ProjectCatalog`, `ProjectAdmission`, `ProjectExistence` and `ProjectControl` are
+optional additive capabilities. Mandatory runtime method sets retain tenant
+vocabulary; tenant means immutable project ID. Core Config.Projects,
+SQLite/toy WithProjects and shared configuration/chapter/schema-store admission
+must be composed for writers; absent admission denies mutations.
+`remote.NewProjectRuntime` explicitly selects project HTTP while existing
+constructors retain tenant HTTP. SQLite exposes inventory, explicit installation
+and fresh-storage initialization. `projectcatalog` supplies memory/SQLite/Postgres
+catalog storage. See [project catalog design](DESIGN-Project-Catalog.md).

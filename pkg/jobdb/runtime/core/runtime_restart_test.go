@@ -54,7 +54,7 @@ func TestRestartValidatesOnlyNewChapters(t *testing.T) {
 	for _, mode := range []string{"retained", "valid-extra", "invalid-extra-schema", "oversized-extra"} {
 		t.Run(mode, func(t *testing.T) {
 			history := &restartBoundaryHistory{}
-			rt, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: restartTestScheduler{}, Chapters: history, Schemas: newMemorySchemaStore()})
+			rt, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Configurations: &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}}, Scheduler: restartTestScheduler{}, Chapters: history, Schemas: newMemorySchemaStore()})
 			require.NoError(t, err)
 			req := jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: jobdb.JobKey{TenantId: "tenant", JobId: "source"}, JobID: "restart", LastStepToKeep: 42, Schema: &jobdb.JobSchemaSelector{Schema: json.RawMessage(`{"chapterShape":false}`)}}}
 			switch mode {
@@ -150,7 +150,7 @@ func TestSubmissionOnlyRestartDiscriminatesErrors(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			history := &submissionBoundaryHistory{following: tc.err, count: tc.count, countErr: tc.countErr, invalid: tc.invalid}
-			rt, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: restartTestScheduler{}, Chapters: history, Schemas: newMemorySchemaStore()})
+			rt, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Configurations: &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}}, Scheduler: restartTestScheduler{}, Chapters: history, Schemas: newMemorySchemaStore()})
 			require.NoError(t, err)
 			_, err = rt.SubmitRestartJob(celltest.Context(context.Background()), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", JobID: "destination", PriorJobKey: jobdb.JobKey{TenantId: "tenant", JobId: "source"}, LastStepToKeep: tc.cut}})
 			if tc.succeeds {
@@ -179,7 +179,7 @@ func TestSubmissionRestartStillValidatesPresentChapterOne(t *testing.T) {
 				encoded.Payload = []byte("bad chapter")
 			}
 			history := &submissionBoundaryHistory{present: &encoded}
-			rt, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: restartTestScheduler{}, Chapters: history, Schemas: newMemorySchemaStore()})
+			rt, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Configurations: &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}}, Scheduler: restartTestScheduler{}, Chapters: history, Schemas: newMemorySchemaStore()})
 			require.NoError(t, err)
 			_, err = rt.SubmitRestartJob(celltest.Context(context.Background()), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{Cell: "test", JobID: "destination", PriorJobKey: jobdb.JobKey{TenantId: "tenant", JobId: "source"}}})
 			if mode == "valid" {

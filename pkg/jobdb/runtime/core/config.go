@@ -10,6 +10,9 @@ import (
 
 // Config wires the durable backend ports used by runtime core.
 type Config struct {
+	// Projects provides the catalog and durable write admission. Constructors never import projects.
+	Projects jobdb.ProjectControl
+
 	// MaxChapterApplicationPayloadBytes limits summed application bytes per chapter.
 	// Zero uses 256 KiB; negative values are invalid. Metadata and artifacts are excluded.
 	MaxChapterApplicationPayloadBytes int64

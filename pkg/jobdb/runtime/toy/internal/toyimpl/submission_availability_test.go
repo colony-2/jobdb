@@ -15,7 +15,7 @@ func TestSubmissionAvailabilityBoundary(t *testing.T) {
 	for _, kind := range []string{"completion", "exact-success", "goal-success"} {
 		for _, resolved := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/resolved=%v", kind, resolved), func(t *testing.T) {
-				rt := New()
+				rt := New(WithProjects(celltest.UnrestrictedProjects{}))
 				ctx := celltest.Context(context.Background())
 				p, err := celltest.Submit(rt, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", Cell: "test", CellRepo: "example.test/test", JobID: "producer", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 				require.NoError(t, err)

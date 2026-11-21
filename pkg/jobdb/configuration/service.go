@@ -14,6 +14,8 @@ import (
 
 // Service validates the public admin contract around an atomic backend Store.
 type Service struct {
+	Projects jobdb.ProjectAdmission
+
 	Store  Store
 	Limits jobdb.ConfigurationLimits
 }
@@ -160,6 +162,9 @@ func (s *Service) mutate(ctx context.Context, tenant, name string, value json.Ra
 	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if err := jobdb.RequireProjectWrite(ctx, s.Projects, tenant); err != nil {
+		return "", err
 	}
 	result, err := s.Store.Update(ctx, tenant, func(current jobdb.ConfigurationSnapshot) (jobdb.ConfigurationSnapshot, error) {
 		if !ValidateRevision(current.Revision) || current.Values == nil {

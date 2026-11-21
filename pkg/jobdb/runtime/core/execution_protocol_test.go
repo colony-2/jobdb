@@ -1,5 +1,7 @@
 package runtimecore_test
 
+import "github.com/colony-2/jobdb/pkg/jobdb/celltest"
+
 import (
 	"context"
 	"encoding/json"
@@ -43,7 +45,7 @@ func TestExecutionCompletionIndependentStores(t *testing.T) {
 			encoded, err := runtimecore.EncodeChapter(runtimecore.EncodeChapterRequest{Chapter: jobdb.Chapter{Ordinal: 3, TaskType: "__execution__", Body: jobdb.ExecutionChapter{Record: raw}}})
 			require.NoError(t, err)
 			chapters := &executionCompletionChapters{taskCompletionChapters: &taskCompletionChapters{scheduler: scheduler}, input: encoded}
-			rt, err := runtimecore.NewRuntime(runtimecore.Config{Configurations: &configuration.MemoryStore{}, Scheduler: scheduler, Chapters: chapters, Schemas: newMemorySchemaStore()})
+			rt, err := runtimecore.NewRuntime(runtimecore.Config{Projects: celltest.UnrestrictedProjects{}, Configurations: &configuration.MemoryStore{Projects: celltest.UnrestrictedProjects{}}, Scheduler: scheduler, Chapters: chapters, Schemas: newMemorySchemaStore()})
 			require.NoError(t, err)
 			req := jobdb.CompleteTaskIfWaitingRequest{JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}, Route: jobdb.Route{JobType: "task-route", TaskType: "external"}, ResumeJobType: "job-route", InputOrdinal: 3, OutputOrdinal: 4, InputHash: hash, Data: jobdb.NewTaskDataOrPanic("answer")}
 			if mode == "stale-generation" {

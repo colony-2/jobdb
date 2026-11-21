@@ -35,7 +35,7 @@ func TestFreshSecretsBootstrapTasksAndRenewal(t *testing.T) {
 				ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 5*time.Second)
 				defer cancel()
 				provider := &freshIntegrationProvider{requests: make(chan jobdb.SecretResolveRequest, 16)}
-				var runtime jobdb.WorkflowRuntime = toy.New(toy.WithSecretProvider(provider))
+				var runtime jobdb.WorkflowRuntime = toy.New(toy.WithSecretProvider(provider), toy.WithProjects(celltest.UnrestrictedProjects{}))
 				if transport == "http" {
 					server := httptest.NewServer(celltest.Handler(remote.NewServer(runtime)))
 					t.Cleanup(server.Close)
@@ -154,7 +154,7 @@ func TestBootstrapSecretResolverFollowsAttemptCacheReset(t *testing.T) {
 		t.Run(fmt.Sprint(callback), func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
 			provider := &freshIntegrationProvider{requests: make(chan jobdb.SecretResolveRequest, 8)}
-			runtime := toy.New(toy.WithSecretProvider(provider))
+			runtime := toy.New(toy.WithSecretProvider(provider), toy.WithProjects(celltest.UnrestrictedProjects{}))
 			var bootstrap SecretResolver
 			var runs int
 			body := func(resolver SecretResolver) (JobData, error) {

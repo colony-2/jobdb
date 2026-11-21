@@ -41,3 +41,6 @@ func WithConfigurationLimits(limits jobdb.ConfigurationLimits) Option {
 func WithMaxChapterApplicationPayloadBytes(limit int64) Option {
 	return toyimpl.WithMaxChapterApplicationPayloadBytes(limit)
 }
+
+// WithProjects supplies an explicitly installed project catalog.
+func WithProjects(projects jobdb.ProjectControl) Option { return toyimpl.WithProjects(projects) }
