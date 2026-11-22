@@ -409,3 +409,9 @@ compact-history frontiers, evidence gaps and a minimal consumer example.
 Runtime inputs no longer require goal attachment. See the
 [consumer input migration](../../docs/MIGRATION-CONSUMER-RUNTIME.md) for retained
 HTTP handlers, narrow readers and explicit optional-capability forwarding.
+
+Resource-limited tasks can return `EAGAINWait(ctx, options...)` after stopping
+and joining their own activity. This requests a durable suspension of the same
+attempt; it does not sleep locally or acknowledge persistence. Defaults are
+2 seconds, growth 2, maximum 30 seconds, jitter 20%, and the backend's default
+crash allowance. See [resource backoff](../../docs/GUIDE-RESOURCE-BACKOFF.md).

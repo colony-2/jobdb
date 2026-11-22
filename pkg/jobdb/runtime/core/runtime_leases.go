@@ -135,6 +135,9 @@ type executionLease struct {
 var _ jobdb.ExecutionLease = (*executionLease)(nil)
 
 func (r *Runtime) wrapLease(snapshot LeaseSnapshot) (*executionLease, error) {
+	if _, ok := r.scheduler.(ResourceBackoffScheduler); !ok {
+		snapshot.ResourceBackoff = nil
+	}
 	return &executionLease{runtime: r, snapshot: snapshot, expiresAt: snapshot.Identity.ExpiresAt}, nil
 }
 
@@ -157,7 +160,7 @@ func (l *executionLease) ClientPayload() json.RawMessage {
 }
 func (l *executionLease) ClientPayloadRevision() int64 { return l.snapshot.ClientPayloadRevision }
 func (l *executionLease) ExecutionState() jobdb.ExecutionState {
-	return executionState(l.snapshot.RunPolicy, l.snapshot.TaskWork)
+	return resourceExecutionState(l.snapshot.RunPolicy, l.snapshot.TaskWork, l.snapshot.CrashBudgetRemaining, l.snapshot.ResourceBackoff, l.snapshot.ResourceResume)
 }
 
 func (l *executionLease) LeaseWorkerID() string { return l.snapshot.Identity.WorkerID }

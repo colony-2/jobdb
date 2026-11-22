@@ -20,7 +20,7 @@ func TestPrimaryClaimPreservesFutureAlternate(t *testing.T) {
 			key := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 			primary := jobdb.Route{JobType: "job", TaskType: "primary"}
 			fallback := jobdb.Route{JobType: "job"}
-			record := &jobRecord{cell: c.Resolved(),
+			record := &jobRecord{crashBudgetRemaining: 5, cell: c.Resolved(),
 				route: primary, alternateRoute: &fallback,
 				alternateAt: time.Now().Add(time.Hour), status: jobdb.JobStatusReady,
 			}
@@ -59,7 +59,7 @@ func TestPrimaryClaimPreservesFutureAlternate(t *testing.T) {
 func TestExpiredLeaseActivatesAlternateRouteInSamePoll(t *testing.T) {
 	now := time.Now().UTC()
 	fallback := jobdb.Route{JobType: "fallback:job", TaskType: "fallback:task"}
-	record := &jobRecord{
+	record := &jobRecord{crashBudgetRemaining: 5,
 		route:          jobdb.Route{JobType: "primary:job", TaskType: "primary:task"},
 		alternateRoute: &fallback, alternateAt: now.Add(-time.Second),
 		leased: true, leaseID: "expired", leaseExpiresAt: now.Add(-time.Second),
@@ -82,7 +82,7 @@ func TestAvailableRoutesDiscoveryTracksTimeWithoutMutation(t *testing.T) {
 		now := time.Now()
 		for _, mode := range []string{"alternate", "delay", "dependency", "lease"} {
 			key := jobdb.JobKey{TenantId: "tenant", JobId: mode}
-			record := &jobRecord{cell: c.Resolved(), jobType: "job", route: primary, status: jobdb.JobStatusReady, createdAt: now}
+			record := &jobRecord{crashBudgetRemaining: 5, cell: c.Resolved(), jobType: "job", route: primary, status: jobdb.JobStatusReady, createdAt: now}
 			switch mode {
 			case "alternate":
 				record.alternateRoute = &alternate
@@ -94,7 +94,7 @@ func TestAvailableRoutesDiscoveryTracksTimeWithoutMutation(t *testing.T) {
 				record.status = jobdb.JobStatusPendingJobs
 				record.waitFor = []string{"blocker"}
 				record.waitDeadline = now.Add(time.Minute)
-				rt.engine.jobRecords[jobdb.JobKey{TenantId: "tenant", JobId: "blocker"}] = &jobRecord{cell: c.Resolved(), status: jobdb.JobStatusReady}
+				rt.engine.jobRecords[jobdb.JobKey{TenantId: "tenant", JobId: "blocker"}] = &jobRecord{crashBudgetRemaining: 5, cell: c.Resolved(), status: jobdb.JobStatusReady}
 			case "lease":
 				record.status = jobdb.JobStatusActive
 				record.leased = true

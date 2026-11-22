@@ -1,7 +1,7 @@
 # Clearing a job's crash concern
 
 A job enters `CRASH_CONCERN` after repeated expired-lease reclaims. Workers stop
-acquiring it until an operator clears the consecutive expiration count. After
+acquiring it until an operator restores its crash budget. After
 fixing the worker problem, clear the job through the CLI, REST API, or Go runtime.
 The operation is supported by the toy, SQLite, and PostgreSQL runtimes, including
 access through the remote runtime.
@@ -70,7 +70,7 @@ transaction and uses the same request and errors.
 
 ## Recovery behavior
 
-Clearing atomically sets only the consecutive expired-lease count to zero. It
+In SQLite and toy, clearing atomically assigns the default remaining crash budget, five. It
 preserves the job ID, chapters, payload, route, dependencies, availability,
 execution deadlines, and lifetime expiration statistics. Workers acquire the
 existing job normally and resume using its recorded history. Task work and
@@ -82,5 +82,14 @@ constraints still apply. Retrying the clear is harmless while the job remains
 inactive; if a worker has already acquired it, the retry returns a conflict.
 
 The expired lease record is retained. When a worker next reclaims that lease,
-the consecutive count advances from zero to one. Continued crashes can therefore
-block the job again. A successful reschedule resets the streak normally.
+the remaining budget decreases from five to four. Five successful execution reclaims
+install balances 4/3/2/1/0. The final zero-credit lease remains ACTIVE until expiry;
+the next acquisition is blocked. Expiry alone and reads never debit credit. A
+successful ordinary reschedule assigns five again; a resource wait assigns its
+bound custom or default allowance. Child submission and append to an existing
+job do not refill the parent. Missing snapshot credit is unknown, while zero is
+a known balance.
+
+See [durable resource backoff](GUIDE-RESOURCE-BACKOFF.md) for the optional workflow
+helper, backend contract and required offline SQLite format-14 conversion.
+PostgreSQL countdown delivery and its configurable default belong to pgjobdb.

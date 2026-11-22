@@ -29,6 +29,7 @@ type FindTasksWaitingRequest struct {
 }
 
 type TaskContext struct {
+	resourceContext     *executionContext
 	goalID              string
 	cell                jobdb.ResolvedCell
 	executionContext    context.Context

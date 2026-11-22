@@ -15,6 +15,7 @@ import (
 )
 
 type executionLease struct {
+	state                 jobdb.ExecutionState
 	cell                  jobdb.ResolvedCell
 	goalID                string
 	mu                    sync.Mutex // protects this handle's expiry during KeepAlive
@@ -42,7 +43,7 @@ func (l *executionLease) LeaseExpiry() time.Time {
 }
 
 func (l *executionLease) checkExpiry() error {
-	if !l.LeaseExpiry().After(time.Now()) {
+	if !l.LeaseExpiry().After(l.runtime.now()) {
 		return jobdb.ErrExecutionLeaseLost
 	}
 	return nil
@@ -56,9 +57,11 @@ func (l *executionLease) Job() jobdb.JobHandle {
 
 func (l *executionLease) Route() jobdb.Route { return l.route }
 
-func (l *executionLease) ClientPayload() json.RawMessage       { return cloneJSON(l.clientPayload) }
-func (l *executionLease) ClientPayloadRevision() int64         { return l.clientPayloadRevision }
-func (l *executionLease) ExecutionState() jobdb.ExecutionState { return jobExecutionState(l.payload) }
+func (l *executionLease) ClientPayload() json.RawMessage { return cloneJSON(l.clientPayload) }
+func (l *executionLease) ClientPayloadRevision() int64   { return l.clientPayloadRevision }
+func (l *executionLease) ExecutionState() jobdb.ExecutionState {
+	return jobdb.CloneExecutionState(l.state)
+}
 
 func (l *executionLease) KeepAlive(ctx context.Context) error {
 
@@ -136,7 +139,7 @@ func (r *Runtime) KeepAliveLeaseByIDWithExpiry(ctx context.Context, jobKey jobdb
 		if err != nil {
 			return err
 		}
-		now := time.Now().UTC()
+		now := r.now()
 		if err := validateLeaseRow(row, leaseID, workerID, now); err != nil {
 			return err
 		}
@@ -188,20 +191,20 @@ func (r *Runtime) CompleteJobWithLeaseByID(ctx context.Context, jobKey jobdb.Job
 		if len(req.ArtifactUploads) > 0 || req.ClientPayloadUpdate != nil {
 			return fmt.Errorf("payload failure cannot carry uploads or client updates")
 		}
-		return r.completePayloadFailure(ctx, jobKey, *req.Chapter, func(_ *sql.Tx, row jobRow) error { return validateLeaseRow(row, leaseID, workerID, time.Now().UTC()) })
+		return r.completePayloadFailure(ctx, jobKey, *req.Chapter, func(_ *sql.Tx, row jobRow) error { return validateLeaseRow(row, leaseID, workerID, r.now()) })
 	}
 
 	if err := r.ensureCompletionChapter(ctx, jobKey, leaseID, workerID, req); err != nil {
 		return err
 	}
 	status := completionStatusFromRequest(req.Status)
-	now := time.Now().UTC()
+	now := r.now()
 	return r.withTx(ctx, func(tx *sql.Tx) error {
 		row, err := r.loadJobRowTx(ctx, tx, jobKey)
 		if err != nil {
 			return err
 		}
-		if err := validateLeaseRow(row, leaseID, workerID, time.Now().UTC()); err != nil {
+		if err := validateLeaseRow(row, leaseID, workerID, r.now()); err != nil {
 			return err
 		}
 		if err := r.updateClientPayloadTx(ctx, tx, row, req.ClientPayloadUpdate); err != nil {
@@ -257,7 +260,7 @@ func (r *Runtime) RescheduleJobWithLeaseByID(ctx context.Context, jobKey jobdb.J
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC()
+	now := r.now()
 	availableAt := now
 	var waitDeadline any
 	if req.WaitUntil != nil {
@@ -283,7 +286,7 @@ func (r *Runtime) RescheduleJobWithLeaseByID(ctx context.Context, jobKey jobdb.J
 		if err != nil {
 			return err
 		}
-		if err := validateLeaseRow(row, leaseID, workerID, time.Now().UTC()); err != nil {
+		if err := validateLeaseRow(row, leaseID, workerID, r.now()); err != nil {
 			return err
 		}
 		waitID := ""
@@ -318,7 +321,7 @@ func (r *Runtime) RescheduleJobWithLeaseByID(ctx context.Context, jobKey jobdb.J
 		}
 		_, err = tx.ExecContext(ctx, `
 UPDATE jobdb_jobs
-SET consecutive_expirations = 0, route_job_type = ?, route_task_type = ?, payload = ?, wait_for = ?, available_at_ns = ?, wait_deadline_ns = ?,
+SET crash_budget_remaining = 5, resource_not_before_ns=NULL, resource_resume=NULL, route_job_type = ?, route_task_type = ?, payload = ?, wait_for = ?, available_at_ns = ?, wait_deadline_ns = ?,
 	lease_id = NULL, lease_worker_id = NULL, lease_expires_at_ns = NULL,
 	alternate_job_type = ?, alternate_task_type = ?, alternate_at_ns = ?, updated_at_ns = ?
 WHERE tenant_id = ? AND job_id = ?`,
@@ -376,7 +379,7 @@ func (r *Runtime) ValidateExecutionLeaseByID(ctx context.Context, key jobdb.JobK
 	if err != nil {
 		return jobdb.LeaseValidity{}, err
 	}
-	return jobdb.LeaseValidity{Cell: row.cell, GoalID: row.goalID, ExpiresAt: timeFromNS(row.leaseExpiresAtNS.Int64), Route: row.nextRoute}, nil
+	return jobdb.LeaseValidity{ExecutionState: rowExecutionState(row), ClientPayloadRevision: row.clientPayloadRevision, Cell: row.cell, GoalID: row.goalID, ExpiresAt: timeFromNS(row.leaseExpiresAtNS.Int64), Route: row.nextRoute}, nil
 }
 
 func (r *Runtime) validateLease(ctx context.Context, jobKey jobdb.JobKey, leaseID string, workerID string) (jobRow, error) {
@@ -384,7 +387,7 @@ func (r *Runtime) validateLease(ctx context.Context, jobKey jobdb.JobKey, leaseI
 	if err != nil {
 		return jobRow{}, err
 	}
-	return row, validateLeaseRow(row, leaseID, workerID, time.Now().UTC())
+	return row, validateLeaseRow(row, leaseID, workerID, r.now())
 }
 
 func validateLeaseRow(row jobRow, leaseID string, workerID string, now time.Time) error {

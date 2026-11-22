@@ -33,31 +33,32 @@ type ExecutionArtifact struct {
 // ExecutionRecord is the versioned execution history wire contract. Unknown
 // fields and kinds are rejected rather than interpreted as a different event.
 type ExecutionRecord struct {
-	Version           uint32             `json:"version"`
-	Kind              string             `json:"kind"`
-	ID                string             `json:"id,omitempty"`
-	Activation        string             `json:"activation,omitempty"`
-	Versions          *ExecutionVersions `json:"versions,omitempty"`
-	At                time.Time          `json:"at"`
-	Descriptor        json.RawMessage    `json:"descriptor,omitempty"`
-	Attempt           int                `json:"attempt,omitempty"`
-	Deadline          time.Time          `json:"deadline,omitempty"`
-	TotalDeadline     time.Time          `json:"total_deadline,omitempty"`
-	Input             *ExecutionSnapshot `json:"input,omitempty"`
-	Output            *ExecutionSnapshot `json:"output,omitempty"`
-	ErrorKind         string             `json:"error_kind,omitempty"`
-	Error             json.RawMessage    `json:"error,omitempty"`
-	Rule              string             `json:"rule,omitempty"`
-	Disposition       string             `json:"disposition,omitempty"`
-	Retryable         *bool              `json:"retryable,omitempty"`
-	Retry             bool               `json:"retry,omitempty"`
-	WakeAt            time.Time          `json:"wake_at,omitempty"`
-	Source            *JobKey            `json:"source,omitempty"`
-	Payload           json.RawMessage    `json:"payload,omitempty"`
-	Dependencies      []Dependency       `json:"dependencies,omitempty"`
-	Prerequisites     []JobPrerequisite  `json:"prerequisites,omitempty"`
-	AlternateAt       *time.Time         `json:"alternate_at,omitempty"`
-	ExecutionTaskType string             `json:"execution_task_type,omitempty"`
+	Resource          *ResourceCheckpoint `json:"-"`
+	Version           uint32              `json:"version"`
+	Kind              string              `json:"kind"`
+	ID                string              `json:"id,omitempty"`
+	Activation        string              `json:"activation,omitempty"`
+	Versions          *ExecutionVersions  `json:"versions,omitempty"`
+	At                time.Time           `json:"at"`
+	Descriptor        json.RawMessage     `json:"descriptor,omitempty"`
+	Attempt           int                 `json:"attempt,omitempty"`
+	Deadline          time.Time           `json:"deadline,omitempty"`
+	TotalDeadline     time.Time           `json:"total_deadline,omitempty"`
+	Input             *ExecutionSnapshot  `json:"input,omitempty"`
+	Output            *ExecutionSnapshot  `json:"output,omitempty"`
+	ErrorKind         string              `json:"error_kind,omitempty"`
+	Error             json.RawMessage     `json:"error,omitempty"`
+	Rule              string              `json:"rule,omitempty"`
+	Disposition       string              `json:"disposition,omitempty"`
+	Retryable         *bool               `json:"retryable,omitempty"`
+	Retry             bool                `json:"retry,omitempty"`
+	WakeAt            time.Time           `json:"wake_at,omitempty"`
+	Source            *JobKey             `json:"source,omitempty"`
+	Payload           json.RawMessage     `json:"payload,omitempty"`
+	Dependencies      []Dependency        `json:"dependencies,omitempty"`
+	Prerequisites     []JobPrerequisite   `json:"prerequisites,omitempty"`
+	AlternateAt       *time.Time          `json:"alternate_at,omitempty"`
+	ExecutionTaskType string              `json:"execution_task_type,omitempty"`
 }
 
 func DecodeExecutionRecord(raw []byte) (ExecutionRecord, error) {
@@ -81,7 +82,7 @@ func DecodeExecutionRecord(raw []byte) (ExecutionRecord, error) {
 		if r.Versions == nil || r.Versions.ExecutionPatternVersion != r.Version || r.Versions.JobDBVersion == "" {
 			return r, fmt.Errorf("invalid execution versions")
 		}
-	case "dependency_binding", "checkpoint", "dispatch", "join_result", "admission", "scope", "task", "attempt", "result", "catch", "handled", "decision", "end", "wait", "restart", "continuation", "sleep", "join":
+	case "resource_checkpoint", "dependency_binding", "checkpoint", "dispatch", "join_result", "admission", "scope", "task", "attempt", "result", "catch", "handled", "decision", "end", "wait", "restart", "continuation", "sleep", "join":
 		if r.ID == "" {
 			return r, fmt.Errorf("execution %s requires identity", r.Kind)
 		}
@@ -96,6 +97,20 @@ func DecodeExecutionRecord(raw []byte) (ExecutionRecord, error) {
 		}
 	}
 	switch r.Kind {
+	case "resource_checkpoint":
+		var resource ResourceCheckpoint
+		decoder := json.NewDecoder(bytes.NewReader(r.Payload))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&resource); err != nil {
+			return r, fmt.Errorf("invalid resource checkpoint: %w", err)
+		}
+		if err := decoder.Decode(new(any)); err != io.EOF {
+			return r, fmt.Errorf("trailing resource checkpoint data")
+		}
+		r.Resource = &resource
+		if r.Resource == nil || r.Resource.Version != 1 || r.Resource.Invocation != r.ID || r.Resource.Attempt < 1 || r.Resource.PayloadRevision < 0 || r.Resource.Policy.Validate() != nil {
+			return r, fmt.Errorf("invalid resource checkpoint")
+		}
 	case "dependency_binding":
 		var wait DependencyWaitInfo
 		if json.Unmarshal(r.Payload, &wait) != nil || wait.WaitID == "" || wait.State == DependencyPending || wait.State == "" {
@@ -146,7 +161,18 @@ func DecodeExecutionRecord(raw []byte) (ExecutionRecord, error) {
 	if r.Disposition != "" && r.Disposition != "handled" && r.Disposition != "continue" && r.Disposition != "propagate" {
 		return r, fmt.Errorf("invalid execution disposition")
 	}
-	for _, snapshot := range []*ExecutionSnapshot{r.Input, r.Output} {
+	snapshots := []*ExecutionSnapshot{r.Input, r.Output}
+	if r.Resource != nil {
+		seen := map[string]bool{}
+		for _, frame := range r.Resource.Frames {
+			if frame.Invocation == "" || seen[frame.Invocation] || frame.Attempt < 1 || frame.Input == nil || frame.ExecutionTaskType == "" {
+				return r, fmt.Errorf("invalid resource frame")
+			}
+			seen[frame.Invocation] = true
+			snapshots = append(snapshots, frame.Input)
+		}
+	}
+	for _, snapshot := range snapshots {
 		if snapshot != nil {
 			if !json.Valid(snapshot.Data) {
 				return r, fmt.Errorf("invalid execution snapshot")

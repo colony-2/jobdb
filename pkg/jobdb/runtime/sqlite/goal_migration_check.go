@@ -131,7 +131,7 @@ func CheckGoalMigration(ctx context.Context, path string) (report GoalMigrationR
 }
 
 func newGoalMigrationReport() GoalMigrationReport {
-	return GoalMigrationReport{TargetFormat: 13, Verdict: "BLOCKED", Tenants: []GoalMigrationTenant{}, Goals: []GoalMigrationPlan{}, DroppedMemberships: []GoalMigrationMembership{}, Issues: []GoalMigrationIssue{}}
+	return GoalMigrationReport{TargetFormat: 14, Verdict: "BLOCKED", Tenants: []GoalMigrationTenant{}, Goals: []GoalMigrationPlan{}, DroppedMemberships: []GoalMigrationMembership{}, Issues: []GoalMigrationIssue{}}
 }
 
 func (r *GoalMigrationReport) issue(code, tenant, goal, job, wait, message string) {
@@ -170,7 +170,7 @@ func inspectGoalMigration(ctx context.Context, tx *sql.Tx, report *GoalMigration
 		report.Verdict = "EMPTY"
 		return nil
 	}
-	if report.SourceFormat == 13 {
+	if report.SourceFormat == 13 || report.SourceFormat == 14 {
 		if err := validateRetainedGoalSchema(ctx, tx); err != nil {
 			report.issue("inconsistent_schema", "", "", "", "", err.Error())
 			return report.finish()
@@ -184,7 +184,15 @@ func inspectGoalMigration(ctx context.Context, tx *sql.Tx, report *GoalMigration
 		if err := report.finish(); err != nil {
 			return err
 		}
-		report.Verdict = "CURRENT"
+		if report.SourceFormat == 13 {
+			if err := validateLegacyCrashCounts(ctx, tx); err != nil {
+				report.issue("invalid_crash_count", "", "", "", "", err.Error())
+				return report.finish()
+			}
+			report.Verdict = "READY"
+		} else {
+			report.Verdict = "CURRENT"
+		}
 		return nil
 	}
 	if report.SourceFormat != 11 && report.SourceFormat != 12 {

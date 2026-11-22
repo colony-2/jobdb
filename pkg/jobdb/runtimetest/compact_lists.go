@@ -73,7 +73,7 @@ func RunCompactListConformance(t *testing.T, harnesses ...Harness) {
 				require.Empty(t, row.OtherGoalIDs)
 				require.Empty(t, row.WaitFor)
 				require.Equal(t, json.RawMessage(`{"detail":"payload"}`), row.ClientPayload)
-				require.Equal(t, jobdb.ExecutionState{RunPolicy: policy}, row.ExecutionState)
+				require.Equal(t, jobdb.ExecutionState{RunPolicy: policy}, compactLegacyExecutionState(row.ExecutionState))
 				if row.JobKey == consumer.JobKey {
 					require.Equal(t, consumer.GoalID, row.GoalID, "membership filtering must preserve the primary goal")
 					require.Empty(t, row.CompletionDetail)
@@ -157,7 +157,7 @@ func runStoredListFields(t *testing.T, r jobdb.ConsumerRuntime, tenant string) {
 				got := page.Jobs[0]
 				require.Equal(t, payload, got.ClientPayload)
 				require.EqualValues(t, 1, got.ClientPayloadRevision)
-				require.Equal(t, jobdb.ExecutionState{RunPolicy: policy, TaskWait: task}, got.ExecutionState)
+				require.Equal(t, jobdb.ExecutionState{RunPolicy: policy, TaskWait: task}, compactLegacyExecutionState(got.ExecutionState))
 				require.Equal(t, prerequisites, got.WaitFor)
 				require.Empty(t, got.OtherGoalIDs)
 				require.Nil(t, got.BlockingWait)
@@ -174,7 +174,7 @@ func runStoredListFields(t *testing.T, r jobdb.ConsumerRuntime, tenant string) {
 			got := page.Jobs[0]
 			require.Equal(t, payload, got.ClientPayload)
 			require.EqualValues(t, 1, got.ClientPayloadRevision)
-			require.Equal(t, jobdb.ExecutionState{RunPolicy: policy, TaskWait: task}, got.ExecutionState)
+			require.Equal(t, jobdb.ExecutionState{RunPolicy: policy, TaskWait: task}, compactLegacyExecutionState(got.ExecutionState))
 			// Some backends clear prerequisites on completion. The list must
 			// expose their stored final state, matching selected-job inspection.
 			info, err := r.GetJob(ctx, h.JobKey)
@@ -184,4 +184,14 @@ func runStoredListFields(t *testing.T, r jobdb.ConsumerRuntime, tenant string) {
 			require.Equal(t, detail, got.CompletionDetail)
 		})
 	}
+}
+
+// This existing suite supports pre-resource external backends. The dedicated
+// resource suite verifies optional fields and durability; retain every legacy
+// field assertion here while allowing additive scheduler snapshots.
+func compactLegacyExecutionState(s jobdb.ExecutionState) jobdb.ExecutionState {
+	s.CrashBudgetRemaining = nil
+	s.ResourceBackoff = nil
+	s.ResourceResume = nil
+	return s
 }

@@ -1449,6 +1449,30 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '204':
           description: Job completion applied
+  /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/resource-backoff:
+    post:
+      tags: [leases]
+      operationId: rescheduleResourceBackoff
+      summary: Atomically suspend for resource backoff or replay its exact receipt
+      description: Signature, audience and exact scope remain required for retained receipt replay after expiry. No fresh mutation is authorized by an expired credential.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResourceBackoffRequest'
+      responses:
+        '200':
+          description: Immutable accepted receipt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceBackoffReceipt'
   /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/reschedule:
     post:
       tags: [leases]
@@ -3326,6 +3350,30 @@ paths:
       summary: Keep lease alive
       tags:
         - projects
+  /v1/projects/{projectId}/jobs/{jobId}/leases/{leaseId}/resource-backoff:
+    post:
+      tags: [projects]
+      operationId: ProjectrescheduleResourceBackoff
+      summary: Atomically suspend for resource backoff or replay its exact receipt
+      description: Signature, audience and exact scope remain required for retained receipt replay after expiry. No fresh mutation is authorized by an expired credential.
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResourceBackoffRequest'
+      responses:
+        '200':
+          description: Immutable accepted receipt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceBackoffReceipt'
   /v1/projects/{projectId}/jobs/{jobId}/leases/{leaseId}/reschedule:
     post:
       description: |
@@ -4786,6 +4834,7 @@ components:
       type: object
       additionalProperties: false
       properties:
+        resource.backoff: {type: boolean, default: false, description: Allow the atomic resource action and exact receipt replay; grants no chapter reads or ordinary reschedule authority.}
         cells.create: {$ref: '#/components/schemas/DelegationNames'}
         jobs.submit: {$ref: '#/components/schemas/DelegationSubmitPermission'}
         secrets.resolve:
@@ -5692,10 +5741,83 @@ components:
           type: string
         inputHash:
           type: string
+    ResourceBackoffPolicy:
+      type: object
+      additionalProperties: false
+      x-go-type: jobdb.ResourceBackoffPolicy
+      x-go-type-import: {path: github.com/colony-2/jobdb/pkg/jobdb, name: jobdb}
+      required: [version, initial, growth, maximum, jitter]
+      properties:
+        version: {type: integer}
+        initial: {type: integer, format: int64, description: Whole-millisecond duration in nanoseconds}
+        growth: {type: number, minimum: 1}
+        maximum: {type: integer, format: int64, maximum: 30000000000}
+        jitter: {type: number, minimum: 0, maximum: 0.2}
+        crashAllowance: {type: integer, format: int64, minimum: 1}
+    ResourceBackoffCapability:
+      type: object
+      additionalProperties: false
+      x-go-type: jobdb.ResourceBackoffCapability
+      x-go-type-import: {path: github.com/colony-2/jobdb/pkg/jobdb, name: jobdb}
+      required: [protocolVersion, durabilityVersion]
+      properties:
+        protocolVersion: {type: integer}
+        durabilityVersion: {type: integer}
+    ResourceResume:
+      type: object
+      additionalProperties: false
+      x-go-type: jobdb.ResourceResume
+      x-go-type-import: {path: github.com/colony-2/jobdb/pkg/jobdb, name: jobdb}
+      required: [version, checkpointOrdinal, checkpointHash, invocation, attempt, route, payloadRevision]
+      properties:
+        version: {type: integer}
+        checkpointOrdinal: {type: integer, format: int64}
+        checkpointHash: {type: string}
+        invocation: {type: string}
+        attempt: {type: integer}
+        route: {$ref: '#/components/schemas/Route'}
+        taskWait: {$ref: '#/components/schemas/TaskWait'}
+        payloadRevision: {type: integer, format: int64}
+    ResourceBackoffRequest:
+      type: object
+      additionalProperties: false
+      x-go-type: jobdb.ResourceBackoffRequest
+      x-go-type-import: {path: github.com/colony-2/jobdb/pkg/jobdb, name: jobdb}
+      required: [version, requestId, invocation, attempt, reason, policy, resume]
+      properties:
+        version: {type: integer}
+        requestId: {type: string}
+        invocation: {type: string}
+        attempt: {type: integer}
+        reason: {type: string, enum: [resource_temporarily_unavailable]}
+        policy: {$ref: '#/components/schemas/ResourceBackoffPolicy'}
+        resume: {$ref: '#/components/schemas/ResourceResume'}
+        clientPayloadUpdate: {$ref: '#/components/schemas/ClientPayloadUpdate'}
+    ResourceBackoffReceipt:
+      type: object
+      additionalProperties: false
+      x-go-type: jobdb.ResourceBackoffReceipt
+      x-go-type-import: {path: github.com/colony-2/jobdb/pkg/jobdb, name: jobdb}
+      required: [version, requestId, jobKey, leaseId, workerId, count, wakeAt, reason, policy, resolvedCrashAllowance, resume]
+      properties:
+        version: {type: integer}
+        requestId: {type: string}
+        jobKey: {$ref: '#/components/schemas/JobKey'}
+        leaseId: {type: string}
+        workerId: {type: string}
+        count: {type: integer, format: int64}
+        wakeAt: {type: string, format: date-time}
+        reason: {type: string}
+        policy: {$ref: '#/components/schemas/ResourceBackoffPolicy'}
+        resolvedCrashAllowance: {type: integer, format: int64}
+        resume: {$ref: '#/components/schemas/ResourceResume'}
     ExecutionState:
       type: object
       additionalProperties: false
       properties:
+        crashBudgetRemaining: {type: integer, format: int64, minimum: 0}
+        resourceBackoff: {$ref: '#/components/schemas/ResourceBackoffCapability'}
+        resourceResume: {$ref: '#/components/schemas/ResourceResume'}
         runPolicy:
           $ref: '#/components/schemas/RunPolicy'
         taskWait:

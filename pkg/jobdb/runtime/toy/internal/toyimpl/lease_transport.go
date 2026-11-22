@@ -29,10 +29,10 @@ func (r *Runtime) KeepAliveLeaseByIDWithExpiry(ctx context.Context, jobKey jobdb
 	}
 	record.mu.Lock()
 	defer record.mu.Unlock()
-	if leaseID == "" || record.leaseID != leaseID || record.leaseWorkerID != workerID || !record.leased || !record.leaseExpiresAt.After(time.Now().UTC()) || record.cancelled || record.archived != nil {
+	if leaseID == "" || record.leaseID != leaseID || record.leaseWorkerID != workerID || !record.leased || !record.leaseExpiresAt.After(r.now()) || record.cancelled || record.archived != nil {
 		return time.Time{}, jobdb.ErrExecutionLeaseLost
 	}
-	now := time.Now().UTC()
+	now := r.now()
 	previous := record.leaseExpiresAt
 	record.leaseExpiresAt = now.Add(toyLeaseDurationOrDefault(leaseDuration))
 	r.engine.appendLeaseEventLocked(record, now, "", "", &previous)
@@ -66,10 +66,10 @@ func (r *Runtime) ValidateExecutionLeaseByID(ctx context.Context, key jobdb.JobK
 	}
 	record.mu.Lock()
 	defer record.mu.Unlock()
-	if leaseID == "" || workerID == "" || record.leaseID != leaseID || record.leaseWorkerID != workerID || !record.leased || !record.leaseExpiresAt.After(time.Now().UTC()) || record.cancelled || record.archived != nil {
+	if leaseID == "" || workerID == "" || record.leaseID != leaseID || record.leaseWorkerID != workerID || !record.leased || !record.leaseExpiresAt.After(r.now()) || record.cancelled || record.archived != nil {
 		return jobdb.LeaseValidity{}, jobdb.ErrExecutionLeaseLost
 	}
-	return jobdb.LeaseValidity{Cell: record.cell, GoalID: record.goalID, ExpiresAt: record.leaseExpiresAt, Route: record.route}, nil
+	return jobdb.LeaseValidity{ExecutionState: recordExecutionState(record), ClientPayloadRevision: record.clientPayloadRevision, Cell: record.cell, GoalID: record.goalID, ExpiresAt: record.leaseExpiresAt, Route: record.route}, nil
 }
 
 func (r *Runtime) SubmitJobWithLeaseByID(ctx context.Context, parentJobKey jobdb.JobKey, leaseID string, workerID string, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {
@@ -114,15 +114,15 @@ func (r *Runtime) RenewExecutionLeaseByID(ctx context.Context, key jobdb.JobKey,
 	}
 	record.mu.Lock()
 	defer record.mu.Unlock()
-	if leaseID == "" || workerID == "" || record.leaseID != leaseID || record.leaseWorkerID != workerID || !record.leased || !record.leaseExpiresAt.After(time.Now().UTC()) || record.cancelled || record.archived != nil {
+	if leaseID == "" || workerID == "" || record.leaseID != leaseID || record.leaseWorkerID != workerID || !record.leased || !record.leaseExpiresAt.After(r.now()) || record.cancelled || record.archived != nil {
 		return nil, jobdb.ErrExecutionLeaseLost
 	}
 	duration = toyLeaseDurationOrDefault(duration)
-	now := time.Now().UTC()
+	now := r.now()
 	previous := record.leaseExpiresAt
 	record.leaseExpiresAt = now.Add(duration)
 	r.engine.appendLeaseEventLocked(record, now, "", "", &previous)
-	return &runtimeLease{runtime: r, jobKey: key, leaseID: leaseID, workerID: workerID,
+	return &runtimeLease{state: recordExecutionState(record), runtime: r, jobKey: key, leaseID: leaseID, workerID: workerID,
 		route: record.route, payload: cloneJSON(record.payload), clientPayload: cloneJSON(record.clientPayload), clientPayloadRevision: record.clientPayloadRevision,
 		duration: duration, expiresAt: record.leaseExpiresAt, schemaHash: jobmetadata.SchemaHashFromStoredMetadata(record.metadata)}, nil
 }

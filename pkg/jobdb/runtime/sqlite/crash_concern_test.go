@@ -32,7 +32,7 @@ func TestCrashConcernPersistenceAndReset(t *testing.T) {
 		require.NoError(t, err)
 		row, err := r.loadJobRow(ctx, h.JobKey)
 		require.NoError(t, err)
-		require.EqualValues(t, n, row.consecutiveExpirations, "renewal preserves the count")
+		require.EqualValues(t, 5-n, row.crashBudgetRemaining, "renewal preserves the count")
 		_, err = r.db.ExecContext(ctx, `UPDATE jobdb_jobs SET lease_expires_at_ns=0`)
 		require.NoError(t, err)
 		// A daemon restart must neither lose nor double-count an expiry.
@@ -49,7 +49,7 @@ func TestCrashConcernPersistenceAndReset(t *testing.T) {
 	require.NoError(t, r.ClearCrashConcern(ctx, jobdb.ClearCrashConcernRequest{JobKey: h.JobKey}))
 	after, err := r.loadJobRow(ctx, h.JobKey)
 	require.NoError(t, err)
-	before.consecutiveExpirations = 0
+	before.crashBudgetRemaining = 5
 	require.Equal(t, before, after, "clear changes only the consecutive count")
 	require.NoError(t, r.Close(ctx))
 	r, err = NewFromConfig(ctx, cfg)
@@ -58,7 +58,7 @@ func TestCrashConcernPersistenceAndReset(t *testing.T) {
 	require.NoError(t, lease.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "job"}}))
 	row, err := r.loadJobRow(ctx, h.JobKey)
 	require.NoError(t, err)
-	require.Zero(t, row.consecutiveExpirations)
+	require.EqualValues(t, 5, row.crashBudgetRemaining)
 	claim()
 	_, err = r.db.ExecContext(ctx, `UPDATE jobdb_jobs SET lease_expires_at_ns=0`)
 	require.NoError(t, err)
@@ -70,8 +70,8 @@ func TestCrashConcernPersistenceAndReset(t *testing.T) {
 func TestCrashConcernBlocksTaskAndAlternateClaims(t *testing.T) {
 	ctx := celltest.Context(context.Background())
 	r, _, req := waitingTaskFixture(t)
-	_, err := r.db.ExecContext(ctx, `UPDATE jobdb_jobs SET consecutive_expirations=?,lease_id='expired',lease_expires_at_ns=0,
-alternate_job_type='job',alternate_task_type='fallback',alternate_at_ns=?`, crashconcern.DefaultThreshold, time.Now().Add(-time.Second).UnixNano())
+	_, err := r.db.ExecContext(ctx, `UPDATE jobdb_jobs SET crash_budget_remaining=?,lease_id='expired',lease_expires_at_ns=0,
+alternate_job_type='job',alternate_task_type='fallback',alternate_at_ns=?`, 0, time.Now().Add(-time.Second).UnixNano())
 	require.NoError(t, err)
 	before, err := r.loadJobRow(ctx, req.JobKey)
 	require.NoError(t, err)
@@ -105,7 +105,7 @@ func TestClearCrashConcernPreservesSchedulingAndRejectsFinalJobs(t *testing.T) {
 	req := jobdb.ClearCrashConcernRequest{JobKey: h.JobKey}
 	waitFor, err := encodeWaitFor([]string{"dependency"})
 	require.NoError(t, err)
-	_, err = r.db.ExecContext(ctx, `UPDATE jobdb_jobs SET consecutive_expirations=5, lease_id='old', lease_worker_id='old', lease_expires_at_ns=0,
+	_, err = r.db.ExecContext(ctx, `UPDATE jobdb_jobs SET crash_budget_remaining=0, lease_id='old', lease_worker_id='old', lease_expires_at_ns=0,
 available_at_ns=?, wait_for=?`, time.Now().Add(time.Hour).UnixNano(), waitFor)
 	require.NoError(t, err)
 	before, err := r.loadJobRow(ctx, h.JobKey)
@@ -113,14 +113,14 @@ available_at_ns=?, wait_for=?`, time.Now().Add(time.Hour).UnixNano(), waitFor)
 	require.NoError(t, r.ClearCrashConcern(ctx, req))
 	after, err := r.loadJobRow(ctx, h.JobKey)
 	require.NoError(t, err)
-	before.consecutiveExpirations = 0
+	before.crashBudgetRemaining = 5
 	require.Equal(t, before, after)
 	lease, err := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "job"}}})
 	require.NoError(t, err)
 	require.Nil(t, lease, "clearing does not bypass other scheduling constraints")
 	for _, column := range []string{"lease_expires_at_ns", "archived_at_ns", "cancel_requested", "hidden_at_ns"} {
 		t.Run(column, func(t *testing.T) {
-			_, err := r.db.ExecContext(ctx, `UPDATE jobdb_jobs SET consecutive_expirations=5, lease_expires_at_ns=0, archived_at_ns=NULL, cancel_requested=0, hidden_at_ns=NULL`)
+			_, err := r.db.ExecContext(ctx, `UPDATE jobdb_jobs SET crash_budget_remaining=0, lease_expires_at_ns=0, archived_at_ns=NULL, cancel_requested=0, hidden_at_ns=NULL`)
 			require.NoError(t, err)
 			value := time.Now().Add(time.Hour).UnixNano()
 			if column == "cancel_requested" {
@@ -130,8 +130,8 @@ available_at_ns=?, wait_for=?`, time.Now().Add(time.Hour).UnixNano(), waitFor)
 			require.NoError(t, err)
 			require.ErrorIs(t, r.ClearCrashConcern(ctx, req), jobdb.ErrConflict)
 			var count int
-			require.NoError(t, r.db.QueryRowContext(ctx, `SELECT consecutive_expirations FROM jobdb_jobs`).Scan(&count))
-			require.Equal(t, 5, count)
+			require.NoError(t, r.db.QueryRowContext(ctx, `SELECT crash_budget_remaining FROM jobdb_jobs`).Scan(&count))
+			require.Equal(t, 0, count)
 		})
 	}
 }

@@ -27,7 +27,7 @@ func newDelegationTransport(client *http.Client) *delegationTransport {
 }
 func (d *delegationTransport) Do(req *http.Request) (*http.Response, error) {
 	client := d.original
-	if req.URL.EscapedPath() == "/v1/capabilities/job-goals" || isProvenancePath(req.URL.EscapedPath()) || isPrimaryGoalSelectionPath(req.URL.EscapedPath()) || isDelegationToken(req.Header.Get("X-JobDB-Lease-Token")) || isSecretResolutionPath(req.URL.EscapedPath()) || isConfigurationPath(req.URL.EscapedPath()) || isCellPath(req.URL.EscapedPath()) {
+	if req.URL.EscapedPath() == "/v1/capabilities/job-goals" || isProvenancePath(req.URL.EscapedPath()) || isPrimaryGoalSelectionPath(req.URL.EscapedPath()) || isDelegationToken(req.Header.Get("X-JobDB-Lease-Token")) || isSecretResolutionPath(req.URL.EscapedPath()) || isConfigurationPath(req.URL.EscapedPath()) || strings.HasSuffix(req.URL.Path, "/resource-backoff") || isCellPath(req.URL.EscapedPath()) {
 		client = d.restricted
 	}
 	resp, err := client.Do(req)

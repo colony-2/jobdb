@@ -33,6 +33,7 @@ def validate_checksum(value, label):
 
 def required_behavior_tests():
     required = {
+        "TestResourceBackoffPublicC01", "TestResourceBackoffPublicSQLite", "TestResourceBackoffOldReaderB02c",
         "TestPublishedCancelledReads", "TestPublishedSemanticAppend", "TestPublishedPayloadRejection",
         "TestRetainedReadPermissionDenied", "TestRetainedReadInfrastructureControl", "TestRetainedReaderRevocation",
         "TestRetainedReadBaselineCompatibility/client",
@@ -131,6 +132,9 @@ def verify(commit, report):
             (consumer / "append_test.go").write_text(fixture, encoding="utf-8")
             # These fixtures use only public JobDB APIs. Sharing the actual source
             # keeps candidate and downloaded-module behavior identical.
+            for source in sorted(Path("scripts/testdata/resource-backoff-consumer").glob("*.go")):
+                (consumer / ("resource_" + source.name)).write_text(
+                    source.read_text(encoding="utf-8").replace("package resourceconsumer", "package main", 1), encoding="utf-8")
             retained = Path("pkg/jobdb/runtime/remote/retained_read_permission_test.go").read_text(encoding="utf-8")
             (consumer / "retained_read_test.go").write_text(
                 retained.replace("package remote_test", "package main", 1), encoding="utf-8")
@@ -179,7 +183,7 @@ func main() {
             lines += ["Commands completed:", "",
                       f"- `go list -m -json {MODULE}@{commit}`",
                       f"- `go mod download -json {MODULE}@{version}`", "",
-                      "Public examples, cancellation/append controls, direct/HTTP retained-read revocation and exact-baseline client regressions compiled and ran.", "",
+                      "Public resource-backoff controls (SQLite/HTTP reopen, immutable receipts, exact int64s and old-reader/interface compatibility), examples, cancellation/append controls, retained-read revocation and exact-baseline client regressions compiled and ran.", "",
                       f"Linked CurrentBuildInfo version: `{observed}`", "",
                       "- `go test -json -count=1 ./...`", "- `go run .`", "",
                       "Result: passed.", "HTTP/client acceptance passed; old-storage reopening compatibility remains failed."]

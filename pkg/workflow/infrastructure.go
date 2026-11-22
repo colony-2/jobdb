@@ -292,3 +292,15 @@ func (r *guardedRuntime) CreateDelegation(ctx context.Context, parent jobdb.Exec
 func (r *guardedRuntime) ReadExecutionProvenance(ctx context.Context, q jobdb.ReadExecutionProvenanceRequest) (jobdb.ExecutionProvenance, error) {
 	return jobdb.ReadExecutionProvenance(ctx, r.WorkflowRuntime, q)
 }
+
+func (l *guardedLease) RescheduleResourceBackoff(ctx context.Context, req jobdb.ResourceBackoffRequest) (jobdb.ResourceBackoffReceipt, error) {
+	if err := l.guard.failure(); err != nil {
+		return jobdb.ResourceBackoffReceipt{}, err
+	}
+	port, ok := l.ExecutionLease.(jobdb.ResourceBackoffLease)
+	if !ok {
+		return jobdb.ResourceBackoffReceipt{}, resourceInfrastructure(jobdb.ErrResourceBackoffUnsupported)
+	}
+	receipt, err := port.RescheduleResourceBackoff(ctx, req)
+	return receipt, l.guard.observe(resourceInfrastructure(err))
+}

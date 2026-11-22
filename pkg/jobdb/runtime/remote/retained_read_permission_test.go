@@ -153,7 +153,7 @@ func newRetainedFixture(t *testing.T) retainedFixture {
 		return v
 	}
 	originalFormat := format()
-	if originalFormat != 13 {
+	if originalFormat != 14 {
 		t.Fatalf("unexpected supported storage format: %d", originalFormat)
 	}
 	// Reopen the retained database before any authorization test. No conversion.
@@ -294,6 +294,11 @@ func TestRetainedReadPermissionDenied(t *testing.T) {
 									t.Fatal("denied metadata returned")
 								}
 								return nil, err
+							}
+							if mode == "http" && reader == f.backend {
+								// The retained-read gate intentionally hides optional mutation
+								// ports; HTTP must not advertise resource support through it.
+								info.ExecutionState.ResourceBackoff = nil
 							}
 							return retainedJob(t, info, "retained-result"), nil
 						case "list":

@@ -127,7 +127,7 @@ an ordinary-submit fallback. See [capabilities](GUIDE-JOB-GOAL-CAPABILITIES.md).
 
 Origin ownership, primary membership, first closure and failure identity/snapshot
 belong to retained jobs. Toy uses job records and a separate wait-only store.
-Fresh SQLite format 13 and successful conversion omit both legacy lifecycle
+Fresh SQLite format 14 and successful conversion omit both legacy lifecycle
 tables; neither keeps an equivalent renamed goals store. Indexed member/origin/
 closure lookups support admission and discovery without reading execution chapters.
 Apply tenant, ownership, visibility, state, type and time filters before pagination.
@@ -138,7 +138,7 @@ ancillary initialization. Operators stop all serving writers, take a consistent
 backup including committed WAL and external stores, inspect `jobdb sqlite
 check-migrate --db PATH`, then run `jobdb sqlite migrate --db PATH`. The converter
 exclusively rechecks input, commits all preservation/table removal/format changes
-atomically, and rolls back on failure. Reruns on valid format 13 are read-only
+atomically, and rolls back on failure. Reruns on valid format 14 are read-only
 `CURRENT`. See [manual conversion](MIGRATION-IMMUTABLE-GOALS.md).
 
 Primary membership wins: secondary links and their future effects disappear.

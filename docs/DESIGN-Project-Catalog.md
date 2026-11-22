@@ -112,7 +112,7 @@ list and delete use IDs; names are discovery filters only.
 
 `jobdb project installation initialize --database NEW_PATH --participants-sha256 SHA256`
 creates fresh main storage and an empty installed catalog, with no automatic
-project. `inspect --database PATH --participants-sha256 SHA256` hashes format-13
+project. `inspect --database PATH --participants-sha256 SHA256` hashes format-14
 main records/schema without modifying them. Save the JSON, then use
 `install --database PATH --inventory FILE --seed c2` (and separately approved
 `--seed 0` where inventoried). Installation rechecks the exact inventory under the
@@ -141,4 +141,4 @@ established before dependent migration acceptance. They are not proven by the
 JobDB tests. Default deletion remains disabled without complete trusted usage
 coverage.
 
-SQLite goal formats 11 and 12 require the separate, explicit offline goal migration before project inspection or installation. Project installation never performs goal conversion. Review its migration report and fence all participants before taking the format-13 project inventory, which includes 15 resource tables and job-resident goal/terminal records.
+SQLite goal formats 11, 12 and 13 require the separate, explicit offline goal migration before project inspection or installation. Project installation never performs goal conversion. Review its migration report and fence all participants before taking the format-14 project inventory, which includes 17 resource tables and job-resident goal/terminal records.

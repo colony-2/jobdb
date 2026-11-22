@@ -19,15 +19,15 @@ type appendScheduler struct{ *Runtime }
 type appendChapters struct{ r *Runtime }
 
 func (r *Runtime) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAppendJobRequest) (jobdb.JobHandle, error) {
-	return (runtimecore.AppendService{Projects: r.projects, Scheduler: appendScheduler{r}, Chapters: appendChapters{r}, Schemas: r, PayloadLimit: r.ChapterApplicationPayloadLimit()}).StartOrAppendJob(ctx, req)
+	return (runtimecore.AppendService{Projects: r.projects, Scheduler: appendScheduler{r}, Chapters: appendChapters{r}, Schemas: r, PayloadLimit: r.ChapterApplicationPayloadLimit(), Now: r.now}).StartOrAppendJob(ctx, req)
 }
 func (s appendScheduler) ResolveAppendCell(ctx context.Context, j jobdb.SubmitJob) (jobdb.ResolvedCell, error) {
 	s.engine.mu.Lock()
 	defer s.engine.mu.Unlock()
 	return s.engine.prepareCellLocked(ctx, goalstate.Preparation{Key: jobdb.JobKey{TenantId: j.TenantId}, Cell: j.Cell, CellRepo: j.CellRepo})
 }
-func appendStored(key jobdb.JobKey, r *jobRecord) runtimecore.StoredJob {
-	out := runtimecore.StoredJob{JobKey: key, Cell: r.cell, GoalID: r.goalID, JobType: r.jobType, AppendKey: r.appendKey, AppendGeneration: r.appendGeneration, ArchivedAt: r.archived, CancelRequested: r.cancelled, LeaseWorkerID: r.leaseWorkerID, SchemaHash: jobmetadata.SchemaHashFromStoredMetadata(r.metadata), Status: r.currentStatus(time.Now())}
+func appendStored(key jobdb.JobKey, r *jobRecord, now time.Time) runtimecore.StoredJob {
+	out := runtimecore.StoredJob{JobKey: key, Cell: r.cell, GoalID: r.goalID, JobType: r.jobType, AppendKey: r.appendKey, AppendGeneration: r.appendGeneration, ArchivedAt: r.archived, CancelRequested: r.cancelled, LeaseWorkerID: r.leaseWorkerID, SchemaHash: jobmetadata.SchemaHashFromStoredMetadata(r.metadata), Status: r.currentStatus(now)}
 	if r.leaseID != "" {
 		t := r.leaseExpiresAt
 		out.LeaseExpiresAt = &t
@@ -42,7 +42,7 @@ func (s appendScheduler) GetAppendTail(ctx context.Context, chain runtimecore.Ap
 	for key, r := range s.engine.jobRecords {
 		r.mu.Lock()
 		if key.TenantId == chain.TenantID && r.cell.CellID == chain.CellID && r.jobType == chain.JobType && r.appendKey == chain.AppendKey && (!found || r.appendGeneration > out.AppendGeneration) {
-			out = appendStored(key, r)
+			out = appendStored(key, r, s.now())
 			found = true
 		}
 		r.mu.Unlock()
@@ -63,16 +63,16 @@ func (s appendScheduler) CreateJob(ctx context.Context, q runtimecore.CreateJobR
 	if r := s.engine.jobRecords[q.JobKey]; r != nil {
 		r.mu.Lock()
 		defer r.mu.Unlock()
-		return appendStored(q.JobKey, r), nil
+		return appendStored(q.JobKey, r, s.now()), nil
 	}
 	at := q.CreatedAt
 	if q.AvailableAt != nil {
 		at = *q.AvailableAt
 	}
-	r := &jobRecord{appendKey: q.AppendKey, appendGeneration: q.AppendGeneration, clientPayload: q.ClientPayload, clientPayloadRevision: q.ClientPayloadRevision, initialPayloadDigest: q.InitialPayloadDigest, status: jobdb.JobStatusReady, jobType: q.JobType, createdAt: q.CreatedAt, metadata: metadata, payload: payload, route: jobdb.Route{JobType: q.JobType}, chapters: map[int64]*toyChapter{}, availableAt: at, waitFor: append([]string(nil), q.WaitForJobIDs...)}
+	r := &jobRecord{crashBudgetRemaining: 5, appendKey: q.AppendKey, appendGeneration: q.AppendGeneration, clientPayload: q.ClientPayload, clientPayloadRevision: q.ClientPayloadRevision, initialPayloadDigest: q.InitialPayloadDigest, status: jobdb.JobStatusReady, jobType: q.JobType, createdAt: q.CreatedAt, metadata: metadata, payload: payload, route: jobdb.Route{JobType: q.JobType}, chapters: map[int64]*toyChapter{}, availableAt: at, waitFor: append([]string(nil), q.WaitForJobIDs...)}
 	if len(r.waitFor) > 0 {
 		r.status = jobdb.JobStatusPendingJobs
-	} else if at.After(time.Now()) {
+	} else if at.After(s.now()) {
 		r.status = jobdb.JobStatusAwaitingFuture
 	}
 	s.engine.jobRecords[q.JobKey] = r
@@ -80,7 +80,7 @@ func (s appendScheduler) CreateJob(ctx context.Context, q runtimecore.CreateJobR
 		delete(s.engine.jobRecords, q.JobKey)
 		return runtimecore.StoredJob{}, err
 	}
-	return appendStored(q.JobKey, r), nil
+	return appendStored(q.JobKey, r, s.now()), nil
 }
 func (s appendScheduler) ClaimAppend(ctx context.Context, q runtimecore.ClaimAppendRequest) (runtimecore.LeaseIdentity, error) {
 	s.engine.mu.Lock()
@@ -94,12 +94,12 @@ func (s appendScheduler) ClaimAppend(ctx context.Context, q runtimecore.ClaimApp
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.archived != nil || r.cancelled || r.leaseExpiresAt.After(q.Now) || r.currentStatus(q.Now) == jobdb.JobStatusCrashConcern {
+	if r.archived != nil || r.cancelled || r.leaseExpiresAt.After(q.Now) || r.currentStatus(q.Now) == jobdb.JobStatusCrashConcern || r.resourceNotBefore.After(q.Now) {
 		return runtimecore.LeaseIdentity{}, jobdb.ErrConflict
 	}
 	old := r.leaseID
 	if old != "" && !runtimecore.IsAppendWorker(r.leaseWorkerID) {
-		r.consecutiveExpirations++
+		r.crashBudgetRemaining--
 	}
 	r.leased = true
 	r.leaseID = ksuid.New().String()

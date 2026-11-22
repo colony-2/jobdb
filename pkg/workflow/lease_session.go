@@ -157,7 +157,7 @@ func (s *leaseSession) LeaseSchemaHash() string {
 func (s *leaseSession) KeepAlive(context.Context) error {
 	return fmt.Errorf("runner owns lease renewal")
 }
-func (s *leaseSession) StopKeepAlive() { s.stop(); s.cancel(context.Canceled) }
+func (s *leaseSession) StopKeepAlive() { s.stop(); <-s.done }
 func (s *leaseSession) operationContext(ctx context.Context) (context.Context, func()) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -304,4 +304,24 @@ func (s *leaseSession) StartOrAppendJob(ctx context.Context, req StartOrAppendJo
 
 	handle, err := s.current.StartOrAppendJob(ctx, req)
 	return handle, s.mutationError(err)
+}
+
+func (s *leaseSession) RescheduleResourceBackoff(ctx context.Context, req jobdb.ResourceBackoffRequest) (jobdb.ResourceBackoffReceipt, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.check(); err != nil {
+		return jobdb.ResourceBackoffReceipt{}, err
+	}
+	port, ok := s.current.(jobdb.ResourceBackoffLease)
+	if !ok {
+		return jobdb.ResourceBackoffReceipt{}, jobdb.ErrResourceBackoffUnsupported
+	}
+	callCtx, cancel := s.operationContext(ctx)
+	defer cancel()
+	receipt, err := port.RescheduleResourceBackoff(callCtx, req)
+	if err == nil {
+		s.released = true
+		s.stop()
+	}
+	return receipt, s.mutationError(err)
 }

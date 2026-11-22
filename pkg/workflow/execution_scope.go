@@ -147,6 +147,13 @@ func (c *executionContext) invokeAsync(fn func() (TaskData, error)) (TaskData, e
 		return nil, err
 	}
 	result := make(chan taskResult, 1)
+	c.run.mu.Lock()
+	if c.run.resourcePending != nil {
+		c.run.mu.Unlock()
+		return nil, errResourcePreparing
+	}
+	c.run.taskCallbacks++
+	c.run.mu.Unlock()
 	go func() {
 		var out TaskData
 		var err error
@@ -163,6 +170,9 @@ func (c *executionContext) invokeAsync(fn func() (TaskData, error)) (TaskData, e
 				err = panicToAppError("callback exited without returning")
 			}
 			c.run.r.guard.observe(err)
+			c.run.mu.Lock()
+			c.run.taskCallbacks--
+			c.run.mu.Unlock()
 			result <- taskResult{out, err}
 		}()
 		out, err = fn()
@@ -186,6 +196,7 @@ func (c *executionContext) finishOutcome(kind, id string, out TaskData, bodyErr 
 	if err := c.run.r.guard.failure(); err != nil {
 		return jobdb.ExecutionRecord{}, err
 	}
+	bodyErr = c.interceptResource(id, input, bodyErr)
 	if bodyErr != nil && isExecutionControl(bodyErr) && !errors.Is(bodyErr, errRecordedBoundary) {
 		return jobdb.ExecutionRecord{}, bodyErr
 	}

@@ -39,6 +39,7 @@ var projectWireRoutes = []projectWireRoute{
 	{method: "POST", path: "/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/delegations", request: "", responses: map[int]string{200: "ExecutionLease"}},
 	{method: "POST", path: "/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/keepalive", request: "", responses: map[int]string{200: "KeepAliveLeaseResponse"}},
 	{method: "POST", path: "/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/reschedule", request: "", responses: map[int]string{}},
+	{method: "POST", path: "/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/resource-backoff", request: "", responses: map[int]string{200: "ResourceBackoffReceipt"}},
 	{method: "POST", path: "/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/secrets/resolve", request: "", responses: map[int]string{}},
 	{method: "PUT", path: "/v1/tenants/{tenantId}/jobs/{jobId}/primary-goal", request: "", responses: map[int]string{200: "JobHandle"}},
 	{method: "PUT", path: "/v1/tenants/{tenantId}/jobs/{jobId}/restart", request: "SubmitRestartJobRequest", responses: map[int]string{200: "JobHandle"}},

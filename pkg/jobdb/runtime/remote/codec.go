@@ -1727,11 +1727,11 @@ func taskWaitFromAPI(v *runtimeapi.TaskWait) *jobdb.TaskWait {
 }
 func executionStateToAPI(v jobdb.ExecutionState) (runtimeapi.ExecutionState, error) {
 	p, err := runPolicyToAPI(v.RunPolicy)
-	return runtimeapi.ExecutionState{RunPolicy: p, TaskWait: taskWaitToAPI(v.TaskWait)}, err
+	return runtimeapi.ExecutionState{RunPolicy: p, TaskWait: taskWaitToAPI(v.TaskWait), CrashBudgetRemaining: v.CrashBudgetRemaining, ResourceBackoff: v.ResourceBackoff, ResourceResume: v.ResourceResume}, err
 }
 func executionStateFromAPI(v runtimeapi.ExecutionState) (jobdb.ExecutionState, error) {
 	p, err := runPolicyFromAPI(v.RunPolicy)
-	return jobdb.ExecutionState{RunPolicy: p, TaskWait: taskWaitFromAPI(v.TaskWait)}, err
+	return jobdb.ExecutionState{RunPolicy: p, TaskWait: taskWaitFromAPI(v.TaskWait), CrashBudgetRemaining: v.CrashBudgetRemaining, ResourceBackoff: v.ResourceBackoff, ResourceResume: v.ResourceResume}, err
 }
 func payloadRevision(v string) (int64, error) {
 	n, err := strconv.ParseInt(v, 10, 64)

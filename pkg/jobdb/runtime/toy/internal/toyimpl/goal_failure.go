@@ -28,7 +28,7 @@ func (s *toyFailureTransaction) InsertGoalFailure(g jobdb.GoalInfo, failure jobd
 		return jobdb.JobKey{}, jobdb.NewExistingJobMismatchError("generated failure job collides with preparation")
 	}
 	at := failure.FailedAt
-	record := &jobRecord{key: key, goalID: g.GoalKey.GoalID,
+	record := &jobRecord{crashBudgetRemaining: 5, key: key, goalID: g.GoalKey.GoalID,
 		cell:       jobdb.ResolvedCell{Cell: g.Cell, CellID: g.CellID, CellRepo: g.CellRepo},
 		recordKind: jobdb.JobRecordGoalFailure, terminalFailure: jobdb.CloneGoalFailure(&failure),
 		jobType: jobdb.GoalFailureJobType, status: jobdb.JobStatusCompleted,

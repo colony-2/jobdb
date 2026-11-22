@@ -31,6 +31,7 @@ var schemas = map[string]projectWireSchema{
 	"ListLeaseEventsResponse":          {identity: false, fields: map[string]string{"events": "ListLeaseEventsResponseEvents"}},
 	"ListLeaseEventsResponseEvents":    {element: "LeaseEvent"},
 	"PollWorkRequest":                  {identity: true, fields: map[string]string{}},
+	"ResourceBackoffReceipt":           {identity: false, fields: map[string]string{"jobKey": "JobKey"}},
 	"SubmitRestartJob":                 {identity: false, fields: map[string]string{"priorJobKey": "JobKey"}},
 	"SubmitRestartJobRequest":          {identity: false, fields: map[string]string{"job": "SubmitRestartJob"}},
 	"pollWork200Response":              {identity: false, fields: map[string]string{"leases": "pollWork200ResponseLeases"}},

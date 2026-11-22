@@ -64,6 +64,9 @@ type Config struct {
 // Runtime is a SQLite WorkflowRuntime that composes scheduler rows, chapter
 // rows, and Go CDK blob artifact storage.
 type Runtime struct {
+	clock          func() time.Time
+	resourceSample func() float64
+	resourceFault  func(string) error
 	jobdb.ProjectCatalog
 	projects jobdb.ProjectAdmission
 

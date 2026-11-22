@@ -38,6 +38,7 @@ type leaseTokenClaims struct {
 }
 
 type leaseTokenSigner struct {
+	stable   bool
 	key      []byte
 	audience string
 }
@@ -54,7 +55,7 @@ func newLeaseTokenSignerWithKey(key []byte) (*leaseTokenSigner, error) {
 	if len(key) < minimumLeaseTokenKeySize {
 		return nil, fmt.Errorf("lease token signing key must contain at least %d bytes", minimumLeaseTokenKeySize)
 	}
-	return &leaseTokenSigner{key: append([]byte(nil), key...)}, nil
+	return &leaseTokenSigner{stable: true, key: append([]byte(nil), key...)}, nil
 }
 
 func (s *leaseTokenSigner) mintForLease(lease jobdb.ExecutionLease, ttl time.Duration) (string, error) {

@@ -62,7 +62,7 @@ func (r *Runtime) completePayloadFailure(ctx context.Context, key jobdb.JobKey, 
 func (r *Runtime) failWaitingPayload(ctx context.Context, old jobRow, ch jobdb.Chapter, size *jobdb.ChapterApplicationPayloadError) error {
 	key := jobdb.JobKey{TenantId: old.tenantID, JobId: old.jobID}
 	err := r.completePayloadFailure(ctx, key, jobdb.PayloadFailureChapter(ch, size), func(tx *sql.Tx, current jobRow) error {
-		now := time.Now().UTC()
+		now := r.now()
 		if current.archivedAtNS.Valid || current.cancelRequested || (current.leaseExpiresAtNS.Valid && current.leaseExpiresAtNS.Int64 > timeToNS(now)) || current.nextRoute != old.nextRoute || !bytes.Equal(current.payload, old.payload) {
 			return jobdb.ErrConflict
 		}
@@ -70,7 +70,7 @@ func (r *Runtime) failWaitingPayload(ctx context.Context, old jobRow, ch jobdb.C
 		if err != nil {
 			return err
 		}
-		if status != jobdb.JobStatusReady {
+		if status != jobdb.JobStatusReady || current.crashBudgetRemaining == 0 || (current.resourceNotBefore.Valid && current.resourceNotBefore.Int64 > timeToNS(now)) {
 			return jobdb.ErrConflict
 		}
 		return nil

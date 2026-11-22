@@ -19,8 +19,11 @@ type TaskWait struct {
 
 // ExecutionState contains immutable policy and explicit current task coordinates.
 type ExecutionState struct {
-	RunPolicy RunPolicy `json:"runPolicy"`
-	TaskWait  *TaskWait `json:"taskWait,omitempty"`
+	CrashBudgetRemaining *int64                     `json:"crashBudgetRemaining,omitempty"`
+	ResourceBackoff      *ResourceBackoffCapability `json:"resourceBackoff,omitempty"`
+	ResourceResume       *ResourceResume            `json:"resourceResume,omitempty"`
+	RunPolicy            RunPolicy                  `json:"runPolicy"`
+	TaskWait             *TaskWait                  `json:"taskWait,omitempty"`
 }
 
 func CloneExecutionState(s ExecutionState) ExecutionState {

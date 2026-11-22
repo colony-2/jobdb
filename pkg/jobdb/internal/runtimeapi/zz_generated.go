@@ -483,9 +483,12 @@ type DelegationPermissions struct {
 	ChaptersRead *DelegationChapters `json:"chapters.read,omitempty"`
 
 	// ChaptersWrite Only TaskAttemptOutcome chapters. Artifact selectors allow fresh uploads, never stored references.
-	ChaptersWrite  *DelegationWritePermission  `json:"chapters.write,omitempty"`
-	JobsSubmit     *DelegationSubmitPermission `json:"jobs.submit,omitempty"`
-	SecretsResolve *[]string                   `json:"secrets.resolve,omitempty"`
+	ChaptersWrite *DelegationWritePermission  `json:"chapters.write,omitempty"`
+	JobsSubmit    *DelegationSubmitPermission `json:"jobs.submit,omitempty"`
+
+	// ResourceBackoff Allow the atomic resource action and exact receipt replay; grants no chapter reads or ordinary reschedule authority.
+	ResourceBackoff *bool     `json:"resource.backoff,omitempty"`
+	SecretsResolve  *[]string `json:"secrets.resolve,omitempty"`
 }
 
 // DelegationSubmitPermission defines model for DelegationSubmitPermission.
@@ -599,8 +602,11 @@ type ExecutionRestart struct {
 
 // ExecutionState defines model for ExecutionState.
 type ExecutionState struct {
-	RunPolicy *RunPolicy `json:"runPolicy,omitempty"`
-	TaskWait  *TaskWait  `json:"taskWait,omitempty"`
+	CrashBudgetRemaining *int64                     `json:"crashBudgetRemaining,omitempty"`
+	ResourceBackoff      *ResourceBackoffCapability `json:"resourceBackoff,omitempty"`
+	ResourceResume       *ResourceResume            `json:"resourceResume,omitempty"`
+	RunPolicy            *RunPolicy                 `json:"runPolicy,omitempty"`
+	TaskWait             *TaskWait                  `json:"taskWait,omitempty"`
 }
 
 // FailGoalRequest defines model for FailGoalRequest.
@@ -1183,6 +1189,21 @@ type ResolvedCell struct {
 	CellRepo CellRepo `json:"cellRepo"`
 }
 
+// ResourceBackoffCapability defines model for ResourceBackoffCapability.
+type ResourceBackoffCapability = jobdb.ResourceBackoffCapability
+
+// ResourceBackoffPolicy defines model for ResourceBackoffPolicy.
+type ResourceBackoffPolicy = jobdb.ResourceBackoffPolicy
+
+// ResourceBackoffReceipt defines model for ResourceBackoffReceipt.
+type ResourceBackoffReceipt = jobdb.ResourceBackoffReceipt
+
+// ResourceBackoffRequest defines model for ResourceBackoffRequest.
+type ResourceBackoffRequest = jobdb.ResourceBackoffRequest
+
+// ResourceResume defines model for ResourceResume.
+type ResourceResume = jobdb.ResourceResume
+
 // RestartExtraChapter defines model for RestartExtraChapter.
 type RestartExtraChapter struct {
 	Kind RestartExtraChapterKind `json:"kind"`
@@ -1657,6 +1678,11 @@ type RescheduleJobWithLeaseParams struct {
 	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
 }
 
+// RescheduleResourceBackoffParams defines parameters for RescheduleResourceBackoff.
+type RescheduleResourceBackoffParams struct {
+	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
+}
+
 // ResolveSecretsWithLeaseParams defines parameters for ResolveSecretsWithLease.
 type ResolveSecretsWithLeaseParams struct {
 	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
@@ -1772,6 +1798,9 @@ type CreateLeaseDelegationJSONRequestBody = CreateDelegationRequest
 
 // RescheduleJobWithLeaseJSONRequestBody defines body for RescheduleJobWithLease for application/json ContentType.
 type RescheduleJobWithLeaseJSONRequestBody = RescheduleExecutionRequest
+
+// RescheduleResourceBackoffJSONRequestBody defines body for RescheduleResourceBackoff for application/json ContentType.
+type RescheduleResourceBackoffJSONRequestBody = ResourceBackoffRequest
 
 // ResolveSecretsWithLeaseJSONRequestBody defines body for ResolveSecretsWithLease for application/json ContentType.
 type ResolveSecretsWithLeaseJSONRequestBody = ResolveSecretsBody
@@ -2643,6 +2672,11 @@ type ClientInterface interface {
 
 	RescheduleJobWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *RescheduleJobWithLeaseParams, body RescheduleJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// RescheduleResourceBackoffWithBody request with any body
+	RescheduleResourceBackoffWithBody(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *RescheduleResourceBackoffParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	RescheduleResourceBackoff(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *RescheduleResourceBackoffParams, body RescheduleResourceBackoffJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ResolveSecretsWithLeaseWithBody request with any body
 	ResolveSecretsWithLeaseWithBody(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *ResolveSecretsWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -3440,6 +3474,30 @@ func (c *Client) RescheduleJobWithLeaseWithBody(ctx context.Context, tenantId Te
 
 func (c *Client) RescheduleJobWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *RescheduleJobWithLeaseParams, body RescheduleJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewRescheduleJobWithLeaseRequest(c.Server, tenantId, jobId, leaseId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RescheduleResourceBackoffWithBody(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *RescheduleResourceBackoffParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRescheduleResourceBackoffRequestWithBody(c.Server, tenantId, jobId, leaseId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RescheduleResourceBackoff(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *RescheduleResourceBackoffParams, body RescheduleResourceBackoffJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRescheduleResourceBackoffRequest(c.Server, tenantId, jobId, leaseId, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -5977,6 +6035,80 @@ func NewRescheduleJobWithLeaseRequestWithBody(server string, tenantId TenantId, 
 	return req, nil
 }
 
+// NewRescheduleResourceBackoffRequest calls the generic RescheduleResourceBackoff builder with application/json body
+func NewRescheduleResourceBackoffRequest(server string, tenantId TenantId, jobId JobId, leaseId LeaseId, params *RescheduleResourceBackoffParams, body RescheduleResourceBackoffJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRescheduleResourceBackoffRequestWithBody(server, tenantId, jobId, leaseId, params, "application/json", bodyReader)
+}
+
+// NewRescheduleResourceBackoffRequestWithBody generates requests for RescheduleResourceBackoff with any type of body
+func NewRescheduleResourceBackoffRequestWithBody(server string, tenantId TenantId, jobId JobId, leaseId LeaseId, params *RescheduleResourceBackoffParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "jobId", runtime.ParamLocationPath, jobId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithLocation("simple", false, "leaseId", runtime.ParamLocationPath, leaseId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs/%s/leases/%s/resource-backoff", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithLocation("simple", false, "X-JobDB-Lease-Token", runtime.ParamLocationHeader, params.XJobDBLeaseToken)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-JobDB-Lease-Token", headerParam0)
+
+	}
+
+	return req, nil
+}
+
 // NewResolveSecretsWithLeaseRequest calls the generic ResolveSecretsWithLease builder with application/json body
 func NewResolveSecretsWithLeaseRequest(server string, tenantId TenantId, jobId JobId, leaseId LeaseId, params *ResolveSecretsWithLeaseParams, body ResolveSecretsWithLeaseJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -7201,6 +7333,11 @@ type ClientWithResponsesInterface interface {
 
 	RescheduleJobWithLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *RescheduleJobWithLeaseParams, body RescheduleJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*RescheduleJobWithLeaseHTTPResponse, error)
 
+	// RescheduleResourceBackoffWithBodyWithResponse request with any body
+	RescheduleResourceBackoffWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *RescheduleResourceBackoffParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RescheduleResourceBackoffHTTPResponse, error)
+
+	RescheduleResourceBackoffWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *RescheduleResourceBackoffParams, body RescheduleResourceBackoffJSONRequestBody, reqEditors ...RequestEditorFn) (*RescheduleResourceBackoffHTTPResponse, error)
+
 	// ResolveSecretsWithLeaseWithBodyWithResponse request with any body
 	ResolveSecretsWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *ResolveSecretsWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ResolveSecretsWithLeaseHTTPResponse, error)
 
@@ -8201,6 +8338,28 @@ func (r RescheduleJobWithLeaseHTTPResponse) StatusCode() int {
 	return 0
 }
 
+type RescheduleResourceBackoffHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ResourceBackoffReceipt
+}
+
+// Status returns HTTPResponse.Status
+func (r RescheduleResourceBackoffHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RescheduleResourceBackoffHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type ResolveSecretsWithLeaseHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -9118,6 +9277,23 @@ func (c *ClientWithResponses) RescheduleJobWithLeaseWithResponse(ctx context.Con
 		return nil, err
 	}
 	return ParseRescheduleJobWithLeaseHTTPResponse(rsp)
+}
+
+// RescheduleResourceBackoffWithBodyWithResponse request with arbitrary body returning *RescheduleResourceBackoffHTTPResponse
+func (c *ClientWithResponses) RescheduleResourceBackoffWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *RescheduleResourceBackoffParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RescheduleResourceBackoffHTTPResponse, error) {
+	rsp, err := c.RescheduleResourceBackoffWithBody(ctx, tenantId, jobId, leaseId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRescheduleResourceBackoffHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) RescheduleResourceBackoffWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *RescheduleResourceBackoffParams, body RescheduleResourceBackoffJSONRequestBody, reqEditors ...RequestEditorFn) (*RescheduleResourceBackoffHTTPResponse, error) {
+	rsp, err := c.RescheduleResourceBackoff(ctx, tenantId, jobId, leaseId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRescheduleResourceBackoffHTTPResponse(rsp)
 }
 
 // ResolveSecretsWithLeaseWithBodyWithResponse request with arbitrary body returning *ResolveSecretsWithLeaseHTTPResponse
@@ -10827,6 +11003,32 @@ func ParseRescheduleJobWithLeaseHTTPResponse(rsp *http.Response) (*RescheduleJob
 	return response, nil
 }
 
+// ParseRescheduleResourceBackoffHTTPResponse parses an HTTP response from a RescheduleResourceBackoffWithResponse call
+func ParseRescheduleResourceBackoffHTTPResponse(rsp *http.Response) (*RescheduleResourceBackoffHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RescheduleResourceBackoffHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ResourceBackoffReceipt
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseResolveSecretsWithLeaseHTTPResponse parses an HTTP response from a ResolveSecretsWithLeaseWithResponse call
 func ParseResolveSecretsWithLeaseHTTPResponse(rsp *http.Response) (*ResolveSecretsWithLeaseHTTPResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -11642,6 +11844,9 @@ type ServerInterface interface {
 	// Reschedule job with lease
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/reschedule)
 	RescheduleJobWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params RescheduleJobWithLeaseParams)
+	// Atomically suspend for resource backoff or replay its exact receipt
+	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/resource-backoff)
+	RescheduleResourceBackoff(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params RescheduleResourceBackoffParams)
 	// Resolve the allowed subset of requested job secrets
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/secrets/resolve)
 	ResolveSecretsWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params ResolveSecretsWithLeaseParams)
@@ -11922,6 +12127,12 @@ func (_ Unimplemented) KeepAliveLease(w http.ResponseWriter, r *http.Request, te
 // Reschedule job with lease
 // (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/reschedule)
 func (_ Unimplemented) RescheduleJobWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params RescheduleJobWithLeaseParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Atomically suspend for resource backoff or replay its exact receipt
+// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/resource-backoff)
+func (_ Unimplemented) RescheduleResourceBackoff(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params RescheduleResourceBackoffParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -13988,6 +14199,83 @@ func (siw *ServerInterfaceWrapper) RescheduleJobWithLease(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
+// RescheduleResourceBackoff operation middleware
+func (siw *ServerInterfaceWrapper) RescheduleResourceBackoff(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "jobId" -------------
+	var jobId JobId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobId", chi.URLParam(r, "jobId"), &jobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "leaseId" -------------
+	var leaseId LeaseId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "leaseId", chi.URLParam(r, "leaseId"), &leaseId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "leaseId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RescheduleResourceBackoffParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-JobDB-Lease-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-JobDB-Lease-Token")]; found {
+		var XJobDBLeaseToken LeaseTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-JobDB-Lease-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-JobDB-Lease-Token", valueList[0], &XJobDBLeaseToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-JobDB-Lease-Token", Err: err})
+			return
+		}
+
+		params.XJobDBLeaseToken = XJobDBLeaseToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-JobDB-Lease-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-JobDB-Lease-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RescheduleResourceBackoff(w, r, tenantId, jobId, leaseId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ResolveSecretsWithLease operation middleware
 func (siw *ServerInterfaceWrapper) ResolveSecretsWithLease(w http.ResponseWriter, r *http.Request) {
 
@@ -15196,6 +15484,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/reschedule", wrapper.RescheduleJobWithLease)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/resource-backoff", wrapper.RescheduleResourceBackoff)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/secrets/resolve", wrapper.ResolveSecretsWithLease)
@@ -17143,6 +17434,27 @@ func (response RescheduleJobWithLease204Response) VisitRescheduleJobWithLeaseRes
 	return nil
 }
 
+type RescheduleResourceBackoffRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	JobId    JobId    `json:"jobId"`
+	LeaseId  LeaseId  `json:"leaseId"`
+	Params   RescheduleResourceBackoffParams
+	Body     *RescheduleResourceBackoffJSONRequestBody
+}
+
+type RescheduleResourceBackoffResponseObject interface {
+	VisitRescheduleResourceBackoffResponse(w http.ResponseWriter) error
+}
+
+type RescheduleResourceBackoff200JSONResponse ResourceBackoffReceipt
+
+func (response RescheduleResourceBackoff200JSONResponse) VisitRescheduleResourceBackoffResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ResolveSecretsWithLeaseRequestObject struct {
 	TenantId TenantId `json:"tenantId"`
 	JobId    JobId    `json:"jobId"`
@@ -18036,6 +18348,9 @@ type StrictServerInterface interface {
 	// Reschedule job with lease
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/reschedule)
 	RescheduleJobWithLease(ctx context.Context, request RescheduleJobWithLeaseRequestObject) (RescheduleJobWithLeaseResponseObject, error)
+	// Atomically suspend for resource backoff or replay its exact receipt
+	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/resource-backoff)
+	RescheduleResourceBackoff(ctx context.Context, request RescheduleResourceBackoffRequestObject) (RescheduleResourceBackoffResponseObject, error)
 	// Resolve the allowed subset of requested job secrets
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/secrets/resolve)
 	ResolveSecretsWithLease(ctx context.Context, request ResolveSecretsWithLeaseRequestObject) (ResolveSecretsWithLeaseResponseObject, error)
@@ -19324,6 +19639,42 @@ func (sh *strictHandler) RescheduleJobWithLease(w http.ResponseWriter, r *http.R
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RescheduleJobWithLeaseResponseObject); ok {
 		if err := validResponse.VisitRescheduleJobWithLeaseResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RescheduleResourceBackoff operation middleware
+func (sh *strictHandler) RescheduleResourceBackoff(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params RescheduleResourceBackoffParams) {
+	var request RescheduleResourceBackoffRequestObject
+
+	request.TenantId = tenantId
+	request.JobId = jobId
+	request.LeaseId = leaseId
+	request.Params = params
+
+	var body RescheduleResourceBackoffJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RescheduleResourceBackoff(ctx, request.(RescheduleResourceBackoffRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RescheduleResourceBackoff")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RescheduleResourceBackoffResponseObject); ok {
+		if err := validResponse.VisitRescheduleResourceBackoffResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

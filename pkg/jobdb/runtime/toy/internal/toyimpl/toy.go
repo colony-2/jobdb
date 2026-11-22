@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	"github.com/colony-2/jobdb/pkg/jobdb/internal/crashconcern"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/cellstate"
 	"github.com/segmentio/ksuid"
@@ -45,7 +44,9 @@ func WithJobIDGenerator(gen JobIDGenerator) Option {
 
 // ToyEngine holds the in-memory state backing the toy WorkflowRuntime.
 type ToyEngine struct {
-	projects jobdb.ProjectControl
+	clock          func() time.Time
+	resourceSample func() float64
+	projects       jobdb.ProjectControl
 
 	leaseEvents                       []jobdb.LeaseEvent
 	leaseEventSequence                int64
@@ -123,17 +124,24 @@ type jobRecord struct {
 	leaseID               string
 	chapters              map[int64]*toyChapter
 
-	consecutiveExpirations int64
+	crashBudgetRemaining int64
+	resourceNotBefore    time.Time
+	resourceResume       *jobdb.ResourceResume
+	resourceSequences    map[string]resourceSequence
+	resourceReceipts     map[string]resourceReceipt
 }
 
 // currentStatus projects lease expiry without counting it again on each read.
 // The caller holds the record lock.
 func (r *jobRecord) currentStatus(now time.Time) jobdb.JobStatus {
+	if r.crashBudgetRemaining == 0 && r.archived == nil && !r.cancelled && !(r.leased && r.leaseExpiresAt.After(now)) {
+		return jobdb.JobStatusCrashConcern
+	}
 	if r.appendKey != "" && r.archived == nil && !r.cancelled {
 		if r.leased && r.leaseExpiresAt.After(now) {
 			return jobdb.JobStatusActive
 		}
-		if r.consecutiveExpirations >= crashconcern.DefaultThreshold {
+		if r.crashBudgetRemaining == 0 {
 			return jobdb.JobStatusCrashConcern
 		}
 		if len(r.waitFor) > 0 {
@@ -146,7 +154,7 @@ func (r *jobRecord) currentStatus(now time.Time) jobdb.JobStatus {
 	}
 
 	if r.leased && !r.leaseExpiresAt.After(now) && r.archived == nil && !r.cancelled {
-		if r.consecutiveExpirations >= crashconcern.DefaultThreshold {
+		if r.crashBudgetRemaining == 0 {
 			return jobdb.JobStatusCrashConcern
 		}
 		return jobdb.JobStatusReady
@@ -870,7 +878,7 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 		hasCursor = true
 	}
 
-	now := time.Now().UTC()
+	now := e.now()
 	for key, rec := range e.jobRecords {
 		rec.mu.Lock()
 		if rec.hidden && !req.IncludeHidden {
@@ -987,7 +995,7 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 			CompletionDetail:      rec.completionDetail,
 			WaitFor:               append([]string(nil), rec.waitFor...),
 			ClientPayload:         cloneJSON(rec.clientPayload),
-			ExecutionState:        toyExecutionState(rec.payload),
+			ExecutionState:        recordExecutionState(rec),
 			JobType:               rec.jobType,
 			NextRoute:             jobdb.CloneRoute(&rec.route),
 			AvailableAt:           rec.availableAt,
@@ -1185,4 +1193,11 @@ func WithMaxChapterApplicationPayloadBytes(limit int64) Option {
 
 func WithProjects(projects jobdb.ProjectControl) Option {
 	return func(e *ToyEngine) { e.projects = projects }
+}
+
+func (e *ToyEngine) now() time.Time {
+	if e.clock != nil {
+		return e.clock().UTC()
+	}
+	return time.Now().UTC()
 }

@@ -79,7 +79,11 @@ func TestProjectInitializeAndInspectCLI(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetArgs([]string{"installation", "inspect", "--database", path, "--participants-sha256", projectcatalog.InstallationDigest([]byte("explicit CLI test fixture participant inventory"))})
 	require.NoError(t, cmd.Execute())
-	require.Contains(t, out.String(), `"format":13`)
+	var inventory struct {
+		Format int `json:"format"`
+	}
+	require.NoError(t, json.Unmarshal(out.Bytes(), &inventory))
+	require.Equal(t, 14, inventory.Format)
 	require.Contains(t, out.String(), `"scopes":[]`)
 	cmd = newProjectsCmd()
 	cmd.SetArgs([]string{"installation", "initialize", "--database", path, "--participants-sha256", projectcatalog.InstallationDigest([]byte("fixture"))})

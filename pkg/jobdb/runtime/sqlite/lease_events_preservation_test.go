@@ -19,7 +19,7 @@ import (
 // Compare every original SQL value before any post-reopen mutation, then read
 // retained application objects and external artifact bytes through the runtime.
 func TestLeaseEventStartupPreservesSavedState(t *testing.T) {
-	for _, format := range []int{13} {
+	for _, format := range []int{14} {
 		t.Run(fmt.Sprint(format), func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
 			dir := t.TempDir()
@@ -78,7 +78,7 @@ func TestLeaseEventStartupPreservesSavedState(t *testing.T) {
 				}
 				var version int
 				require.NoError(t, r.db.QueryRow("PRAGMA user_version").Scan(&version))
-				require.Equal(t, 13, version)
+				require.Equal(t, 14, version)
 				actualJob, err := r.GetJob(ctx, h.JobKey)
 				require.NoError(t, err)
 				require.Equal(t, job, actualJob)
@@ -99,7 +99,7 @@ func TestLeaseEventStartupPreservesSavedState(t *testing.T) {
 				assertStartArtifact(t, ctx, r, h.JobKey, "input.txt", []byte("saved artifact bytes\x00"))
 				actualEvents, err := r.ListLeaseEvents(ctx, jobdb.ListLeaseEventsRequest{TenantID: "tenant"})
 				require.NoError(t, err)
-				if format == 13 {
+				if format == 14 {
 					require.Equal(t, events, actualEvents)
 				} else {
 					require.Empty(t, actualEvents.Events)

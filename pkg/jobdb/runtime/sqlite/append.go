@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	chaptercore "github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/core"
@@ -21,7 +20,7 @@ type appendScheduler struct{ *Runtime }
 type appendChapters struct{ r *Runtime }
 
 func (r *Runtime) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAppendJobRequest) (jobdb.JobHandle, error) {
-	return (runtimecore.AppendService{Projects: r.projects, Scheduler: appendScheduler{r}, Chapters: appendChapters{r}, Schemas: r, PayloadLimit: r.ChapterApplicationPayloadLimit()}).StartOrAppendJob(ctx, req)
+	return (runtimecore.AppendService{Projects: r.projects, Scheduler: appendScheduler{r}, Chapters: appendChapters{r}, Schemas: r, PayloadLimit: r.ChapterApplicationPayloadLimit(), Now: r.now}).StartOrAppendJob(ctx, req)
 }
 func (s appendScheduler) ResolveAppendCell(ctx context.Context, j jobdb.SubmitJob) (jobdb.ResolvedCell, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
@@ -43,7 +42,7 @@ func (s appendScheduler) GetAppendTail(ctx context.Context, c runtimecore.Append
 		return runtimecore.StoredJob{}, false, err
 	}
 	out := appendStored(row)
-	if row.consecutiveExpirations >= 5 && row.archivedAtNS.Valid == false && (!row.leaseExpiresAtNS.Valid || !timeFromNS(row.leaseExpiresAtNS.Int64).After(time.Now())) {
+	if row.crashBudgetRemaining == 0 && row.archivedAtNS.Valid == false && (!row.leaseExpiresAtNS.Valid || !timeFromNS(row.leaseExpiresAtNS.Int64).After(s.now())) {
 		out.Status = jobdb.JobStatusCrashConcern
 	}
 	return out, true, nil
@@ -87,7 +86,7 @@ func (s appendScheduler) ClaimAppend(ctx context.Context, q runtimecore.ClaimApp
 		if e != nil {
 			return e
 		}
-		result, e := tx.ExecContext(ctx, `UPDATE jobdb_jobs SET consecutive_expirations=CASE WHEN lease_id IS NOT NULL AND substr(lease_worker_id,1,13) <> 'jobdb-append-' THEN consecutive_expirations+1 ELSE consecutive_expirations END,lease_id=?,lease_worker_id=?,lease_expires_at_ns=? WHERE tenant_id=? AND job_id=? AND archived_at_ns IS NULL AND cancel_requested=0 AND consecutive_expirations<5 AND (lease_id IS NULL OR lease_expires_at_ns<=?)`, out.LeaseID, out.WorkerID, timeToNS(out.ExpiresAt), q.JobKey.TenantId, q.JobKey.JobId, timeToNS(q.Now))
+		result, e := tx.ExecContext(ctx, `UPDATE jobdb_jobs SET crash_budget_remaining=CASE WHEN lease_id IS NOT NULL AND substr(lease_worker_id,1,13) <> 'jobdb-append-' THEN crash_budget_remaining-1 ELSE crash_budget_remaining END,lease_id=?,lease_worker_id=?,lease_expires_at_ns=? WHERE tenant_id=? AND job_id=? AND archived_at_ns IS NULL AND cancel_requested=0 AND crash_budget_remaining>0 AND (resource_not_before_ns IS NULL OR resource_not_before_ns<=?) AND (lease_id IS NULL OR lease_expires_at_ns<=?)`, out.LeaseID, out.WorkerID, timeToNS(out.ExpiresAt), q.JobKey.TenantId, q.JobKey.JobId, timeToNS(q.Now), timeToNS(q.Now))
 		if e != nil {
 			return e
 		}

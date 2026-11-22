@@ -77,6 +77,6 @@ also cannot preserve a historical successful producer whose primary membership
 belongs to a different goal. The approved design removes independent goal
 tables by retaining origin and protected closure facts with jobs, including
 exact historical producer references and failure snapshots. Toy uses retained job
-facts with a separate wait-only store; fresh and converted SQLite format 13 omit
+facts with a separate wait-only store; fresh and converted SQLite format 14 omit
 both legacy lifecycle tables. Public attachment declarations and mutation routes are removed after completed
 initial consumer cleanup.

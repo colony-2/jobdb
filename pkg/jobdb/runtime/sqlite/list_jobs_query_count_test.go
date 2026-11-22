@@ -96,7 +96,8 @@ func TestStoredListFieldsUseOneQueryPerPage(t *testing.T) {
 					total++
 					require.Equal(t, `{"outside":[9007199254740993,null]}`, string(row.ClientPayload))
 					require.EqualValues(t, 7, row.ClientPayloadRevision)
-					require.Equal(t, jobdb.ExecutionState{RunPolicy: policy, TaskWait: &jobdb.TaskWait{InputOrdinal: 2, OutputOrdinal: 3, InputHash: "stored-hash", ResumeJobType: "resume"}}, row.ExecutionState)
+					budget := int64(5)
+					require.Equal(t, jobdb.ExecutionState{CrashBudgetRemaining: &budget, ResourceBackoff: &jobdb.ResourceBackoffCapability{ProtocolVersion: 1, DurabilityVersion: 1}, RunPolicy: policy, TaskWait: &jobdb.TaskWait{InputOrdinal: 2, OutputOrdinal: 3, InputHash: "stored-hash", ResumeJobType: "resume"}}, row.ExecutionState)
 					require.Equal(t, []string{"unresolved-b", "unresolved-a"}, row.WaitFor)
 					require.Empty(t, row.OtherGoalIDs)
 					require.Nil(t, row.BlockingWait)

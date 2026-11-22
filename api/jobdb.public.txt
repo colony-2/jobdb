@@ -75,6 +75,7 @@ type CancelJobRequest struct
   field Reason string
   field WorkerID string
 func CanonicalJobSchema func(schema encoding/json.RawMessage) (encoding/json.RawMessage, error)
+func CanonicalResourceBackoffRequest func(r ResourceBackoffRequest) ([]byte, error)
 func CaptureExecutionArtifact func(ctx context.Context, a Artifact) (ExecutionArtifact, error)
 type Cell struct
   field TenantID string `json:"tenantId"`
@@ -180,6 +181,7 @@ method ClearCrashConcernRequest.Validate func() error
 type ClientPayloadUpdate = github.com/colony-2/jobdb/pkg/jobdb/clientpayload.Update
 func CloneExecutionState func(s ExecutionState) ExecutionState
 func CloneGoalFailure func(f *GoalFailure) *GoalFailure
+func CloneResourceBackoffRequest func(r ResourceBackoffRequest) (ResourceBackoffRequest, error)
 func CloneRoute func(route *Route) *Route
 type CompleteExecutionRequest struct
   field ClientPayloadUpdate *ClientPayloadUpdate
@@ -260,6 +262,7 @@ func DefaultExecutionProvenanceLimits func() ExecutionProvenanceLimits
 const DefaultListJobsPageSize untyped int = 100
 const DefaultMaxAppendInputs untyped int = 50
 const DefaultMaxChapterApplicationPayloadBytes int64 = 262144
+func DefaultResourceBackoffPolicy func() ResourceBackoffPolicy
 func DefaultRunPolicy func() RunPolicy
 type DelegationChapters struct
   field Any bool `json:"any,omitempty"`
@@ -276,6 +279,7 @@ type DelegationOrdinalRange struct
   field Start int64 `json:"start"`
   field End int64 `json:"end"`
 type DelegationPermissions struct
+  field ResourceBackoff bool `json:"resource.backoff,omitempty"`
   field CreateCells *DelegationNames `json:"cells.create,omitempty"`
   field Submit *DelegationSubmitPermission `json:"jobs.submit,omitempty"`
   field Secrets []string `json:"secrets.resolve,omitempty"`
@@ -395,6 +399,7 @@ var ErrInvalidJobRecord error
 var ErrInvalidLeaseEventPageToken *CellError
 var ErrInvalidLeaseEventRequest *CellError
 var ErrInvalidProject error
+var ErrInvalidResourceBackoff error
 var ErrInvalidSecretRequest error
 var ErrJobCancelled error
 var ErrJobDeletionUnsupported error
@@ -420,6 +425,7 @@ var ErrProjectNotFound error
 var ErrProjectPreconditionRequired error
 var ErrProjectRevisionMismatch error
 var ErrProjectUnavailable error
+var ErrResourceBackoffUnsupported error
 var ErrSecretRequestTooLarge error
 var ErrSecretResolutionFailed error
 var ErrSecretsUnavailable error
@@ -535,6 +541,7 @@ type ExecutionProvenanceUsage struct
   field ElapsedMillis int64 `json:"elapsedMillis"`
   field ResponseBytes int `json:"responseBytes"`
 type ExecutionRecord struct
+  field Resource *ResourceCheckpoint `json:"-"`
   field Version uint32 `json:"version"`
   field Kind string `json:"kind"`
   field ID string `json:"id,omitempty"`
@@ -567,6 +574,9 @@ type ExecutionSnapshot struct
   field Data encoding/json.RawMessage `json:"data"`
   field Artifacts []ExecutionArtifact `json:"artifacts,omitempty"`
 type ExecutionState struct
+  field CrashBudgetRemaining *int64 `json:"crashBudgetRemaining,omitempty"`
+  field ResourceBackoff *ResourceBackoffCapability `json:"resourceBackoff,omitempty"`
+  field ResourceResume *ResourceResume `json:"resourceResume,omitempty"`
   field RunPolicy RunPolicy `json:"runPolicy"`
   field TaskWait *TaskWait `json:"taskWait,omitempty"`
 type ExecutionVersions struct
@@ -903,6 +913,8 @@ method LeaseRenewalError.Error func() string
 method LeaseRenewalError.GoString func() string
 method LeaseRenewalError.Unwrap func() error
 type LeaseValidity struct
+  field ExecutionState ExecutionState
+  field ClientPayloadRevision int64
   field Cell ResolvedCell
   field GoalID string
   field ExpiresAt time.Time
@@ -1136,6 +1148,81 @@ type ResolvedCell struct
   field CellID string `json:"cellId"`
   field CellRepo string `json:"cellRepo"`
 method ResolvedCell.Handle func(key JobKey, goal string) JobHandle
+type ResourceBackoffCapability struct
+  field ProtocolVersion int `json:"protocolVersion"`
+  field DurabilityVersion int `json:"durabilityVersion"`
+method ResourceBackoffCapability.Validate func(durable bool) error
+func ResourceBackoffDelay func(p ResourceBackoffPolicy, count int64, sample float64) (time.Duration, error)
+type ResourceBackoffLease interface
+  method RescheduleResourceBackoff func(context.Context, ResourceBackoffRequest) (ResourceBackoffReceipt, error)
+type ResourceBackoffPolicy struct
+  field Version int `json:"version"`
+  field Initial time.Duration `json:"initial"`
+  field Growth float64 `json:"growth"`
+  field Maximum time.Duration `json:"maximum"`
+  field Jitter float64 `json:"jitter"`
+  field CrashAllowance *int64 `json:"crashAllowance,omitempty"`
+method ResourceBackoffPolicy.Validate func() error
+const ResourceBackoffReason untyped string = "resource_temporarily_unavailable"
+type ResourceBackoffReceipt struct
+  field Version int `json:"version"`
+  field RequestID string `json:"requestId"`
+  field JobKey JobKey `json:"jobKey"`
+  field LeaseID string `json:"leaseId"`
+  field WorkerID string `json:"workerId"`
+  field Count int64 `json:"count"`
+  field WakeAt time.Time `json:"wakeAt"`
+  field Reason string `json:"reason"`
+  field Policy ResourceBackoffPolicy `json:"policy"`
+  field ResolvedCrashAllowance int64 `json:"resolvedCrashAllowance"`
+  field Resume ResourceResume `json:"resume"`
+type ResourceBackoffReceiptReader interface
+  method ReplayResourceBackoffReceiptByID func(context.Context, JobKey, string, string, ResourceBackoffRequest) (ResourceBackoffReceipt, error)
+type ResourceBackoffRequest struct
+  field AuthorityBinding string `json:"-"`
+  field Version int `json:"version"`
+  field RequestID string `json:"requestId"`
+  field Invocation string `json:"invocation"`
+  field Attempt int `json:"attempt"`
+  field Reason string `json:"reason"`
+  field Policy ResourceBackoffPolicy `json:"policy"`
+  field Resume ResourceResume `json:"resume"`
+  field ClientPayloadUpdate *ClientPayloadUpdate `json:"clientPayloadUpdate,omitempty"`
+method ResourceBackoffRequest.Validate func() error
+type ResourceBackoffTransport interface
+  method RescheduleResourceBackoffByID func(context.Context, JobKey, string, string, ResourceBackoffRequest) (ResourceBackoffReceipt, error)
+type ResourceBackoffUnsupportedError struct
+  field Feature string
+method ResourceBackoffUnsupportedError.Error func() string
+method ResourceBackoffUnsupportedError.Unwrap func() error
+const ResourceBackoffVersion untyped int = 1
+func ResourceBackoffWake func(at time.Time, delay time.Duration) time.Time
+type ResourceCheckpoint struct
+  field Frames []ResourceCheckpointFrame `json:"frames,omitempty"`
+  field Version int `json:"version"`
+  field Invocation string `json:"invocation"`
+  field Attempt int `json:"attempt"`
+  field Policy ResourceBackoffPolicy `json:"policy"`
+  field ExecutionTaskType string `json:"executionTaskType,omitempty"`
+  field PayloadRevision int64 `json:"payloadRevision"`
+type ResourceCheckpointFrame struct
+  field Invocation string `json:"invocation"`
+  field Attempt int `json:"attempt"`
+  field Input *ExecutionSnapshot `json:"input"`
+  field Deadline time.Time `json:"deadline"`
+  field TotalDeadline time.Time `json:"totalDeadline"`
+  field ExecutionTaskType string `json:"executionTaskType"`
+func ResourceCheckpointHash func(raw []byte) string
+type ResourceResume struct
+  field Version int `json:"version"`
+  field CheckpointOrdinal int64 `json:"checkpointOrdinal"`
+  field CheckpointHash string `json:"checkpointHash"`
+  field Invocation string `json:"invocation"`
+  field Attempt int `json:"attempt"`
+  field Route Route `json:"route"`
+  field TaskWait *TaskWait `json:"taskWait,omitempty"`
+  field PayloadRevision int64 `json:"payloadRevision"`
+method ResourceResume.Validate func() error
 type RestartExtraChapter struct
   field Output ApplicationOutputBytes
 type RetireCellRequest struct
@@ -1374,6 +1461,8 @@ func ValidateDependencyWait func(w *DependencyWait, submission bool) error
 func ValidateIdentifier func(value string) error
 func ValidateJobSchemaHash func(hash string) error
 func ValidatePrimaryGoalSelection func(job SubmitJob) error
+func ValidateResourceCheckpoint func(ch Chapter, req ResourceBackoffRequest) error
+func ValidateResourceTaskCheckpoint func(checkpoint Chapter, declaration Chapter, req ResourceBackoffRequest) error
 func WithCellAuthority func(ctx context.Context, a CellAuthority) context.Context
 func WithPrimaryGoalSelectionAuthorizer func(ctx context.Context, authorize PrimaryGoalSelectionAuthorizer) context.Context
 func WithProjectAdministration func(ctx context.Context, authorize func(context.Context) error) context.Context
@@ -1423,7 +1512,21 @@ const MissingTaskName untyped string = "missing"
 func MustDecodeNumberTaskData func(t testing.TB, data github.com/colony-2/jobdb/pkg/jobdb.TaskData) int
 func MustWorkSet func(t testing.TB, job github.com/colony-2/jobdb/pkg/workflow.JobWorker, tasks ...github.com/colony-2/jobdb/pkg/workflow.TaskWorker) github.com/colony-2/jobdb/pkg/workflow.WorkSet
 func NumberTaskData func(n int) github.com/colony-2/jobdb/pkg/jobdb.TaskData
+func PrepareResourceBackoffCheckpoint func(ctx context.Context, rt github.com/colony-2/jobdb/pkg/jobdb.ConsumerRuntime, lease github.com/colony-2/jobdb/pkg/jobdb.ExecutionLease, id string, attempt int, policy github.com/colony-2/jobdb/pkg/jobdb.ResourceBackoffPolicy) (github.com/colony-2/jobdb/pkg/jobdb.ResourceBackoffRequest, error)
 func PrimaryGoalContext func(ctx context.Context) context.Context
+type ResourceBackoffFixture struct
+  field Runtime github.com/colony-2/jobdb/pkg/jobdb.ConsumerRuntime
+  field ClaimAppend func(context.Context, github.com/colony-2/jobdb/pkg/jobdb.JobKey, time.Time) error
+  field SetTime func(time.Time)
+  field SetRandom func(float64)
+  field Reopen func() github.com/colony-2/jobdb/pkg/jobdb.ConsumerRuntime
+  field Fault func(string)
+  field Barrier func() (entered <-chan struct{}, release func())
+method ResourceBackoffFixture.Validate func(durable bool) error
+type ResourceBackoffHarness struct
+  field Name string
+  field Durable bool
+  field New func(testing.TB) ResourceBackoffFixture
 func RunAvailableRoutesConformance func(t *testing.T, harnesses ...Harness)
 func RunCellConformance func(t *testing.T, rt github.com/colony-2/jobdb/pkg/jobdb.ConsumerRuntime)
 func RunClientPayloadConformance func(t *testing.T, harnesses ...Harness)
@@ -1434,6 +1537,7 @@ func RunLeaseEventConformance func(t *testing.T, harnesses ...Harness)
 func RunParentIdentityConformance func(t *testing.T, harnesses ...Harness)
 func RunPrimaryGoalSelectionBoundaries func(t *testing.T, r github.com/colony-2/jobdb/pkg/jobdb.ConsumerRuntime)
 func RunPrimaryGoalSelectionConformance func(t *testing.T, r github.com/colony-2/jobdb/pkg/jobdb.ConsumerRuntime)
+func RunResourceBackoffConformance func(t *testing.T, h ResourceBackoffHarness)
 func RunRouteConformance func(t *testing.T, harnesses ...Harness)
 func RunStartOrAppendConformance func(t *testing.T, harnesses ...Harness)
 func RunSubmissionAvailabilityConformance func(t *testing.T, harnesses ...Harness)
@@ -1604,6 +1708,9 @@ type LeaseMutation struct
   field Duration time.Duration
   field Now time.Time
 type LeaseSnapshot struct
+  field CrashBudgetRemaining *int64
+  field ResourceBackoff *github.com/colony-2/jobdb/pkg/jobdb.ResourceBackoffCapability
+  field ResourceResume *github.com/colony-2/jobdb/pkg/jobdb.ResourceResume
   field Cell github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell
   field GoalID string
   field Identity LeaseIdentity
@@ -1679,6 +1786,13 @@ type RescheduleMutation struct
   field Now time.Time
 func ResolveActiveSchemaForNewJob func(ctx context.Context, registry github.com/colony-2/jobdb/pkg/jobdb.JobSchemaRegistry, tenantID string, selector *github.com/colony-2/jobdb/pkg/jobdb.JobSchemaSelector) (string, error)
 func ResolveExecutionRestart func(ctx context.Context, r executionHistoryReader, job github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJob) (github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJob, *github.com/colony-2/jobdb/pkg/jobdb.ExecutionRecord, error)
+type ResourceBackoffMutation struct
+  field Identity LeaseIdentity
+  field Request github.com/colony-2/jobdb/pkg/jobdb.ResourceBackoffRequest
+type ResourceBackoffScheduler interface
+  method ReplayResourceBackoffReceipt func(context.Context, ResourceBackoffMutation) (github.com/colony-2/jobdb/pkg/jobdb.ResourceBackoffReceipt, error)
+  method RescheduleResourceBackoff func(context.Context, ResourceBackoffMutation) (github.com/colony-2/jobdb/pkg/jobdb.ResourceBackoffReceipt, error)
+  method ResourceBackoffCapability func(context.Context) (github.com/colony-2/jobdb/pkg/jobdb.ResourceBackoffCapability, error)
 type Runtime struct
   embedded ProjectCatalog github.com/colony-2/jobdb/pkg/jobdb.ProjectCatalog
   embedded Service *github.com/colony-2/jobdb/pkg/jobdb/configuration.Service
@@ -1715,7 +1829,9 @@ method Runtime.PollWork func(ctx context.Context, req github.com/colony-2/jobdb/
 method Runtime.PutChapter func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.PutChapterRequest) error
 method Runtime.ReadExecutionProvenance func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ReadExecutionProvenanceRequest) (github.com/colony-2/jobdb/pkg/jobdb.ExecutionProvenance, error)
 method Runtime.RenewExecutionLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, duration time.Duration) (github.com/colony-2/jobdb/pkg/jobdb.RenewableExecutionLease, error)
+method Runtime.ReplayResourceBackoffReceiptByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, lease string, worker string, req github.com/colony-2/jobdb/pkg/jobdb.ResourceBackoffRequest) (github.com/colony-2/jobdb/pkg/jobdb.ResourceBackoffReceipt, error)
 method Runtime.RescheduleJobWithLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.RescheduleExecutionRequest) error
+method Runtime.RescheduleResourceBackoffByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, lease string, worker string, req github.com/colony-2/jobdb/pkg/jobdb.ResourceBackoffRequest) (github.com/colony-2/jobdb/pkg/jobdb.ResourceBackoffReceipt, error)
 method Runtime.ResolveCellWithLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, name string) (github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, error)
 method Runtime.ResolveSecrets func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ResolveSecretsRequest) (github.com/colony-2/jobdb/pkg/jobdb.SecretResolveResult, error)
 method Runtime.RetireCell func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.RetireCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
@@ -1765,6 +1881,9 @@ type SchemaStore interface
   method ListJobSchemas func(ctx context.Context, req ListJobSchemasRequest) (ListJobSchemasResponse, error)
   method StoreJobSchema func(ctx context.Context, schema StoredJobSchema) (StoredJobSchema, error)
 type StoredJob struct
+  field CrashBudgetRemaining *int64
+  field ResourceBackoff *github.com/colony-2/jobdb/pkg/jobdb.ResourceBackoffCapability
+  field ResourceResume *github.com/colony-2/jobdb/pkg/jobdb.ResourceResume
   field AppendKey string
   field AppendGeneration int64
   field RecordKind github.com/colony-2/jobdb/pkg/jobdb.JobRecordKind
@@ -1959,6 +2078,7 @@ type CompleteExecutionRequest = github.com/colony-2/jobdb/pkg/jobdb.CompleteExec
 type CompleteTaskIfWaitingRequest = github.com/colony-2/jobdb/pkg/jobdb.CompleteTaskIfWaitingRequest
 type ConfigurationSnapshot = github.com/colony-2/jobdb/pkg/jobdb.ConfigurationSnapshot
 type ConsumerRuntime = github.com/colony-2/jobdb/pkg/jobdb.ConsumerRuntime
+func CrashBudgetRemaining func(ctx any) (int64, bool)
 type Data = encoding/json.RawMessage
 const DefaultListJobsPageSize untyped int = 100
 func DefaultRunPolicy func() RunPolicy
@@ -1968,6 +2088,7 @@ type DependencyTarget = github.com/colony-2/jobdb/pkg/jobdb.DependencyTarget
 type DependencyWait = github.com/colony-2/jobdb/pkg/jobdb.DependencyWait
 type DependencyWaitInfo = github.com/colony-2/jobdb/pkg/jobdb.DependencyWaitInfo
 type Duration = github.com/colony-2/jobdb/pkg/jobdb.Duration
+func EAGAINWait func(ctx any, options ...ResourceBackoffOption) error
 type Engine interface
   embedded jobRunApi
   embedded taskRunApi
@@ -2202,6 +2323,7 @@ type ReplayRunRequest struct
   field Observer ReplayObserver
   field JobWorker JobWorker
 type RescheduleExecutionRequest = github.com/colony-2/jobdb/pkg/jobdb.RescheduleExecutionRequest
+type ResourceBackoffOption struct
 type RestartExtraChapter = github.com/colony-2/jobdb/pkg/jobdb.RestartExtraChapter
 type RetryPolicy = github.com/colony-2/jobdb/pkg/jobdb.RetryPolicy
 type Route = github.com/colony-2/jobdb/pkg/jobdb.Route
@@ -2368,6 +2490,11 @@ const TimeoutScopeInvocation untyped string = "invocation"
 const TimeoutScopeTotal untyped string = "total"
 func UnexpectedChapter func(err error) (TaskInputMismatchError, bool)
 func WaitForJobToComplete func(ctx context.Context, timeout time.Duration, jobKey JobKey, engine Engine) error
+func WithBackoffGrowth func(v float64) ResourceBackoffOption
+func WithBackoffJitter func(v float64) ResourceBackoffOption
+func WithCrashBudget func(v int64) ResourceBackoffOption
+func WithInitialWait func(v time.Duration) ResourceBackoffOption
+func WithMaxWait func(v time.Duration) ResourceBackoffOption
 type WorkRegistrationOptions struct
   field ConsumerVersions map[string]string
   field MetadataFilter MetadataFilter
@@ -2606,7 +2733,9 @@ method Runtime.ReadExecutionProvenance func(ctx context.Context, q github.com/co
 method Runtime.RegisterJobSchema func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.RegisterJobSchemaRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobSchemaInfo, error)
 method Runtime.RemoveDevSecret func(ctx context.Context, tenant string, name string) error
 method Runtime.RenewExecutionLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, duration time.Duration) (github.com/colony-2/jobdb/pkg/jobdb.RenewableExecutionLease, error)
+method Runtime.ReplayResourceBackoffReceiptByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, lease string, worker string, req github.com/colony-2/jobdb/pkg/jobdb.ResourceBackoffRequest) (result github.com/colony-2/jobdb/pkg/jobdb.ResourceBackoffReceipt, err error)
 method Runtime.RescheduleJobWithLeaseByID func(ctx context.Context, jobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.RescheduleExecutionRequest) error
+method Runtime.RescheduleResourceBackoffByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.ResourceBackoffRequest) (receipt github.com/colony-2/jobdb/pkg/jobdb.ResourceBackoffReceipt, err error)
 method Runtime.ResolveCellWithLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, name string) (out github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, err error)
 method Runtime.ResolveSecrets func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ResolveSecretsRequest) (github.com/colony-2/jobdb/pkg/jobdb.SecretResolveResult, error)
 method Runtime.RetireCell func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.RetireCellRequest) (out github.com/colony-2/jobdb/pkg/jobdb.Cell, err error)

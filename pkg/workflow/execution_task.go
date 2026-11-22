@@ -79,7 +79,7 @@ func (c *executionContext) DoTask(call TaskCall, build func(context.Context) (Ta
 		if next := c.run.peek(); next != nil && next.record.Kind == "result" && next.record.ID == aid {
 			rec, err = c.event("result", aid, func() *jobdb.ExecutionRecord { return nil })
 		} else if next := c.run.peek(); next != nil && next.record.Kind == "wait" && next.record.ID == aid {
-			rec, err = c.externalTask(call, aid, next.record.Input, start.Deadline, total, &dispatch)
+			rec, err = c.externalTask(call, aid, attempt, next.record.Input, start.Deadline, total, &dispatch)
 			if c.run.r.replay && isReplayCacheMiss(err) {
 				return nil, c.run.unfinishedTask(call, aid, attempt, start.At, next.record.Input)
 			}
@@ -109,9 +109,20 @@ func (c *executionContext) DoTask(call TaskCall, build func(context.Context) (Ta
 		} else {
 			// A local invocation with no committed outcome starts a fresh timer even
 			// when a prior scheduler handoff persisted its path metadata.
-			start.At = time.Now().UTC()
-			start.Deadline = earlier(deadlineFrom(start.At, p.AttemptTimeout), total)
+			if saved, ok := c.run.resourceRecords[aid]; ok {
+				input = saved.Input
+				start.Deadline = saved.Deadline
+				total = saved.TotalDeadline
+				if saved.Resource.ExecutionTaskType != "" {
+					dispatch.taskType = saved.Resource.ExecutionTaskType
+				}
+			} else {
+				start.At = time.Now().UTC()
+				start.Deadline = earlier(deadlineFrom(start.At, p.AttemptTimeout), total)
+			}
 			child := c.child(aid, start.Deadline, total)
+			child.attempt = attempt
+			child.resourceTaskType = dispatch.taskType
 			var out TaskData
 			var taskErr error
 			if input == nil {
@@ -123,7 +134,7 @@ func (c *executionContext) DoTask(call TaskCall, build func(context.Context) (Ta
 			worker, local := c.run.r.worker.TaskWorkers[dispatch.taskType]
 			if taskErr == nil && !local {
 				child.close()
-				rec, err = c.externalTask(call, aid, input, start.Deadline, total, &dispatch)
+				rec, err = c.externalTask(call, aid, attempt, input, start.Deadline, total, &dispatch)
 			} else {
 				if taskErr == nil {
 					workerInput := c.run.snapshotData(input)
@@ -136,6 +147,9 @@ func (c *executionContext) DoTask(call TaskCall, build func(context.Context) (Ta
 		if err != nil {
 			return nil, err
 		}
+		c.run.mu.Lock()
+		delete(c.run.resourceFrames, aid)
+		c.run.mu.Unlock()
 		c.run.emitTask(call, aid, attempt, start.At, rec)
 		if rec.Input != nil {
 			input = rec.Input
@@ -159,6 +173,17 @@ func (c *executionContext) invokeTask(worker TaskWorker, input TaskData) (TaskDa
 	err := c.liveLocked()
 	if err == nil {
 		err = c.run.activateLocked()
+		if err == nil {
+			snapshot, snapshotErr := executionSnapshot(c.ctx, input)
+			if snapshotErr != nil {
+				err = resourceInfrastructure(snapshotErr)
+			} else {
+				if c.run.resourceFrames == nil {
+					c.run.resourceFrames = map[string]jobdb.ResourceCheckpointFrame{}
+				}
+				c.run.resourceFrames[c.id] = jobdb.ResourceCheckpointFrame{Invocation: c.id, Attempt: c.attempt, Input: snapshot, Deadline: c.deadline, TotalDeadline: c.totalDeadline, ExecutionTaskType: c.resourceTaskType}
+			}
+		}
 	}
 	c.run.mu.Unlock()
 	if err != nil {
@@ -172,6 +197,7 @@ func (c *executionContext) taskContext() TaskContext {
 	tc := newTaskContextWithLeaseActions(c.GetJobKey(), c.run.nextOrdinal(), c.Logger(), func(at time.Time) error { return c.waitUntil(at, c.deadline) }, c.awaitTaskJobs, c.SubmitJob, c.SubmitRestartJob, c.ClientPayload, c.ClientPayloadRevision, c.Yield, c.ResolveSecrets, c.ResolveSecretsFresh, c.GetConfiguration)
 	tc.startOrAppendJob = c.StartOrAppendJob
 	tc.executionContext = c.ctx
+	tc.resourceContext = c
 	tc.goalID = c.run.r.goalID
 	tc.cell = c.run.r.cell
 	tc.createDelegation = c.createTaskDelegation

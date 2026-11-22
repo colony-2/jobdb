@@ -525,9 +525,12 @@ type DelegationPermissions struct {
 	ChaptersRead *DelegationChapters `json:"chapters.read,omitempty"`
 
 	// ChaptersWrite Only TaskAttemptOutcome chapters. Artifact selectors allow fresh uploads, never stored references.
-	ChaptersWrite  *DelegationWritePermission  `json:"chapters.write,omitempty"`
-	JobsSubmit     *DelegationSubmitPermission `json:"jobs.submit,omitempty"`
-	SecretsResolve *[]string                   `json:"secrets.resolve,omitempty"`
+	ChaptersWrite *DelegationWritePermission  `json:"chapters.write,omitempty"`
+	JobsSubmit    *DelegationSubmitPermission `json:"jobs.submit,omitempty"`
+
+	// ResourceBackoff Allow the atomic resource action and exact receipt replay; grants no chapter reads or ordinary reschedule authority.
+	ResourceBackoff *bool     `json:"resource.backoff,omitempty"`
+	SecretsResolve  *[]string `json:"secrets.resolve,omitempty"`
 }
 
 // DelegationSubmitPermission defines model for DelegationSubmitPermission.
@@ -621,8 +624,11 @@ type ExecutionRestart struct {
 
 // ExecutionState defines model for ExecutionState.
 type ExecutionState struct {
-	RunPolicy *RunPolicy `json:"runPolicy,omitempty"`
-	TaskWait  *TaskWait  `json:"taskWait,omitempty"`
+	CrashBudgetRemaining *int64                     `json:"crashBudgetRemaining,omitempty"`
+	ResourceBackoff      *ResourceBackoffCapability `json:"resourceBackoff,omitempty"`
+	ResourceResume       *ResourceResume            `json:"resourceResume,omitempty"`
+	RunPolicy            *RunPolicy                 `json:"runPolicy,omitempty"`
+	TaskWait             *TaskWait                  `json:"taskWait,omitempty"`
 }
 
 // FailGoalRequest defines model for FailGoalRequest.
@@ -666,6 +672,12 @@ type JobDependencyFailure struct {
 
 // JobDependencyFailureCode defines model for JobDependencyFailure.Code.
 type JobDependencyFailureCode string
+
+// JobKey defines model for JobKey.
+type JobKey struct {
+	JobId    string `json:"jobId"`
+	TenantId string `json:"tenantId"`
+}
 
 // JobPrerequisite defines model for JobPrerequisite.
 type JobPrerequisite struct {
@@ -1372,6 +1384,21 @@ type ResolvedCell struct {
 	CellRepo CellRepo `json:"cellRepo"`
 }
 
+// ResourceBackoffCapability defines model for ResourceBackoffCapability.
+type ResourceBackoffCapability = jobdb.ResourceBackoffCapability
+
+// ResourceBackoffPolicy defines model for ResourceBackoffPolicy.
+type ResourceBackoffPolicy = jobdb.ResourceBackoffPolicy
+
+// ResourceBackoffReceipt defines model for ResourceBackoffReceipt.
+type ResourceBackoffReceipt = jobdb.ResourceBackoffReceipt
+
+// ResourceBackoffRequest defines model for ResourceBackoffRequest.
+type ResourceBackoffRequest = jobdb.ResourceBackoffRequest
+
+// ResourceResume defines model for ResourceResume.
+type ResourceResume = jobdb.ResourceResume
+
 // RestartExtraChapter defines model for RestartExtraChapter.
 type RestartExtraChapter struct {
 	Kind RestartExtraChapterKind `json:"kind"`
@@ -1823,6 +1850,11 @@ type ProjectrescheduleJobWithLeaseParams struct {
 	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
 }
 
+// ProjectrescheduleResourceBackoffParams defines parameters for ProjectrescheduleResourceBackoff.
+type ProjectrescheduleResourceBackoffParams struct {
+	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
+}
+
 // ProjectresolveSecretsWithLeaseParams defines parameters for ProjectresolveSecretsWithLease.
 type ProjectresolveSecretsWithLeaseParams struct {
 	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
@@ -1941,6 +1973,9 @@ type ProjectcreateLeaseDelegationJSONRequestBody = CreateDelegationRequest
 
 // ProjectrescheduleJobWithLeaseJSONRequestBody defines body for ProjectrescheduleJobWithLease for application/json ContentType.
 type ProjectrescheduleJobWithLeaseJSONRequestBody = RescheduleExecutionRequest
+
+// ProjectrescheduleResourceBackoffJSONRequestBody defines body for ProjectrescheduleResourceBackoff for application/json ContentType.
+type ProjectrescheduleResourceBackoffJSONRequestBody = ResourceBackoffRequest
 
 // ProjectresolveSecretsWithLeaseJSONRequestBody defines body for ProjectresolveSecretsWithLease for application/json ContentType.
 type ProjectresolveSecretsWithLeaseJSONRequestBody = ResolveSecretsBody
@@ -2820,6 +2855,11 @@ type ClientInterface interface {
 
 	ProjectrescheduleJobWithLease(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectrescheduleJobWithLeaseParams, body ProjectrescheduleJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ProjectrescheduleResourceBackoffWithBody request with any body
+	ProjectrescheduleResourceBackoffWithBody(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectrescheduleResourceBackoffParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ProjectrescheduleResourceBackoff(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectrescheduleResourceBackoffParams, body ProjectrescheduleResourceBackoffJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ProjectresolveSecretsWithLeaseWithBody request with any body
 	ProjectresolveSecretsWithLeaseWithBody(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectresolveSecretsWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -3653,6 +3693,30 @@ func (c *Client) ProjectrescheduleJobWithLeaseWithBody(ctx context.Context, proj
 
 func (c *Client) ProjectrescheduleJobWithLease(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectrescheduleJobWithLeaseParams, body ProjectrescheduleJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewProjectrescheduleJobWithLeaseRequest(c.Server, projectId, jobId, leaseId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ProjectrescheduleResourceBackoffWithBody(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectrescheduleResourceBackoffParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewProjectrescheduleResourceBackoffRequestWithBody(c.Server, projectId, jobId, leaseId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ProjectrescheduleResourceBackoff(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectrescheduleResourceBackoffParams, body ProjectrescheduleResourceBackoffJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewProjectrescheduleResourceBackoffRequest(c.Server, projectId, jobId, leaseId, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -6345,6 +6409,80 @@ func NewProjectrescheduleJobWithLeaseRequestWithBody(server string, projectId Pr
 	return req, nil
 }
 
+// NewProjectrescheduleResourceBackoffRequest calls the generic ProjectrescheduleResourceBackoff builder with application/json body
+func NewProjectrescheduleResourceBackoffRequest(server string, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectrescheduleResourceBackoffParams, body ProjectrescheduleResourceBackoffJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewProjectrescheduleResourceBackoffRequestWithBody(server, projectId, jobId, leaseId, params, "application/json", bodyReader)
+}
+
+// NewProjectrescheduleResourceBackoffRequestWithBody generates requests for ProjectrescheduleResourceBackoff with any type of body
+func NewProjectrescheduleResourceBackoffRequestWithBody(server string, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectrescheduleResourceBackoffParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "projectId", runtime.ParamLocationPath, projectId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "jobId", runtime.ParamLocationPath, jobId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithLocation("simple", false, "leaseId", runtime.ParamLocationPath, leaseId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/projects/%s/jobs/%s/leases/%s/resource-backoff", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithLocation("simple", false, "X-JobDB-Lease-Token", runtime.ParamLocationHeader, params.XJobDBLeaseToken)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-JobDB-Lease-Token", headerParam0)
+
+	}
+
+	return req, nil
+}
+
 // NewProjectresolveSecretsWithLeaseRequest calls the generic ProjectresolveSecretsWithLease builder with application/json body
 func NewProjectresolveSecretsWithLeaseRequest(server string, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectresolveSecretsWithLeaseParams, body ProjectresolveSecretsWithLeaseJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -7577,6 +7715,11 @@ type ClientWithResponsesInterface interface {
 
 	ProjectrescheduleJobWithLeaseWithResponse(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectrescheduleJobWithLeaseParams, body ProjectrescheduleJobWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*ProjectrescheduleJobWithLeaseHTTPResponse, error)
 
+	// ProjectrescheduleResourceBackoffWithBodyWithResponse request with any body
+	ProjectrescheduleResourceBackoffWithBodyWithResponse(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectrescheduleResourceBackoffParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ProjectrescheduleResourceBackoffHTTPResponse, error)
+
+	ProjectrescheduleResourceBackoffWithResponse(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectrescheduleResourceBackoffParams, body ProjectrescheduleResourceBackoffJSONRequestBody, reqEditors ...RequestEditorFn) (*ProjectrescheduleResourceBackoffHTTPResponse, error)
+
 	// ProjectresolveSecretsWithLeaseWithBodyWithResponse request with any body
 	ProjectresolveSecretsWithLeaseWithBodyWithResponse(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectresolveSecretsWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ProjectresolveSecretsWithLeaseHTTPResponse, error)
 
@@ -8631,6 +8774,28 @@ func (r ProjectrescheduleJobWithLeaseHTTPResponse) StatusCode() int {
 	return 0
 }
 
+type ProjectrescheduleResourceBackoffHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ResourceBackoffReceipt
+}
+
+// Status returns HTTPResponse.Status
+func (r ProjectrescheduleResourceBackoffHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ProjectrescheduleResourceBackoffHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type ProjectresolveSecretsWithLeaseHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -9574,6 +9739,23 @@ func (c *ClientWithResponses) ProjectrescheduleJobWithLeaseWithResponse(ctx cont
 		return nil, err
 	}
 	return ParseProjectrescheduleJobWithLeaseHTTPResponse(rsp)
+}
+
+// ProjectrescheduleResourceBackoffWithBodyWithResponse request with arbitrary body returning *ProjectrescheduleResourceBackoffHTTPResponse
+func (c *ClientWithResponses) ProjectrescheduleResourceBackoffWithBodyWithResponse(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectrescheduleResourceBackoffParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ProjectrescheduleResourceBackoffHTTPResponse, error) {
+	rsp, err := c.ProjectrescheduleResourceBackoffWithBody(ctx, projectId, jobId, leaseId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseProjectrescheduleResourceBackoffHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) ProjectrescheduleResourceBackoffWithResponse(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectrescheduleResourceBackoffParams, body ProjectrescheduleResourceBackoffJSONRequestBody, reqEditors ...RequestEditorFn) (*ProjectrescheduleResourceBackoffHTTPResponse, error) {
+	rsp, err := c.ProjectrescheduleResourceBackoff(ctx, projectId, jobId, leaseId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseProjectrescheduleResourceBackoffHTTPResponse(rsp)
 }
 
 // ProjectresolveSecretsWithLeaseWithBodyWithResponse request with arbitrary body returning *ProjectresolveSecretsWithLeaseHTTPResponse
@@ -11400,6 +11582,32 @@ func ParseProjectrescheduleJobWithLeaseHTTPResponse(rsp *http.Response) (*Projec
 	response := &ProjectrescheduleJobWithLeaseHTTPResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParseProjectrescheduleResourceBackoffHTTPResponse parses an HTTP response from a ProjectrescheduleResourceBackoffWithResponse call
+func ParseProjectrescheduleResourceBackoffHTTPResponse(rsp *http.Response) (*ProjectrescheduleResourceBackoffHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ProjectrescheduleResourceBackoffHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ResourceBackoffReceipt
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
 	}
 
 	return response, nil

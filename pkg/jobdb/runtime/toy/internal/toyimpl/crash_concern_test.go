@@ -7,7 +7,6 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
-	"github.com/colony-2/jobdb/pkg/jobdb/internal/crashconcern"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,7 +27,7 @@ func TestCrashConcernBlocksTaskAndAlternateClaims(t *testing.T) {
 	record := r.engine.getJobRecord(h.JobKey)
 	record.leased, record.leaseID, record.status = true, "expired", jobdb.JobStatusActive
 	record.leaseExpiresAt = time.Now().Add(-time.Second)
-	record.consecutiveExpirations = crashconcern.DefaultThreshold
+	record.crashBudgetRemaining = 0
 	info, err := r.GetJob(ctx, h.JobKey)
 	require.NoError(t, err)
 	require.Equal(t, jobdb.JobStatusCrashConcern, info.Status)
@@ -48,7 +47,7 @@ func TestCrashConcernBlocksTaskAndAlternateClaims(t *testing.T) {
 	require.Equal(t, primary, record.route)
 	require.Equal(t, &fallback, record.alternateRoute)
 	require.Equal(t, "expired", record.leaseID)
-	require.EqualValues(t, crashconcern.DefaultThreshold, record.consecutiveExpirations)
+	require.EqualValues(t, 0, record.crashBudgetRemaining)
 	require.NoError(t, r.ClearCrashConcern(ctx, jobdb.ClearCrashConcernRequest{JobKey: h.JobKey}))
 	lease, err = r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "recovered", Routes: []jobdb.Route{fallback}})
 	require.NoError(t, err)
@@ -68,15 +67,15 @@ func TestCrashConcernRenewalAndReschedule(t *testing.T) {
 	}
 	lease := get()
 	record := r.engine.getJobRecord(h.JobKey)
-	record.consecutiveExpirations = crashconcern.DefaultThreshold
+	record.crashBudgetRemaining = 0
 	_, err = lease.(jobdb.RenewableExecutionLease).Renew(ctx)
 	require.NoError(t, err)
-	require.EqualValues(t, crashconcern.DefaultThreshold, record.consecutiveExpirations)
+	require.EqualValues(t, 0, record.crashBudgetRemaining)
 	info, err := r.GetJob(ctx, h.JobKey)
 	require.NoError(t, err)
 	require.Equal(t, jobdb.JobStatusActive, info.Status)
 	require.NoError(t, lease.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "job"}}))
-	require.Zero(t, record.consecutiveExpirations)
+	require.EqualValues(t, 5, record.crashBudgetRemaining)
 	get()
 	record.leaseExpiresAt = time.Now().Add(-time.Second)
 	info, err = r.GetJob(ctx, h.JobKey)

@@ -384,7 +384,7 @@ func TestLeaseEventCrashConcernPreservesHistory(t *testing.T) {
 	ctx := celltest.Context(context.Background())
 	l, e := r.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "job"}}, LeaseDuration: time.Minute})
 	require.NoError(t, e)
-	_, e = r.db.Exec(`UPDATE jobdb_jobs SET lease_expires_at_ns=0,consecutive_expirations=5 WHERE tenant_id='tenant' AND job_id='job'`)
+	_, e = r.db.Exec(`UPDATE jobdb_jobs SET lease_expires_at_ns=0,crash_budget_remaining=0 WHERE tenant_id='tenant' AND job_id='job'`)
 	require.NoError(t, e)
 	before, e := r.ListLeaseEvents(ctx, jobdb.ListLeaseEventsRequest{TenantID: "tenant"})
 	require.NoError(t, e)

@@ -36,7 +36,11 @@ func RunAvailableRoutesConformance(t *testing.T, harnesses ...Harness) {
 					require.NotNil(t, lease)
 					stored, effective := jobRoute, jobRoute
 					want := true
-					reschedule := jobdb.RescheduleExecutionRequest{NextRoute: jobRoute}
+					// Route-selection checks need already eligible work, independent
+					// of a small wall-clock step after rescheduling. Nil-wait clock
+					// boundaries have separate deterministic SQLite coverage.
+					readyAt := time.Now().Add(-time.Hour)
+					reschedule := jobdb.RescheduleExecutionRequest{NextRoute: jobRoute, WaitUntil: &readyAt}
 					switch mode {
 					case "task", "future-alternate", "due-job-alternate", "due-task-alternate":
 						stored, effective = taskRoute, taskRoute
@@ -67,6 +71,7 @@ func RunAvailableRoutesConformance(t *testing.T, harnesses ...Harness) {
 					case "dependency", "elapsed-dependency-deadline":
 						dep := submit("dependency")
 						reschedule.WaitForJobIDs = []string{dep.JobId}
+						reschedule.WaitUntil = nil
 						want = false
 						if mode == "elapsed-dependency-deadline" {
 							until := time.Now().Add(-time.Hour)
@@ -94,6 +99,11 @@ func RunAvailableRoutesConformance(t *testing.T, harnesses ...Harness) {
 						if !expected {
 							require.Empty(t, result.Jobs)
 							return
+						}
+						if len(result.Jobs) != 1 {
+							detail, detailErr := r.GetJob(ctx, key)
+							inspection, inspectionErr := r.ListJobs(ctx, base)
+							t.Logf("missing available route: routes=%+v status=%s observedAt=%s detailError=%v inspection=%+v inspectionError=%v", req.AvailableRoutes, detail.Status, time.Now().UTC().Format(time.RFC3339Nano), detailErr, inspection.Jobs, inspectionErr)
 						}
 						require.Len(t, result.Jobs, 1)
 						require.Equal(t, key, result.Jobs[0].JobKey)

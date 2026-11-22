@@ -275,10 +275,7 @@ func executionFromProto(p *pb.ExecutionRecord) (jobdb.ExecutionRecord, error) {
 	if err != nil {
 		return r, err
 	}
-	if _, err = jobdb.DecodeExecutionRecord(raw); err != nil {
-		return r, err
-	}
-	return r, nil
+	return jobdb.DecodeExecutionRecord(raw)
 }
 func executionRecordsToProto(raw []byte) ([]*pb.ExecutionRecord, error) {
 	var records []json.RawMessage

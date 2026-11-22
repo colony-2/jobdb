@@ -14,12 +14,12 @@ func TestJoinDeadlineBoundary(t *testing.T) {
 	for _, terminal := range []bool{false, true} {
 		for _, offset := range []time.Duration{-time.Nanosecond, 0, time.Nanosecond} {
 			rt := New(WithProjects(celltest.UnrestrictedProjects{}))
-			child := &jobRecord{status: jobdb.JobStatusReady}
+			child := &jobRecord{crashBudgetRemaining: 5, status: jobdb.JobStatusReady}
 			if terminal {
 				child.status = jobdb.JobStatusCompleted
 			}
 			rt.engine.jobRecords[jobdb.JobKey{TenantId: "tenant", JobId: "child"}] = child
-			parent := &jobRecord{status: jobdb.JobStatusPendingJobs, waitFor: []string{"child"}, waitDeadline: deadline}
+			parent := &jobRecord{crashBudgetRemaining: 5, status: jobdb.JobStatusPendingJobs, waitFor: []string{"child"}, waitDeadline: deadline}
 			rt.advanceRecordStateLocked("tenant", deadline.Add(offset), parent)
 			if terminal || offset >= 0 {
 				require.Equal(t, jobdb.JobStatusReady, parent.status)
@@ -32,8 +32,8 @@ func TestJoinDeadlineBoundary(t *testing.T) {
 	}
 	// Submitted prerequisites and AvailableAt retain AND semantics.
 	rt := New(WithProjects(celltest.UnrestrictedProjects{}))
-	rt.engine.jobRecords[jobdb.JobKey{TenantId: "tenant", JobId: "child"}] = &jobRecord{status: jobdb.JobStatusCompleted}
-	parent := &jobRecord{status: jobdb.JobStatusPendingJobs, waitFor: []string{"child"}, availableAt: deadline}
+	rt.engine.jobRecords[jobdb.JobKey{TenantId: "tenant", JobId: "child"}] = &jobRecord{crashBudgetRemaining: 5, status: jobdb.JobStatusCompleted}
+	parent := &jobRecord{crashBudgetRemaining: 5, status: jobdb.JobStatusPendingJobs, waitFor: []string{"child"}, availableAt: deadline}
 	rt.advanceRecordStateLocked("tenant", deadline.Add(-time.Nanosecond), parent)
 	require.Equal(t, jobdb.JobStatusAwaitingFuture, parent.status)
 	rt.advanceRecordStateLocked("tenant", deadline, parent)
@@ -45,12 +45,12 @@ func TestJoinDeadlineRetainsFutureAvailability(t *testing.T) {
 	available := deadline.Add(time.Hour)
 	for _, complete := range []bool{false, true} {
 		rt := New(WithProjects(celltest.UnrestrictedProjects{}))
-		child := &jobRecord{status: jobdb.JobStatusReady}
+		child := &jobRecord{crashBudgetRemaining: 5, status: jobdb.JobStatusReady}
 		if complete {
 			child.status = jobdb.JobStatusCompleted
 		}
 		rt.engine.jobRecords[jobdb.JobKey{TenantId: "tenant", JobId: "child"}] = child
-		parent := &jobRecord{status: jobdb.JobStatusPendingJobs, waitFor: []string{"child"}, waitDeadline: deadline, availableAt: available}
+		parent := &jobRecord{crashBudgetRemaining: 5, status: jobdb.JobStatusPendingJobs, waitFor: []string{"child"}, waitDeadline: deadline, availableAt: available}
 		require.Equal(t, jobdb.JobStatusAwaitingFuture, rt.engine.availableStatusLocked("tenant", deadline, parent))
 		require.Equal(t, jobdb.JobStatusAwaitingFuture, rt.engine.availableStatusLocked("tenant", available.Add(-time.Nanosecond), parent))
 		require.Equal(t, jobdb.JobStatusReady, rt.engine.availableStatusLocked("tenant", available, parent))

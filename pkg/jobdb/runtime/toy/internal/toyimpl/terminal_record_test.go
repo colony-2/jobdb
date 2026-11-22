@@ -23,7 +23,7 @@ func TestToySeededTerminalRecordReaders(t *testing.T) {
 			key := jobdb.JobKey{TenantId: "tenant", JobId: "failure"}
 			failure := &jobdb.GoalFailure{Code: "goal_failed", GoalID: source.GoalID, Message: "exact\nreason 保存", FailedAt: at, NonTerminalJobIDs: []string{source.JobKey.JobId}}
 			r.engine.mu.Lock()
-			rec := &jobRecord{key: key, cell: r.engine.jobRecords[source.JobKey].cell, goalID: source.GoalID,
+			rec := &jobRecord{crashBudgetRemaining: 5, key: key, cell: r.engine.jobRecords[source.JobKey].cell, goalID: source.GoalID,
 				recordKind: kind, terminalFailure: jobdb.CloneGoalFailure(failure), jobType: jobdb.GoalFailureJobType,
 				status: jobdb.JobStatusCompleted, completionStatus: "failed", completionDetail: failure.Message, createdAt: at, archived: &at}
 			r.engine.jobRecords[key] = rec

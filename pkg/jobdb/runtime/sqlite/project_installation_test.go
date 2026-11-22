@@ -157,8 +157,8 @@ func TestProjectInstallationAfterExplicitGoalMigration(t *testing.T) {
 		require.NoError(t, err)
 		before, schema := compatibilitySnapshot(t, db), schemaSnapshot(t, db)
 		inv, err := InspectProjectInstallation(ctx, db, participants)
-		require.ErrorContains(t, err, "requires current SQLite format 13")
-		require.ErrorContains(t, InstallProjectCatalog(ctx, db, inv, []projectcatalog.Seed{{ID: "c2", Name: "c2"}}), "requires current SQLite format 13")
+		require.ErrorContains(t, err, "requires current SQLite format 14")
+		require.ErrorContains(t, InstallProjectCatalog(ctx, db, inv, []projectcatalog.Seed{{ID: "c2", Name: "c2"}}), "requires current SQLite format 14")
 		require.Equal(t, before, compatibilitySnapshot(t, db))
 		require.Equal(t, schema, schemaSnapshot(t, db))
 	}
@@ -169,8 +169,8 @@ func TestProjectInstallationAfterExplicitGoalMigration(t *testing.T) {
 	before := compatibilitySnapshot(t, db)
 	inv, err := InspectProjectInstallation(ctx, db, participants)
 	require.NoError(t, err)
-	require.Equal(t, 13, inv.Format)
-	require.Len(t, inv.Tables, 15)
+	require.Equal(t, 14, inv.Format)
+	require.Len(t, inv.Tables, 17)
 	require.NoError(t, InstallProjectCatalog(ctx, db, inv, []projectcatalog.Seed{{ID: "c2", Name: "c2"}}))
 	after := compatibilitySnapshot(t, db)
 	for table, rows := range before {

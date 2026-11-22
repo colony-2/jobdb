@@ -94,6 +94,8 @@ func (s *proxyServer) checkedDelegation(ctx context.Context, token string, key j
 	c.Route = v.Route
 	c.GoalID = v.GoalID
 	c.Parent.Cell = v.Cell
+	c.ExecutionState = s.resourceSnapshot(v.ExecutionState)
+	c.ClientPayloadRevision = v.ClientPayloadRevision
 	return c, v, nil
 }
 
@@ -118,6 +120,17 @@ func (s *proxyServer) prepareDelegationRequest(w http.ResponseWriter, r *http.Re
 	lease, e3 := url.PathUnescape(p[7])
 	if e1 != nil || e2 != nil || e3 != nil {
 		return reject(delegationDenied())
+	}
+	// Only this action authenticates a retained receipt without a live parent.
+	if r.Method == http.MethodPost && strings.Join(p[8:], "/") == "resource-backoff" {
+		c, err := s.tokens.parseDelegation(token)
+		if err != nil || c.key() != (jobdb.JobKey{TenantId: tenant, JobId: job}) || c.Parent.LeaseID != lease {
+			return reject(&delegationError{401, "invalid_delegation_credential"})
+		}
+		if !c.Grant.Permissions.ResourceBackoff {
+			return reject(delegationDenied())
+		}
+		return true
 	}
 	c, _, err := s.checkedDelegation(r.Context(), token, jobdb.JobKey{TenantId: tenant, JobId: job}, lease)
 	if err != nil {
@@ -248,9 +261,23 @@ func (s *proxyServer) prepareDelegationRequest(w http.ResponseWriter, r *http.Re
 }
 
 func delegationSnapshot(c delegationClaims, token string) runtimeapi.ExecutionLease {
+	state := jobdb.ExecutionState{}
+	revision := "0"
+	if c.Grant.Permissions.ResourceBackoff {
+		state.CrashBudgetRemaining = c.ExecutionState.CrashBudgetRemaining
+		state.ResourceBackoff = c.ExecutionState.ResourceBackoff
+		revision = strconv.FormatInt(c.ClientPayloadRevision, 10)
+		// Resume carries history coordinates. Only an unrestricted chapter reader
+		// may receive that selection; resource permission alone grants no reads.
+		if c.Grant.Permissions.Read != nil && c.Grant.Permissions.Read.Any {
+			state.ResourceResume = c.ExecutionState.ResourceResume
+			state.TaskWait = c.ExecutionState.TaskWait
+		}
+	}
+	wire, _ := executionStateToAPI(state)
 	return runtimeapi.ExecutionLease{LeaseId: c.Parent.LeaseID, LeaseToken: token, Job: toAPIJobHandle(jobdb.JobHandle{JobKey: c.key(), GoalID: c.GoalID, Cell: c.Parent.Cell.Cell, CellID: c.Parent.Cell.CellID, CellRepo: c.Parent.Cell.CellRepo}),
 		WorkerId: &c.Parent.WorkerID, ExpiresAt: &c.ExpiresAt, Route: runtimeapi.Route(c.Route),
-		ClientPayloadRevision: "0", ExecutionState: runtimeapi.ExecutionState{}, Delegation: &c.Grant}
+		ClientPayloadRevision: revision, ExecutionState: wire, Delegation: &c.Grant}
 }
 
 func (s *proxyServer) CreateLeaseDelegation(ctx context.Context, req runtimeapi.CreateLeaseDelegationRequestObject) (runtimeapi.CreateLeaseDelegationResponseObject, error) {
@@ -281,6 +308,8 @@ func (s *proxyServer) CreateLeaseDelegation(ctx context.Context, req runtimeapi.
 	c.Route = v.Route
 	c.GoalID = v.GoalID
 	c.Parent.Cell = v.Cell
+	c.ExecutionState = s.resourceSnapshot(v.ExecutionState)
+	c.ClientPayloadRevision = v.ClientPayloadRevision
 	return runtimeapi.CreateLeaseDelegation200JSONResponse(delegationSnapshot(c, token)), nil
 }
 
@@ -297,6 +326,8 @@ func (s *proxyServer) renewDelegation(ctx context.Context, token string, key job
 		return nil, err
 	}
 	c.setExpiry(v.ExpiresAt)
+	c.ExecutionState = s.resourceSnapshot(v.ExecutionState)
+	c.ClientPayloadRevision = v.ClientPayloadRevision
 	snapshot := delegationSnapshot(c, token)
 	return runtimeapi.KeepAliveLease200JSONResponse{LeaseToken: token, Lease: &snapshot}, nil
 }

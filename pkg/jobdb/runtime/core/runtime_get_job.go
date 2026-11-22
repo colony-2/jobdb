@@ -23,13 +23,16 @@ func (r *Runtime) GetJob(ctx context.Context, key jobdb.JobKey) (jobdb.JobInfo, 
 	if err != nil {
 		return jobdb.JobInfo{}, err
 	}
+	if _, ok := r.scheduler.(ResourceBackoffScheduler); !ok {
+		stored.ResourceBackoff = nil
+	}
 	route := jobdb.Route{JobType: stored.RouteJobType}
 	if stored.WorkKind == WorkKindTask && stored.TaskWork != nil {
 		route.TaskType = stored.TaskWork.TaskType
 	}
 	info := jobdb.JobInfo{AppendKey: stored.AppendKey, RecordKind: stored.RecordKind, TerminalFailure: jobdb.CloneGoalFailure(stored.TerminalFailure), Cell: stored.Cell.Cell, CellID: stored.Cell.CellID, CellRepo: stored.Cell.CellRepo, NextRoute: &route, WaitFor: append([]string(nil), stored.WaitForJobIDs...), BlockingWait: stored.BlockingWait, GoalID: stored.GoalID, OtherGoalIDs: stored.OtherGoalIDs,
 		Status: stored.Status, SchemaHash: stored.SchemaHash,
-		ClientPayload: append([]byte(nil), stored.ClientPayload...), ClientPayloadRevision: stored.ClientPayloadRevision, ExecutionState: executionState(stored.RunPolicy, stored.TaskWork),
+		ClientPayload: append([]byte(nil), stored.ClientPayload...), ClientPayloadRevision: stored.ClientPayloadRevision, ExecutionState: resourceExecutionState(stored.RunPolicy, stored.TaskWork, stored.CrashBudgetRemaining, stored.ResourceBackoff, stored.ResourceResume),
 		Data: &runtimeJobData{err: jobdb.ErrJobNotComplete},
 	}
 	if stored.Completion != nil {

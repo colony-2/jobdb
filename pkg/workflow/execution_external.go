@@ -14,7 +14,7 @@ type taskDispatchState struct {
 	alternateAt *time.Time
 }
 
-func (c *executionContext) externalTask(call TaskCall, id string, input *jobdb.ExecutionSnapshot, deadline, total time.Time, state *taskDispatchState) (jobdb.ExecutionRecord, error) {
+func (c *executionContext) externalTask(call TaskCall, id string, attempt int, input *jobdb.ExecutionSnapshot, deadline, total time.Time, state *taskDispatchState) (jobdb.ExecutionRecord, error) {
 	rec, err := c.event("wait", id, func() *jobdb.ExecutionRecord {
 		if call.Alternate != nil && state.alternateAt == nil {
 			at := time.Now().UTC().Add(call.Alternate.After)
@@ -42,7 +42,7 @@ func (c *executionContext) externalTask(call TaskCall, id string, input *jobdb.E
 	}
 	outputPositions := map[int64]bool{ordinal + 1: true}
 	for _, event := range c.run.events {
-		if event.ordinal > ordinal && event.record.Kind == "activation" {
+		if event.ordinal > ordinal && (event.record.Kind == "activation" || event.record.Kind == "resource_checkpoint") {
 			// A task may yield and later re-enter external waiting. Its pending
 			// output then follows the activation that ran the suspended worker.
 			outputPositions[event.ordinal+1] = true
@@ -117,6 +117,8 @@ func (c *executionContext) externalTask(call TaskCall, id string, input *jobdb.E
 	}
 	if execute {
 		child := c.child(id, rec.Deadline, total)
+		child.resourceTaskType = state.taskType
+		child.attempt = attempt
 		worker := c.run.r.worker.TaskWorkers[state.taskType]
 		out, taskErr := child.invokeTask(worker, c.run.snapshotData(rec.Input))
 		child.close()

@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/core"
@@ -30,7 +29,7 @@ func (r *Runtime) claimWaitingTask(ctx context.Context, expected jobRow, resumeJ
 		if err != nil {
 			return err
 		}
-		now := time.Now().UTC()
+		now := r.now()
 		if current.archivedAtNS.Valid || current.cancelRequested ||
 			(current.leaseExpiresAtNS.Valid && current.leaseExpiresAtNS.Int64 > timeToNS(now)) ||
 			current.nextRoute != expected.nextRoute || !bytes.Equal(current.payload, expected.payload) {
@@ -42,13 +41,13 @@ func (r *Runtime) claimWaitingTask(ctx context.Context, expected jobRow, resumeJ
 		if err != nil {
 			return err
 		}
-		if status != jobdb.JobStatusReady {
+		if status != jobdb.JobStatusReady || current.crashBudgetRemaining == 0 || (current.resourceNotBefore.Valid && current.resourceNotBefore.Int64 > timeToNS(now)) {
 			return fmt.Errorf("%w: waiting task is not ready", jobdb.ErrConflict)
 		}
 		lease.expiresAt = now.Add(lease.duration)
 		// Drop task coordinates to match the job-only route. Alternate routing must
 		// not redirect recovery to another task after this lease expires.
-		_, err = tx.ExecContext(ctx, `UPDATE jobdb_jobs SET consecutive_expirations=CASE WHEN substr(lease_worker_id,1,13) = 'jobdb-append-' THEN consecutive_expirations WHEN lease_id IS NOT NULL THEN consecutive_expirations+1 ELSE consecutive_expirations END,route_job_type=?,route_task_type='',payload=?,lease_id=?,lease_worker_id=?,lease_expires_at_ns=?,alternate_job_type=NULL,alternate_task_type=NULL,alternate_at_ns=NULL,updated_at_ns=? WHERE tenant_id=? AND job_id=?`,
+		_, err = tx.ExecContext(ctx, `UPDATE jobdb_jobs SET crash_budget_remaining=CASE WHEN substr(lease_worker_id,1,13) = 'jobdb-append-' THEN crash_budget_remaining WHEN lease_id IS NOT NULL THEN crash_budget_remaining-1 ELSE crash_budget_remaining END,route_job_type=?,route_task_type='',payload=?,lease_id=?,lease_worker_id=?,lease_expires_at_ns=?,alternate_job_type=NULL,alternate_task_type=NULL,alternate_at_ns=NULL,updated_at_ns=? WHERE tenant_id=? AND job_id=?`,
 			resumeJobType, payload, lease.leaseID, lease.workerID, timeToNS(lease.expiresAt), timeToNS(now), key.TenantId, key.JobId)
 		if err != nil {
 			return err
@@ -69,7 +68,7 @@ func (r *Runtime) appendTaskOutput(ctx context.Context, lease *executionLease, c
 	if row.cancelRequested {
 		return jobdb.ErrExecutionLeaseLost
 	}
-	if err := validateLeaseRow(row, lease.leaseID, lease.workerID, time.Now().UTC()); err != nil {
+	if err := validateLeaseRow(row, lease.leaseID, lease.workerID, r.now()); err != nil {
 		return err
 	}
 	// The chapter store commits independently. A lease can expire after this

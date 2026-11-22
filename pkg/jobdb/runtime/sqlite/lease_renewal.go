@@ -30,7 +30,7 @@ func (r *Runtime) RenewExecutionLeaseByID(ctx context.Context, key jobdb.JobKey,
 		if err != nil {
 			return err
 		}
-		now := time.Now().UTC()
+		now := r.now()
 		if err := validateLeaseRow(row, leaseID, workerID, now); err != nil {
 			return err
 		}
@@ -43,7 +43,7 @@ func (r *Runtime) RenewExecutionLeaseByID(ctx context.Context, key jobdb.JobKey,
 		if err := r.insertLeaseEvent(ctx, tx, row, now, "", &previous); err != nil {
 			return err
 		}
-		lease = &executionLease{cell: row.cell, runtime: r, jobKey: key, goalID: row.goalID, leaseID: leaseID, workerID: workerID,
+		lease = &executionLease{state: rowExecutionState(row), cell: row.cell, runtime: r, jobKey: key, goalID: row.goalID, leaseID: leaseID, workerID: workerID,
 			route:   row.nextRoute,
 			payload: cloneBytes(row.payload), clientPayload: cloneJSON(row.clientPayload), clientPayloadRevision: row.clientPayloadRevision,
 			duration: duration, expiresAt: expires, schemaHash: jobmetadata.SchemaHashFromStoredMetadata(row.metadata)}

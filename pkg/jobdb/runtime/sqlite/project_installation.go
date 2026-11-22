@@ -35,7 +35,9 @@ type ProjectTableInventory struct {
 }
 
 var projectInventoryTables = map[string]string{
-	"jobdb_jobs": "tenant_id", "jobdb_schemas": "tenant_id", "jobdb_cells": "tenant_id", "jobdb_cell_names": "tenant_id", "jobdb_cell_catalog": "tenant_id", "jobdb_cell_requests": "tenant_id",
+	"jobdb_resource_sequences": "tenant_id",
+	"jobdb_resource_receipts":  "tenant_id",
+	"jobdb_jobs":               "tenant_id", "jobdb_schemas": "tenant_id", "jobdb_cells": "tenant_id", "jobdb_cell_names": "tenant_id", "jobdb_cell_catalog": "tenant_id", "jobdb_cell_requests": "tenant_id",
 	"jobdb_dependency_waits": "tenant_id", "jobdb_dependency_targets": "tenant_id", "jobdb_goal_preparations": "tenant_id", "jobdb_submission_receipts": "tenant_id", "jobdb_lease_events": "tenant_id", "jobdb_configuration": "tenant_id",
 	"jobdb_chapter_stories": "anthology_id", "jobdb_chapter_chapters": "anthology_id", "jobdb_chapter_artifacts": "anthology_id",
 }
@@ -52,8 +54,8 @@ func inspectProjects(ctx context.Context, conn *sql.Conn, participants string) (
 	if e := conn.QueryRowContext(ctx, "PRAGMA user_version").Scan(&out.Format); e != nil {
 		return out, e
 	}
-	if out.Format != 13 {
-		return out, fmt.Errorf("project installation requires current SQLite format 13, got %d", out.Format)
+	if out.Format != 14 {
+		return out, fmt.Errorf("project installation requires current SQLite format 14, got %d", out.Format)
 	}
 	rows, e := conn.QueryContext(ctx, `SELECT name,sql FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name!='jobdb_project_catalog' ORDER BY name`)
 	if e != nil {

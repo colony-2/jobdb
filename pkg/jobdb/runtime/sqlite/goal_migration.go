@@ -78,6 +78,19 @@ func migrateGoals(ctx context.Context, path string, hook func(string) error) (re
 	if report.Verdict == "CURRENT" {
 		return report, nil
 	}
+	if report.SourceFormat == 13 {
+		if err = convertResourceSchema(ctx, tx); err != nil {
+			return report, err
+		}
+		if err = checkpoint("marked"); err != nil {
+			return report, err
+		}
+		if err = tx.Commit(); err != nil {
+			return report, err
+		}
+		report.Verdict = "MIGRATED"
+		return report, nil
+	}
 	if report.SourceFormat != 11 && report.SourceFormat != 12 {
 		return report, fmt.Errorf("SQLite migration requires supported legacy format 11 or 12")
 	}
@@ -94,7 +107,7 @@ func migrateGoals(ctx context.Context, path string, hook func(string) error) (re
 	if err = checkpoint("verified"); err != nil {
 		return report, err
 	}
-	if _, err = tx.ExecContext(ctx, "PRAGMA user_version=13"); err != nil {
+	if err = convertResourceSchema(ctx, tx); err != nil {
 		return report, err
 	}
 	if err = checkpoint("marked"); err != nil {

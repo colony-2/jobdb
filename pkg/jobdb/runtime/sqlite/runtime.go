@@ -123,7 +123,7 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 		return jobdb.JobHandle{}, err
 	}
 	jobPolicy := normalizeRunPolicy(req.Job.RunPolicy)
-	initialChapter, err := taskDataToChapter(taskData, 0, req.Job.JobType, r.requestWorkerID(req.WorkerID), chapterTypeJobStart, payloadKindApp, inputHash, time.Now().UTC(), chapterMetadata{
+	initialChapter, err := taskDataToChapter(taskData, 0, req.Job.JobType, r.requestWorkerID(req.WorkerID), chapterTypeJobStart, payloadKindApp, inputHash, r.now(), chapterMetadata{
 		InitialPayloadDigest: initialDigest,
 		Attempt:              1,
 		RunPolicy:            &jobPolicy,
@@ -323,7 +323,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	}
 	createOptions := story.CreateOptions{RequestID: ksuid.New().String()}
 	if executionRestart != nil {
-		createOptions, err = taskDataToCreateOptions(jobdb.NewTaskDataOrPanic(executionRestart), nextOrdinal, "__execution__", r.requestWorkerID(req.WorkerID), "Execution", payloadKindApp, "execution-restart", time.Now().UTC(), chapterMetadata{})
+		createOptions, err = taskDataToCreateOptions(jobdb.NewTaskDataOrPanic(executionRestart), nextOrdinal, "__execution__", r.requestWorkerID(req.WorkerID), "Execution", payloadKindApp, "execution-restart", r.now(), chapterMetadata{})
 		if err != nil {
 			return jobdb.JobHandle{}, err
 		}
@@ -338,7 +338,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 			return jobdb.JobHandle{}, err
 		}
 		inputRef := &jobdb.InputReference{Ordinal: job.LastStepToKeep, Hash: inputHash}
-		createOptions, err = taskDataToCreateOptions(job.ExtraTaskOutput, job.LastStepToKeep+1, restartExtraTaskType, r.requestWorkerID(req.WorkerID), chapterTypeRestartExtra, payloadKindApp, inputHash, time.Now().UTC(), chapterMetadata{
+		createOptions, err = taskDataToCreateOptions(job.ExtraTaskOutput, job.LastStepToKeep+1, restartExtraTaskType, r.requestWorkerID(req.WorkerID), chapterTypeRestartExtra, payloadKindApp, inputHash, r.now(), chapterMetadata{
 			Attempt:       1,
 			InputRef:      inputRef,
 			Prerequisites: prereqs,
@@ -411,7 +411,7 @@ func (r *Runtime) CancelJob(ctx context.Context, req jobdb.CancelJobRequest) err
 	if err := r.validate(); err != nil {
 		return err
 	}
-	now := time.Now().UTC()
+	now := r.now()
 	return r.withTx(ctx, func(tx *sql.Tx) error {
 		result, err := tx.ExecContext(ctx, `
 UPDATE jobdb_jobs
@@ -542,7 +542,7 @@ func (r *Runtime) acquireOneLease(ctx context.Context, req jobdb.PollWorkRequest
 			return err
 		}
 
-		now := time.Now().UTC()
+		now := r.now()
 		workerID := r.requestWorkerID(req.WorkerID)
 		for _, row := range candidates {
 			if row.tenantID != req.TenantId || !allowed[row.cell.CellID] || state.Cells[row.cell.CellID].State != jobdb.CellActive {
@@ -578,7 +578,8 @@ func (r *Runtime) acquireOneLease(ctx context.Context, req jobdb.PollWorkRequest
 			altAt := any(nil)
 			if altFired {
 				nextRoute = need
-			} else {
+			}
+			if !altFired || len(row.resourceResume) > 0 {
 				if row.alternateRoute != nil {
 					altJob, altTask = row.alternateRoute.JobType, row.alternateRoute.TaskType
 				}
@@ -588,7 +589,7 @@ func (r *Runtime) acquireOneLease(ctx context.Context, req jobdb.PollWorkRequest
 			}
 			result, err := tx.ExecContext(ctx, `
 UPDATE jobdb_jobs
-SET consecutive_expirations = CASE WHEN substr(lease_worker_id,1,13) = 'jobdb-append-' THEN consecutive_expirations WHEN lease_id IS NOT NULL THEN consecutive_expirations + 1 ELSE consecutive_expirations END,
+SET crash_budget_remaining = CASE WHEN substr(lease_worker_id,1,13) = 'jobdb-append-' THEN crash_budget_remaining WHEN lease_id IS NOT NULL AND crash_budget_remaining > 0 THEN crash_budget_remaining - 1 ELSE crash_budget_remaining END,
 	route_job_type = ?, route_task_type = ?, lease_id = ?, lease_worker_id = ?, lease_expires_at_ns = ?,
 	alternate_job_type = ?, alternate_task_type = ?, alternate_at_ns = ?, updated_at_ns = ?
 WHERE tenant_id = ? AND job_id = ?`,
@@ -603,7 +604,10 @@ WHERE tenant_id = ? AND job_id = ?`,
 			if err := r.insertLeaseEvent(ctx, tx, row, now, jobdb.LeaseAcquisitionPoll, nil); err != nil {
 				return err
 			}
-			lease = &executionLease{cell: row.cell,
+			state := rowExecutionState(row)
+			b := acquiredBudget(row)
+			state.CrashBudgetRemaining = &b
+			lease = &executionLease{state: state, cell: row.cell,
 				goalID:   row.goalID,
 				runtime:  r,
 				jobKey:   jobdb.JobKey{TenantId: row.tenantID, JobId: row.jobID},
@@ -661,7 +665,7 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 		if e := jobdb.AuthorizeCell(ctx, req.JobKey.TenantId, row.cell.CellID, "jobs.acquire"); e != nil {
 			return e
 		}
-		now := time.Now().UTC()
+		now := r.now()
 		status, err := statusFromRow(ctx, tx, row, now)
 		if err != nil {
 			return err
@@ -681,7 +685,8 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 		altAt := any(nil)
 		if altFired {
 			nextRoute = need
-		} else {
+		}
+		if !altFired || len(row.resourceResume) > 0 {
 			if row.alternateRoute != nil {
 				altJob, altTask = row.alternateRoute.JobType, row.alternateRoute.TaskType
 			}
@@ -691,7 +696,7 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 		}
 		_, err = tx.ExecContext(ctx, `
 UPDATE jobdb_jobs
-SET consecutive_expirations = CASE WHEN substr(lease_worker_id,1,13) = 'jobdb-append-' THEN consecutive_expirations WHEN lease_id IS NOT NULL THEN consecutive_expirations + 1 ELSE consecutive_expirations END,
+SET crash_budget_remaining = CASE WHEN substr(lease_worker_id,1,13) = 'jobdb-append-' THEN crash_budget_remaining WHEN lease_id IS NOT NULL AND crash_budget_remaining > 0 THEN crash_budget_remaining - 1 ELSE crash_budget_remaining END,
 	route_job_type = ?, route_task_type = ?, lease_id = ?, lease_worker_id = ?, lease_expires_at_ns = ?,
 	alternate_job_type = ?, alternate_task_type = ?, alternate_at_ns = ?, updated_at_ns = ?
 WHERE tenant_id = ? AND job_id = ?`,
@@ -702,7 +707,10 @@ WHERE tenant_id = ? AND job_id = ?`,
 		if err := r.insertLeaseEvent(ctx, tx, row, now, jobdb.LeaseAcquisitionTargeted, nil); err != nil {
 			return err
 		}
-		lease = &executionLease{cell: row.cell,
+		state := rowExecutionState(row)
+		b := acquiredBudget(row)
+		state.CrashBudgetRemaining = &b
+		lease = &executionLease{state: state, cell: row.cell,
 			goalID:   row.goalID,
 			runtime:  r,
 			jobKey:   req.JobKey,
@@ -772,11 +780,11 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 		return jobdb.JobInfo{}, err
 	}
 
-	status, err := statusFromRow(ctx, r.db, row, time.Now().UTC())
+	status, err := statusFromRow(ctx, r.db, row, r.now())
 	if err != nil {
 		return jobdb.JobInfo{}, err
 	}
-	blocking, err := blockingWait(ctx, r.db, row, time.Now().UTC())
+	blocking, err := blockingWait(ctx, r.db, row, r.now())
 	if err != nil {
 		return jobdb.JobInfo{}, err
 	}
@@ -790,7 +798,7 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 	}
 	job := jobdb.JobInfo{AppendKey: row.appendKey.String, Cell: currentCellName, CellID: row.cell.CellID, CellRepo: row.cell.CellRepo, NextRoute: jobdb.CloneRoute(&row.nextRoute), WaitFor: waitFor, CompletionStatus: row.completionStatus.String, CompletionDetail: row.completionDetail.String, BlockingWait: blocking,
 		GoalID: row.goalID, OtherGoalIDs: nil, RecordKind: row.recordKind, TerminalFailure: jobdb.CloneGoalFailure(row.terminalFailure),
-		ClientPayload: cloneJSON(row.clientPayload), ClientPayloadRevision: row.clientPayloadRevision, ExecutionState: jobExecutionState(row.payload),
+		ClientPayload: cloneJSON(row.clientPayload), ClientPayloadRevision: row.clientPayloadRevision, ExecutionState: rowExecutionState(row),
 		Status:     status,
 		Data:       &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
 		SchemaHash: jobmetadata.SchemaHashFromStoredMetadata(row.metadata),
@@ -1161,7 +1169,7 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	if err != nil {
 		return err
 	}
-	if row.archivedAtNS.Valid || row.cancelRequested || (row.leaseExpiresAtNS.Valid && row.leaseExpiresAtNS.Int64 > timeToNS(time.Now().UTC())) {
+	if row.archivedAtNS.Valid || row.cancelRequested || row.crashBudgetRemaining == 0 || (row.resourceNotBefore.Valid && row.resourceNotBefore.Int64 > timeToNS(r.now())) || (row.leaseExpiresAtNS.Valid && row.leaseExpiresAtNS.Int64 > timeToNS(r.now())) {
 		return fmt.Errorf("%w: task is not unheld", jobdb.ErrConflict)
 	}
 	tw, err := extractTaskWaitFromRaw(row.payload)
@@ -1235,7 +1243,7 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 		completionData = &jobdb.SimpleTaskData{Data: raw, Artifacts: artifacts}
 		completionType = "Execution"
 	}
-	chapter, err := taskDataToChapter(completionData, tw.OutputStep, taskType, r.workerID, completionType, payloadKindApp, tw.InputHash, time.Now().UTC(), meta)
+	chapter, err := taskDataToChapter(completionData, tw.OutputStep, taskType, r.workerID, completionType, payloadKindApp, tw.InputHash, r.now(), meta)
 	if err != nil {
 		return err
 	}

@@ -1,14 +1,14 @@
 # SQLite retained goal storage
 
 SQLite runtime publication, completion/failure, discovery, filtering and cell
-retirement use retained jobs. Fresh constructors initialize format 13; legacy
-11/12 constructors return a typed manual-upgrade prerequisite. The read-only
-checker validates 11/12 and current 13, and the exclusive transactional converter
+retirement use retained jobs. Fresh constructors initialize format 14; legacy
+11/12/13 constructors return a typed manual-upgrade prerequisite. The read-only
+checker validates 11/12/13 and current 14, and the exclusive transactional converter
 is available through `sqlite.MigrateGoals` and `jobdb sqlite migrate --db PATH`.
 See [manual migration guidance](MIGRATION-IMMUTABLE-GOALS.md). Toy and SQLite advertise enforced
 job-goal guarantees; attachment API removal follows completed initial consumer cleanup.
 
-`schema/format-13.sql` contains the target jobs, cells, schema registry,
+`schema/format-13.sql` plus the additive format-14 resource schema contains the target jobs, cells, schema registry,
 wait/subscription and preparation definitions. Event and receipt definitions are
 added by `createRetainedGoalSchema`. There is no independent goal/candidate table,
 renamed compatibility payload or unconditional active-member uniqueness index.

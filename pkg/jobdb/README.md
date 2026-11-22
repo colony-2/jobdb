@@ -167,22 +167,22 @@ See [lease-bound secrets and fresh resolution](../../docs/GUIDE-LEASE-BOUND-SECR
 
 `PollWork`, `GetJobLease`, and external-task completion claims require `READY`.
 `CRASH_CONCERN` jobs are excluded, including when an alternate route becomes due.
-SQLite and toy use pgjobdb's default threshold of five consecutive expired-lease
-reclaims. The first acquisition starts at zero; reacquiring an expired lease
-increments the count. A live lease remains `ACTIVE` even at the threshold. If
-that lease expires, the job becomes `CRASH_CONCERN` and cannot be acquired again.
-Thus, at the default threshold, an uninterrupted failure cycle stops after the
-sixth lease expires. Reads and renewals do not increment or reset the count;
-successful rescheduling resets it. A single expired lease remains recoverable.
+SQLite and toy assign five remaining crash credits. The first acquisition keeps
+five; successful expired execution reclaims install 4/3/2/1/0. The final live
+zero-credit lease remains `ACTIVE`; another acquisition after its expiry is
+blocked. Reads, expiry and renewals neither debit nor refill credit. Ordinary
+successful rescheduling assigns five; resource backoff assigns its independently
+bound allowance. Child submission and append to an existing job preserve the
+parent's balance.
 
-SQLite persists the counter across daemon restarts. Format 3 databases upgrade
-to format 4 by adding the counter, initialized to zero; prior expiry counts were
-not recorded and cannot be reconstructed. Toy retains it for the runtime's
-lifetime. Remote runtimes use their underlying scheduler's policy. PostgreSQL
-also supports a configured threshold.
+SQLite format 14 persists the countdown and resource state. Existing formats
+11/12/13 require the supported explicit offline migration; legacy format-13
+counts become `max(5-oldCount,0)` once, preserving outstanding leases. Toy keeps
+memory semantics only. PostgreSQL migration and configurable-default delivery
+belong to pgjobdb. See [resource backoff](../../docs/GUIDE-RESOURCE-BACKOFF.md).
 
 Operators can call `WorkflowRuntime.ClearCrashConcern` or
-`jobdb jobs clear-crash-concern -t TENANT JOB_ID` to reset the consecutive count
+`jobdb jobs clear-crash-concern -t TENANT JOB_ID` to restore the default crash budget
 and restore normal scheduling eligibility. Clearing preserves history and other
 scheduling constraints, and rejects live leases, completed, cancelled, or hidden
 jobs. See the [CLI, REST, and Go recovery guide](../../docs/GUIDE-CRASH-CONCERN.md).

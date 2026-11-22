@@ -78,6 +78,9 @@ func (r *Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobd
 		NextPageToken: stored.NextPageToken,
 	}
 	for _, row := range stored.Jobs {
+		if _, ok := r.scheduler.(ResourceBackoffScheduler); !ok {
+			row.ResourceBackoff = nil
+		}
 		summary, err := jobListSummaryFromStored(row)
 		if err != nil {
 			return jobdb.ListJobsResponse{}, err
@@ -106,7 +109,7 @@ func jobListSummaryFromStored(row StoredJob) (jobdb.JobSummary, error) {
 		JobKey: row.JobKey, Status: row.Status, JobType: row.JobType,
 		ClientPayloadRevision: row.ClientPayloadRevision,
 		ClientPayload:         append([]byte(nil), row.ClientPayload...),
-		ExecutionState:        executionState(row.RunPolicy, row.TaskWork),
+		ExecutionState:        resourceExecutionState(row.RunPolicy, row.TaskWork, row.CrashBudgetRemaining, row.ResourceBackoff, row.ResourceResume),
 		WaitFor:               append([]string(nil), row.WaitForJobIDs...),
 		NextRoute:             &nextRoute,
 		AvailableAt:           row.AvailableAt, ExpiresAt: row.ExpiresAt,

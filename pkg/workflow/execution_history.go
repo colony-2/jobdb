@@ -29,6 +29,10 @@ type executionEvent struct {
 	ordinal int64
 }
 type executionRun struct {
+	resourcePending    *resourceWaitSignal
+	taskCallbacks      int
+	resourceRecords    map[string]jobdb.ExecutionRecord
+	resourceFrames     map[string]jobdb.ResourceCheckpointFrame
 	dependencyBindings map[string]jobdb.DependencyWaitInfo
 	jobInput           *jobdb.ExecutionSnapshot
 	observerMu         sync.Mutex
@@ -57,19 +61,20 @@ type executionRun struct {
 	restart            *jobdb.ExecutionRecord
 }
 type executionContext struct {
-	policy        executionPolicy
-	attempt       int
-	run           *executionRun
-	ctx           context.Context
-	cancel        context.CancelCauseFunc
-	parent        *executionContext
-	id            string
-	deadline      time.Time
-	totalDeadline time.Time
-	timer         *time.Timer
-	counts        map[string]int
-	calls         sync.Mutex
-	cache         *workerRunner
+	resourceTaskType string
+	policy           executionPolicy
+	attempt          int
+	run              *executionRun
+	ctx              context.Context
+	cancel           context.CancelCauseFunc
+	parent           *executionContext
+	id               string
+	deadline         time.Time
+	totalDeadline    time.Time
+	timer            *time.Timer
+	counts           map[string]int
+	calls            sync.Mutex
+	cache            *workerRunner
 }
 
 func jobdbBuildVersion() string { return jobdb.CurrentBuildInfo().Version }
@@ -84,10 +89,10 @@ func (e *executionRun) control(err error) error {
 }
 func isExecutionControl(err error) bool {
 	var c *executionControlError
-	return jobdb.IsExecutionInfrastructureError(err) || errors.As(err, &c) || errors.Is(err, errExecutionSuspended) || errors.Is(err, errRecordedBoundary) || errors.Is(err, context.Canceled) || IsExecutionLeaseLost(err) || isReplayCacheMiss(err) || errors.Is(err, ErrReplayShouldNeverMutate)
+	return jobdb.IsExecutionInfrastructureError(err) || errors.As(err, &c) || errors.Is(err, errResourcePreparing) || errors.Is(err, errExecutionSuspended) || errors.Is(err, errRecordedBoundary) || errors.Is(err, context.Canceled) || IsExecutionLeaseLost(err) || isReplayCacheMiss(err) || errors.Is(err, ErrReplayShouldNeverMutate)
 }
 func (e *executionRun) peekLocked() *executionEvent {
-	for e.cursor < len(e.events) && (e.events[e.cursor].record.Kind == "activation" || e.events[e.cursor].record.Kind == "restart" || e.events[e.cursor].record.Kind == "checkpoint" || e.events[e.cursor].record.Kind == "dependency_binding") {
+	for e.cursor < len(e.events) && (e.events[e.cursor].record.Kind == "activation" || e.events[e.cursor].record.Kind == "restart" || e.events[e.cursor].record.Kind == "resource_checkpoint" || e.events[e.cursor].record.Kind == "checkpoint" || e.events[e.cursor].record.Kind == "dependency_binding") {
 		e.cursor++
 	}
 	if e.cursor < len(e.events) {
@@ -108,6 +113,9 @@ func (e *executionRun) peek() *executionEvent {
 func (c *executionContext) checkLocked() error {
 	if err := c.run.r.guard.failure(); err != nil {
 		return err
+	}
+	if c.run.resourcePending != nil {
+		return errResourcePreparing
 	}
 	if c.run.suspended {
 		return errExecutionSuspended
@@ -324,10 +332,17 @@ func (e *executionRun) appendLocked(rec *jobdb.ExecutionRecord) error {
 			usedNames[art.Name] = true
 		}
 	}
-	for _, item := range []struct {
+	type snapshotItem struct {
 		label    string
 		snapshot *jobdb.ExecutionSnapshot
-	}{{"output", rec.Output}, {"input", rec.Input}} {
+	}
+	items := []snapshotItem{{"output", rec.Output}, {"input", rec.Input}}
+	if rec.Resource != nil {
+		for i := range rec.Resource.Frames {
+			items = append(items, snapshotItem{fmt.Sprintf("frame-%d", i), rec.Resource.Frames[i].Input})
+		}
+	}
+	for _, item := range items {
 		label, snapshot := item.label, item.snapshot
 		if snapshot == nil {
 			continue
@@ -356,6 +371,9 @@ func (e *executionRun) appendLocked(rec *jobdb.ExecutionRecord) error {
 				uploads = append(uploads, *upload)
 			}
 		}
+	}
+	if rec.Resource != nil {
+		rec.Payload, _ = json.Marshal(rec.Resource)
 	}
 	raw, err := json.Marshal(rec)
 	if err != nil {
@@ -561,6 +579,21 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 				e.events = append(e.events, executionEvent{item, ch.Ordinal})
 			}
 			e.events = append(e.events, executionEvent{rec, ch.Ordinal})
+			if rec.Kind == "resource_checkpoint" && !r.replay {
+				selected := r.lease.ExecutionState().ResourceResume
+				if selected != nil && selected.CheckpointOrdinal == ch.Ordinal {
+					if selected.Version != 1 || jobdb.ResourceCheckpointHash(body.Record) != selected.CheckpointHash || selected.Invocation != rec.ID {
+						return nil, resourceInfrastructure(fmt.Errorf("invalid selected resource checkpoint"))
+					}
+					if e.resourceRecords == nil {
+						e.resourceRecords = map[string]jobdb.ExecutionRecord{}
+					}
+					e.resourceRecords[rec.ID] = rec
+					for _, frame := range rec.Resource.Frames {
+						e.resourceRecords[frame.Invocation] = jobdb.ExecutionRecord{ID: frame.Invocation, Input: frame.Input, Deadline: frame.Deadline, TotalDeadline: frame.TotalDeadline, Resource: &jobdb.ResourceCheckpoint{Version: 1, Attempt: frame.Attempt, ExecutionTaskType: frame.ExecutionTaskType}}
+					}
+				}
+			}
 			if rec.Kind == "dependency_binding" {
 				var wait jobdb.DependencyWaitInfo
 				if err := json.Unmarshal(rec.Payload, &wait); err != nil {
@@ -592,6 +625,14 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 			e.final = &copy
 		default:
 			return nil, fmt.Errorf("%w: expected execution history at %d, got %T", ErrWorkflowNotDeterministic, ch.Ordinal, ch.Body)
+		}
+	}
+	if !r.replay {
+		if selected := r.lease.ExecutionState().ResourceResume; selected != nil {
+			rec, found := e.resourceRecords[selected.Invocation]
+			if !found || rec.Resource.Attempt != selected.Attempt {
+				return nil, resourceInfrastructure(fmt.Errorf("selected resource checkpoint is missing or incompatible"))
+			}
 		}
 	}
 	if e.final != nil {
@@ -712,6 +753,15 @@ func (r *workerRunner) runExecution(ctx context.Context, w JobWorker, input JobD
 		r.bindExecutionSecrets(c.(*executionContext).cacheOwner())
 		return w.Run(c, e.snapshotData(e.jobInput))
 	})
+	e.mu.Lock()
+	resourcePending := e.resourcePending != nil
+	e.mu.Unlock()
+	if resourcePending {
+		if failure := e.commitResource(ctx); failure != nil {
+			return nil, failure
+		}
+		return nil, nil
+	}
 	if errors.Is(err, errExecutionSuspended) {
 		return nil, nil
 	}

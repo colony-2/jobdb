@@ -46,6 +46,22 @@ func validateRetainedGoalSchema(ctx context.Context, tx *sql.Tx) error {
 	if _, err = expected.ExecContext(ctx, retainedGoalSchemaSQL+leaseEventSchemaSQL+submissionReceiptSchemaSQL); err != nil {
 		return err
 	}
+	var version int
+	if err = tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		return err
+	}
+	var resourceColumns int
+	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM pragma_table_info('jobdb_jobs') WHERE name='crash_budget_remaining'").Scan(&resourceColumns); err != nil {
+		return err
+	}
+	if version == 14 && resourceColumns != 1 {
+		return fmt.Errorf("SQLite format 14: resource schema is missing")
+	}
+	if resourceColumns == 1 {
+		if _, err = expected.ExecContext(ctx, resourceSchemaSQL); err != nil {
+			return err
+		}
+	}
 	rows, err := expected.QueryContext(ctx, `SELECT name,sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY name`)
 	if err != nil {
 		return err

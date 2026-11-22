@@ -40,6 +40,8 @@ func (r *Runtime) CreateDelegation(ctx context.Context, parent jobdb.ExecutionLe
 	if c.Parent.TenantID != w.TenantID || c.Parent.JobID != w.JobID || c.Parent.LeaseID != w.LeaseID {
 		return nil, jobdb.ErrExecutionLeaseLost
 	}
+	c.ExecutionState = parent.ExecutionState()
+	c.ClientPayloadRevision = parent.ClientPayloadRevision()
 	c.Route = parent.Route()
 	c.GoalID = parent.Job().GoalID
 	c.setExpiry(leaseExpiry(parent))

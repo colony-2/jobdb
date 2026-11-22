@@ -63,11 +63,13 @@ type grantStep struct {
 
 // Expiry and route are backend/local snapshots, never authenticated grant bounds.
 type delegationClaims struct {
-	GoalID    string
-	Parent    leaseTokenClaims
-	Grant     jobdb.DelegationInfo
-	Route     jobdb.Route
-	ExpiresAt time.Time
+	ExecutionState        jobdb.ExecutionState
+	ClientPayloadRevision int64
+	GoalID                string
+	Parent                leaseTokenClaims
+	Grant                 jobdb.DelegationInfo
+	Route                 jobdb.Route
+	ExpiresAt             time.Time
 }
 
 func (c delegationClaims) key() jobdb.JobKey {
@@ -361,6 +363,9 @@ func chaptersSubset(c, p *jobdb.DelegationChapters) bool {
 	return true
 }
 func permissionsSubset(c, p jobdb.DelegationPermissions) bool {
+	if c.ResourceBackoff && !p.ResourceBackoff {
+		return false
+	}
 	if c.CreateCells != nil && (p.CreateCells == nil || !namesSubset(*c.CreateCells, *p.CreateCells)) {
 		return false
 	}

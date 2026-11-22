@@ -82,14 +82,17 @@ type AlternateRoute struct {
 
 // StoredJob joins immutable facts with current or archived scheduler state.
 type StoredJob struct {
-	AppendKey           string
-	AppendGeneration    int64
-	RecordKind          jobdb.JobRecordKind
-	TerminalFailure     *jobdb.GoalFailure
-	Cell                jobdb.ResolvedCell
-	BlockingWaitSummary *jobdb.DependencyWaitSummary
-	BlockingWait        *jobdb.DependencyWaitInfo
-	GoalID              string
+	CrashBudgetRemaining *int64
+	ResourceBackoff      *jobdb.ResourceBackoffCapability
+	ResourceResume       *jobdb.ResourceResume
+	AppendKey            string
+	AppendGeneration     int64
+	RecordKind           jobdb.JobRecordKind
+	TerminalFailure      *jobdb.GoalFailure
+	Cell                 jobdb.ResolvedCell
+	BlockingWaitSummary  *jobdb.DependencyWaitSummary
+	BlockingWait         *jobdb.DependencyWaitInfo
+	GoalID               string
 	// Deprecated: always empty; membership is the immutable primary GoalID.
 	OtherGoalIDs          []string
 	JobKey                jobdb.JobKey
@@ -198,6 +201,9 @@ type LeaseIdentity struct {
 
 // LeaseSnapshot is the typed lease returned by the scheduler.
 type LeaseSnapshot struct {
+	CrashBudgetRemaining  *int64
+	ResourceBackoff       *jobdb.ResourceBackoffCapability
+	ResourceResume        *jobdb.ResourceResume
 	Cell                  jobdb.ResolvedCell
 	GoalID                string
 	Identity              LeaseIdentity

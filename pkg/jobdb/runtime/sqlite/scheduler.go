@@ -10,7 +10,6 @@ import (
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
-	"github.com/colony-2/jobdb/pkg/jobdb/internal/crashconcern"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 )
 
@@ -18,7 +17,7 @@ const jobColumns = `
 tenant_id, job_id, cell_id, cell_name, cell_repo, goal_id, dependency_wait_id, job_type, route_job_type, route_task_type, payload, client_payload, client_payload_revision, initial_payload_digest, metadata, parent_job_id, wait_for,
 available_at_ns, wait_deadline_ns, created_at_ns, updated_at_ns, archived_at_ns,
 cancel_requested, completion_status, completion_detail,
-consecutive_expirations, lease_id, lease_worker_id, lease_expires_at_ns, alternate_job_type, alternate_task_type, alternate_at_ns, append_key, append_gen, record_kind, goal_failure
+crash_budget_remaining, lease_id, lease_worker_id, lease_expires_at_ns, alternate_job_type, alternate_task_type, alternate_at_ns, append_key, append_gen, record_kind, goal_failure, resource_not_before_ns, resource_resume
 `
 
 type jobRow struct {
@@ -54,7 +53,9 @@ type jobRow struct {
 	alternateRoute        *jobdb.Route
 	alternateAtNS         sql.NullInt64
 
-	consecutiveExpirations int64
+	crashBudgetRemaining int64
+	resourceNotBefore    sql.NullInt64
+	resourceResume       []byte
 }
 
 func scanJobRow(scanner interface{ Scan(dest ...any) error }) (jobRow, error) {
@@ -83,14 +84,20 @@ func scanJobRow(scanner interface{ Scan(dest ...any) error }) (jobRow, error) {
 		&cancelRequested,
 		&row.completionStatus,
 		&row.completionDetail,
-		&row.consecutiveExpirations,
+		&row.crashBudgetRemaining,
 		&row.leaseID,
 		&row.leaseWorkerID,
 		&row.leaseExpiresAtNS,
 		&alternateJob, &alternateTask,
-		&row.alternateAtNS, &row.appendKey, &row.appendGeneration, &row.recordKind, &failure,
+		&row.alternateAtNS, &row.appendKey, &row.appendGeneration, &row.recordKind, &failure, &row.resourceNotBefore, &row.resourceResume,
 	); err != nil {
 		return jobRow{}, err
+	}
+	if len(row.resourceResume) > 0 {
+		var resume jobdb.ResourceResume
+		if err := json.Unmarshal(row.resourceResume, &resume); err != nil || resume.Validate() != nil {
+			return jobRow{}, fmt.Errorf("%w: resource resume", jobdb.ErrInvalidJobRecord)
+		}
 	}
 	if err := row.recordKind.Validate(); err != nil {
 		return jobRow{}, err
@@ -153,7 +160,7 @@ func (r *Runtime) insertJobRecordTx(ctx context.Context, tx *sql.Tx, jobKey jobd
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC()
+	now := r.now()
 	facts, _ := ctx.Value(appendFactsKey{}).(runtimecore.CreateJobRequest)
 	var appendKey, appendGen any
 	createdAt := now
@@ -350,6 +357,9 @@ func statusFromRow(ctx context.Context, tx queryer, row jobRow, now time.Time) (
 			return jobdb.JobStatusActive, nil
 		}
 	}
+	if resourceDeadlineDue(row, now) {
+		return jobdb.JobStatusReady, nil
+	}
 	readyStructured, err := structuredWaitReady(ctx, tx, row, now)
 	if err != nil {
 		return "", err
@@ -368,10 +378,13 @@ func statusFromRow(ctx context.Context, tx queryer, row jobRow, now time.Time) (
 	if !ready && (!row.waitDeadlineNS.Valid || timeFromNS(row.waitDeadlineNS.Int64).After(now)) {
 		return jobdb.JobStatusPendingJobs, nil
 	}
+	if row.resourceNotBefore.Valid && timeFromNS(row.resourceNotBefore.Int64).After(now) {
+		return jobdb.JobStatusAwaitingFuture, nil
+	}
 	if availabilityFromNS(row.availableAtNS).After(now) {
 		return jobdb.JobStatusAwaitingFuture, nil
 	}
-	if row.consecutiveExpirations >= crashconcern.DefaultThreshold {
+	if row.crashBudgetRemaining == 0 {
 		return jobdb.JobStatusCrashConcern, nil
 	}
 	return jobdb.JobStatusReady, nil
@@ -403,6 +416,12 @@ func dependenciesReady(ctx context.Context, q queryer, tenantID string, waitFor 
 		}
 	}
 	return true, nil
+}
+
+// Resource deadline admission is job-only and independent of both the retained
+// not-before gate and crash credit. Keep its alternate coordinates on recovery.
+func resourceDeadlineDue(row jobRow, now time.Time) bool {
+	return len(row.resourceResume) > 0 && row.alternateRoute != nil && row.alternateRoute.TaskType == "" && row.alternateAtNS.Valid && !timeFromNS(row.alternateAtNS.Int64).After(now)
 }
 
 func effectiveNextRoute(row jobRow, now time.Time) (route jobdb.Route, alternateFired bool) {

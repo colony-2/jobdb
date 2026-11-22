@@ -55,6 +55,6 @@ return the typed error before backend preparation or publication. Ordinary
 submission and independent restart keep their existing contracts.
 
 The [protected reader contract](GUIDE-TERMINAL-JOB-RECORDS.md) describes chapter-free
-inspection. SQLite format 13 and manual conversion are implemented; toy retains
+inspection. SQLite format 14 and manual conversion are implemented; toy retains
 origins and first closures on jobs with a separate wait-only store. Post-creation
 attachment declarations and mutation routes are removed after Cortex, c2j and PostgreSQL consumer retirement. Member reads and empty deprecated `OtherGoalIDs` remain.

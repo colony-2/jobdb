@@ -59,11 +59,13 @@ type DelegationWritePermission struct {
 // Delegation does not authorize completion, rescheduling, configuration reads,
 // restart submission, schema registration, or artifact downloads. Further delegation may only narrow this allowlist.
 type DelegationPermissions struct {
-	CreateCells *DelegationNames            `json:"cells.create,omitempty"`
-	Submit      *DelegationSubmitPermission `json:"jobs.submit,omitempty"`
-	Secrets     []string                    `json:"secrets.resolve,omitempty"`
-	Read        *DelegationChapters         `json:"chapters.read,omitempty"`
-	Write       *DelegationWritePermission  `json:"chapters.write,omitempty"`
+	// ResourceBackoff permits only this exact parent lease resource transition.
+	ResourceBackoff bool                        `json:"resource.backoff,omitempty"`
+	CreateCells     *DelegationNames            `json:"cells.create,omitempty"`
+	Submit          *DelegationSubmitPermission `json:"jobs.submit,omitempty"`
+	Secrets         []string                    `json:"secrets.resolve,omitempty"`
+	Read            *DelegationChapters         `json:"chapters.read,omitempty"`
+	Write           *DelegationWritePermission  `json:"chapters.write,omitempty"`
 }
 
 // CreateDelegationRequest restricts a lease to Permissions until NotAfter.
@@ -84,8 +86,11 @@ type DelegationInfo struct {
 // LeaseValidity is a read-only transport check of the current execution lease.
 // It deliberately excludes job payloads, configuration and chapter contents.
 type LeaseValidity struct {
-	Cell      ResolvedCell
-	GoalID    string
-	ExpiresAt time.Time
-	Route     Route
+	// ExecutionState and ClientPayloadRevision are scheduler snapshots, not application payload.
+	ExecutionState        ExecutionState
+	ClientPayloadRevision int64
+	Cell                  ResolvedCell
+	GoalID                string
+	ExpiresAt             time.Time
+	Route                 Route
 }

@@ -55,7 +55,7 @@ operation. See [primary goal selection](GUIDE-PRIMARY-GOAL-SELECTION.md) for
 permissions, retries, compatibility and backend implementer requirements.
 
 Operator recovery uses `WorkflowRuntime.ClearCrashConcern` with
-`ClearCrashConcernRequest` to reset a job's consecutive expired-lease count.
+`ClearCrashConcernRequest` to restore a job's default remaining crash budget.
 See [clearing crash concern](GUIDE-CRASH-CONCERN.md) for CLI, REST, and Go usage.
 
 Execution preservation adds `ExecutionInfrastructureError`, its reason constants,
@@ -301,3 +301,10 @@ must be composed for writers; absent admission denies mutations.
 constructors retain tenant HTTP. SQLite exposes inventory, explicit installation
 and fresh-storage initialization. `projectcatalog` supplies memory/SQLite/Postgres
 catalog storage. See [project catalog design](DESIGN-Project-Catalog.md).
+
+Resource backoff uses additive `jobdb.ResourceBackoffLease`,
+`ResourceBackoffTransport`, `ResourceBackoffReceiptReader`, and
+`runtimecore.ResourceBackoffScheduler` ports. Required runtime, execution-context
+and lease method sets and ordinary reschedule requests remain unchanged.
+`workflow.EAGAINWait` and typed options require explicit acquired capability.
+See [policy, backend and conformance contracts](GUIDE-RESOURCE-BACKOFF.md).

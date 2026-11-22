@@ -80,7 +80,7 @@ func TestAppendExpiredClaimsPreserveStateAndCrashCounter(t *testing.T) {
 	require.Equal(t, h, got)
 	r.engine.mu.Lock()
 	rec := r.engine.jobRecords[h.JobKey]
-	require.Zero(t, rec.consecutiveExpirations)
+	require.EqualValues(t, 5, rec.crashBudgetRemaining)
 	require.True(t, at.Equal(rec.availableAt))
 	require.Equal(t, jobdb.Route{JobType: "batch"}, rec.route)
 	r.engine.mu.Unlock()

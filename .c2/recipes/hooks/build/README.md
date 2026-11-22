@@ -249,7 +249,7 @@ Generated project models, route inventory and envelope plans are hashed before
 regeneration, alongside the retained legacy and consumer output. The public API
 snapshot includes runtime admission composition and explicit SQLite maintenance.
 
-The five race commands retain upstream's 25-minute initial package budget, 90-minute
+The existing race commands retain upstream's 25-minute initial package budget, 90-minute
 operation budget, elapsed-time recording and broad ten-repeat replay selection.
 An additional exact HTTP external-input command repeats that boundary ten times.
 Its live failure fixture injects only for that exact filter, preserving the
@@ -276,7 +276,7 @@ excludes from `./...`. It compiles an isolated helper at exact baseline commit
 `f885723cc03ce9c8b52365390dca9601109d2c7e` (canonical tag `v0.0.94`), checks its
 resolution/download origins and linked dependency, and tests the old HTTP client
 against the candidate ConsumerServer. It also creates real baseline storage:
-current format-13 constructors refuse its format 11 without conversion. That
+current format-14 constructors refuse its format 11 without conversion. That
 reopening compatibility is reported as failed; the assessment checks unchanged
 files and successful reopening by the baseline reader. HTTP behavior and the
 assessment itself are required gates. This does not certify whole-module API or
@@ -293,3 +293,64 @@ missing, skipped or failed cases, even when the process exits zero. Its receipt
 lists actual retained-read/client results and the failed old-storage assessment.
 Run it against the actual managed publication commit after publication; source
 checks and hook fixture results do not identify that future commit.
+
+
+Resource backoff has a dedicated required selection in `test_integration`, including
+the external public fixture excluded by `./...`. `scripts/check-resource-tests.py`
+reads the real Go JSON output and requires all 63 prepublication resource IDs plus
+C03 retained-read controls, SQLite durable conformance and toy memory conformance.
+It rejects empty selections, failed or skipped test cases and missing IDs. The
+public toy forwarding package itself has no test files. Python negative controls
+exercise this inventory checker before the feature selection.
+
+The existing complete integration and race commands remain intact. `test_races`
+also repeats the real resource selection three times with `-race`, including
+competing claims, the held-transaction acknowledgment barrier, rollback boundaries,
+format-13 migration, actual storage reopen and HTTP authority checks. Feature
+fixtures inject backend clock/RNG; workflow fixtures use separate original task
+deadlines and a 30-second transport lease to tolerate instrumentation overhead.
+
+The public-module verifier now includes the resource consumer, frozen required
+interfaces and old execution decoder. Its SQLite fixture closes and reopens real
+storage behind a stable HTTP authority and checks immutable receipt replay and
+exact large int64 values. These local fixture checks do not establish publication.
+After managed publication, run the existing verifier with the exact published
+full commit; it resolves the version in a new external module with `GOWORK=off`,
+an empty module cache and no replacements or overlays, and records the actual
+version, origin, checksums and named public test results.
+
+The integration hook checks project installation inspection and the supported
+SQLite offline migration commands before the long sweeps. The CLI fixtures now
+exercise real formats 11, 12 and 13, require target format 14 and resource tables,
+and retain read-only checking, repeat-migration and no-runtime-initialization
+assertions. This catches stale format expectations at the public command boundary.
+
+Before the complete race sweep, the hook repeats the full availability-route
+matrix and `TestResourceBackoffAvailabilityClockBoundaryB09b` three times under
+the race detector. Ready-route fixtures use an explicit elapsed cutoff rather
+than the immediate wall-clock boundary; delayed, dependency and alternate-route
+checks retain their own gates and all discovery/claim/poll assertions. The new
+SQLite test injects the backend clock, checks an ordinary nil-wait reschedule
+exactly at its cutoff, rewinds one nanosecond to require future status and denied
+acquisition, then restores eligibility. It also checks the elapsed-cutoff control.
+Missing ready rows now log detail and unfiltered-list state before failing.
+The returned race failure was not reproduced in 100 ordinary and 100
+race-instrumented repetitions of its original case. Clock regression explains
+the deterministic boundary behavior; the historical worker clock was not observed,
+so it is not an established cause of that failure. No retries or eventual-success
+assertions replace the original checks, and the complete race sweep is unchanged.
+
+
+Resource deadline regression verification repeats the exact
+`B09b_deadline_keeps_resource_gate`, four `B11a_zero_credit_deadline_*` and two
+`B11_zero_credit_engine_timeout_external_*` shared backend cases three times under
+race instrumentation before the unchanged complete race sweep. SQLite and toy
+use injected backend clocks/RNG. The cases reject early external output and
+append, retain job-only deadline admission at zero credit, preserve it through
+reopen and another handler crash, and run real local/external workflow timeout
+recovery without repeating the task callback or input builder. Original engine
+timers remain real; those two cases wait for their recorded five-second total
+deadlines separately from injected scheduler time. The resource inventory checker
+requires every exact new case on both backends, in addition to all original IDs,
+and its negative controls reject omission of any one case. Existing generated,
+API, legacy-client, complete integration/race and repeated checks are preserved.

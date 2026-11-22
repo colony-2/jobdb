@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
@@ -19,9 +20,18 @@ func cliMigrationFile(t *testing.T, format int) string {
 	path := filepath.Join(t.TempDir(), "legacy.db")
 	db, err := sql.Open("sqlite", path)
 	require.NoError(t, err)
-	for _, name := range []string{"goal-format-11.sql", "goal-lease-events.sql", "goal-receipts.sql"} {
-		raw, err := os.ReadFile(filepath.Join("..", "runtime", "sqlite", "testdata", name))
+	files := []string{"testdata/goal-format-11.sql", "testdata/goal-lease-events.sql", "testdata/goal-receipts.sql"}
+	if format == 13 {
+		files[0] = "schema/format-13.sql"
+	}
+	for _, name := range files {
+		raw, err := os.ReadFile(filepath.Join("..", "runtime", "sqlite", filepath.FromSlash(name)))
 		require.NoError(t, err)
+		if format == 13 && name == "testdata/goal-lease-events.sql" {
+			// Format 13 already includes append acquisition. Keep the frozen
+			// format-11 extension unchanged for the older conversion paths.
+			raw = []byte(strings.Replace(string(raw), "'task_completion')", "'task_completion','append')", 1))
+		}
 		_, err = db.Exec(string(raw))
 		require.NoError(t, err)
 	}
@@ -48,18 +58,23 @@ func executeMigrationCheck(t *testing.T, args ...string) (sqliteruntime.GoalMigr
 
 func TestSQLiteCheckMigrateReadOnlyAndNoRuntime(t *testing.T) {
 	t.Setenv(sqliteDSNEnvVar, "")
-	for _, format := range []int{11, 12} {
+	for _, format := range []int{11, 12, 13} {
 		t.Run(fmt.Sprint(format), func(t *testing.T) {
 			path := cliMigrationFile(t, format)
+			verdict := "CONVERTIBLE"
+			if format == 13 {
+				verdict = "READY"
+			}
 			before, err := os.ReadFile(path)
 			require.NoError(t, err)
 			for _, args := range [][]string{{"sqlite", "check-migrate", "--db", path}, {"--db", path, "sqlite", "check-migrate"}} {
 				// Invalid runtime-only configuration must not be initialized by checking.
 				args = append(args, "--secret-providers-file", filepath.Join(t.TempDir(), "absent.json"), "--blob-store-uri", "unavailable-provider://bucket")
 				report, err, _ := executeMigrationCheck(t, args...)
-				require.NoError(t, err)
-				require.Equal(t, "CONVERTIBLE", report.Verdict)
+				require.NoError(t, err, "%+v", report)
+				require.Equal(t, verdict, report.Verdict)
 				require.Equal(t, format, report.SourceFormat)
+				require.Equal(t, 14, report.TargetFormat)
 				require.Equal(t, path, report.Path)
 				after, err := os.ReadFile(path)
 				require.NoError(t, err)
@@ -112,12 +127,13 @@ func TestSQLiteCheckMigrateBlockedAndExecutionFailures(t *testing.T) {
 
 func TestSQLiteMigrateExplicitPathAndNoRuntime(t *testing.T) {
 	t.Setenv(sqliteDSNEnvVar, "")
-	for _, format := range []int{11, 12} {
+	for _, format := range []int{11, 12, 13} {
 		t.Run(fmt.Sprint(format), func(t *testing.T) {
 			path := cliMigrationFile(t, format)
 			report, err, _ := executeMigrationCheck(t, "sqlite", "migrate", "--db", path, "--blob-store-uri", "unsupported://must-not-open", "--secret-providers-file", "/not/a/file")
-			require.NoError(t, err)
+			require.NoError(t, err, "%+v", report)
 			require.Equal(t, "MIGRATED", report.Verdict)
+			require.Equal(t, 14, report.TargetFormat)
 			require.Equal(t, path, report.Path)
 			current, err, _ := executeMigrationCheck(t, "sqlite", "migrate", "--db", path)
 			require.NoError(t, err)
@@ -127,7 +143,9 @@ func TestSQLiteMigrateExplicitPathAndNoRuntime(t *testing.T) {
 			defer raw.Close()
 			var version, n int
 			require.NoError(t, raw.QueryRow("PRAGMA user_version").Scan(&version))
-			require.Equal(t, 13, version)
+			require.Equal(t, 14, version)
+			require.NoError(t, raw.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('jobdb_resource_sequences','jobdb_resource_receipts')`).Scan(&n))
+			require.Equal(t, 2, n)
 			require.NoError(t, raw.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name IN ('jobdb_goals','jobdb_goal_candidates')`).Scan(&n))
 			require.Zero(t, n)
 		})

@@ -17,3 +17,11 @@ func executionState(policy jobdb.RunPolicy, task *TaskWork) jobdb.ExecutionState
 	}
 	return jobdb.CloneExecutionState(state)
 }
+
+func resourceExecutionState(policy jobdb.RunPolicy, task *TaskWork, budget *int64, capability *jobdb.ResourceBackoffCapability, resume *jobdb.ResourceResume) jobdb.ExecutionState {
+	s := executionState(policy, task)
+	s.CrashBudgetRemaining = budget
+	s.ResourceBackoff = capability
+	s.ResourceResume = resume
+	return jobdb.CloneExecutionState(s)
+}

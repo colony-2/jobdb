@@ -3,7 +3,6 @@ package toyimpl
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
@@ -29,11 +28,11 @@ func (r *Runtime) ClearCrashConcern(ctx context.Context, req jobdb.ClearCrashCon
 	}
 	record.mu.Lock()
 	defer record.mu.Unlock()
-	now := time.Now().UTC()
+	now := r.now()
 	if record.archived != nil || record.cancelled || record.hidden || record.leased && record.leaseExpiresAt.After(now) {
 		return fmt.Errorf("%w: cannot clear crash concern for a live, final, cancelled, or hidden job", jobdb.ErrConflict)
 	}
-	record.consecutiveExpirations = 0
+	record.crashBudgetRemaining = 5
 	// Acquisition caches CRASH_CONCERN after observing an expired lease.
 	// Restore the scheduling state without discarding any wait constraints.
 	if record.status == jobdb.JobStatusCrashConcern {

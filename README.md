@@ -17,8 +17,8 @@ through manual deployment. See [catalog, admission and upgrade details](docs/DES
 Resource writes require an explicitly installed catalog. For a fresh SQLite
 database, first run `jobdb project installation initialize --database jobdb.db
 --participants-sha256 SHA256` with the SHA-256 of the independently verified
-participant inventory. Formats 11/12 require the separate explicit goal migration first.
-For existing format-13 storage, fence writers, inspect
+participant inventory. Formats 11/12/13 require the separate explicit offline migration first.
+For existing format-14 storage, fence writers, inspect
 and explicitly install approved legacy identities as described in the guide.
 Opening a server does not import projects. After starting it, use
 `jobdb project create NAME --request-id SAVED_ID`, then use the returned ID with
@@ -35,7 +35,7 @@ with an ETag. Cells are retired, never deleted.
 
 The earlier named-cell transition has a separate storage and client upgrade
 boundary for pre-cell deployments. SQLite now initializes retained-job format
-13; formats 11/12 require [manual conversion](docs/MIGRATION-IMMUTABLE-GOALS.md).
+14; formats 11/12/13 require [manual conversion](docs/MIGRATION-IMMUTABLE-GOALS.md).
 Explicitly create cells against the **JobDB API URL** before submitting jobs:
 
 ```bash
@@ -244,7 +244,7 @@ storage, CLI administration, and lease-scoped secret resolution.
 SQLite and toy runtimes record lease events automatically with existing constructors
 and CLI invocations. Legacy implementations retain the same base interfaces;
 use `jobdb.ListLeaseEvents(ctx, runtime, req)` to query optional support and handle
-`ErrLeaseEventsUnsupported`. SQLite format 13 includes event storage. Legacy formats 11/12 require explicit
+`ErrLeaseEventsUnsupported`. SQLite format 14 includes event and resource storage. Legacy formats 11/12/13 require explicit
 manual conversion, which preserves retained events. Pre-upgrade activity and
 historical writers leave partial history; no backfill is fabricated.
 See [lease event compatibility and upgrades](docs/GUIDE-LEASE-EVENTS.md).
@@ -258,3 +258,11 @@ terminal-record consumer integration follow shared contract publication. See [th
 [manual SQLite upgrade](docs/MIGRATION-IMMUTABLE-GOALS.md) for primary-wins losses,
 backups, format refusal, capability limits and required writer exclusion/overlap
 drain before deployment activation.
+
+## Resource backoff
+
+Return `workflow.EAGAINWait(ctx, options...)` from a restart-safe unfinished task
+to suspend its current attempt with backend-calculated exponential backoff. It
+preserves completed work, original deadlines and durable input. Optional timing
+and crash-budget arguments, SQLite format-14 migration and backend adoption are
+covered in [the resource backoff guide](docs/GUIDE-RESOURCE-BACKOFF.md).

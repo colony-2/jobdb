@@ -40,7 +40,7 @@ func logicalJob(row jobRow) jobRow {
 	row.leaseExpiresAtNS.Valid = false
 	row.leaseExpiresAtNS.Int64 = 0
 	row.updatedAtNS = 0
-	row.consecutiveExpirations = 0
+	row.crashBudgetRemaining = 5
 	return row
 }
 func TestInfrastructureSameJobCrashConcernRecovery(t *testing.T) {

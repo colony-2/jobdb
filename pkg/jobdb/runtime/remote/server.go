@@ -185,6 +185,10 @@ func newRuntimeServer(runtime jobdb.ConsumerRuntime, tokens *leaseTokenSigner) (
 				status = statusErr.status
 			} else {
 				switch {
+				case errors.Is(err, jobdb.ErrResourceBackoffUnsupported):
+					status = http.StatusNotImplemented
+				case errors.Is(err, jobdb.ErrInvalidResourceBackoff):
+					status = http.StatusBadRequest
 				case errors.Is(err, jobdb.ErrInvalidJobDeletion):
 					status = http.StatusBadRequest
 				case errors.Is(err, jobdb.ErrJobDeletionUnsupported):
@@ -472,6 +476,7 @@ func (s *proxyServer) ListJobs(ctx context.Context, request runtimeapi.ListJobsR
 	}
 	jobs := make([]runtimeapi.JobSummary, 0, len(resp.Jobs))
 	for _, job := range resp.Jobs {
+		job.ExecutionState = s.resourceSnapshot(job.ExecutionState)
 		converted, err := jobSummaryToAPI(job)
 		if err != nil {
 			return nil, err
@@ -649,6 +654,7 @@ func (s *proxyServer) GetJob(ctx context.Context, request runtimeapi.GetJobReque
 	if err != nil {
 		return nil, err
 	}
+	job.ExecutionState = s.resourceSnapshot(job.ExecutionState)
 	converted, err := jobInfoToAPI(ctx, job)
 	if err != nil {
 		return nil, err
@@ -1063,7 +1069,8 @@ func (s *proxyServer) PutRestartJobWithLease(ctx context.Context, request runtim
 }
 
 func (s *proxyServer) toAPIExecutionLease(lease jobdb.ExecutionLease, requestedDuration time.Duration) (runtimeapi.ExecutionLease, error) {
-	state, err := executionStateToAPI(lease.ExecutionState())
+	snapshot := s.resourceSnapshot(lease.ExecutionState())
+	state, err := executionStateToAPI(snapshot)
 	if err != nil {
 		return runtimeapi.ExecutionLease{}, err
 	}
@@ -1278,4 +1285,17 @@ func writePayloadSizeError(w http.ResponseWriter, err error) bool {
 		Details *jobdb.ChapterApplicationPayloadError `json:"details,omitempty"`
 	}{jobdb.ChapterApplicationPayloadTooLargeCode, message, size})
 	return true
+}
+
+// resourceSnapshot preserves discovery only when this transport can honor it.
+func (s *proxyServer) resourceSnapshot(snapshot jobdb.ExecutionState) jobdb.ExecutionState {
+	snapshot = jobdb.CloneExecutionState(snapshot)
+	_, transport := s.runtime.(jobdb.ResourceBackoffTransport)
+	_, reader := s.runtime.(jobdb.ResourceBackoffReceiptReader)
+	if !transport || !reader {
+		snapshot.ResourceBackoff = nil
+	} else if snapshot.ResourceBackoff != nil && !s.tokens.stable {
+		snapshot.ResourceBackoff.DurabilityVersion = 0
+	}
+	return snapshot
 }

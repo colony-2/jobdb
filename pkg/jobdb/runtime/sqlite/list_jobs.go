@@ -85,7 +85,7 @@ func (r *Runtime) listCompactJobs(ctx context.Context, req jobdb.ListJobsRequest
 	if err != nil {
 		return jobdb.ListJobsResponse{}, err
 	}
-	now := time.Now().UTC().UnixNano()
+	now := r.now().UnixNano()
 	// Bind one observation time for both status and pending-wait projection.
 	args := []any{now, crashconcern.DefaultThreshold}
 	where := []string{}
@@ -237,13 +237,15 @@ func (r *Runtime) listCompactJobs(ctx context.Context, req jobdb.ListJobsRequest
    WHEN j.archived_at_ns IS NOT NULL THEN CASE WHEN j.cancel_requested OR j.completion_status='cancelled' THEN 'CANCELLED' ELSE 'COMPLETED' END
    WHEN j.cancel_requested THEN 'CANCELLED'
    WHEN COALESCE(j.lease_id,'')<>'' AND j.lease_expires_at_ns>o.now_ns THEN 'ACTIVE'
+   WHEN j.resource_resume IS NOT NULL AND j.alternate_job_type IS NOT NULL AND COALESCE(j.alternate_task_type,'')='' AND j.alternate_at_ns<=o.now_ns THEN 'READY'
    WHEN j.dependency_wait_id<>'' AND jobdb_list_wait_pending(w.payload,o.now_ns) THEN 'PENDING_JOBS'
    WHEN (j.wait_deadline_ns IS NULL OR j.wait_deadline_ns>o.now_ns) AND EXISTS (
     SELECT 1 FROM json_each(jobdb_list_wait_for(j.wait_for)) d
     JOIN jobdb_jobs dep ON dep.tenant_id=j.tenant_id AND dep.job_id=d.value
     WHERE d.value<>'' AND dep.archived_at_ns IS NULL) THEN 'PENDING_JOBS'
+   WHEN j.resource_not_before_ns>o.now_ns THEN 'AWAITING_FUTURE'
    WHEN j.available_at_ns>o.now_ns THEN 'AWAITING_FUTURE'
-   WHEN j.consecutive_expirations>=o.crash_threshold THEN 'CRASH_CONCERN'
+   WHEN j.crash_budget_remaining=0 THEN 'CRASH_CONCERN'
    ELSE 'READY' END AS list_status
  FROM jobdb_jobs j CROSS JOIN observation o LEFT JOIN jobdb_dependency_waits w
  ON w.tenant_id=j.tenant_id AND w.job_id=j.job_id AND w.wait_id=j.dependency_wait_id
@@ -252,7 +254,7 @@ SELECT COALESCE(append_key,''),tenant_id,job_id,cell_id,(SELECT name FROM jobdb_
  client_payload_revision,client_payload,payload,wait_for,metadata,list_parent,available_at_ns,created_at_ns,archived_at_ns,
  cancel_requested,completion_status,completion_detail,lease_expires_at_ns,list_status,
  CASE WHEN pending_wait THEN dependency_wait_id ELSE '' END,
- CASE WHEN pending_wait THEN json_extract(CAST(wait_payload AS TEXT),'$.deadline') ELSE NULL END, record_kind, goal_failure
+ CASE WHEN pending_wait THEN json_extract(CAST(wait_payload AS TEXT),'$.deadline') ELSE NULL END, record_kind, goal_failure, crash_budget_remaining, resource_resume
 FROM projected p WHERE ` + strings.Join(where, " AND ") + ` ORDER BY created_at_ns DESC,list_key DESC LIMIT ?`
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -264,12 +266,13 @@ FROM projected p WHERE ` + strings.Join(where, " AND ") + ` ORDER BY created_at_
 		var s jobdb.JobSummary
 		var route jobdb.Route
 		var metadata, clientPayload, payload, waitFor, failure []byte
-		var available, created int64
+		var available, created, budget int64
+		var resourceResume []byte
 		var archivedAt, leaseExpires sql.NullInt64
 		var completion, completionDetail, deadline sql.NullString
 		var waitID string
 		if err = rows.Scan(&s.AppendKey, &s.JobKey.TenantId, &s.JobKey.JobId, &s.CellID, &s.Cell, &s.CellRepo, &s.GoalID, &s.JobType, &route.JobType, &route.TaskType,
-			&s.ClientPayloadRevision, &clientPayload, &payload, &waitFor, &metadata, &s.ParentJobID, &available, &created, &archivedAt, &s.CancelRequested, &completion, &completionDetail, &leaseExpires, &s.Status, &waitID, &deadline, &s.RecordKind, &failure); err != nil {
+			&s.ClientPayloadRevision, &clientPayload, &payload, &waitFor, &metadata, &s.ParentJobID, &available, &created, &archivedAt, &s.CancelRequested, &completion, &completionDetail, &leaseExpires, &s.Status, &waitID, &deadline, &s.RecordKind, &failure, &budget, &resourceResume); err != nil {
 			return jobdb.ListJobsResponse{}, err
 		}
 		s.NextRoute = &route
@@ -280,7 +283,13 @@ FROM projected p WHERE ` + strings.Join(where, " AND ") + ` ORDER BY created_at_
 		s.CompletionStatus = completion.String
 		s.CompletionDetail = completionDetail.String
 		s.ClientPayload = clientPayload
-		s.ExecutionState = jobExecutionState(payload)
+		if len(resourceResume) > 0 {
+			var resume jobdb.ResourceResume
+			if err := json.Unmarshal(resourceResume, &resume); err != nil || resume.Validate() != nil {
+				return jobdb.ListJobsResponse{}, fmt.Errorf("%w: resource resume", jobdb.ErrInvalidJobRecord)
+			}
+		}
+		s.ExecutionState = rowExecutionState(jobRow{payload: payload, crashBudgetRemaining: budget, resourceResume: resourceResume})
 		s.WaitFor, err = decodeWaitFor(waitFor)
 		if err != nil {
 			return jobdb.ListJobsResponse{}, err

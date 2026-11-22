@@ -20,7 +20,7 @@ type MigrationRequiredError struct {
 }
 
 func (e *MigrationRequiredError) Error() string {
-	return fmt.Sprintf("sqlite runtime: database %q format %d requires manual upgrade to 13; stop every writer, back up the database, run jobdb sqlite check-migrate --db PATH, then jobdb sqlite migrate --db PATH", e.Path, e.SourceFormat)
+	return fmt.Sprintf("sqlite runtime: database %q format %d requires manual upgrade to 14; stop every writer, back up the database, run jobdb sqlite check-migrate --db PATH, then jobdb sqlite migrate --db PATH", e.Path, e.SourceFormat)
 }
 
 func (e *MigrationRequiredError) Unwrap() error { return ErrMigrationRequired }
@@ -38,7 +38,7 @@ func refuseLegacy(ctx context.Context, db *sql.DB) error {
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version == 11 || version == 12 {
+	if version == 11 || version == 12 || version == 13 {
 		return legacyMigrationRequired(ctx, db, version)
 	}
 	return nil
@@ -58,7 +58,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	switch version {
-	case 11, 12:
+	case 11, 12, 13:
 		return legacyMigrationRequired(ctx, tx, version)
 	case 0:
 		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tables); err != nil {
@@ -70,10 +70,13 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		if err = createRetainedGoalSchema(ctx, tx); err != nil {
 			return err
 		}
-		if _, err = tx.ExecContext(ctx, "PRAGMA user_version=13"); err != nil {
+		if err = convertResourceSchema(ctx, tx); err != nil {
 			return err
 		}
-	case 13:
+		if _, err = tx.ExecContext(ctx, "PRAGMA user_version=14"); err != nil {
+			return err
+		}
+	case 14:
 		if err = validateRetainedGoalSchema(ctx, tx); err != nil {
 			return err
 		}

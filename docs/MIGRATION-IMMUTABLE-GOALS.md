@@ -25,7 +25,7 @@ Standard output contains a `GoalMigrationReport` JSON object. The exported
 
 | Verdict | Meaning | Exit |
 | --- | --- | --- |
-| `CURRENT` | Valid retained-job format 13; no conversion needed. | 0 |
+| `CURRENT` | Valid retained-job format 14; no conversion needed. | 0 |
 | `MIGRATED` | Manual conversion committed, with failure-job IDs in closure plans. | 0 |
 | `EMPTY` | Existing empty storage; no conversion or initialization occurred. | 0 |
 | `CONVERTIBLE` | Supported legacy input passed the implemented preflight without notices. | 0 |
@@ -33,7 +33,7 @@ Standard output contains a `GoalMigrationReport` JSON object. The exported
 | `BLOCKED` | Inspection completed and found unsupported schema/data or integrity failures. | Nonzero; `sqlite.ErrGoalMigrationBlocked`. |
 | `ERROR` | Inspection could not complete, for example a missing/unreadable/corrupt file or cancellation. | Nonzero; original execution error preserved. |
 
-The report identifies the source and intended target format 13, all tenants,
+The report identifies the source and intended target format 14, all tenants,
 hidden and visible row counts, deterministic primary origins, saved success
 producers/closure relocation, exact removed secondary relationships and their
 timestamps, affected pending waits/preparations, and active-member IDs for
@@ -75,12 +75,12 @@ PostgreSQL v0.0.27 acceptance. This revision removes JobDB attachment APIs.
 PostgreSQL backend conversion and pin update follow shared contract publication.
 Input/artifact attachments are independent.
 
-Fresh initialization uses format 13. Both runtime constructors reject formats 11
-and 12 with `*sqlite.MigrationRequiredError`, matching `sqlite.ErrMigrationRequired`
+Fresh initialization uses format 14. Both runtime constructors reject formats 11, 12
+and 13 with `*sqlite.MigrationRequiredError`, matching `sqlite.ErrMigrationRequired`
 through `errors.Is` and including `SourceFormat`, the
 available database `Path`, and the manual commands. Refusal happens before
 chapter/blob/configuration/secret initialization. Constructors never normalize,
-reset or convert legacy storage; incomplete format-13 definitions are rejected.
+reset or convert legacy storage; incomplete format-14 definitions are rejected.
 
 Stop all serving processes and writers, including embedded CLI hosts, then take
 a consistent SQLite backup containing committed WAL data. Keep external blob
@@ -104,7 +104,7 @@ artifacts, receipts, preparation descriptors, waits/subscriptions, lease events,
 unrelated tables and application job indexes/triggers remain retained.
 
 Any failure or cancellation rolls back data, definitions and format marker.
-Rerunning on a valid format 13 returns `CURRENT` without duplicate failure jobs.
+Rerunning on a valid format 14 returns `CURRENT` without duplicate failure jobs.
 An empty file is not converted; ordinary empty initialization remains the runtime
 constructor's responsibility. A saved check report never bypasses locked checks.
 Exclusive acquisition may fail while serving handles remain open, including WAL
@@ -119,3 +119,9 @@ evidence. Toy and SQLite advertise their enforced local guarantees. Those flags
 do not establish consumer cleanup, exclusion of old writers or overlap drain.
 Backup restoration may discard writes made after the backup. Local tests do not
 establish a production preservation percentage or deployment result.
+
+Format 13 is the immediately preceding retained-job format. Its offline conversion
+to 14 adds resource state and converts each legacy count to `max(5-count,0)` in
+one transaction, without expiry debit or credit refill. Formats 11/12 first
+undergo their existing retained-goal conversion under the same transaction.
+See [countdown and resource compatibility](GUIDE-RESOURCE-BACKOFF.md#sqlite-upgrade).
