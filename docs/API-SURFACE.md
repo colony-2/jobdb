@@ -69,6 +69,15 @@ Routing uses `Route{JobType, TaskType}` throughout the public API. See the
 [consumer migration guide](MIGRATION-TYPED-ROUTES.md) for the breaking changes.
 
 
+### `github.com/colony-2/jobdb/pkg/jobdb/jobid`
+
+`jobid.New()` allocates fresh job IDs using `C2` (`jobid.Prefix`) followed by an
+unchanged 27-character KSUID string. The shape `^C2[0-9A-Za-z]{27}$` is a scanner
+hint, not a validity or existence check. In text, do not take a matching prefix of
+a longer ASCII identifier (letters, digits, or underscore). Look up the whole ID
+in the known tenant. Existing, externally supplied, and custom-generated keys
+remain opaque and may not match the pattern.
+
 ### `github.com/colony-2/jobdb/pkg/jobdb/runtimetest`
 
 Public runtime conformance harness for external `jobdb.WorkflowRuntime`
@@ -251,6 +260,7 @@ The API snapshot should include:
 
 ```text
 github.com/colony-2/jobdb/pkg/jobdb
+github.com/colony-2/jobdb/pkg/jobdb/jobid
 github.com/colony-2/jobdb/pkg/jobdb/configuration
 github.com/colony-2/jobdb/pkg/jobdb/chapterstore/postgres
 github.com/colony-2/jobdb/pkg/jobdb/runtimetest

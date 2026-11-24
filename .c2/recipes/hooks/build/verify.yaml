@@ -26,7 +26,6 @@ state:
           CANDIDATE: ${{ inputs.candidate }}
           BASE: ${{ inputs.base }}
           GOOS: linux
-          GOARCH: arm64
           CGO_ENABLED: "1"
           CC: gcc
           GOWORK: "off"
@@ -37,9 +36,18 @@ state:
           printf 'Observed HEAD: '; git rev-parse HEAD
           uname -s -m
           test "$API_VERSION" = c2.build-hook/v1
-          test "$(uname -s)" = Linux
-          test "$(uname -m)" = aarch64
+          case "$(uname -s -m)" in
+            'Linux x86_64') native_arch=amd64 ;;
+            'Linux aarch64') native_arch=arm64 ;;
+            *) printf 'Unsupported verification platform: %s (requires native Linux amd64 or arm64)\n' "$(uname -s -m)"; exit 1 ;;
+          esac
           for tool in bash git go gcc python3 mktemp; do command -v "$tool"; done
+          GOARCH=$(go env GOHOSTARCH)
+          export GOARCH
+          if [ "$GOARCH" != "$native_arch" ]; then
+            printf 'Go host architecture %s does not match worker architecture %s\n' "$GOARCH" "$native_arch"
+            exit 1
+          fi
           go version
           go env GOOS GOARCH CGO_ENABLED CC
           gcc --version | head -n 1
@@ -89,13 +97,15 @@ state:
           GOFLAGS: -mod=readonly
           OUTBOX: ${{ context.environment.op.outbox }}
           GOOS: linux
-          GOARCH: arm64
           CGO_ENABLED: "1"
           CC: gcc
           GOWORK: "off"
         run: |
           set -eu
           exec > "$OUTBOX/tests.log" 2>&1
+          GOARCH=$(go env GOHOSTARCH)
+          export GOARCH
+          printf 'Native Go target: %s/%s\n' "$GOOS" "$GOARCH"
           scratch=$(mktemp -d /tmp/jobdb-verify.XXXXXXXX)
           trap 'rm -rf -- "$scratch"' EXIT
           # Embedded PG test binaries drop root; only scratch ancestors need traversal.
@@ -138,6 +148,8 @@ state:
           go generate ./pkg/jobdb/internal/runtimeapi ./pkg/jobdb/internal/projectapi ./pkg/jobdb/runtime/remote
           sha256sum -c "$scratch/generated.sha256"
           go run ./cmd/jobdb-api-snapshot -packages api/packages.txt -check api/jobdb.public.txt
+          printf '%s\n' "Command: go test -count=1 -p=2 -timeout=5m -v -tags=integration ./pkg/jobdb/jobid ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/remote ./pkg/jobdb/runtime/toy/... ./pkg/workflow -run '^(TestJobID.*|TestAppend.*|TestStartOrAppendConformance|TestGoalMigrationConvertsPreservingRetainedState|TestMigratedSQLiteFailureHTTPInspection)$'"
+          go test -count=1 -p=2 -timeout=5m -v -tags=integration ./pkg/jobdb/jobid ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/remote ./pkg/jobdb/runtime/toy/... ./pkg/workflow -run '^(TestJobID.*|TestAppend.*|TestStartOrAppendConformance|TestGoalMigrationConvertsPreservingRetainedState|TestMigratedSQLiteFailureHTTPInspection)$'
           # Check typed permission errors on both generated project append clients.
           test -s pkg/jobdb/internal/projectapi/append_test.go
           printf '%s\n' "Command: go test -count=1 -p=1 -timeout=3m -v ./pkg/jobdb/internal/projectapi -run '^TestProjectAppendPermissionDeniedResponses$'"
@@ -204,7 +216,7 @@ state:
           missing=0
           {
             printf '# JobDB local verification: %s\n\nCandidate: %s\nBase: %s\n' "$VERDICT" "$CANDIDATE" "$BASE"
-            printf '\nNative Linux arm64 checks only; does not certify the GitHub matrix or publication.\n'
+            printf '\nNative Linux worker checks only; does not certify the GitHub matrix or publication.\n'
             printf '\n## check_environment: %s\n\n```json\n%s\n```\n' "$RESULT_0" "$DETAIL_0"
             if [ -s "$INBOX/environment.log" ]; then
               printf 'Evidence: environment.log\n'
@@ -214,12 +226,16 @@ state:
             printf '\n## test_integration: %s\n\n```json\n%s\n```\n' "$RESULT_1" "$DETAIL_1"
             if [ -s "$INBOX/tests.log" ]; then
               printf 'Evidence: tests.log\n'
+            elif [ "$RESULT_1" = 'not run (environment gate failed)' ]; then
+              printf 'No tests.log: integration did not run.\n'
             else
               printf 'Evidence unavailable: tests.log\n'; missing=1
             fi
             printf '\n## test_races: %s\n\n```json\n%s\n```\n' "$RESULT_2" "$DETAIL_2"
             if [ -s "$INBOX/races.log" ]; then
               printf 'Evidence: races.log\n'
+            elif [ "$RESULT_2" = 'not run (environment gate failed)' ]; then
+              printf 'No races.log: race checks did not run.\n'
             else
               printf 'Evidence unavailable: races.log\n'; missing=1
             fi
@@ -264,7 +280,6 @@ state:
           GOFLAGS: -mod=readonly
           OUTBOX: ${{ context.environment.op.outbox }}
           GOOS: linux
-          GOARCH: arm64
           CGO_ENABLED: "1"
           CC: gcc
           GOWORK: "off"
@@ -272,6 +287,9 @@ state:
         run: |
           set -eu
           exec > "$OUTBOX/races.log" 2>&1
+          GOARCH=$(go env GOHOSTARCH)
+          export GOARCH
+          printf 'Native Go target: %s/%s\n' "$GOOS" "$GOARCH"
           scratch=$(mktemp -d /tmp/jobdb-verify.XXXXXXXX)
           trap 'rm -rf -- "$scratch"' EXIT
           # Embedded PG test binaries drop root; only scratch ancestors need traversal.

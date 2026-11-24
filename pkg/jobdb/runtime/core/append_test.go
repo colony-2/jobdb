@@ -77,7 +77,7 @@ type appendFixture struct {
 	facts                               map[jobdb.JobKey]CreateJobRequest
 	preparations, publications, creates int
 	failPublication                     bool
-	legacyReadError                     error
+	readErrors                          map[string]error
 	missing                             error
 	// Used to force two creators past their initial read into the empty-container CAS.
 	createBarrier *sync.WaitGroup
@@ -142,8 +142,8 @@ func (f *appendFixture) Get(ctx context.Context, k ChapterLogKey, ordinal int64)
 	if err := ctx.Err(); err != nil {
 		return EncodedChapter{}, err
 	}
-	if len(k.JobKey.JobId) > 3 && k.JobKey.JobId[:3] == "ak-" && f.legacyReadError != nil {
-		return EncodedChapter{}, f.legacyReadError
+	if err := f.readErrors[k.JobKey.JobId]; err != nil {
+		return EncodedChapter{}, err
 	}
 	log, ok := f.logs[k.JobKey]
 	if !ok {
@@ -237,7 +237,8 @@ func TestAppendGenerationExhaustion(t *testing.T) {
 	f.seedTail(math.MaxUint32-1, false)
 	h, err := s.StartOrAppendJob(context.Background(), q)
 	require.NoError(t, err)
-	id, err := ksuid.Parse(h.JobKey.JobId)
+	require.Regexp(t, `^C2[0-9A-Za-z]{27}$`, h.JobKey.JobId)
+	id, err := ksuid.Parse(h.JobKey.JobId[2:])
 	require.NoError(t, err)
 	require.Equal(t, "7bcb7cea82a2f1d2199170d7cb427e40ffffffff", hex.EncodeToString(id.Bytes()))
 	require.Equal(t, int64(math.MaxUint32), f.facts[h.JobKey].AppendGeneration)
@@ -250,14 +251,14 @@ func TestAppendIDIgnoresRequestTimeAndWorker(t *testing.T) {
 		q.RequestTime = time.Unix(int64(i)*1000000, 0)
 		h, err := s.StartOrAppendJob(context.Background(), q)
 		require.NoError(t, err)
-		require.Equal(t, "Hf8hO0e442nzjOnvpy7z9iePAn3", h.JobKey.JobId)
+		require.Equal(t, "C2Hf8hO0e442nzjOnvpy7z9iePAn3", h.JobKey.JobId)
 	}
 }
 
 func TestAppendRecoversWinningChapter(t *testing.T) {
-	for _, legacy := range []bool{false, true} {
+	for _, encoding := range []string{"prefixed", "compact", "ak"} {
 		for _, gen := range []int64{1, 2, math.MaxUint32} {
-			t.Run(fmt.Sprintf("legacy=%v/generation=%d", legacy, gen), func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s/generation=%d", encoding, gen), func(t *testing.T) {
 				f, s, q := newAppendFixture()
 				if gen > 1 {
 					f.seedTail(gen-1, false)
@@ -266,8 +267,11 @@ func TestAppendRecoversWinningChapter(t *testing.T) {
 				chain := AppendChain{TenantID: "tenant", CellID: "cell", JobType: "batch", AppendKey: "key"}
 				id, err := compactAppendJobID(chain, gen)
 				require.NoError(t, err)
-				if legacy {
+				switch encoding {
+				case "ak":
 					id = fmt.Sprintf("ak-7bcb7cea82a2f1d2199170d7cb427e40-%019d", gen)
+				case "prefixed":
+					id = "C2" + id
 				}
 				key := jobdb.JobKey{TenantId: "tenant", JobId: id}
 				at := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -285,9 +289,7 @@ func TestAppendRecoversWinningChapter(t *testing.T) {
 				q.Job.Job.Schema = &jobdb.JobSchemaSelector{Hash: hash}
 				q.Job.AppendArtifacts = []jobdb.ArtifactKey{{JobId: "source", TaskOrdinal: 2, Name: "piece", SizeBytes: 10}}
 				f.failPublication = true
-				// Seed a genuine old-format start using the unchanged creation path, or
-				// exercise the public path for compact creation.
-				if legacy {
+				if encoding != "prefixed" {
 					_, _, err = s.create(context.Background(), q, q.Job, f.cell, key, f.tail, f.found, gen, time.Now())
 				} else {
 					_, err = s.StartOrAppendJob(context.Background(), q)
@@ -331,28 +333,37 @@ func TestAppendRecoversWinningChapter(t *testing.T) {
 					require.Equal(t, predecessor, meta.Prerequisites[0].JobID)
 				}
 				require.Len(t, f.facts, 1)
+				require.Equal(t, 2, f.publications, "one interrupted attempt and one successful publication")
 				require.Equal(t, 1, f.creates)
 			})
 		}
 	}
 }
 
-func TestAppendLegacyLookupFailures(t *testing.T) {
-	for _, fault := range []error{errors.New("storage unavailable"), context.Canceled, context.DeadlineExceeded} {
-		f, s, q := newAppendFixture()
-		f.legacyReadError = fault
-		_, err := s.StartOrAppendJob(context.Background(), q)
-		require.ErrorIs(t, err, fault)
-		require.Zero(t, f.creates)
-		require.Zero(t, f.preparations)
-		require.Zero(t, f.publications)
+var appendFirstIDs = []string{
+	"ak-7bcb7cea82a2f1d2199170d7cb427e40-0000000000000000001",
+	"Hf8hO0e442nzjOnvpy7z9iePAn3",
+	"C2Hf8hO0e442nzjOnvpy7z9iePAn3",
+}
+
+func TestAppendLookupFailures(t *testing.T) {
+	for _, id := range appendFirstIDs {
+		for _, fault := range []error{errors.New("storage unavailable"), context.Canceled, context.DeadlineExceeded} {
+			f, s, q := newAppendFixture()
+			f.readErrors = map[string]error{id: fault}
+			_, err := s.StartOrAppendJob(context.Background(), q)
+			require.ErrorIs(t, err, fault)
+			require.Zero(t, f.creates)
+			require.Zero(t, f.preparations)
+			require.Zero(t, f.publications)
+		}
 	}
 	for _, missing := range []error{jobdb.ErrJobNotFound, jobdb.ErrChapterNotFound} {
 		f, s, q := newAppendFixture()
 		f.missing = missing
 		h, err := s.StartOrAppendJob(context.Background(), q)
 		require.NoError(t, err)
-		require.Len(t, h.JobKey.JobId, 27)
+		require.Equal(t, appendFirstIDs[2], h.JobKey.JobId)
 	}
 	for _, publication := range []json.RawMessage{json.RawMessage(`{"AppendKey":"key"}`), json.RawMessage(`{"JobKey":{"TenantId":"tenant","JobId":"wrong"},"AppendKey":"key","AppendGeneration":1}`), nil} {
 		f, s, q := newAppendFixture()
@@ -373,9 +384,61 @@ func TestAppendLegacyLookupFailures(t *testing.T) {
 	}
 }
 
+func TestAppendRejectsCompetingStarts(test *testing.T) {
+	for first, id := range appendFirstIDs {
+		for _, other := range appendFirstIDs[first+1:] {
+			fixture, service, request := newAppendFixture()
+			for _, saved := range []string{id, other} {
+				key := jobdb.JobKey{TenantId: "tenant", JobId: saved}
+				fixture.failPublication = true
+				_, _, err := service.create(context.Background(), request, request.Job, fixture.cell, key, StoredJob{}, false, 1, time.Now())
+				require.ErrorContains(test, err, "publication interrupted")
+			}
+			_, err := service.StartOrAppendJob(context.Background(), request)
+			require.ErrorIs(test, err, jobdb.ErrConflict)
+			require.Equal(test, 2, fixture.creates)
+			require.Equal(test, 2, fixture.preparations)
+			require.Equal(test, 2, fixture.publications)
+			require.Empty(test, fixture.facts)
+		}
+	}
+}
+
+func TestAppendRejectsMismatchedStartFacts(test *testing.T) {
+	for name, alter := range map[string]func(*CreateJobRequest){
+		"tenant":     func(facts *CreateJobRequest) { facts.JobKey.TenantId = "other" },
+		"key":        func(facts *CreateJobRequest) { facts.JobKey.JobId = "other" },
+		"cell":       func(facts *CreateJobRequest) { facts.Cell.CellID = "other" },
+		"type":       func(facts *CreateJobRequest) { facts.JobType = "other" },
+		"append-key": func(facts *CreateJobRequest) { facts.AppendKey = "other" },
+		"generation": func(facts *CreateJobRequest) { facts.AppendGeneration++ },
+	} {
+		test.Run(name, func(test *testing.T) {
+			fixture, service, request := newAppendFixture()
+			key := jobdb.JobKey{TenantId: "tenant", JobId: appendFirstIDs[1]}
+			facts := CreateJobRequest{JobKey: key, Cell: fixture.cell, JobType: "batch", AppendKey: "key", AppendGeneration: 1}
+			alter(&facts)
+			publication, err := json.Marshal(facts)
+			require.NoError(test, err)
+			raw, err := json.Marshal(runtimecodec.ChapterMeta{Version: runtimecodec.EnvelopeVersion, AppendPublication: publication})
+			require.NoError(test, err)
+			metadata, err := runtimecodec.ChapterMetadataFromJSON(raw)
+			require.NoError(test, err)
+			chapter, err := EncodeChapter(EncodeChapterRequest{Chapter: jobdb.Chapter{TaskType: "batch", Metadata: metadata, Body: jobdb.JobStartChapter{Input: jobdb.ApplicationInputBytes{Data: []byte(`null`)}, Append: &jobdb.ApplicationInputBytes{Data: []byte(`1`)}}}})
+			require.NoError(test, err)
+			fixture.logs[key] = []EncodedChapter{chapter}
+			_, err = service.StartOrAppendJob(context.Background(), request)
+			require.ErrorIs(test, err, jobdb.ErrConflict)
+			require.Zero(test, fixture.creates)
+			require.Zero(test, fixture.preparations)
+			require.Zero(test, fixture.publications)
+		})
+	}
+}
+
 func TestAppendConcurrentEmptyContainer(t *testing.T) {
 	f, s, q := newAppendFixture()
-	key := jobdb.JobKey{TenantId: "tenant", JobId: "Hf8hO0e442nzjOnvpy7z9iePAn3"}
+	key := jobdb.JobKey{TenantId: "tenant", JobId: appendFirstIDs[2]}
 	f.logs[key] = nil
 	f.createBarrier = &sync.WaitGroup{}
 	f.createBarrier.Add(2)

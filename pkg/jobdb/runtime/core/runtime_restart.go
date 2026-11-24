@@ -13,6 +13,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate"
+	"github.com/colony-2/jobdb/pkg/jobdb/jobid"
 	"github.com/segmentio/ksuid"
 )
 
@@ -111,7 +112,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	}
 	jobID := job.JobID
 	if jobID == "" {
-		jobID = ksuid.New().String()
+		jobID = jobid.New()
 	}
 	key := jobdb.JobKey{TenantId: job.PriorJobKey.TenantId, JobId: jobID}
 	if err := key.Validate(); err != nil {

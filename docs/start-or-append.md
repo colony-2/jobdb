@@ -78,35 +78,39 @@ The shared runtime algorithm writes a start chapter containing the first append 
 
 Install the updated PostgreSQL DDL before running the updated pgjobdb runtime. SQLite applies its additive migration on open. Update workers and servers together: older codecs cannot decode the new chapter kind. Ordinary job encoding remains unchanged.
 
-## Compact grouped job IDs
+## Grouped job IDs
 
-New grouped generations use deterministic 27-character KSUID base62 strings. The
-20 encoded bytes are the first 16 bytes of SHA-256 over the existing canonical
+New grouped generations use `C2` followed by the existing deterministic
+27-character KSUID base62 string. The 20 encoded bytes behind the suffix are
+the first 16 bytes of SHA-256 over the existing canonical
 `fmt.Sprintf("%q/%q/%q", cellID, jobType, appendKey)` encoding, followed by the
 generation as four unsigned big-endian bytes. Tenant remains part of the storage
 key. These IDs are opaque: their decoded timestamp has no chronological meaning.
 Use `append_gen` for queue order and `created_at` for chronological order. String
-order increases within one compact queue, but does not order different queues or
-mixed legacy/compact chains.
+order increases within one encoding for a queue, but does not order different
+queues or chains that mix encodings.
 
 Generations start at one and may reach **4,294,967,295**. When a new successor would
 exceed that limit, the operation returns `ErrInvalidAppendRequest` with
 `append generation exhausted (maximum 4294967295)` (HTTP `400 invalid_append_request`).
 Existing open jobs at or above the limit can still accept ordinary appends.
 
-Existing `ak-…` jobs keep their IDs and remain addressable for reads, artifacts,
-appends, and waits. A newly created successor uses the compact ID unless a legacy
-chapter zero for that generation already exists. The shared runtime checks for
-that chapter first and recovers its saved publication facts, including the actual
-predecessor ID. No data rewrite, DDL change, or new storage interface is required.
+Existing `ak-…` and unprefixed compact jobs keep their IDs and remain addressable
+for reads, artifacts, appends, and waits. Before creating a generation, the runtime
+checks chapter zero at all three encodings. If exactly one exists, the runtime
+checks its chain identity and publishes under that key with its saved facts,
+including the actual predecessor ID. If multiple chapters exist, a chapter does not
+match, or a read fails for any reason other than absence, the runtime stops without
+publishing a replacement. No data rewrite, DDL change, or new storage interface is
+required.
 
 Pause grouped submissions on old writers, drain in-flight grouped calls, update
 all writers sharing the storage, then resume. Simultaneous old and new writers
 are unsupported: they could create different IDs for the same generation.
 
-Before rollback, keep the new writer available to recover and publish any compact
-chapter zero left by an interrupted creation. Establish that no compact creations
+Before rollback, keep the new writer available to recover and publish any `C2`
+chapter zero left by an interrupted creation. Establish that no `C2` creations
 remain unpublished before enabling old writers. Pausing and draining alone does
-not establish this: old writers cannot discover unpublished compact chapters.
+not establish this: old writers cannot discover unpublished `C2` chapters.
 If completeness cannot be established, retain the new writer. Automatic global
 auditing and rollback recovery orchestration are outside this change.

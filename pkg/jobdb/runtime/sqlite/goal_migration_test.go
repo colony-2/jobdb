@@ -95,6 +95,7 @@ func TestGoalMigrationConvertsPreservingRetainedState(t *testing.T) {
 			require.Equal(t, "  saved\n保存  ", failed.Failure.Message)
 			require.Equal(t, []string{"failed-origin", "producer"}, failed.Failure.TerminalJobIDs)
 			marker := retainedJob(failed.FailureJobID)
+			require.Regexp(t, `^C2[0-9A-Za-z]{27}$`, marker.JobId)
 			job, err := store.Job(marker)
 			require.NoError(t, err)
 			require.Equal(t, jobdb.JobRecordMigratedGoalFailure, job.RecordKind)

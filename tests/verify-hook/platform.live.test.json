@@ -1,0 +1,86 @@
+{
+  "recipe": "driver.yaml",
+  "live": true,
+  "cases": [
+    {
+      "id": "native-linux-verification-gate",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {"node_path": "jobdb-verify-test/invoke/jobdb-build-verify/check_environment/check_environment"},
+            "behavior": {"mode": "passthrough"}
+          },
+          {
+            "match": {"node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_integration/test_integration"},
+            "behavior": {
+              "mode": "return",
+              "outputs": {"success": true, "exit_code": 0, "timed_out": false},
+              "artifacts": {"tests.log": "fixture integration evidence\n"}
+            }
+          },
+          {
+            "match": {"node_path": "jobdb-verify-test/invoke/jobdb-build-verify/test_races/test_races"},
+            "behavior": {
+              "mode": "return",
+              "outputs": {"success": true, "exit_code": 0, "timed_out": false},
+              "artifacts": {"races.log": "fixture race evidence\n"}
+            }
+          },
+          {
+            "match": {"node_path": "jobdb-verify-test/invoke/jobdb-build-verify/summarize/summarize"},
+            "behavior": {"mode": "passthrough"}
+          }
+        ]
+      },
+      "assertions": [
+        {"type": "output_equals", "path": "status", "value": "passed"},
+        {"type": "cel_true", "expr": "calls.size() == 4 && outputs.artifact_refs.size() == 4"},
+        {"type": "cel_true", "expr": "calls[0].outputs.success == true && outputs.artifact_refs['environment.log'].stored.key.sizeBytes > 0 && outputs.summary.contains('environment=passed, integration=passed, races=passed')"}
+      ]
+    },
+    {
+      "id": "failed-environment-gate-retains-summary",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {"node_path": "jobdb-verify-test/invoke/jobdb-build-verify/check_environment/check_environment"},
+            "behavior": {
+              "mode": "return",
+              "outputs": {"success": false, "exit_code": 1, "timed_out": false},
+              "artifacts": {"environment.log": "Unsupported verification platform: Linux riscv64\n"}
+            }
+          },
+          {
+            "match": {"node_path": "jobdb-verify-test/invoke/jobdb-build-verify/summarize/summarize"},
+            "behavior": {"mode": "passthrough"}
+          }
+        ]
+      },
+      "assertions": [
+        {"type": "output_equals", "path": "status", "value": "failed"},
+        {"type": "cel_true", "expr": "calls.size() == 2 && outputs.artifact_refs.size() == 2 && 'environment.log' in outputs.artifact_refs && 'summary.md' in outputs.artifact_refs"},
+        {"type": "cel_true", "expr": "calls[1].outputs.success == true && outputs.artifact_refs['summary.md'].stored.key.sizeBytes > 0 && outputs.summary.contains('environment=failed') && outputs.summary.contains('integration=not run (environment gate failed), races=not run (environment gate failed)')"}
+      ]
+    }
+  ]
+}

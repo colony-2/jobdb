@@ -14,8 +14,8 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
+	"github.com/colony-2/jobdb/pkg/jobdb/jobid"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/cellstate"
-	"github.com/segmentio/ksuid"
 )
 
 // JobIDGenerator allows overriding how job IDs are created.
@@ -299,7 +299,7 @@ func NewToyEngine(opts ...Option) *ToyEngine {
 		runtimeChapters:   make(map[jobdb.JobKey]map[int64]jobdb.Chapter),
 		runtimeArtifacts:  make(map[runtimeArtifactKey][]byte),
 		idGenerator: func(tenantId string) (jobdb.JobKey, error) {
-			return jobdb.JobKey{TenantId: tenantId, JobId: ksuid.New().String()}, nil
+			return jobdb.JobKey{TenantId: tenantId, JobId: jobid.New()}, nil
 		},
 		logger: slog.Default(),
 	}

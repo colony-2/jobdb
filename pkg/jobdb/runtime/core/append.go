@@ -16,6 +16,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
+	"github.com/colony-2/jobdb/pkg/jobdb/jobid"
 	"github.com/segmentio/ksuid"
 )
 
@@ -198,21 +199,17 @@ func (s AppendService) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAp
 		if err != nil {
 			return jobdb.JobHandle{}, err
 		}
-		// An old writer may have committed chapter zero without publishing the
-		// scheduler row. Recover it before choosing the new encoding. Writers
-		// sharing storage must be upgraded together to avoid competing encodings.
-		legacyKey := jobdb.JobKey{TenantId: chain.TenantID, JobId: legacyAppendJobID(chain, generation)}
-		legacy, err := s.Chapters.Get(ctx, ChapterLogKey{legacyKey}, 0)
-		if err == nil {
-			if _, _, err = s.publish(ctx, legacyKey, legacy, false); err != nil {
+		key := jobdb.JobKey{TenantId: chain.TenantID, JobId: jobid.Prefix + id}
+		savedKey, chapter, err := s.findAppendStart(ctx, chain.TenantID, legacyAppendJobID(chain, generation), id, key.JobId)
+		if err != nil {
+			return jobdb.JobHandle{}, err
+		}
+		if savedKey.JobId != "" {
+			if _, _, err = s.publish(ctx, savedKey, chain, generation, chapter, false); err != nil {
 				return jobdb.JobHandle{}, err
 			}
 			continue // Retry this caller's append against the recovered winner.
 		}
-		if !errors.Is(err, jobdb.ErrJobNotFound) && !errors.Is(err, jobdb.ErrChapterNotFound) {
-			return jobdb.JobHandle{}, err
-		}
-		key := jobdb.JobKey{TenantId: chain.TenantID, JobId: id}
 		handle, created, err := s.create(ctx, req, in, cell, key, tail, found, generation, now())
 		if err != nil {
 			return jobdb.JobHandle{}, err
@@ -222,6 +219,26 @@ func (s AppendService) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAp
 		}
 	}
 	return jobdb.JobHandle{}, jobdb.ErrAppendBusy
+}
+
+func (service AppendService) findAppendStart(ctx context.Context, tenant string, ids ...string) (jobdb.JobKey, EncodedChapter, error) {
+	var savedKey jobdb.JobKey
+	var savedChapter EncodedChapter
+	for _, id := range ids {
+		key := jobdb.JobKey{TenantId: tenant, JobId: id}
+		chapter, err := service.Chapters.Get(ctx, ChapterLogKey{key}, 0)
+		if errors.Is(err, jobdb.ErrJobNotFound) || errors.Is(err, jobdb.ErrChapterNotFound) {
+			continue
+		}
+		if err != nil {
+			return jobdb.JobKey{}, EncodedChapter{}, jobdb.ClassifyRuntimeIO(err, "get_append_chapter", &key, nil)
+		}
+		if savedKey.JobId != "" {
+			return jobdb.JobKey{}, EncodedChapter{}, fmt.Errorf("%w: competing append starts %q and %q", jobdb.ErrConflict, savedKey.JobId, key.JobId)
+		}
+		savedKey, savedChapter = key, chapter
+	}
+	return savedKey, savedChapter, nil
 }
 
 func appendIdentityHash(chain AppendChain) [32]byte {
@@ -285,12 +302,13 @@ func (s AppendService) appendable(ctx context.Context, key jobdb.JobKey, max int
 	return n, false, nil
 }
 func (s AppendService) create(ctx context.Context, req jobdb.StartOrAppendJobRequest, in jobdb.StartOrAppendJob, cell jobdb.ResolvedCell, key jobdb.JobKey, tail StoredJob, found bool, generation int64, now time.Time) (jobdb.JobHandle, bool, error) {
+	chain := AppendChain{TenantID: key.TenantId, CellID: cell.CellID, JobType: in.Job.JobType, AppendKey: in.AppendKey}
 	// Read before preparing the template. A loser must recover the winner's facts,
 	// including its schema, availability, initial client payload and artifacts.
 	existing, err := s.Chapters.Get(ctx, ChapterLogKey{key}, 0)
 	err = jobdb.ClassifyRuntimeIO(err, "get_append_chapter", &key, nil)
 	if err == nil {
-		return s.publish(ctx, key, existing, false)
+		return s.publish(ctx, key, chain, generation, existing, false)
 	}
 	if !errors.Is(err, jobdb.ErrJobNotFound) && !errors.Is(err, jobdb.ErrChapterNotFound) {
 		return jobdb.JobHandle{}, false, err
@@ -374,7 +392,7 @@ func (s AppendService) create(ctx context.Context, req jobdb.StartOrAppendJobReq
 			jobdb.AssignArtifactKey(artifact, jobdb.ArtifactKey{JobId: key.JobId, TaskOrdinal: 0, Name: artifact.Name(), SizeBytes: artifact.Size()})
 			_ = artifact.Cleanup()
 		}
-		return s.publish(ctx, key, encoded, true)
+		return s.publish(ctx, key, chain, generation, encoded, true)
 	}
 	if err = s.Chapters.Create(ctx, ChapterLogKey{key}, encoded); err != nil {
 		if !errors.Is(err, jobdb.ErrConflict) {
@@ -398,11 +416,11 @@ func (s AppendService) create(ctx context.Context, req jobdb.StartOrAppendJobReq
 		if err != nil {
 			return jobdb.JobHandle{}, false, err
 		}
-		return s.publish(ctx, key, existing, false)
+		return s.publish(ctx, key, chain, generation, existing, false)
 	}
 	return accept()
 }
-func (s AppendService) publish(ctx context.Context, key jobdb.JobKey, encoded EncodedChapter, created bool) (jobdb.JobHandle, bool, error) {
+func (s AppendService) publish(ctx context.Context, key jobdb.JobKey, chain AppendChain, generation int64, encoded EncodedChapter, created bool) (jobdb.JobHandle, bool, error) {
 	ch, err := DecodeChapter(encoded)
 	err = jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "decode_append_chapter", &key, &encoded.Ordinal)
 	if err != nil {
@@ -416,8 +434,11 @@ func (s AppendService) publish(ctx context.Context, key jobdb.JobKey, encoded En
 	if err = json.Unmarshal(meta.AppendPublication, &facts); err != nil {
 		return jobdb.JobHandle{}, false, fmt.Errorf("append publication: %w", err)
 	}
-	if facts.JobKey != key || facts.AppendKey == "" || facts.AppendGeneration < 1 {
-		return jobdb.JobHandle{}, false, jobdb.ErrConflict
+	start, ok := ch.Body.(jobdb.JobStartChapter)
+	if !ok || start.Append == nil || ch.Ordinal != 0 || ch.TaskType != chain.JobType ||
+		facts.JobKey != key || facts.JobKey.TenantId != chain.TenantID || facts.Cell.CellID != chain.CellID ||
+		facts.JobType != chain.JobType || facts.AppendKey != chain.AppendKey || facts.AppendGeneration != generation {
+		return jobdb.JobHandle{}, false, fmt.Errorf("%w: append start does not match generation %d at %q", jobdb.ErrConflict, generation, key.JobId)
 	}
 	// A stable descriptor intentionally excludes the caller's template and parent.
 	prepared, err := s.Scheduler.PrepareJob(ctx, JobPreparation{Key: key, Cell: facts.Cell.Cell, CellRepo: facts.Cell.CellRepo, Target: facts.Cell, Descriptor: fmt.Sprintf(`{"kind":"start-or-append","id":%q}`, key.JobId)})

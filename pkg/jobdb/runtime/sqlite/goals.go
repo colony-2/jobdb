@@ -10,6 +10,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate"
+	"github.com/colony-2/jobdb/pkg/jobdb/jobid"
 	"github.com/segmentio/ksuid"
 )
 
@@ -247,7 +248,7 @@ func (r *Runtime) PrepareJob(ctx context.Context, req goalstate.Preparation) (ou
 			return e
 		}
 		if req.Key.JobId == "" {
-			req.Key.JobId = ksuid.New().String()
+			req.Key.JobId = jobid.New()
 		}
 		if e = req.Key.Validate(); e != nil {
 			return e

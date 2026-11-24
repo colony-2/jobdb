@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http/httptest"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/celltest"
+	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/storage"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/chapterstore/story"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
@@ -315,6 +317,9 @@ func (c coreEventChapters) Count(ctx context.Context, key runtimecore.ChapterLog
 }
 func (c coreEventChapters) Get(ctx context.Context, key runtimecore.ChapterLogKey, ordinal int64) (runtimecore.EncodedChapter, error) {
 	chapter, err := c.r.chapterStore.Chapter(chapterContext(ctx), storyKeyForJob(key.JobKey), ordinal)
+	if errors.Is(err, storage.ErrChapterNotFound) || errors.Is(err, storage.ErrStoryNotFound) {
+		return runtimecore.EncodedChapter{}, jobdb.ErrChapterNotFound
+	}
 	if err != nil {
 		return runtimecore.EncodedChapter{}, err
 	}

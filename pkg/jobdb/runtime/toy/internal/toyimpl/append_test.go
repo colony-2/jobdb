@@ -49,7 +49,7 @@ func TestAppendRecoversCreatorPublication(t *testing.T) {
 	q.Job.Append = json.RawMessage(`2`)
 	h, err := svc.StartOrAppendJob(ctx, q)
 	require.NoError(t, err)
-	require.Regexp(t, `^[0-9A-Za-z]{27}$`, h.JobKey.JobId)
+	require.Regexp(t, `^C2[0-9A-Za-z]{27}$`, h.JobKey.JobId)
 	chapters, err := r.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: h.JobKey})
 	require.NoError(t, err)
 	require.Len(t, chapters, 2)

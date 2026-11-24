@@ -51,8 +51,8 @@ func RunStartOrAppendConformance(t *testing.T, harnesses ...Harness) {
 				for i := range handles {
 					require.NoError(t, errs[i])
 					require.Equal(t, handles[0], handles[i])
-					require.Len(t, handles[i].JobKey.JobId, 27)
-					_, err := ksuid.Parse(handles[i].JobKey.JobId)
+					require.Regexp(t, `^C2[0-9A-Za-z]{27}$`, handles[i].JobKey.JobId)
+					_, err := ksuid.Parse(strings.TrimPrefix(handles[i].JobKey.JobId, "C2"))
 					require.NoError(t, err)
 				}
 				jobs, err := rt.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, AppendKeys: []string{"burst"}})

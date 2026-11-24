@@ -1469,6 +1469,10 @@ func WithProjectAdministration func(ctx context.Context, authorize func(context.
 func WithTx func(ctx context.Context, tx *gorm.io/gorm.DB) context.Context
 type WorkflowRuntime = ConsumerRuntime
 
+package github.com/colony-2/jobdb/pkg/jobdb/jobid
+func New func() string
+const Prefix untyped string = "C2"
+
 package github.com/colony-2/jobdb/pkg/jobdb/chapterstore/postgres
 type Config struct
   field Projects github.com/colony-2/jobdb/pkg/jobdb.ProjectAdmission

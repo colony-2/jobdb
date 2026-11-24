@@ -192,7 +192,7 @@ func TestAppendLegacyChainAndOrdering(t *testing.T) {
 	q.RequestTime = time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	compact, err := r.StartOrAppendJob(ctx, q)
 	require.NoError(t, err)
-	require.Len(t, compact.JobKey.JobId, 27)
+	require.Regexp(t, `^C2[0-9A-Za-z]{27}$`, compact.JobKey.JobId)
 	// Lexical order and creation time disagree with generation order.
 	require.True(t, compact.JobKey.JobId < legacy.JobKey.JobId)
 	require.NoError(t, r.Close(ctx))

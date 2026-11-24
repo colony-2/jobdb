@@ -124,7 +124,7 @@
         },
         {
           "type": "cel_true",
-          "expr": "calls.filter(c, !c.node_path.endsWith(\"/summarize/summarize\")).all(c, c.inputs.env.GOOS == \"linux\" && c.inputs.env.GOARCH == \"arm64\" && c.inputs.env.CGO_ENABLED == \"1\" && c.inputs.env.CC == \"gcc\")"
+          "expr": "calls.filter(c, !c.node_path.endsWith(\"/summarize/summarize\")).all(c, c.inputs.env.GOOS == \"linux\" && !(\"GOARCH\" in c.inputs.env) && c.inputs.run.contains(\"go env GOHOSTARCH\") && c.inputs.env.CGO_ENABLED == \"1\" && c.inputs.env.CC == \"gcc\")"
         },
         {
           "type": "cel_true",

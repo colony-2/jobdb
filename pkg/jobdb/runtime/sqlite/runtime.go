@@ -25,6 +25,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/jobmetadata"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/leaseauth"
+	"github.com/colony-2/jobdb/pkg/jobdb/jobid"
 	runtimecore "github.com/colony-2/jobdb/pkg/jobdb/runtime/core"
 	"github.com/google/uuid"
 	"github.com/segmentio/ksuid"
@@ -87,7 +88,7 @@ func (r *Runtime) submitJobWithParent(ctx context.Context, req jobdb.SubmitJobRe
 	}
 	jobID := req.Job.JobID
 	if jobID == "" {
-		jobID = ksuid.New().String()
+		jobID = jobid.New()
 	}
 	jobKey := jobdb.JobKey{TenantId: req.Job.TenantId, JobId: jobID}
 	if err := jobKey.Validate(); err != nil {
@@ -228,7 +229,7 @@ func (r *Runtime) submitRestartJobWithParent(ctx context.Context, req jobdb.Subm
 	}
 	jobKey := jobdb.JobKey{TenantId: job.PriorJobKey.TenantId, JobId: job.JobID}
 	if jobKey.JobId == "" {
-		jobKey.JobId = ksuid.New().String()
+		jobKey.JobId = jobid.New()
 	}
 	if err := jobKey.Validate(); err != nil {
 		return jobdb.JobHandle{}, err

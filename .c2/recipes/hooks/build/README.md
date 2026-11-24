@@ -7,13 +7,14 @@ accepted but never interpreted as shell code. Checks always cover the whole repo
 
 | Workflow behavior | Native task |
 | --- | --- |
-| `test.yaml`: Linux ARM64 Go tests with integration tag | `test_integration`: `go test -count=1 -p=2 -timeout=20m -v -tags=integration -exec "python3 $PWD/scripts/verify-test-exec.py" ./...` |
+| `test.yaml`: native Linux Go tests with integration tag | `test_integration`: `go test -count=1 -p=2 -timeout=20m -v -tags=integration -exec "python3 $PWD/scripts/verify-test-exec.py" ./...` |
 | `test.yaml`: workflow/provider and shared/embedded runtime race check | `test_races`: `GOMAXPROCS=2 go test -count=1 -timeout=25m -p=1 -parallel=2 -v -race ./pkg/workflow ./pkg/jobdb/secrets/... ./pkg/jobdb/cli ./examples/secret-provider ./pkg/jobdb/runtime/remote ./pkg/jobdb ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/toy/... ./pkg/jobdb/runtimetest ./pkg/jobdb/projectcatalog ./pkg/jobdb/internal/projectwire` |
 | Immutable-goal migration, admission and protected records | `test_integration`: focused goal/terminal/manual-migration/availability/restart checks; `test_races`: three repetitions of independent goal writers and controlled closure/admission/wait commit orders |
 | Crash-concern live state, expiry and same-job recovery | `test_integration`: three repetitions of the built-in and HTTP `crash_concern_excludes_ready_work` conformance cases, with a five-minute package budget |
 | Infrastructure preservation, provenance and synchronous legacy renewal | `test_races`: `go test -count=1 -p=1 -timeout=20m -v -race ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/remote -run 'TestInfrastructure\|TestProvenance\|TestLegacyKeepAlive'` |
 | Completion fallback, input recovery, accepted-prefix replay, ignored SDK failures and HTTP source identity | `test_races`: ten race-instrumented repetitions of `TestInfrastructureCompletionSource`, `TestExecutionUncertainFinalCompletion`, `TestInfrastructureSDKFailures`, `TestInfrastructureHTTPFallbackRetainsKnownSource`, `TestInfrastructureHTTPOperationSource`, `TestInfrastructureHTTPArtifactBodySource`, `TestExecutionRecoveryInputSnapshots` and `TestReplayPayloadAcceptedPrefix` in workflow and HTTP |
 | Generated runtime inventories and public API snapshot | `test_integration`: checksum legacy, consumer and project HTTP inventories plus project route/envelope plans before/after `go generate`, then check the combined public API snapshot |
+| Recognizable job IDs and historical keys | `test_integration`: run the allocator vectors, direct and HTTP allocation, grouped concurrency and recovery, exact-key replay, and SQLite goal conversion before the full sweep |
 | Published-module receipt acceptance and failure cases | `test_integration`: Python standard-library unit fixtures for `verify-published-module.py`; actual availability requires an explicit check of a published commit |
 | Immutable-goal external consumer checks | `test_integration`: rejection fixtures for `check-published-goals.py` and public toy/SQLite consumer tests in the complete integration sweep; external acquisition/execution follows publication |
 | Tools/platform metadata | `check_environment` |
@@ -120,8 +121,14 @@ Durable states have no wall-clock deadline,
 so suspension or delayed result collection cannot expire an already successful
 command. Command timeouts and all aggregate evidence requirements still gate a pass.
 
-Held regardless of available optional infrastructure: Linux AMD64 and macOS
-matrix jobs, matrix-wide certification, tagging, GoReleaser, cross compilation,
+The hook accepts native Linux amd64 or arm64, matches the Go host toolchain to
+the worker, and records the target of each suite. If the environment gate fails,
+the report retains the failure and marks both suites not run instead of treating
+their absent logs as a reporting failure. A pass still requires both suites and
+all four artifacts.
+
+Held regardless of available optional infrastructure: other platform matrix
+jobs, matrix-wide certification, tagging, GoReleaser, cross compilation,
 signing, registry/npm/Homebrew publication, and deployment. No Docker, hosted
 service, cloud credentials, privileged mounts, or remote CI are invoked.
 
@@ -137,6 +144,7 @@ rejected integration, successful independent races and all four evidence artifac
 ```sh
 c2j test run --file tests/verify-hook/verify.test.json
 c2j test run --file tests/verify-hook/absent.test.json
+c2j test run --file tests/verify-hook/platform.live.test.json --include-live
 c2j test run --file tests/verify-hook/live.test.json --include-live --parallelism 1 --case-timeout 10m
 ```
 

@@ -29,6 +29,29 @@ func failureSource(t *testing.T, r *Runtime) jobdb.JobHandle {
 	return h
 }
 
+func TestJobIDToyGeneratorOverride(test *testing.T) {
+	ids := []string{"custom-submit", "custom-restart", "custom-failure"}
+	runtime := New(WithProjects(celltest.UnrestrictedProjects{}), WithJobIDGenerator(func(tenant string) (jobdb.JobKey, error) {
+		require.NotEmpty(test, ids)
+		key := jobdb.JobKey{TenantId: tenant, JobId: ids[0]}
+		ids = ids[1:]
+		return key, nil
+	}))
+	ctx := celltest.Context(context.Background())
+	source, err := celltest.Submit(runtime, ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
+		TenantId: "tenant", Cell: "work", CellRepo: "example.test/work", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil),
+	}})
+	require.NoError(test, err)
+	require.Equal(test, "custom-submit", source.JobKey.JobId)
+	restarted, err := runtime.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: source.JobKey, Cell: source.Cell}})
+	require.NoError(test, err)
+	require.Equal(test, "custom-restart", restarted.JobKey.JobId)
+	failed, err := runtime.FailGoal(ctx, jobdb.FailGoalRequest{GoalKey: jobdb.GoalKey{TenantId: source.JobKey.TenantId, GoalID: source.GoalID}, Message: "reason"})
+	require.NoError(test, err)
+	require.Equal(test, "custom-failure", failed.FailureJobID)
+	require.Empty(test, ids)
+}
+
 func TestToyTerminalFailureRollsBackBeforeCommit(t *testing.T) {
 	for _, mode := range []string{"allocation-error", "collision", "preparation", "wrong-tenant", "cancel-before-commit"} {
 		t.Run(mode, func(t *testing.T) {

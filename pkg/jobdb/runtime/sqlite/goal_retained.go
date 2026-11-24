@@ -12,7 +12,7 @@ import (
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/goalstate"
-	"github.com/segmentio/ksuid"
+	"github.com/colony-2/jobdb/pkg/jobdb/jobid"
 )
 
 // retainedGoalStore is the format-13 transition store. The embedded legacy
@@ -353,7 +353,7 @@ func (s retainedGoalStore) insertFailure(g jobdb.GoalInfo, f jobdb.GoalFailure, 
 			}
 		}
 	}
-	id := ksuid.New().String()
+	id := jobid.New()
 	if s.newFailureID != nil {
 		id, err = s.newFailureID()
 		if err != nil {
