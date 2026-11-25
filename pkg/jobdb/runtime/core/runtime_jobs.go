@@ -113,7 +113,7 @@ func jobListSummaryFromStored(row StoredJob) (jobdb.JobSummary, error) {
 		WaitFor:               append([]string(nil), row.WaitForJobIDs...),
 		NextRoute:             &nextRoute,
 		AvailableAt:           row.AvailableAt, ExpiresAt: row.ExpiresAt,
-		LeaseExpiresAt: row.LeaseExpiresAt, CancelRequested: row.CancelRequested,
+		LeaseExpiresAt: row.LeaseExpiresAt, LastLeaseUpdatedAt: row.LastLeaseUpdatedAt, CancelRequested: row.CancelRequested,
 		CreatedAt: row.CreatedAt, ArchivedAt: row.ArchivedAt,
 		Metadata:   append([]byte(nil), row.AppMetadata...),
 		SchemaHash: row.SchemaHash, ParentJobID: row.ParentJobID,

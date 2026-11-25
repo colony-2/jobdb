@@ -8,6 +8,10 @@ import (
 	"strings"
 )
 
+const currentFormat = 15
+
+const leaseUpdateSchemaSQL = `ALTER TABLE jobdb_jobs ADD COLUMN last_lease_updated_at_ns INTEGER;`
+
 // ErrMigrationRequired identifies the manual-upgrade prerequisite independently
 // of the source format and selected database path.
 var ErrMigrationRequired = errors.New("sqlite runtime: manual migration required")
@@ -20,7 +24,7 @@ type MigrationRequiredError struct {
 }
 
 func (e *MigrationRequiredError) Error() string {
-	return fmt.Sprintf("sqlite runtime: database %q format %d requires manual upgrade to 14; stop every writer, back up the database, run jobdb sqlite check-migrate --db PATH, then jobdb sqlite migrate --db PATH", e.Path, e.SourceFormat)
+	return fmt.Sprintf("sqlite runtime: database %q format %d requires manual upgrade to %d; stop every writer, back up the database, run jobdb sqlite check-migrate --db PATH, then jobdb sqlite migrate --db PATH", e.Path, e.SourceFormat, currentFormat)
 }
 
 func (e *MigrationRequiredError) Unwrap() error { return ErrMigrationRequired }
@@ -38,7 +42,7 @@ func refuseLegacy(ctx context.Context, db *sql.DB) error {
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version == 11 || version == 12 || version == 13 {
+	if version >= 11 && version < currentFormat {
 		return legacyMigrationRequired(ctx, db, version)
 	}
 	return nil
@@ -58,7 +62,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	switch version {
-	case 11, 12, 13:
+	case 11, 12, 13, 14:
 		return legacyMigrationRequired(ctx, tx, version)
 	case 0:
 		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tables); err != nil {
@@ -73,20 +77,33 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		if err = convertResourceSchema(ctx, tx); err != nil {
 			return err
 		}
-		if _, err = tx.ExecContext(ctx, "PRAGMA user_version=14"); err != nil {
+		if err = addLeaseUpdateSchema(ctx, tx); err != nil {
 			return err
 		}
-	case 14:
-		if err = validateRetainedGoalSchema(ctx, tx); err != nil {
+		if err = markCurrentFormat(ctx, tx); err != nil {
+			return err
+		}
+	case currentFormat:
+		if err = validateRetainedSchemaForFormat(ctx, tx, currentFormat); err != nil {
 			return err
 		}
 	default:
 		return fmt.Errorf("sqlite runtime: unsupported database format %d", version)
 	}
-	if err = migrateAppend(ctx, tx); err != nil {
+	return tx.Commit()
+}
+
+func addLeaseUpdateSchema(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, leaseUpdateSchemaSQL)
+	return err
+}
+
+func markCurrentFormat(ctx context.Context, tx *sql.Tx) error {
+	if err := validateRetainedSchemaForFormat(ctx, tx, currentFormat); err != nil {
 		return err
 	}
-	return tx.Commit()
+	_, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version=%d", currentFormat))
+	return err
 }
 
 func validateLeaseEventBaseSchema(ctx context.Context, tx *sql.Tx, requireEvents bool) error {

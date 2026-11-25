@@ -99,6 +99,7 @@ type jobRecord struct {
 	clientPayloadRevision int64
 	initialPayloadDigest  string
 	leaseExpiresAt        time.Time
+	lastLeaseUpdatedAt    *time.Time
 	leaseWorkerID         string
 	mu                    sync.Mutex
 	status                jobdb.JobStatus
@@ -1001,6 +1002,7 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 			AvailableAt:           rec.availableAt,
 			ExpiresAt:             nil,
 			LeaseExpiresAt:        nil,
+			LastLeaseUpdatedAt:    cloneTime(rec.lastLeaseUpdatedAt),
 			CancelRequested:       rec.cancelled,
 			CreatedAt:             rec.createdAt,
 			ArchivedAt:            rec.archived,

@@ -131,7 +131,7 @@ func CheckGoalMigration(ctx context.Context, path string) (report GoalMigrationR
 }
 
 func newGoalMigrationReport() GoalMigrationReport {
-	return GoalMigrationReport{TargetFormat: 14, Verdict: "BLOCKED", Tenants: []GoalMigrationTenant{}, Goals: []GoalMigrationPlan{}, DroppedMemberships: []GoalMigrationMembership{}, Issues: []GoalMigrationIssue{}}
+	return GoalMigrationReport{TargetFormat: currentFormat, Verdict: "BLOCKED", Tenants: []GoalMigrationTenant{}, Goals: []GoalMigrationPlan{}, DroppedMemberships: []GoalMigrationMembership{}, Issues: []GoalMigrationIssue{}}
 }
 
 func (r *GoalMigrationReport) issue(code, tenant, goal, job, wait, message string) {
@@ -170,8 +170,8 @@ func inspectGoalMigration(ctx context.Context, tx *sql.Tx, report *GoalMigration
 		report.Verdict = "EMPTY"
 		return nil
 	}
-	if report.SourceFormat == 13 || report.SourceFormat == 14 {
-		if err := validateRetainedGoalSchema(ctx, tx); err != nil {
+	if report.SourceFormat >= 13 && report.SourceFormat <= currentFormat {
+		if err := validateRetainedSchemaForFormat(ctx, tx, report.SourceFormat); err != nil {
 			report.issue("inconsistent_schema", "", "", "", "", err.Error())
 			return report.finish()
 		}
@@ -189,14 +189,16 @@ func inspectGoalMigration(ctx context.Context, tx *sql.Tx, report *GoalMigration
 				report.issue("invalid_crash_count", "", "", "", "", err.Error())
 				return report.finish()
 			}
-			report.Verdict = "READY"
-		} else {
+		}
+		if report.SourceFormat == currentFormat {
 			report.Verdict = "CURRENT"
+		} else {
+			report.Verdict = "READY"
 		}
 		return nil
 	}
 	if report.SourceFormat != 11 && report.SourceFormat != 12 {
-		report.issue("unsupported_format", "", "", "", "", fmt.Sprintf("format %d is not a supported legacy format (11 or 12)", report.SourceFormat))
+		report.issue("unsupported_format", "", "", "", "", fmt.Sprintf("format %d is not a supported format (11–15)", report.SourceFormat))
 		return report.finish()
 	}
 	if err := validateLeaseEventBaseSchema(ctx, tx, report.SourceFormat == 12); err != nil {

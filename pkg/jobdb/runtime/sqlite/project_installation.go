@@ -54,8 +54,8 @@ func inspectProjects(ctx context.Context, conn *sql.Conn, participants string) (
 	if e := conn.QueryRowContext(ctx, "PRAGMA user_version").Scan(&out.Format); e != nil {
 		return out, e
 	}
-	if out.Format != 14 {
-		return out, fmt.Errorf("project installation requires current SQLite format 14, got %d", out.Format)
+	if out.Format != currentFormat {
+		return out, fmt.Errorf("project installation requires current SQLite format %d, got %d", currentFormat, out.Format)
 	}
 	rows, e := conn.QueryContext(ctx, `SELECT name,sql FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name!='jobdb_project_catalog' ORDER BY name`)
 	if e != nil {

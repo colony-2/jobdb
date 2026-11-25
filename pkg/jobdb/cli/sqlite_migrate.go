@@ -14,7 +14,7 @@ func newSQLiteCheckMigrateCmd() *cobra.Command { return newSQLiteGoalMigrationCm
 func newSQLiteMigrateCmd() *cobra.Command      { return newSQLiteGoalMigrationCmd(true) }
 func newSQLiteGoalMigrationCmd(convert bool) *cobra.Command {
 	name := "check-migrate"
-	short := "Inspect an existing SQLite database for manual immutable-goal conversion"
+	short := "Inspect an existing SQLite database for offline format conversion"
 	if convert {
 		name = "migrate"
 		short = "Convert an existing SQLite database after stopping every writer and backing it up"

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -221,8 +222,10 @@ func TestPublishedPayloadRejection(t *testing.T) {
 				r, ctx := localRuntime(t)
 				q := appendRequest()
 				q.Job.MaxInputs = 2
+				var tail jobdb.JobHandle
 				for i := 0; i < map[string]int{"create": 0, "join": 1, "successor": 2}[state]; i++ {
-					_, err := r.StartOrAppendJob(ctx, q)
+					var err error
+					tail, err = r.StartOrAppendJob(ctx, q)
 					check(t, err)
 				}
 				var runtime jobdb.WorkflowRuntime = r
@@ -240,6 +243,12 @@ func TestPublishedPayloadRejection(t *testing.T) {
 					chapters[j.JobKey], err = r.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: j.JobKey})
 					check(t, err)
 				}
+				eventRequest := jobdb.ListLeaseEventsRequest{TenantID: "tenant"}
+				eventsBefore, err := r.ListLeaseEvents(ctx, eventRequest)
+				check(t, err)
+				if eventsBefore.NextPageToken != "" {
+					t.Fatal("unexpected lease event page token")
+				}
 				q.Job.Append = json.RawMessage(`"` + strings.Repeat("x", int(jobdb.DefaultMaxChapterApplicationPayloadBytes)) + `"`)
 				_, err = runtime.StartOrAppendJob(ctx, q)
 				var detail *jobdb.ChapterApplicationPayloadError
@@ -248,6 +257,24 @@ func TestPublishedPayloadRejection(t *testing.T) {
 				}
 				after, err := r.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, IncludeHidden: true})
 				check(t, err)
+				eventsAfter, err := r.ListLeaseEvents(ctx, eventRequest)
+				check(t, err)
+				if state == "join" {
+					if eventsAfter.NextPageToken != "" || len(eventsAfter.Events) != len(eventsBefore.Events)+1 || !reflect.DeepEqual(eventsBefore.Events, eventsAfter.Events[1:]) {
+						t.Fatal("rejected join did not record exactly one new lease event")
+					}
+					acquisition := eventsAfter.Events[0]
+					if acquisition.JobKey != tail.JobKey || acquisition.EventType != jobdb.LeaseEventAcquired || acquisition.AcquisitionSource != jobdb.LeaseAcquisitionAppend {
+						t.Fatalf("unexpected lease event: %+v", acquisition)
+					}
+					index := slices.IndexFunc(before.Jobs, func(row jobdb.JobSummary) bool { return row.JobKey == tail.JobKey })
+					if index == -1 || before.Jobs[index].LastLeaseUpdatedAt != nil {
+						t.Fatal("join fixture must have a listed tail without a prior lease update")
+					}
+					before.Jobs[index].LastLeaseUpdatedAt = &acquisition.OccurredAt
+				} else if !reflect.DeepEqual(eventsBefore, eventsAfter) {
+					t.Fatal("payload rejection changed lease events without an append claim")
+				}
 				if !reflect.DeepEqual(before, after) {
 					t.Fatal("payload rejection changed jobs")
 				}

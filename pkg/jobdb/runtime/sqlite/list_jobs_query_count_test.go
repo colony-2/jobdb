@@ -71,6 +71,9 @@ func TestStoredListFieldsUseOneQueryPerPage(t *testing.T) {
 	require.NoError(t, err)
 	_, err = r.db.ExecContext(ctx, `UPDATE jobdb_jobs SET archived_at_ns=?, completion_status='future_category', completion_detail=? WHERE job_id < 'job-100'`, time.Now().UnixNano(), " \tfailure 雪\n ")
 	require.NoError(t, err)
+	lastUpdate := time.Date(2026, 5, 1, 2, 3, 4, 123, time.UTC)
+	_, err = r.db.ExecContext(ctx, `UPDATE jobdb_jobs SET last_lease_updated_at_ns=? WHERE substr(job_id,-1,1)='0'`, lastUpdate.UnixNano())
+	require.NoError(t, err)
 	// Output memberships and history must not be touched, even for a full page.
 	_, err = r.db.ExecContext(ctx, `DROP TABLE IF EXISTS jobdb_goal_candidates`)
 	require.NoError(t, err)
@@ -94,6 +97,11 @@ func TestStoredListFieldsUseOneQueryPerPage(t *testing.T) {
 				require.EqualValues(t, 1, counted.queries.Load())
 				for _, row := range page.Jobs {
 					total++
+					if row.JobKey.JobId[len(row.JobKey.JobId)-1] == '0' {
+						require.Equal(t, &lastUpdate, row.LastLeaseUpdatedAt)
+					} else {
+						require.Nil(t, row.LastLeaseUpdatedAt)
+					}
 					require.Equal(t, `{"outside":[9007199254740993,null]}`, string(row.ClientPayload))
 					require.EqualValues(t, 7, row.ClientPayloadRevision)
 					budget := int64(5)

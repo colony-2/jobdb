@@ -1,0 +1,335 @@
+[
+  {
+    "Jobs": [
+      {
+        "AppendKey": "",
+        "RecordKind": "EXECUTION",
+        "TerminalFailure": null,
+        "Cell": "test",
+        "CellID": "3MZnPKted8My9qnGgZtMDd0BQYb",
+        "CellRepo": "example.test/test",
+        "BlockingWaitSummary": null,
+        "BlockingWait": null,
+        "GoalID": "3MZnPI0tnuaYT3Sao3A1aIdgKWX",
+        "OtherGoalIDs": null,
+        "JobKey": {
+          "tenantId": "tenant",
+          "jobId": "archived"
+        },
+        "Status": "COMPLETED",
+        "CompletionStatus": "success",
+        "CompletionDetail": "",
+        "JobType": "work",
+        "NextRoute": {
+          "jobType": "work"
+        },
+        "WaitFor": null,
+        "AvailableAt": "2032-03-05T09:00:08.000000021Z",
+        "ExpiresAt": null,
+        "LeaseExpiresAt": null,
+        "CancelRequested": false,
+        "CreatedAt": "2032-03-05T09:00:08.000000021Z",
+        "ArchivedAt": "2032-03-05T09:00:09.000000021Z",
+        "ClientPayload": null,
+        "ClientPayloadRevision": 0,
+        "ExecutionState": {
+          "crashBudgetRemaining": 5,
+          "resourceBackoff": {
+            "protocolVersion": 1,
+            "durabilityVersion": 1
+          },
+          "runPolicy": {
+            "Retry": {
+              "InitialInterval": 0,
+              "BackoffCoefficient": 1,
+              "MaximumInterval": 0,
+              "MaximumAttempts": 1,
+              "NonRetryableErrorTypes": null
+            },
+            "InvocationTimeout": null,
+            "TotalTimeout": null
+          }
+        },
+        "Metadata": null,
+        "SchemaHash": "",
+        "ParentJobID": ""
+      },
+      {
+        "AppendKey": "",
+        "RecordKind": "EXECUTION",
+        "TerminalFailure": null,
+        "Cell": "test",
+        "CellID": "3MZnPKted8My9qnGgZtMDd0BQYb",
+        "CellRepo": "example.test/test",
+        "BlockingWaitSummary": null,
+        "BlockingWait": null,
+        "GoalID": "3MZnPIoa3hpccKORkJAL0yFwGHg",
+        "OtherGoalIDs": null,
+        "JobKey": {
+          "tenantId": "tenant",
+          "jobId": "cleared"
+        },
+        "Status": "READY",
+        "CompletionStatus": "",
+        "CompletionDetail": "",
+        "JobType": "work",
+        "NextRoute": {
+          "jobType": "work"
+        },
+        "WaitFor": null,
+        "AvailableAt": "2032-03-05T09:00:07.000000021Z",
+        "ExpiresAt": null,
+        "LeaseExpiresAt": null,
+        "CancelRequested": false,
+        "CreatedAt": "2032-03-05T09:00:06.000000021Z",
+        "ArchivedAt": null,
+        "ClientPayload": null,
+        "ClientPayloadRevision": 0,
+        "ExecutionState": {
+          "crashBudgetRemaining": 5,
+          "resourceBackoff": {
+            "protocolVersion": 1,
+            "durabilityVersion": 1
+          },
+          "runPolicy": {
+            "Retry": {
+              "InitialInterval": 0,
+              "BackoffCoefficient": 1,
+              "MaximumInterval": 0,
+              "MaximumAttempts": 1,
+              "NonRetryableErrorTypes": null
+            },
+            "InvocationTimeout": null,
+            "TotalTimeout": null
+          }
+        },
+        "Metadata": null,
+        "SchemaHash": "",
+        "ParentJobID": ""
+      }
+    ],
+    "NextPageToken": "eyJWZXJzaW9uIjoxLCJCaW5kaW5nIjoiNWRkMDk2ZDMxMmZjMWJhYmE2YzQzMzQ1M2QwNzdjYmQzODJmZGIyZjQ0ZDg5MjRiNzU5ZDMwMmJkNWZlZDRlZCIsIlBvc2l0aW9uIjoiZXlKamNtVmhkR1ZrWDJGMElqb2lNakF6TWkwd015MHdOVlF3T1Rvd01Eb3dOaTR3TURBd01EQXdNakZhSWl3aWRHVnVZVzUwWDJsa0lqb2lkR1Z1WVc1MElpd2lhbTlpWDJsa0lqb2lZMnhsWVhKbFpDSjkifQ"
+  },
+  {
+    "Jobs": [
+      {
+        "AppendKey": "",
+        "RecordKind": "EXECUTION",
+        "TerminalFailure": null,
+        "Cell": "test",
+        "CellID": "3MZnPKted8My9qnGgZtMDd0BQYb",
+        "CellRepo": "example.test/test",
+        "BlockingWaitSummary": null,
+        "BlockingWait": null,
+        "GoalID": "3MZnPFhLzVagJ8Hb0XldUex387y",
+        "OtherGoalIDs": null,
+        "JobKey": {
+          "tenantId": "tenant",
+          "jobId": "held-renewed"
+        },
+        "Status": "ACTIVE",
+        "CompletionStatus": "",
+        "CompletionDetail": "",
+        "JobType": "work",
+        "NextRoute": {
+          "jobType": "work"
+        },
+        "WaitFor": null,
+        "AvailableAt": "2032-03-05T09:00:04.000000021Z",
+        "ExpiresAt": null,
+        "LeaseExpiresAt": "2032-03-05T10:00:05.000000021Z",
+        "CancelRequested": false,
+        "CreatedAt": "2032-03-05T09:00:04.000000021Z",
+        "ArchivedAt": null,
+        "ClientPayload": null,
+        "ClientPayloadRevision": 0,
+        "ExecutionState": {
+          "crashBudgetRemaining": 5,
+          "resourceBackoff": {
+            "protocolVersion": 1,
+            "durabilityVersion": 1
+          },
+          "runPolicy": {
+            "Retry": {
+              "InitialInterval": 0,
+              "BackoffCoefficient": 1,
+              "MaximumInterval": 0,
+              "MaximumAttempts": 1,
+              "NonRetryableErrorTypes": null
+            },
+            "InvocationTimeout": null,
+            "TotalTimeout": null
+          }
+        },
+        "Metadata": null,
+        "SchemaHash": "",
+        "ParentJobID": ""
+      },
+      {
+        "AppendKey": "",
+        "RecordKind": "EXECUTION",
+        "TerminalFailure": null,
+        "Cell": "test",
+        "CellID": "3MZnPKted8My9qnGgZtMDd0BQYb",
+        "CellRepo": "example.test/test",
+        "BlockingWaitSummary": null,
+        "BlockingWait": null,
+        "GoalID": "3MZnPHFPFhu4VsgADjOPAZTnZ51",
+        "OtherGoalIDs": null,
+        "JobKey": {
+          "tenantId": "tenant",
+          "jobId": "held-acquired"
+        },
+        "Status": "ACTIVE",
+        "CompletionStatus": "",
+        "CompletionDetail": "",
+        "JobType": "work",
+        "NextRoute": {
+          "jobType": "work"
+        },
+        "WaitFor": null,
+        "AvailableAt": "2032-03-05T09:00:03.000000021Z",
+        "ExpiresAt": null,
+        "LeaseExpiresAt": "2032-03-05T10:00:03.000000021Z",
+        "CancelRequested": false,
+        "CreatedAt": "2032-03-05T09:00:03.000000021Z",
+        "ArchivedAt": null,
+        "ClientPayload": null,
+        "ClientPayloadRevision": 0,
+        "ExecutionState": {
+          "crashBudgetRemaining": 5,
+          "resourceBackoff": {
+            "protocolVersion": 1,
+            "durabilityVersion": 1
+          },
+          "runPolicy": {
+            "Retry": {
+              "InitialInterval": 0,
+              "BackoffCoefficient": 1,
+              "MaximumInterval": 0,
+              "MaximumAttempts": 1,
+              "NonRetryableErrorTypes": null
+            },
+            "InvocationTimeout": null,
+            "TotalTimeout": null
+          }
+        },
+        "Metadata": null,
+        "SchemaHash": "",
+        "ParentJobID": ""
+      }
+    ],
+    "NextPageToken": "eyJWZXJzaW9uIjoxLCJCaW5kaW5nIjoiNWRkMDk2ZDMxMmZjMWJhYmE2YzQzMzQ1M2QwNzdjYmQzODJmZGIyZjQ0ZDg5MjRiNzU5ZDMwMmJkNWZlZDRlZCIsIlBvc2l0aW9uIjoiZXlKamNtVmhkR1ZrWDJGMElqb2lNakF6TWkwd015MHdOVlF3T1Rvd01Eb3dNeTR3TURBd01EQXdNakZhSWl3aWRHVnVZVzUwWDJsa0lqb2lkR1Z1WVc1MElpd2lhbTlpWDJsa0lqb2lhR1ZzWkMxaFkzRjFhWEpsWkNKOSJ9"
+  },
+  {
+    "Jobs": [
+      {
+        "AppendKey": "",
+        "RecordKind": "EXECUTION",
+        "TerminalFailure": null,
+        "Cell": "test",
+        "CellID": "3MZnPKted8My9qnGgZtMDd0BQYb",
+        "CellRepo": "example.test/test",
+        "BlockingWaitSummary": null,
+        "BlockingWait": null,
+        "GoalID": "3MZnPGPg0Tr9os1RZF0f3hK1reg",
+        "OtherGoalIDs": null,
+        "JobKey": {
+          "tenantId": "tenant",
+          "jobId": "expiry-only"
+        },
+        "Status": "READY",
+        "CompletionStatus": "",
+        "CompletionDetail": "",
+        "JobType": "work",
+        "NextRoute": {
+          "jobType": "work"
+        },
+        "WaitFor": null,
+        "AvailableAt": "2032-03-05T09:00:02.000000021Z",
+        "ExpiresAt": null,
+        "LeaseExpiresAt": "2032-03-05T10:00:02.000000021Z",
+        "CancelRequested": false,
+        "CreatedAt": "2032-03-05T09:00:02.000000021Z",
+        "ArchivedAt": null,
+        "ClientPayload": null,
+        "ClientPayloadRevision": 0,
+        "ExecutionState": {
+          "crashBudgetRemaining": 5,
+          "resourceBackoff": {
+            "protocolVersion": 1,
+            "durabilityVersion": 1
+          },
+          "runPolicy": {
+            "Retry": {
+              "InitialInterval": 0,
+              "BackoffCoefficient": 1,
+              "MaximumInterval": 0,
+              "MaximumAttempts": 1,
+              "NonRetryableErrorTypes": null
+            },
+            "InvocationTimeout": null,
+            "TotalTimeout": null
+          }
+        },
+        "Metadata": null,
+        "SchemaHash": "",
+        "ParentJobID": ""
+      },
+      {
+        "AppendKey": "",
+        "RecordKind": "EXECUTION",
+        "TerminalFailure": null,
+        "Cell": "test",
+        "CellID": "3MZnPKted8My9qnGgZtMDd0BQYb",
+        "CellRepo": "example.test/test",
+        "BlockingWaitSummary": null,
+        "BlockingWait": null,
+        "GoalID": "3MZnPL5qcuTxwJawrF1GnYRAO8T",
+        "OtherGoalIDs": null,
+        "JobKey": {
+          "tenantId": "tenant",
+          "jobId": "never"
+        },
+        "Status": "READY",
+        "CompletionStatus": "",
+        "CompletionDetail": "",
+        "JobType": "work",
+        "NextRoute": {
+          "jobType": "work"
+        },
+        "WaitFor": null,
+        "AvailableAt": "2032-03-05T09:00:01.000000021Z",
+        "ExpiresAt": null,
+        "LeaseExpiresAt": null,
+        "CancelRequested": false,
+        "CreatedAt": "2032-03-05T09:00:01.000000021Z",
+        "ArchivedAt": null,
+        "ClientPayload": null,
+        "ClientPayloadRevision": 0,
+        "ExecutionState": {
+          "crashBudgetRemaining": 5,
+          "resourceBackoff": {
+            "protocolVersion": 1,
+            "durabilityVersion": 1
+          },
+          "runPolicy": {
+            "Retry": {
+              "InitialInterval": 0,
+              "BackoffCoefficient": 1,
+              "MaximumInterval": 0,
+              "MaximumAttempts": 1,
+              "NonRetryableErrorTypes": null
+            },
+            "InvocationTimeout": null,
+            "TotalTimeout": null
+          }
+        },
+        "Metadata": null,
+        "SchemaHash": "",
+        "ParentJobID": ""
+      }
+    ],
+    "NextPageToken": ""
+  }
+]

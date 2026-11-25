@@ -146,9 +146,9 @@ func (r *Runtime) KeepAliveLeaseByIDWithExpiry(ctx context.Context, jobKey jobdb
 		expires = now.Add(leaseDurationOrDefault(leaseDuration))
 		_, err = tx.ExecContext(ctx, `
 UPDATE jobdb_jobs
-SET lease_expires_at_ns = ?, updated_at_ns = ?
+SET lease_expires_at_ns = ?, last_lease_updated_at_ns = ?, updated_at_ns = ?
 WHERE tenant_id = ? AND job_id = ? AND lease_id = ?`,
-			timeToNS(expires), timeToNS(now), jobKey.TenantId, jobKey.JobId, leaseID)
+			timeToNS(expires), now.UnixNano(), timeToNS(now), jobKey.TenantId, jobKey.JobId, leaseID)
 		if err != nil {
 			return err
 		}

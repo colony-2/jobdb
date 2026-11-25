@@ -45,13 +45,13 @@ timestamps; it is not a gap-free export or replication cursor.
 
 ## Compatibility and manual upgrades
 
-Fresh SQLite storage uses format 14 with lease-event tables. Constructors refuse
-legacy 11/12/13 without changing their marker or opening ancillary stores. Use the
+Fresh SQLite storage uses format 15 with lease-event tables. Constructors refuse
+legacy formats 11–14 without changing their marker or opening ancillary stores. Use the
 [manual immutable-goal migration](MIGRATION-IMMUTABLE-GOALS.md), with all writers
 stopped and a consistent backup. Conversion preserves every retained event and
 signing key; it does not fabricate missing historical events. Unknown formats
 and inconsistent definitions are rejected. Mixed obsolete writers are not a
-supported format-14 cutover.
+supported format-15 cutover.
 
 Historical pre-event writers and activity leave partial history. Existing
 acquisitions are never backfilled. A pre-upgrade lease may have only renewal

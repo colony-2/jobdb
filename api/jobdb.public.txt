@@ -865,6 +865,7 @@ type JobSummary struct
   field AvailableAt time.Time
   field ExpiresAt *time.Time
   field LeaseExpiresAt *time.Time
+  field LastLeaseUpdatedAt *time.Time
   field CancelRequested bool
   field CreatedAt time.Time
   field ArchivedAt *time.Time
@@ -1916,6 +1917,7 @@ type StoredJob struct
   field AvailableAt time.Time
   field ExpiresAt *time.Time
   field LeaseExpiresAt *time.Time
+  field LastLeaseUpdatedAt *time.Time
   field LeaseWorkerID string
   field CreatedAt time.Time
   field UpdatedAt time.Time

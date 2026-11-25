@@ -692,6 +692,7 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 		record.leaseID = ksuid.New().String()
 		record.leaseWorkerID = req.WorkerID
 		record.leaseExpiresAt = now.Add(toyLeaseDurationOrDefault(req.LeaseDuration))
+		record.lastLeaseUpdatedAt = &now
 		r.engine.appendLeaseEventLocked(record, now, jobdb.LeaseAcquisitionPoll, previousLeaseID, nil)
 		payload := cloneJSON(record.payload)
 		out = append(out, &runtimeLease{state: recordExecutionState(record),
@@ -787,6 +788,7 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 	record.leaseID = ksuid.New().String()
 	record.leaseWorkerID = req.WorkerID
 	record.leaseExpiresAt = now.Add(toyLeaseDurationOrDefault(req.LeaseDuration))
+	record.lastLeaseUpdatedAt = &now
 	r.engine.appendLeaseEventLocked(record, now, jobdb.LeaseAcquisitionTargeted, previousLeaseID, nil)
 	lease := &runtimeLease{state: recordExecutionState(record),
 		runtime: r,
@@ -1839,6 +1841,7 @@ func (r *Runtime) CompleteTaskIfWaiting(ctx context.Context, req jobdb.CompleteT
 	record.leaseID = ksuid.New().String()
 	record.leaseWorkerID = "task_completion"
 	record.leaseExpiresAt = now.Add(time.Minute)
+	record.lastLeaseUpdatedAt = &now
 	record.leased = true
 	record.status = jobdb.JobStatusActive
 	record.payload = mustMarshalWorkerPayload(workerJobPayload{RunPolicy: payloadInfo.RunPolicy})

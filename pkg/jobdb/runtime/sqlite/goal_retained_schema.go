@@ -38,6 +38,10 @@ func createRetainedGoalSchema(ctx context.Context, tx *sql.Tx) error {
 // advancing the format marker. Conversion can call it before its final marker
 // change; runtime opening can use it without repairing malformed storage.
 func validateRetainedGoalSchema(ctx context.Context, tx *sql.Tx) error {
+	return validateRetainedSchemaForFormat(ctx, tx, 13)
+}
+
+func validateRetainedSchemaForFormat(ctx context.Context, tx *sql.Tx, version int) error {
 	expected, err := sql.Open(sqliteDriverName, ":memory:")
 	if err != nil {
 		return err
@@ -46,19 +50,13 @@ func validateRetainedGoalSchema(ctx context.Context, tx *sql.Tx) error {
 	if _, err = expected.ExecContext(ctx, retainedGoalSchemaSQL+leaseEventSchemaSQL+submissionReceiptSchemaSQL); err != nil {
 		return err
 	}
-	var version int
-	if err = tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
-		return err
-	}
-	var resourceColumns int
-	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM pragma_table_info('jobdb_jobs') WHERE name='crash_budget_remaining'").Scan(&resourceColumns); err != nil {
-		return err
-	}
-	if version == 14 && resourceColumns != 1 {
-		return fmt.Errorf("SQLite format 14: resource schema is missing")
-	}
-	if resourceColumns == 1 {
+	if version >= 14 {
 		if _, err = expected.ExecContext(ctx, resourceSchemaSQL); err != nil {
+			return err
+		}
+	}
+	if version >= currentFormat {
+		if _, err = expected.ExecContext(ctx, leaseUpdateSchemaSQL); err != nil {
 			return err
 		}
 	}
@@ -73,14 +71,14 @@ func validateRetainedGoalSchema(ctx context.Context, tx *sql.Tx) error {
 			return err
 		}
 		if err = tx.QueryRowContext(ctx, `SELECT sql FROM sqlite_master WHERE name=?`, name).Scan(&got); err != nil {
-			return fmt.Errorf("SQLite format 13: inconsistent schema %s: %w", name, err)
+			return fmt.Errorf("SQLite format %d: inconsistent schema %s: %w", version, name, err)
 		}
 		normalize := func(s string) string {
 			s = strings.Join(strings.Fields(strings.ReplaceAll(s, "IF NOT EXISTS ", "")), " ")
 			return s
 		}
 		if normalize(got) != normalize(want) {
-			return fmt.Errorf("SQLite format 13: inconsistent schema %s", name)
+			return fmt.Errorf("SQLite format %d: inconsistent schema %s", version, name)
 		}
 	}
 	if err = rows.Err(); err != nil {
@@ -91,7 +89,7 @@ func validateRetainedGoalSchema(ctx context.Context, tx *sql.Tx) error {
 		return err
 	}
 	if legacy != 0 {
-		return fmt.Errorf("SQLite format 13: legacy goal storage remains")
+		return fmt.Errorf("SQLite format %d: legacy goal storage remains", version)
 	}
 	return nil
 }

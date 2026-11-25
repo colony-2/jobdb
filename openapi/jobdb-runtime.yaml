@@ -6401,6 +6401,10 @@ components:
             - type: string
               format: date-time
             - type: 'null'
+        lastLeaseUpdatedAt:
+          type: string
+          format: date-time
+          description: Occurrence time of the most recent successful lease acquisition or renewal, when known.
         cancelRequested:
           type: boolean
         createdAt:
@@ -7109,6 +7113,10 @@ components:
             - type: string
               format: date-time
             - type: 'null'
+        lastLeaseUpdatedAt:
+          type: string
+          format: date-time
+          description: Occurrence time of the most recent successful lease acquisition or renewal, when known.
         cancelRequested:
           type: boolean
         createdAt:

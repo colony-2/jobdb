@@ -153,7 +153,7 @@ func newRetainedFixture(t *testing.T) retainedFixture {
 		return v
 	}
 	originalFormat := format()
-	if originalFormat != 14 {
+	if originalFormat != 15 {
 		t.Fatalf("unexpected supported storage format: %d", originalFormat)
 	}
 	// Reopen the retained database before any authorization test. No conversion.

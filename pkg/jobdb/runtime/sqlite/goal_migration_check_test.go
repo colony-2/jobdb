@@ -136,7 +136,7 @@ func TestGoalMigrationCheckFrozenLegacyReadOnly(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, "CONVERTIBLE_WITH_NOTICES", report.Verdict)
 			require.Equal(t, version, report.SourceFormat)
-			require.Equal(t, 14, report.TargetFormat)
+			require.Equal(t, 15, report.TargetFormat)
 			require.Len(t, report.DroppedMemberships, 3)
 			require.Len(t, report.Tenants, 2)
 			require.Equal(t, GoalMigrationTenant{TenantID: "tenant", Jobs: 10, HiddenJobs: 3, Goals: 7, DroppedMemberships: 3, PendingWaitsAffected: 1, PreparationsAffected: 2, LiveOverlaps: 1}, report.Tenants[1])
@@ -293,7 +293,7 @@ func TestGoalMigrationCheckRuntimeProducedDatabase(t *testing.T) {
 	before := compatibilitySnapshot(t, rt.db)
 	report, err := CheckGoalMigration(ctx, path)
 	require.NoError(t, err, "issues: %+v", report.Issues)
-	require.Equal(t, 14, report.SourceFormat)
+	require.Equal(t, 15, report.SourceFormat)
 	require.Equal(t, "CURRENT", report.Verdict)
 	require.Equal(t, before, compatibilitySnapshot(t, rt.db))
 }

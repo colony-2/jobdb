@@ -39,6 +39,8 @@ func logicalJob(row jobRow) jobRow {
 	row.leaseWorkerID.String = ""
 	row.leaseExpiresAtNS.Valid = false
 	row.leaseExpiresAtNS.Int64 = 0
+	row.lastLeaseUpdatedAtNS.Valid = false
+	row.lastLeaseUpdatedAtNS.Int64 = 0
 	row.updatedAtNS = 0
 	row.crashBudgetRemaining = 5
 	return row

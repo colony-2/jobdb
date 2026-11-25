@@ -60,8 +60,8 @@ func (r *Runtime) resourceBackoff(ctx context.Context, key jobdb.JobKey, leaseID
 		if e := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); e != nil {
 			return e
 		}
-		if version != 14 {
-			return &jobdb.ResourceBackoffUnsupportedError{Feature: "SQLite format 14"}
+		if version != currentFormat {
+			return &jobdb.ResourceBackoffUnsupportedError{Feature: fmt.Sprintf("SQLite format %d", currentFormat)}
 		}
 		var savedBody, savedReceipt []byte
 		var savedWorker string

@@ -36,7 +36,7 @@ func (r *Runtime) RenewExecutionLeaseByID(ctx context.Context, key jobdb.JobKey,
 		}
 		duration = leaseDurationOrDefault(duration)
 		expires := now.Add(duration)
-		if _, err := tx.ExecContext(ctx, `UPDATE jobdb_jobs SET lease_expires_at_ns = ?, updated_at_ns = ? WHERE tenant_id = ? AND job_id = ?`, timeToNS(expires), timeToNS(now), key.TenantId, key.JobId); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE jobdb_jobs SET lease_expires_at_ns = ?, last_lease_updated_at_ns = ?, updated_at_ns = ? WHERE tenant_id = ? AND job_id = ?`, timeToNS(expires), now.UnixNano(), timeToNS(now), key.TenantId, key.JobId); err != nil {
 			return err
 		}
 		previous := timeFromNS(row.leaseExpiresAtNS.Int64)

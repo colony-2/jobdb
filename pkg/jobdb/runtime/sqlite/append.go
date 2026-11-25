@@ -31,7 +31,7 @@ func (s appendScheduler) ResolveAppendCell(ctx context.Context, j jobdb.SubmitJo
 	return s.prepareCell(ctx, tx, &goalstate.Preparation{Key: jobdb.JobKey{TenantId: j.TenantId}, Cell: j.Cell, CellRepo: j.CellRepo})
 }
 func appendStored(r jobRow) runtimecore.StoredJob {
-	return runtimecore.StoredJob{JobKey: jobdb.JobKey{TenantId: r.tenantID, JobId: r.jobID}, Cell: r.cell, GoalID: r.goalID, JobType: r.jobType, AppendKey: r.appendKey.String, AppendGeneration: r.appendGeneration.Int64, ArchivedAt: nullTimeFromNS(r.archivedAtNS), CancelRequested: r.cancelRequested, LeaseWorkerID: r.leaseWorkerID.String, LeaseExpiresAt: nullTimeFromNS(r.leaseExpiresAtNS), SchemaHash: jobmetadata.SchemaHashFromStoredMetadata(r.metadata)}
+	return runtimecore.StoredJob{JobKey: jobdb.JobKey{TenantId: r.tenantID, JobId: r.jobID}, Cell: r.cell, GoalID: r.goalID, JobType: r.jobType, AppendKey: r.appendKey.String, AppendGeneration: r.appendGeneration.Int64, ArchivedAt: nullTimeFromNS(r.archivedAtNS), CancelRequested: r.cancelRequested, LeaseWorkerID: r.leaseWorkerID.String, LeaseExpiresAt: nullTimeFromNS(r.leaseExpiresAtNS), LastLeaseUpdatedAt: leaseUpdateTime(r.lastLeaseUpdatedAtNS), SchemaHash: jobmetadata.SchemaHashFromStoredMetadata(r.metadata)}
 }
 func (s appendScheduler) GetAppendTail(ctx context.Context, c runtimecore.AppendChain) (runtimecore.StoredJob, bool, error) {
 	row, err := scanJobRow(s.db.QueryRowContext(ctx, `SELECT `+jobColumns+` FROM jobdb_jobs WHERE tenant_id=? AND cell_id=? AND job_type=? AND append_key=? ORDER BY append_gen DESC LIMIT 1`, c.TenantID, c.CellID, c.JobType, c.AppendKey))
@@ -86,7 +86,7 @@ func (s appendScheduler) ClaimAppend(ctx context.Context, q runtimecore.ClaimApp
 		if e != nil {
 			return e
 		}
-		result, e := tx.ExecContext(ctx, `UPDATE jobdb_jobs SET crash_budget_remaining=CASE WHEN lease_id IS NOT NULL AND substr(lease_worker_id,1,13) <> 'jobdb-append-' THEN crash_budget_remaining-1 ELSE crash_budget_remaining END,lease_id=?,lease_worker_id=?,lease_expires_at_ns=? WHERE tenant_id=? AND job_id=? AND archived_at_ns IS NULL AND cancel_requested=0 AND crash_budget_remaining>0 AND (resource_not_before_ns IS NULL OR resource_not_before_ns<=?) AND (lease_id IS NULL OR lease_expires_at_ns<=?)`, out.LeaseID, out.WorkerID, timeToNS(out.ExpiresAt), q.JobKey.TenantId, q.JobKey.JobId, timeToNS(q.Now), timeToNS(q.Now))
+		result, e := tx.ExecContext(ctx, `UPDATE jobdb_jobs SET crash_budget_remaining=CASE WHEN lease_id IS NOT NULL AND substr(lease_worker_id,1,13) <> 'jobdb-append-' THEN crash_budget_remaining-1 ELSE crash_budget_remaining END,lease_id=?,lease_worker_id=?,lease_expires_at_ns=?,last_lease_updated_at_ns=? WHERE tenant_id=? AND job_id=? AND archived_at_ns IS NULL AND cancel_requested=0 AND crash_budget_remaining>0 AND (resource_not_before_ns IS NULL OR resource_not_before_ns<=?) AND (lease_id IS NULL OR lease_expires_at_ns<=?)`, out.LeaseID, out.WorkerID, timeToNS(out.ExpiresAt), q.Now.UnixNano(), q.JobKey.TenantId, q.JobKey.JobId, timeToNS(q.Now), timeToNS(q.Now))
 		if e != nil {
 			return e
 		}

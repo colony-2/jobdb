@@ -18,6 +18,12 @@ import (
 func cliMigrationFile(t *testing.T, format int) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "legacy.db")
+	if format == 14 {
+		data, err := os.ReadFile("../runtime/sqlite/testdata/format14.db")
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(path, data, 0o600))
+		return path
+	}
 	db, err := sql.Open("sqlite", path)
 	require.NoError(t, err)
 	files := []string{"testdata/goal-format-11.sql", "testdata/goal-lease-events.sql", "testdata/goal-receipts.sql"}
@@ -58,11 +64,11 @@ func executeMigrationCheck(t *testing.T, args ...string) (sqliteruntime.GoalMigr
 
 func TestSQLiteCheckMigrateReadOnlyAndNoRuntime(t *testing.T) {
 	t.Setenv(sqliteDSNEnvVar, "")
-	for _, format := range []int{11, 12, 13} {
+	for _, format := range []int{11, 12, 13, 14} {
 		t.Run(fmt.Sprint(format), func(t *testing.T) {
 			path := cliMigrationFile(t, format)
 			verdict := "CONVERTIBLE"
-			if format == 13 {
+			if format >= 13 {
 				verdict = "READY"
 			}
 			before, err := os.ReadFile(path)
@@ -74,7 +80,7 @@ func TestSQLiteCheckMigrateReadOnlyAndNoRuntime(t *testing.T) {
 				require.NoError(t, err, "%+v", report)
 				require.Equal(t, verdict, report.Verdict)
 				require.Equal(t, format, report.SourceFormat)
-				require.Equal(t, 14, report.TargetFormat)
+				require.Equal(t, 15, report.TargetFormat)
 				require.Equal(t, path, report.Path)
 				after, err := os.ReadFile(path)
 				require.NoError(t, err)
@@ -127,13 +133,13 @@ func TestSQLiteCheckMigrateBlockedAndExecutionFailures(t *testing.T) {
 
 func TestSQLiteMigrateExplicitPathAndNoRuntime(t *testing.T) {
 	t.Setenv(sqliteDSNEnvVar, "")
-	for _, format := range []int{11, 12, 13} {
+	for _, format := range []int{11, 12, 13, 14} {
 		t.Run(fmt.Sprint(format), func(t *testing.T) {
 			path := cliMigrationFile(t, format)
 			report, err, _ := executeMigrationCheck(t, "sqlite", "migrate", "--db", path, "--blob-store-uri", "unsupported://must-not-open", "--secret-providers-file", "/not/a/file")
 			require.NoError(t, err, "%+v", report)
 			require.Equal(t, "MIGRATED", report.Verdict)
-			require.Equal(t, 14, report.TargetFormat)
+			require.Equal(t, 15, report.TargetFormat)
 			require.Equal(t, path, report.Path)
 			current, err, _ := executeMigrationCheck(t, "sqlite", "migrate", "--db", path)
 			require.NoError(t, err)
@@ -143,7 +149,7 @@ func TestSQLiteMigrateExplicitPathAndNoRuntime(t *testing.T) {
 			defer raw.Close()
 			var version, n int
 			require.NoError(t, raw.QueryRow("PRAGMA user_version").Scan(&version))
-			require.Equal(t, 14, version)
+			require.Equal(t, 15, version)
 			require.NoError(t, raw.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('jobdb_resource_sequences','jobdb_resource_receipts')`).Scan(&n))
 			require.Equal(t, 2, n)
 			require.NoError(t, raw.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name IN ('jobdb_goals','jobdb_goal_candidates')`).Scan(&n))

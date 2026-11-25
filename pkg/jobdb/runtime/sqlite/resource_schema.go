@@ -49,7 +49,7 @@ func convertResourceSchema(ctx context.Context, tx *sql.Tx) error {
 	if _, err := tx.ExecContext(ctx, resourceSchemaSQL); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `UPDATE jobdb_jobs SET crash_budget_remaining=max(5-consecutive_expirations,0); PRAGMA user_version=14`)
+	_, err := tx.ExecContext(ctx, `UPDATE jobdb_jobs SET crash_budget_remaining=max(5-consecutive_expirations,0)`)
 	return err
 }
 

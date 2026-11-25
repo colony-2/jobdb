@@ -65,7 +65,7 @@ func TestRetainedFormatFreshAndLegacyConstructorRefusal(t *testing.T) {
 	for range 3 {
 		var version, n int
 		require.NoError(t, r.db.QueryRow("PRAGMA user_version").Scan(&version))
-		require.Equal(t, 14, version)
+		require.Equal(t, 15, version)
 		require.NoError(t, r.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name IN ('jobdb_goals','jobdb_goal_candidates')`).Scan(&n))
 		require.Zero(t, n)
 		require.NoError(t, r.Close(ctx))

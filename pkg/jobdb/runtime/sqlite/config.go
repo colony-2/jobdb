@@ -182,13 +182,10 @@ func NewFromConfig(ctx context.Context, cfg Config) (*Runtime, error) {
 		}
 	}()
 
-	if err := refuseLegacy(ctx, db); err != nil {
+	if err := migrate(ctx, db); err != nil {
 		return nil, err
 	}
 	if err := configureSQLite(ctx, db); err != nil {
-		return nil, err
-	}
-	if err := migrate(ctx, db); err != nil {
 		return nil, err
 	}
 

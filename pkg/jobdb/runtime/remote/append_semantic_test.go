@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -162,20 +163,43 @@ func TestGroupedRealPayloadRejectionAtomicity(t *testing.T) {
 		for _, state := range []string{"create", "join", "successor"} {
 			t.Run(mode+"/"+state, func(t *testing.T) {
 				f := newDelegationFixture(t, "sqlite", nil)
-				q, _ := seedGrouped(t, f, state)
+				q, tail := seedGrouped(t, f, state)
+				ctx := celltest.Context(context.Background())
 				submit := f.backend.StartOrAppendJob
 				if mode != "direct" {
 					submit, _ = groupedSubmitter(t, f, f.client, mode)
 				}
 				q.Job.Append = json.RawMessage(`"` + strings.Repeat("x", int(jobdb.DefaultMaxChapterApplicationPayloadBytes)) + `"`)
 				before := groupedState(t, f)
-				_, err := submit(celltest.Context(context.Background()), q)
+				eventRequest := jobdb.ListLeaseEventsRequest{TenantID: "tenant"}
+				eventsBefore, err := f.backend.ListLeaseEvents(ctx, eventRequest)
+				require.NoError(t, err)
+				require.Empty(t, eventsBefore.NextPageToken)
+				_, err = submit(ctx, q)
 				require.ErrorIs(t, err, jobdb.ErrChapterApplicationPayloadTooLarge)
 				require.False(t, jobdb.IsExecutionInfrastructureError(err))
 				var detail *jobdb.ChapterApplicationPayloadError
 				require.ErrorAs(t, err, &detail)
 				require.Greater(t, detail.ActualBytes, detail.LimitBytes)
-				require.Equal(t, before, groupedState(t, f))
+				after := groupedState(t, f)
+				eventsAfter, err := f.backend.ListLeaseEvents(ctx, eventRequest)
+				require.NoError(t, err)
+				if state == "join" {
+					require.Empty(t, eventsAfter.NextPageToken)
+					require.Len(t, eventsAfter.Events, len(eventsBefore.Events)+1)
+					acquisition := eventsAfter.Events[0]
+					require.Equal(t, tail.JobKey, acquisition.JobKey)
+					require.Equal(t, jobdb.LeaseEventAcquired, acquisition.EventType)
+					require.Equal(t, jobdb.LeaseAcquisitionAppend, acquisition.AcquisitionSource)
+					require.Equal(t, eventsBefore.Events, eventsAfter.Events[1:])
+					index := slices.IndexFunc(before.Jobs, func(row jobdb.JobSummary) bool { return row.JobKey == tail.JobKey })
+					require.NotEqual(t, -1, index)
+					require.Nil(t, before.Jobs[index].LastLeaseUpdatedAt)
+					before.Jobs[index].LastLeaseUpdatedAt = &acquisition.OccurredAt
+				} else {
+					require.Equal(t, eventsBefore, eventsAfter)
+				}
+				require.Equal(t, before, after)
 			})
 		}
 	}

@@ -591,10 +591,10 @@ func (r *Runtime) acquireOneLease(ctx context.Context, req jobdb.PollWorkRequest
 			result, err := tx.ExecContext(ctx, `
 UPDATE jobdb_jobs
 SET crash_budget_remaining = CASE WHEN substr(lease_worker_id,1,13) = 'jobdb-append-' THEN crash_budget_remaining WHEN lease_id IS NOT NULL AND crash_budget_remaining > 0 THEN crash_budget_remaining - 1 ELSE crash_budget_remaining END,
-	route_job_type = ?, route_task_type = ?, lease_id = ?, lease_worker_id = ?, lease_expires_at_ns = ?,
+	route_job_type = ?, route_task_type = ?, lease_id = ?, lease_worker_id = ?, lease_expires_at_ns = ?, last_lease_updated_at_ns = ?,
 	alternate_job_type = ?, alternate_task_type = ?, alternate_at_ns = ?, updated_at_ns = ?
 WHERE tenant_id = ? AND job_id = ?`,
-				nextRoute.JobType, nextRoute.TaskType, leaseID, workerID, timeToNS(expires), altJob, altTask, altAt, timeToNS(now), row.tenantID, row.jobID)
+				nextRoute.JobType, nextRoute.TaskType, leaseID, workerID, timeToNS(expires), now.UnixNano(), altJob, altTask, altAt, timeToNS(now), row.tenantID, row.jobID)
 			if err != nil {
 				return err
 			}
@@ -698,10 +698,10 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 		_, err = tx.ExecContext(ctx, `
 UPDATE jobdb_jobs
 SET crash_budget_remaining = CASE WHEN substr(lease_worker_id,1,13) = 'jobdb-append-' THEN crash_budget_remaining WHEN lease_id IS NOT NULL AND crash_budget_remaining > 0 THEN crash_budget_remaining - 1 ELSE crash_budget_remaining END,
-	route_job_type = ?, route_task_type = ?, lease_id = ?, lease_worker_id = ?, lease_expires_at_ns = ?,
+	route_job_type = ?, route_task_type = ?, lease_id = ?, lease_worker_id = ?, lease_expires_at_ns = ?, last_lease_updated_at_ns = ?,
 	alternate_job_type = ?, alternate_task_type = ?, alternate_at_ns = ?, updated_at_ns = ?
 WHERE tenant_id = ? AND job_id = ?`,
-			nextRoute.JobType, nextRoute.TaskType, leaseID, workerID, timeToNS(expires), altJob, altTask, altAt, timeToNS(now), row.tenantID, row.jobID)
+			nextRoute.JobType, nextRoute.TaskType, leaseID, workerID, timeToNS(expires), now.UnixNano(), altJob, altTask, altAt, timeToNS(now), row.tenantID, row.jobID)
 		if err != nil {
 			return err
 		}

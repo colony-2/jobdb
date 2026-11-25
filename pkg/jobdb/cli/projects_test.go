@@ -83,7 +83,7 @@ func TestProjectInitializeAndInspectCLI(t *testing.T) {
 		Format int `json:"format"`
 	}
 	require.NoError(t, json.Unmarshal(out.Bytes(), &inventory))
-	require.Equal(t, 14, inventory.Format)
+	require.Equal(t, 15, inventory.Format)
 	require.Contains(t, out.String(), `"scopes":[]`)
 	cmd = newProjectsCmd()
 	cmd.SetArgs([]string{"installation", "initialize", "--database", path, "--participants-sha256", projectcatalog.InstallationDigest([]byte("fixture"))})

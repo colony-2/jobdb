@@ -32,6 +32,7 @@ func appendStored(key jobdb.JobKey, r *jobRecord, now time.Time) runtimecore.Sto
 		t := r.leaseExpiresAt
 		out.LeaseExpiresAt = &t
 	}
+	out.LastLeaseUpdatedAt = cloneTime(r.lastLeaseUpdatedAt)
 	return out
 }
 func (s appendScheduler) GetAppendTail(ctx context.Context, chain runtimecore.AppendChain) (runtimecore.StoredJob, bool, error) {
@@ -105,6 +106,7 @@ func (s appendScheduler) ClaimAppend(ctx context.Context, q runtimecore.ClaimApp
 	r.leaseID = ksuid.New().String()
 	r.leaseWorkerID = q.WorkerID
 	r.leaseExpiresAt = q.Now.Add(q.Duration)
+	r.lastLeaseUpdatedAt = &q.Now
 	s.engine.appendLeaseEventLocked(r, q.Now, jobdb.LeaseAcquisitionAppend, old, nil)
 	return runtimecore.LeaseIdentity{JobKey: q.JobKey, LeaseID: r.leaseID, WorkerID: r.leaseWorkerID, ExpiresAt: r.leaseExpiresAt}, nil
 }

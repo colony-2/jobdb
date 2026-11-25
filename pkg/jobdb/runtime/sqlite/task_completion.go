@@ -47,8 +47,8 @@ func (r *Runtime) claimWaitingTask(ctx context.Context, expected jobRow, resumeJ
 		lease.expiresAt = now.Add(lease.duration)
 		// Drop task coordinates to match the job-only route. Alternate routing must
 		// not redirect recovery to another task after this lease expires.
-		_, err = tx.ExecContext(ctx, `UPDATE jobdb_jobs SET crash_budget_remaining=CASE WHEN substr(lease_worker_id,1,13) = 'jobdb-append-' THEN crash_budget_remaining WHEN lease_id IS NOT NULL THEN crash_budget_remaining-1 ELSE crash_budget_remaining END,route_job_type=?,route_task_type='',payload=?,lease_id=?,lease_worker_id=?,lease_expires_at_ns=?,alternate_job_type=NULL,alternate_task_type=NULL,alternate_at_ns=NULL,updated_at_ns=? WHERE tenant_id=? AND job_id=?`,
-			resumeJobType, payload, lease.leaseID, lease.workerID, timeToNS(lease.expiresAt), timeToNS(now), key.TenantId, key.JobId)
+		_, err = tx.ExecContext(ctx, `UPDATE jobdb_jobs SET crash_budget_remaining=CASE WHEN substr(lease_worker_id,1,13) = 'jobdb-append-' THEN crash_budget_remaining WHEN lease_id IS NOT NULL THEN crash_budget_remaining-1 ELSE crash_budget_remaining END,route_job_type=?,route_task_type='',payload=?,lease_id=?,lease_worker_id=?,lease_expires_at_ns=?,last_lease_updated_at_ns=?,alternate_job_type=NULL,alternate_task_type=NULL,alternate_at_ns=NULL,updated_at_ns=? WHERE tenant_id=? AND job_id=?`,
+			resumeJobType, payload, lease.leaseID, lease.workerID, timeToNS(lease.expiresAt), now.UnixNano(), timeToNS(now), key.TenantId, key.JobId)
 		if err != nil {
 			return err
 		}

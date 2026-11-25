@@ -99,7 +99,7 @@ func TestResourceBackoffMigration(t *testing.T) {
 		report, err := MigrateGoals(ctx, path)
 		require.NoError(t, err, "%+v", report)
 		require.Equal(t, "MIGRATED", report.Verdict)
-		require.Equal(t, 14, report.TargetFormat)
+		require.Equal(t, 15, report.TargetFormat)
 		require.Equal(t, before, read())
 		var budgets []int64
 		rows, err := db.Query(`SELECT crash_budget_remaining FROM jobdb_jobs ORDER BY job_id`)

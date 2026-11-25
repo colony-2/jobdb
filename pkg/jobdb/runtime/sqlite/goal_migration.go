@@ -78,36 +78,37 @@ func migrateGoals(ctx context.Context, path string, hook func(string) error) (re
 	if report.Verdict == "CURRENT" {
 		return report, nil
 	}
-	if report.SourceFormat == 13 {
+	switch report.SourceFormat {
+	case 11, 12:
+		input, loadErr := loadGoalMigrationInput(ctx, tx, &report)
+		if loadErr != nil {
+			return report, loadErr
+		}
+		if err = checkpoint("inspected"); err != nil {
+			return report, err
+		}
+		if err = convertRetainedJobs(ctx, tx, input, &report, checkpoint); err != nil {
+			return report, err
+		}
+		if err = checkpoint("verified"); err != nil {
+			return report, err
+		}
+	case 13, 14:
+	default:
+		return report, fmt.Errorf("SQLite migration requires a supported legacy format (11–14)")
+	}
+	if report.SourceFormat <= 13 {
 		if err = convertResourceSchema(ctx, tx); err != nil {
 			return report, err
 		}
-		if err = checkpoint("marked"); err != nil {
-			return report, err
-		}
-		if err = tx.Commit(); err != nil {
-			return report, err
-		}
-		report.Verdict = "MIGRATED"
-		return report, nil
 	}
-	if report.SourceFormat != 11 && report.SourceFormat != 12 {
-		return report, fmt.Errorf("SQLite migration requires supported legacy format 11 or 12")
-	}
-	input, err := loadGoalMigrationInput(ctx, tx, &report)
-	if err != nil {
+	if err = addLeaseUpdateSchema(ctx, tx); err != nil {
 		return report, err
 	}
-	if err = checkpoint("inspected"); err != nil {
+	if err = checkpoint("lease_update_added"); err != nil {
 		return report, err
 	}
-	if err = convertRetainedJobs(ctx, tx, input, &report, checkpoint); err != nil {
-		return report, err
-	}
-	if err = checkpoint("verified"); err != nil {
-		return report, err
-	}
-	if err = convertResourceSchema(ctx, tx); err != nil {
+	if err = markCurrentFormat(ctx, tx); err != nil {
 		return report, err
 	}
 	if err = checkpoint("marked"); err != nil {

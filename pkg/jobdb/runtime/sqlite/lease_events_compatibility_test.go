@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,7 +24,7 @@ func TestLeaseEventsDefaultLegacyMutations(t *testing.T) {
 	defer r.Close(ctx)
 	var n, version int
 	require.NoError(t, r.db.QueryRow("PRAGMA user_version").Scan(&version))
-	require.Equal(t, 14, version)
+	require.Equal(t, 15, version)
 	require.NoError(t, r.db.QueryRow("SELECT count(*) FROM sqlite_master WHERE name='jobdb_lease_events'").Scan(&n))
 	require.Equal(t, 1, n)
 	for _, targeted := range []bool{false, true} {
@@ -52,7 +53,7 @@ func TestLeaseEventsDefaultLegacyMutations(t *testing.T) {
 }
 
 // snapshot captures every persisted value, including event rows, chapters and signing keys.
-func compatibilitySnapshot(t *testing.T, db *sql.DB) map[string][]string {
+func compatibilitySnapshot(t *testing.T, db *sql.DB, jobColumns ...string) map[string][]string {
 	t.Helper()
 	rows, e := db.Query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
 	require.NoError(t, e)
@@ -66,7 +67,11 @@ func compatibilitySnapshot(t *testing.T, db *sql.DB) map[string][]string {
 	require.NoError(t, rows.Close())
 	out := map[string][]string{}
 	for _, name := range names {
-		rows, e = db.Query(fmt.Sprintf(`SELECT * FROM %q ORDER BY rowid`, name))
+		projection := "*"
+		if name == "jobdb_jobs" && len(jobColumns) > 0 {
+			projection = strings.Join(jobColumns, ",")
+		}
+		rows, e = db.Query(fmt.Sprintf(`SELECT %s FROM %q ORDER BY rowid`, projection, name))
 		require.NoError(t, e)
 		cols, e := rows.Columns()
 		require.NoError(t, e)
@@ -100,7 +105,7 @@ func TestLeaseEventExtensionTransitions(t *testing.T) {
 	require.Equal(t, before, compatibilitySnapshot(t, r.db))
 	var version int
 	require.NoError(t, r.db.QueryRow("PRAGMA user_version").Scan(&version))
-	require.Equal(t, 14, version)
+	require.Equal(t, 15, version)
 	require.NoError(t, r.Close(ctx))
 	r, e = NewFromConfig(ctx, cfg)
 	require.NoError(t, e)
@@ -150,7 +155,7 @@ func TestLeaseEventSchemaRejectsWithoutPartialMigration(t *testing.T) {
 		require.Equal(t, schemaBefore, schemaAfter)
 		var version int
 		require.NoError(t, raw.QueryRow("PRAGMA user_version").Scan(&version))
-		require.Equal(t, 14, version)
+		require.Equal(t, 15, version)
 		_, e = raw.Exec("DROP INDEX jobdb_lease_events_time_idx;" + leaseEventSchemaSQL)
 		require.NoError(t, e)
 		require.NoError(t, raw.Close())

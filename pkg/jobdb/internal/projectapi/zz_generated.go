@@ -1130,9 +1130,12 @@ type ProjectJobSummary struct {
 	GoalId           string         `json:"goalId"`
 	JobKey           ProjectJobKey  `json:"jobKey"`
 	JobType          string         `json:"jobType"`
-	LeaseExpiresAt   *time.Time     `json:"leaseExpiresAt,omitempty"`
-	Metadata         *Metadata      `json:"metadata,omitempty"`
-	NextRoute        *Route         `json:"nextRoute,omitempty"`
+
+	// LastLeaseUpdatedAt Occurrence time of the most recent successful lease acquisition or renewal, when known.
+	LastLeaseUpdatedAt *time.Time `json:"lastLeaseUpdatedAt,omitempty"`
+	LeaseExpiresAt     *time.Time `json:"leaseExpiresAt,omitempty"`
+	Metadata           *Metadata  `json:"metadata,omitempty"`
+	NextRoute          *Route     `json:"nextRoute,omitempty"`
 	// Deprecated: Not populated by ordinary job lists. Use GetJob for details.
 	OtherGoalIds    []string       `json:"otherGoalIds"`
 	ParentJobId     *string        `json:"parentJobId,omitempty"`

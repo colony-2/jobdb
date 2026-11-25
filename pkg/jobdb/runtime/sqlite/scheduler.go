@@ -17,7 +17,7 @@ const jobColumns = `
 tenant_id, job_id, cell_id, cell_name, cell_repo, goal_id, dependency_wait_id, job_type, route_job_type, route_task_type, payload, client_payload, client_payload_revision, initial_payload_digest, metadata, parent_job_id, wait_for,
 available_at_ns, wait_deadline_ns, created_at_ns, updated_at_ns, archived_at_ns,
 cancel_requested, completion_status, completion_detail,
-crash_budget_remaining, lease_id, lease_worker_id, lease_expires_at_ns, alternate_job_type, alternate_task_type, alternate_at_ns, append_key, append_gen, record_kind, goal_failure, resource_not_before_ns, resource_resume
+crash_budget_remaining, lease_id, lease_worker_id, lease_expires_at_ns, last_lease_updated_at_ns, alternate_job_type, alternate_task_type, alternate_at_ns, append_key, append_gen, record_kind, goal_failure, resource_not_before_ns, resource_resume
 `
 
 type jobRow struct {
@@ -50,6 +50,7 @@ type jobRow struct {
 	leaseID               sql.NullString
 	leaseWorkerID         sql.NullString
 	leaseExpiresAtNS      sql.NullInt64
+	lastLeaseUpdatedAtNS  sql.NullInt64
 	alternateRoute        *jobdb.Route
 	alternateAtNS         sql.NullInt64
 
@@ -88,6 +89,7 @@ func scanJobRow(scanner interface{ Scan(dest ...any) error }) (jobRow, error) {
 		&row.leaseID,
 		&row.leaseWorkerID,
 		&row.leaseExpiresAtNS,
+		&row.lastLeaseUpdatedAtNS,
 		&alternateJob, &alternateTask,
 		&row.alternateAtNS, &row.appendKey, &row.appendGeneration, &row.recordKind, &failure, &row.resourceNotBefore, &row.resourceResume,
 	); err != nil {
@@ -321,6 +323,14 @@ func nullTimeFromNS(v sql.NullInt64) *time.Time {
 	}
 	t := timeFromNS(v.Int64)
 	return &t
+}
+
+func leaseUpdateTime(ns sql.NullInt64) *time.Time {
+	if !ns.Valid {
+		return nil
+	}
+	stamp := time.Unix(0, ns.Int64).UTC()
+	return &stamp
 }
 
 func cloneJSON(raw json.RawMessage) json.RawMessage {

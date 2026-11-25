@@ -114,6 +114,7 @@ type StoredJob struct {
 	AvailableAt           time.Time
 	ExpiresAt             *time.Time
 	LeaseExpiresAt        *time.Time
+	LastLeaseUpdatedAt    *time.Time
 	LeaseWorkerID         string
 	CreatedAt             time.Time
 	UpdatedAt             time.Time

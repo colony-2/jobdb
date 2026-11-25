@@ -35,6 +35,7 @@ func (r *Runtime) KeepAliveLeaseByIDWithExpiry(ctx context.Context, jobKey jobdb
 	now := r.now()
 	previous := record.leaseExpiresAt
 	record.leaseExpiresAt = now.Add(toyLeaseDurationOrDefault(leaseDuration))
+	record.lastLeaseUpdatedAt = &now
 	r.engine.appendLeaseEventLocked(record, now, "", "", &previous)
 	return record.leaseExpiresAt, nil
 }
@@ -121,6 +122,7 @@ func (r *Runtime) RenewExecutionLeaseByID(ctx context.Context, key jobdb.JobKey,
 	now := r.now()
 	previous := record.leaseExpiresAt
 	record.leaseExpiresAt = now.Add(duration)
+	record.lastLeaseUpdatedAt = &now
 	r.engine.appendLeaseEventLocked(record, now, "", "", &previous)
 	return &runtimeLease{state: recordExecutionState(record), runtime: r, jobKey: key, leaseID: leaseID, workerID: workerID,
 		route: record.route, payload: cloneJSON(record.payload), clientPayload: cloneJSON(record.clientPayload), clientPayloadRevision: record.clientPayloadRevision,

@@ -252,7 +252,7 @@ func (r *Runtime) listCompactJobs(ctx context.Context, req jobdb.ListJobsRequest
 )
 SELECT COALESCE(append_key,''),tenant_id,job_id,cell_id,(SELECT name FROM jobdb_cells c WHERE c.tenant_id=p.tenant_id AND c.cell_id=p.cell_id),cell_repo,goal_id,job_type,route_job_type,route_task_type,
  client_payload_revision,client_payload,payload,wait_for,metadata,list_parent,available_at_ns,created_at_ns,archived_at_ns,
- cancel_requested,completion_status,completion_detail,lease_expires_at_ns,list_status,
+ cancel_requested,completion_status,completion_detail,lease_expires_at_ns,last_lease_updated_at_ns,list_status,
  CASE WHEN pending_wait THEN dependency_wait_id ELSE '' END,
  CASE WHEN pending_wait THEN json_extract(CAST(wait_payload AS TEXT),'$.deadline') ELSE NULL END, record_kind, goal_failure, crash_budget_remaining, resource_resume
 FROM projected p WHERE ` + strings.Join(where, " AND ") + ` ORDER BY created_at_ns DESC,list_key DESC LIMIT ?`
@@ -268,11 +268,11 @@ FROM projected p WHERE ` + strings.Join(where, " AND ") + ` ORDER BY created_at_
 		var metadata, clientPayload, payload, waitFor, failure []byte
 		var available, created, budget int64
 		var resourceResume []byte
-		var archivedAt, leaseExpires sql.NullInt64
+		var archivedAt, leaseExpires, lastLeaseUpdated sql.NullInt64
 		var completion, completionDetail, deadline sql.NullString
 		var waitID string
 		if err = rows.Scan(&s.AppendKey, &s.JobKey.TenantId, &s.JobKey.JobId, &s.CellID, &s.Cell, &s.CellRepo, &s.GoalID, &s.JobType, &route.JobType, &route.TaskType,
-			&s.ClientPayloadRevision, &clientPayload, &payload, &waitFor, &metadata, &s.ParentJobID, &available, &created, &archivedAt, &s.CancelRequested, &completion, &completionDetail, &leaseExpires, &s.Status, &waitID, &deadline, &s.RecordKind, &failure, &budget, &resourceResume); err != nil {
+			&s.ClientPayloadRevision, &clientPayload, &payload, &waitFor, &metadata, &s.ParentJobID, &available, &created, &archivedAt, &s.CancelRequested, &completion, &completionDetail, &leaseExpires, &lastLeaseUpdated, &s.Status, &waitID, &deadline, &s.RecordKind, &failure, &budget, &resourceResume); err != nil {
 			return jobdb.ListJobsResponse{}, err
 		}
 		s.NextRoute = &route
@@ -280,6 +280,7 @@ FROM projected p WHERE ` + strings.Join(where, " AND ") + ` ORDER BY created_at_
 		s.CreatedAt = timeFromNS(created)
 		s.ArchivedAt = nullTimeFromNS(archivedAt)
 		s.LeaseExpiresAt = nullTimeFromNS(leaseExpires)
+		s.LastLeaseUpdatedAt = leaseUpdateTime(lastLeaseUpdated)
 		s.CompletionStatus = completion.String
 		s.CompletionDetail = completionDetail.String
 		s.ClientPayload = clientPayload

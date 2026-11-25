@@ -25,15 +25,16 @@ Standard output contains a `GoalMigrationReport` JSON object. The exported
 
 | Verdict | Meaning | Exit |
 | --- | --- | --- |
-| `CURRENT` | Valid retained-job format 14; no conversion needed. | 0 |
+| `CURRENT` | Valid retained-job format 15; no conversion needed. | 0 |
 | `MIGRATED` | Manual conversion committed, with failure-job IDs in closure plans. | 0 |
+| `READY` | Format 13 or 14 passed preflight. | 0 |
 | `EMPTY` | Existing empty storage; no conversion or initialization occurred. | 0 |
 | `CONVERTIBLE` | Supported legacy input passed the implemented preflight without notices. | 0 |
 | `CONVERTIBLE_WITH_NOTICES` | Supported input passed with accepted losses or operational notices. | 0 |
 | `BLOCKED` | Inspection completed and found unsupported schema/data or integrity failures. | Nonzero; `sqlite.ErrGoalMigrationBlocked`. |
 | `ERROR` | Inspection could not complete, for example a missing/unreadable/corrupt file or cancellation. | Nonzero; original execution error preserved. |
 
-The report identifies the source and intended target format 14, all tenants,
+The report identifies the source and intended target format 15. For the earlier retained-goal conversion it also reports all tenants,
 hidden and visible row counts, deterministic primary origins, saved success
 producers/closure relocation, exact removed secondary relationships and their
 timestamps, affected pending waits/preparations, and active-member IDs for
@@ -75,14 +76,14 @@ PostgreSQL v0.0.27 acceptance. This revision removes JobDB attachment APIs.
 PostgreSQL backend conversion and pin update follow shared contract publication.
 Input/artifact attachments are independent.
 
-Fresh initialization uses format 14. Both runtime constructors reject formats 11, 12
-and 13 with `*sqlite.MigrationRequiredError`, matching `sqlite.ErrMigrationRequired`
+Fresh initialization uses format 15. Both runtime constructors reject formats 11–14
+with `*sqlite.MigrationRequiredError`, matching `sqlite.ErrMigrationRequired`
 through `errors.Is` and including `SourceFormat`, the
 available database `Path`, and the manual commands. Refusal happens before
 chapter/blob/configuration/secret initialization. Constructors never normalize,
-reset or convert legacy storage; incomplete format-14 definitions are rejected.
+reset or convert legacy storage; inconsistent format-15 schemas are rejected.
 
-Stop all serving processes and writers, including embedded CLI hosts, then take
+Stop all serving processes and writers, including older binaries and embedded CLI hosts, then take
 a consistent SQLite backup containing committed WAL data. Keep external blob
 stores and separate secret files with their normal backups. Run the check and
 review its per-tenant losses, affected pending references and remaining overlaps.
@@ -103,12 +104,21 @@ advances `user_version` last in the same transaction. Existing chapters, input
 artifacts, receipts, preparation descriptors, waits/subscriptions, lease events,
 unrelated tables and application job indexes/triggers remain retained.
 
+Formats 11–13 convert directly to 15, including the resource-backoff conversion.
+For format 14, conversion only adds the nullable `last_lease_updated_at_ns`
+column. No pre-upgrade active or archived job gets a timestamp: deadlines,
+surviving lease IDs and partial history cannot establish the last lease write.
+The first successful acquisition or renewal, including renewal of a lease held
+at cutover, sets the field.
+
 Any failure or cancellation rolls back data, definitions and format marker.
-Rerunning on a valid format 14 returns `CURRENT` without duplicate failure jobs.
+Rerunning on a valid format 15 returns `CURRENT` without duplicate failure jobs.
 An empty file is not converted; ordinary empty initialization remains the runtime
 constructor's responsibility. A saved check report never bypasses locked checks.
 Exclusive acquisition may fail while serving handles remain open, including WAL
 handles. Close them and rerun; do not force reset or delete database files.
+Mixed-version writers are unsupported. To return to an older binary after a
+committed conversion, restore the backup; do not reset `user_version`.
 
 After conversion, start compatible services and retain the `MIGRATED` report.
 Hidden origins and closure jobs still govern identity, replay and admission.

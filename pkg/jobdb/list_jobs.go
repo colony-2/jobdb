@@ -43,13 +43,15 @@ type JobSummary struct {
 	JobType          string
 	NextRoute        *Route
 	// WaitFor contains stored prerequisite IDs without resolving their targets.
-	WaitFor         []string // JobIds only - all WaitFor jobs must be in same tenant
-	AvailableAt     time.Time
-	ExpiresAt       *time.Time
-	LeaseExpiresAt  *time.Time
-	CancelRequested bool
-	CreatedAt       time.Time
-	ArchivedAt      *time.Time
+	WaitFor        []string // JobIds only - all WaitFor jobs must be in same tenant
+	AvailableAt    time.Time
+	ExpiresAt      *time.Time
+	LeaseExpiresAt *time.Time
+	// LastLeaseUpdatedAt is the occurrence time of the last successful lease acquisition or renewal, if known.
+	LastLeaseUpdatedAt *time.Time
+	CancelRequested    bool
+	CreatedAt          time.Time
+	ArchivedAt         *time.Time
 	// ClientPayload is the full opaque payload, paired with its stored revision.
 	ClientPayload         json.RawMessage
 	ClientPayloadRevision int64
