@@ -127,6 +127,13 @@ func TestResourceBackoffAvailabilityClockBoundaryB09b(t *testing.T) {
 }
 
 func TestResourceBackoffSchemaDowngradeB10b(t *testing.T) {
+	for _, pragma := range []string{"PRAGMA user_version=13", "PRAGMA user_version=16"} {
+		t.Run(pragma, func(t *testing.T) { checkResourceBackoffUnsupportedFormat(t, pragma) })
+	}
+}
+
+func checkResourceBackoffUnsupportedFormat(t *testing.T, pragma string) {
+	t.Helper()
 	f := sqliteResourceHarness().New(t)
 	ctx := celltest.Context(context.Background())
 	r := f.Runtime.(*Runtime)
@@ -138,7 +145,7 @@ func TestResourceBackoffSchemaDowngradeB10b(t *testing.T) {
 	require.NoError(t, lease.ExecutionState().ResourceBackoff.Validate(true))
 	req, err := runtimetest.PrepareResourceBackoffCheckpoint(ctx, r, lease, "task/attempt:1", 1, jobdb.DefaultResourceBackoffPolicy())
 	require.NoError(t, err)
-	_, err = r.db.Exec(`PRAGMA user_version=13`)
+	_, err = r.db.Exec(pragma)
 	require.NoError(t, err)
 	_, err = lease.(jobdb.ResourceBackoffLease).RescheduleResourceBackoff(ctx, req)
 	require.ErrorIs(t, err, jobdb.ErrResourceBackoffUnsupported)

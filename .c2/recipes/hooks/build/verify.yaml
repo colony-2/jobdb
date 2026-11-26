@@ -127,6 +127,8 @@ state:
           # before the long integration/race sweeps.
           printf '%s\n' "Command: go test -count=1 -p=1 -timeout=3m -v ./pkg/jobdb/cli -run '^(TestProjectInitializeAndInspectCLI|TestSQLiteCheckMigrate.*|TestSQLiteMigrate.*)$'"
           go test -count=1 -p=1 -timeout=3m -v ./pkg/jobdb/cli -run '^(TestProjectInitializeAndInspectCLI|TestSQLiteCheckMigrate.*|TestSQLiteMigrate.*)$'
+          printf '%s\n' "Command: go test -count=1 -p=2 -timeout=3m -v ./pkg/jobdb/cli ./pkg/jobdb/runtime/remote ./pkg/jobdb/runtime/sqlite -run '^(TestCellArchive.*Removed|TestCellRetirementKeepsHistory|TestCells|TestRetainedFormat.*|TestProjectRuntimeExplicitInstallation|TestProjectInstallerRejects.*)$'"
+          go test -count=1 -p=2 -timeout=3m -v ./pkg/jobdb/cli ./pkg/jobdb/runtime/remote ./pkg/jobdb/runtime/sqlite -run '^(TestCellArchive.*Removed|TestCellRetirementKeepsHistory|TestCells|TestRetainedFormat.*|TestProjectRuntimeExplicitInstallation|TestProjectInstallerRejects.*)$'
           # testdata is excluded from ./...; run the exact public consumer fixture too.
           printf '%s\n' 'Command: go test -count=1 -timeout=5m ./scripts/testdata/published-append-consumer'
           go test -count=1 -timeout=5m ./scripts/testdata/published-append-consumer

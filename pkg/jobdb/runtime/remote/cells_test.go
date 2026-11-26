@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -143,6 +144,112 @@ func TestCellHTTPRequiresAuthority(t *testing.T) {
 		handler.ServeHTTP(w, req)
 		require.Equal(t, 403, w.Code, w.Body.String())
 	}
+}
+
+func TestCellArchiveRoutesRemoved(t *testing.T) {
+	backend := toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
+	ctx := celltest.Context(context.Background())
+	handler := celltest.Handler(NewServer(backend))
+	const scope = "test"
+	first, err := backend.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: scope, Name: "one", Repo: "example.test/one"})
+	require.NoError(t, err)
+	second, err := backend.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: scope, Name: "two", Repo: "example.test/two"})
+	require.NoError(t, err)
+	key := jobdb.CellKey{TenantID: scope, CellID: first.ID}
+	for _, family := range []string{"tenants", "projects"} {
+		t.Run(family, func(t *testing.T) {
+			base := "/v1/" + family + "/" + scope + "/cells"
+			for _, action := range []string{"archive", "unarchive"} {
+				request := httptest.NewRequest(http.MethodPost, base+"/"+first.ID+"/"+action, nil)
+				request.Header.Set("If-Match", fmt.Sprintf("%q", first.Revision))
+				response := httptest.NewRecorder()
+				handler.ServeHTTP(response, request)
+				require.Equal(t, http.StatusNotFound, response.Code, response.Body.String())
+				stored, err := backend.GetCell(ctx, key)
+				require.NoError(t, err)
+				require.Equal(t, first, stored)
+			}
+			list := func(path string) (string, string) {
+				t.Helper()
+				response := httptest.NewRecorder()
+				handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+				require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+				var page struct {
+					Cells []map[string]json.RawMessage `json:"cells"`
+					Next  string                       `json:"nextPageToken"`
+				}
+				require.NoError(t, json.Unmarshal(response.Body.Bytes(), &page))
+				require.Len(t, page.Cells, 1)
+				require.NotContains(t, page.Cells[0], "archivedAt")
+				require.JSONEq(t, `"ACTIVE"`, string(page.Cells[0]["state"]))
+				var id string
+				require.NoError(t, json.Unmarshal(page.Cells[0]["id"], &id))
+				return id, page.Next
+			}
+			query := base + "?state=ACTIVE&pageSize=1"
+			firstID, next := list(query)
+			require.NotEmpty(t, next)
+			secondID, next := list(query + "&pageToken=" + next)
+			require.Empty(t, next)
+			require.ElementsMatch(t, []string{first.ID, second.ID}, []string{firstID, secondID})
+		})
+	}
+}
+
+func TestCellRetirementKeepsHistory(t *testing.T) {
+	backend := toy.New(toy.WithProjects(celltest.UnrestrictedProjects{}))
+	ctx := celltest.Context(context.Background())
+	handler := NewServer(backend)
+	create := jobdb.CreateCellRequest{TenantID: "test", Name: "one", Repo: "example.test/one"}
+	cell, err := backend.CreateCell(ctx, create)
+	require.NoError(t, err)
+	submit := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
+		TenantId: create.TenantID, Cell: create.Name, CellRepo: create.Repo, JobType: "work",
+		JobID: "history", Data: jobdb.NewTaskDataOrPanic("in"),
+	}}
+	historical, err := backend.SubmitJob(ctx, submit)
+	require.NoError(t, err)
+	retire := func(etag string, authorized bool) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/v1/tenants/test/cells/"+cell.ID+"/retire", nil)
+		if etag != "" {
+			request.Header.Set("If-Match", etag)
+		}
+		response := httptest.NewRecorder()
+		if authorized {
+			celltest.Handler(handler).ServeHTTP(response, request)
+		} else {
+			handler.ServeHTTP(response, request)
+		}
+		return response
+	}
+	etag := fmt.Sprintf("%q", cell.Revision)
+	for _, failure := range []struct {
+		etag       string
+		authorized bool
+		want       *jobdb.CellError
+	}{
+		{etag, false, jobdb.ErrCellForbidden},
+		{"", true, jobdb.ErrCellPreconditionRequired},
+		{`"stale"`, true, jobdb.ErrCellPrecondition},
+		{etag, true, jobdb.ErrCellBusy},
+	} {
+		response := retire(failure.etag, failure.authorized)
+		require.Equal(t, failure.want.Status, response.Code, response.Body.String())
+		require.Contains(t, response.Body.String(), failure.want.Code)
+	}
+	goalComplete(t, backend, historical, true)
+	response := retire(etag, true)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var retired jobdb.Cell
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &retired))
+	require.Equal(t, cell.ID, retired.ID)
+	require.Equal(t, jobdb.CellRetired, retired.State)
+	require.NotContains(t, response.Body.String(), `"archivedAt"`)
+	_, err = backend.GetChapter(ctx, jobdb.ChapterRef{JobKey: historical.JobKey, Ordinal: 1})
+	require.NoError(t, err)
+	submit.Job.JobID = "new"
+	_, err = backend.SubmitJob(ctx, submit)
+	require.ErrorIs(t, err, jobdb.ErrCellRetired)
 }
 
 func TestCellDelegationCeilings(t *testing.T) {

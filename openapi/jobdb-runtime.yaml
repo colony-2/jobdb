@@ -1751,7 +1751,6 @@ paths:
       parameters:
         - $ref: '#/components/parameters/NameFilter'
         - $ref: '#/components/parameters/StateFilter'
-        - $ref: '#/components/parameters/ArchivedFilter'
         - $ref: '#/components/parameters/PageSize'
         - $ref: '#/components/parameters/PageToken'
       responses:
@@ -1951,82 +1950,6 @@ paths:
           $ref: '#/components/responses/PreconditionRequired'
         '500':
           $ref: '#/components/responses/InternalError'
-  /v1/tenants/{tenantId}/cells/{cellId}/archive:
-    parameters:
-      - $ref: '#/components/parameters/TenantId'
-      - $ref: '#/components/parameters/CellId'
-    post:
-      tags:
-        - cells
-      operationId: archiveCell
-      summary: Archive a cell
-      description: Requires cells.get, cells.update, and a current strong If-Match. Changes the archive marker without changing lifecycle or execution. A current-revision repeat is unchanged; retired cells are rejected.
-      x-jobdb-authorization:
-        permissions:
-          - cells.get
-          - cells.update
-        resource: cell
-      parameters:
-        - $ref: '#/components/parameters/IfMatch'
-      responses:
-        '200':
-          $ref: '#/components/responses/CellResult'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/ArchiveConflict'
-        '412':
-          $ref: '#/components/responses/PreconditionFailed'
-        '428':
-          $ref: '#/components/responses/PreconditionRequired'
-        "501":
-          description: Backend does not support cell archiving.
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /v1/tenants/{tenantId}/cells/{cellId}/unarchive:
-    parameters:
-      - $ref: '#/components/parameters/TenantId'
-      - $ref: '#/components/parameters/CellId'
-    post:
-      tags:
-        - cells
-      operationId: unarchiveCell
-      summary: Unarchive a cell
-      description: Requires cells.get, cells.update, and a current strong If-Match. Changes the archive marker without changing lifecycle or execution. A current-revision repeat is unchanged; retired cells are rejected.
-      x-jobdb-authorization:
-        permissions:
-          - cells.get
-          - cells.update
-        resource: cell
-      parameters:
-        - $ref: '#/components/parameters/IfMatch'
-      responses:
-        '200':
-          $ref: '#/components/responses/CellResult'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/ArchiveConflict'
-        '412':
-          $ref: '#/components/responses/PreconditionFailed'
-        '428':
-          $ref: '#/components/responses/PreconditionRequired'
-        "501":
-          description: Backend does not support cell archiving.
-        '500':
-          $ref: '#/components/responses/InternalError'
   /v1/tenants/{tenantId}/cells/{cellId}/retire:
     parameters:
       - $ref: '#/components/parameters/TenantId'
@@ -2224,7 +2147,6 @@ paths:
       parameters:
         - $ref: '#/components/parameters/NameFilter'
         - $ref: '#/components/parameters/StateFilter'
-        - $ref: '#/components/parameters/ArchivedFilter'
         - $ref: '#/components/parameters/PageSize'
         - $ref: '#/components/parameters/PageToken'
       responses:
@@ -2411,82 +2333,6 @@ paths:
         "500":
           $ref: '#/components/responses/InternalError'
       summary: Change cell name, repo, description, or metadata
-      tags:
-        - projects
-      x-jobdb-authorization:
-        permissions:
-          - cells.get
-          - cells.update
-        resource: cell
-  /v1/projects/{projectId}/cells/{cellId}/archive:
-    parameters:
-      - $ref: '#/components/parameters/ProjectId'
-      - $ref: '#/components/parameters/CellId'
-    post:
-      description: Requires cells.get, cells.update, and a current strong If-Match. Changes the archive marker without changing lifecycle or execution. A current-revision repeat is unchanged; retired cells are rejected.
-      operationId: ProjectarchiveCell
-      parameters:
-        - $ref: '#/components/parameters/IfMatch'
-      responses:
-        "200":
-          $ref: '#/components/responses/ProjectCellResult'
-        "400":
-          $ref: '#/components/responses/BadRequest'
-        "401":
-          $ref: '#/components/responses/Unauthorized'
-        "403":
-          $ref: '#/components/responses/Forbidden'
-        "404":
-          $ref: '#/components/responses/NotFound'
-        "409":
-          $ref: '#/components/responses/ArchiveConflict'
-        "412":
-          $ref: '#/components/responses/PreconditionFailed'
-        "428":
-          $ref: '#/components/responses/PreconditionRequired'
-        "501":
-          description: Backend does not support cell archiving.
-        "500":
-          $ref: '#/components/responses/InternalError'
-      summary: Archive a cell
-      tags:
-        - projects
-      x-jobdb-authorization:
-        permissions:
-          - cells.get
-          - cells.update
-        resource: cell
-  /v1/projects/{projectId}/cells/{cellId}/unarchive:
-    parameters:
-      - $ref: '#/components/parameters/ProjectId'
-      - $ref: '#/components/parameters/CellId'
-    post:
-      description: Requires cells.get, cells.update, and a current strong If-Match. Changes the archive marker without changing lifecycle or execution. A current-revision repeat is unchanged; retired cells are rejected.
-      operationId: ProjectunarchiveCell
-      parameters:
-        - $ref: '#/components/parameters/IfMatch'
-      responses:
-        "200":
-          $ref: '#/components/responses/ProjectCellResult'
-        "400":
-          $ref: '#/components/responses/BadRequest'
-        "401":
-          $ref: '#/components/responses/Unauthorized'
-        "403":
-          $ref: '#/components/responses/Forbidden'
-        "404":
-          $ref: '#/components/responses/NotFound'
-        "409":
-          $ref: '#/components/responses/ArchiveConflict'
-        "412":
-          $ref: '#/components/responses/PreconditionFailed'
-        "428":
-          $ref: '#/components/responses/PreconditionRequired'
-        "501":
-          description: Backend does not support cell archiving.
-        "500":
-          $ref: '#/components/responses/InternalError'
-      summary: Unarchive a cell
       tags:
         - projects
       x-jobdb-authorization:
@@ -4704,12 +4550,6 @@ components:
         type: string
         minLength: 3
       example: '"r1"'
-    ArchivedFilter:
-      name: archived
-      in: query
-      description: True selects marked cells, false selects unmarked cells, and omission does not filter by archive marker. Combines with the lifecycle filter.
-      schema:
-        type: boolean
     StateFilter:
       name: state
       in: query
@@ -6885,11 +6725,6 @@ components:
           format: date-time
           readOnly: true
           description: Server UTC retirement time; present only for RETIRED cells.
-        archivedAt:
-          type: string
-          format: date-time
-          readOnly: true
-          description: Server UTC archive time, omitted when unarchived.
         name:
           $ref: '#/components/schemas/CellName'
         repo:
@@ -7079,11 +6914,6 @@ components:
           readOnly: true
           type: array
           uniqueItems: true
-        archivedAt:
-          type: string
-          format: date-time
-          readOnly: true
-          description: Server UTC archive time, omitted when unarchived.
         createdAt:
           description: Server-assigned creation timestamp, returned in UTC with Z offset.
           format: date-time
@@ -7921,12 +7751,6 @@ components:
       headers:
         Cache-Control:
           $ref: '#/components/headers/NoStore'
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-    ArchiveConflict:
-      description: Retired cells cannot be archived or unarchived.
       content:
         application/json:
           schema:

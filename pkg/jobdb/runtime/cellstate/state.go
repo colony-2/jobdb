@@ -187,41 +187,6 @@ func (s *State) Update(ctx context.Context, r jobdb.UpdateCellRequest) (jobdb.Ce
 	s.Cells[c.ID] = c
 	return Clone(c), nil
 }
-func AuthorizeArchive(ctx context.Context, key jobdb.CellKey) error {
-	if err := jobdb.AuthorizeCell(ctx, key.TenantID, key.CellID, "cells.get"); err != nil {
-		return err
-	}
-	return jobdb.AuthorizeCell(ctx, key.TenantID, key.CellID, "cells.update")
-}
-
-func (s *State) SetArchived(ctx context.Context, req jobdb.ArchiveCellRequest, archived bool) (jobdb.Cell, error) {
-	if err := AuthorizeArchive(ctx, req.CellKey); err != nil {
-		return jobdb.Cell{}, err
-	}
-	cell, err := s.Get(ctx, req.CellKey)
-	if err != nil {
-		return jobdb.Cell{}, err
-	}
-	if err := jobdb.CheckCellRevision(req.IfMatch, cell.Revision); err != nil {
-		return jobdb.Cell{}, err
-	}
-	if cell.State == jobdb.CellRetired {
-		return jobdb.Cell{}, jobdb.ErrCellRetired
-	}
-	if (cell.ArchivedAt != nil) == archived {
-		return cell, nil
-	}
-	now := time.Now().UTC()
-	cell.ArchivedAt = nil
-	if archived {
-		cell.ArchivedAt = &now
-	}
-	cell.UpdatedAt = now
-	cell.Revision = ksuid.New().String()
-	s.Cells[cell.ID] = cell
-	return Clone(cell), nil
-}
-
 func (s *State) Retire(ctx context.Context, r jobdb.RetireCellRequest, busy func(string) (bool, error)) (jobdb.Cell, error) {
 	c, e := s.Get(ctx, r.CellKey)
 	if e != nil {
@@ -245,7 +210,6 @@ func (s *State) Retire(ctx context.Context, r jobdb.RetireCellRequest, busy func
 	}
 	now := time.Now().UTC()
 	c.State = jobdb.CellRetired
-	c.ArchivedAt = nil
 	c.RetiredAt = &now
 	c.UpdatedAt = now
 	c.Revision = ksuid.New().String()
@@ -256,7 +220,6 @@ func (s *State) Retire(ctx context.Context, r jobdb.RetireCellRequest, busy func
 type cursor struct {
 	Tenant, Principal, Name, State, After string
 	ExpiresAt                             int64
-	Archived                              string `json:",omitempty"`
 }
 
 func (s *State) List(ctx context.Context, r jobdb.ListCellsRequest) (jobdb.ListCellsResponse, error) {
@@ -283,9 +246,6 @@ func (s *State) List(ctx context.Context, r jobdb.ListCellsRequest) (jobdb.ListC
 	}
 	a, _ := jobdb.CellAuthorityFromContext(ctx)
 	want := cursor{Tenant: r.TenantID, Principal: a.Principal, Name: r.Name, State: r.State, ExpiresAt: time.Now().Add(24 * time.Hour).Unix()}
-	if r.Archived != nil {
-		want.Archived = fmt.Sprint(*r.Archived)
-	}
 	if r.PageToken != "" {
 		parts := strings.Split(r.PageToken, ".")
 		if len(parts) != 2 {
@@ -322,9 +282,6 @@ func (s *State) List(ctx context.Context, r jobdb.ListCellsRequest) (jobdb.ListC
 	for _, id := range ids {
 		c := s.Cells[id]
 		if id <= want.After || a.Cells != nil && !a.Cells[id] || r.State != "ALL" && string(c.State) != r.State {
-			continue
-		}
-		if r.Archived != nil && (c.ArchivedAt != nil) != *r.Archived {
 			continue
 		}
 		if r.Name != "" {

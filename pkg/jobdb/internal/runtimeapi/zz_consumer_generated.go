@@ -25,11 +25,7 @@ type ConsumerServerInterface interface {
 
 	UpdateCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params UpdateCellParams)
 
-	ArchiveCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params ArchiveCellParams)
-
 	RetireCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params RetireCellParams)
-
-	UnarchiveCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params UnarchiveCellParams)
 
 	GetTenantConfiguration(w http.ResponseWriter, r *http.Request, tenantId TenantId)
 
@@ -227,12 +223,6 @@ func (siw *ConsumerServerInterfaceWrapper) ListCells(w http.ResponseWriter, r *h
 		return
 	}
 
-	err = runtime.BindQueryParameter("form", true, false, "archived", r.URL.Query(), &params.Archived)
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "archived", Err: err})
-		return
-	}
-
 	err = runtime.BindQueryParameter("form", true, false, "pageSize", r.URL.Query(), &params.PageSize)
 	if err != nil {
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pageSize", Err: err})
@@ -381,65 +371,6 @@ func (siw *ConsumerServerInterfaceWrapper) UpdateCell(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
-func (siw *ConsumerServerInterfaceWrapper) ArchiveCell(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	var tenantId TenantId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
-		return
-	}
-
-	var cellId CellId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "cellId", chi.URLParam(r, "cellId"), &cellId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cellId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	var params ArchiveCellParams
-
-	headers := r.Header
-
-	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
-		var IfMatch IfMatch
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
-			return
-		}
-
-		params.IfMatch = &IfMatch
-
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ArchiveCell(w, r, tenantId, cellId, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 func (siw *ConsumerServerInterfaceWrapper) RetireCell(w http.ResponseWriter, r *http.Request) {
 
 	var err error
@@ -490,65 +421,6 @@ func (siw *ConsumerServerInterfaceWrapper) RetireCell(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RetireCell(w, r, tenantId, cellId, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-func (siw *ConsumerServerInterfaceWrapper) UnarchiveCell(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	var tenantId TenantId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
-		return
-	}
-
-	var cellId CellId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "cellId", chi.URLParam(r, "cellId"), &cellId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cellId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	var params UnarchiveCellParams
-
-	headers := r.Header
-
-	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
-		var IfMatch IfMatch
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
-			return
-		}
-
-		params.IfMatch = &IfMatch
-
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UnarchiveCell(w, r, tenantId, cellId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3200,13 +3072,7 @@ func ConsumerHandlerWithOptions(si ConsumerServerInterface, options ChiServerOpt
 		r.Patch(options.BaseURL+"/v1/tenants/{tenantId}/cells/{cellId}", wrapper.UpdateCell)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/cells/{cellId}/archive", wrapper.ArchiveCell)
-	})
-	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/cells/{cellId}/retire", wrapper.RetireCell)
-	})
-	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/cells/{cellId}/unarchive", wrapper.UnarchiveCell)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/tenants/{tenantId}/configuration", wrapper.GetTenantConfiguration)
@@ -3377,11 +3243,7 @@ type ConsumerStrictServerInterface interface {
 
 	UpdateCell(ctx context.Context, request UpdateCellRequestObject) (UpdateCellResponseObject, error)
 
-	ArchiveCell(ctx context.Context, request ArchiveCellRequestObject) (ArchiveCellResponseObject, error)
-
 	RetireCell(ctx context.Context, request RetireCellRequestObject) (RetireCellResponseObject, error)
-
-	UnarchiveCell(ctx context.Context, request UnarchiveCellRequestObject) (UnarchiveCellResponseObject, error)
 
 	GetTenantConfiguration(ctx context.Context, request GetTenantConfigurationRequestObject) (GetTenantConfigurationResponseObject, error)
 
@@ -3699,33 +3561,6 @@ func (sh *consumerStrictHandler) UpdateCell(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-func (sh *consumerStrictHandler) ArchiveCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params ArchiveCellParams) {
-	var request ArchiveCellRequestObject
-
-	request.TenantId = tenantId
-	request.CellId = cellId
-	request.Params = params
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ArchiveCell(ctx, request.(ArchiveCellRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ArchiveCell")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ArchiveCellResponseObject); ok {
-		if err := validResponse.VisitArchiveCellResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
 func (sh *consumerStrictHandler) RetireCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params RetireCellParams) {
 	var request RetireCellRequestObject
 
@@ -3746,33 +3581,6 @@ func (sh *consumerStrictHandler) RetireCell(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RetireCellResponseObject); ok {
 		if err := validResponse.VisitRetireCellResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-func (sh *consumerStrictHandler) UnarchiveCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params UnarchiveCellParams) {
-	var request UnarchiveCellRequestObject
-
-	request.TenantId = tenantId
-	request.CellId = cellId
-	request.Params = params
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.UnarchiveCell(ctx, request.(UnarchiveCellRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "UnarchiveCell")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(UnarchiveCellResponseObject); ok {
-		if err := validResponse.VisitUnarchiveCellResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

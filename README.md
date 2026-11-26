@@ -17,8 +17,8 @@ through manual deployment. See [catalog, admission and upgrade details](docs/DES
 Resource writes require an explicitly installed catalog. For a fresh SQLite
 database, first run `jobdb project installation initialize --database jobdb.db
 --participants-sha256 SHA256` with the SHA-256 of the independently verified
-participant inventory. Formats 11–15 require the separate explicit offline migration first.
-For existing format-16 storage, fence writers, inspect
+participant inventory. Formats 11–14 require the separate explicit offline migration first.
+For existing format-15 storage, fence writers, inspect
 and explicitly install approved legacy identities as described in the guide.
 Opening a server does not import projects. After starting it, use
 `jobdb project create NAME --request-id SAVED_ID`, then use the returned ID with
@@ -31,12 +31,11 @@ system are outside this change.
 Jobs require a cell name. A cell has a stable generated ID, a unique tenant-local
 name, a Git repository, description, and arbitrary JSON metadata. All
 names can change; old names remain aliases. Repo and metadata updates use PATCH
-with an ETag. Cells can be [reversibly archived](docs/SPEC-Tenant-Cells.md#reversible-archive-marker)
-without changing execution. Retirement is permanent; cells are never deleted.
+with an ETag. Cells are retired, never deleted.
 
 The earlier named-cell transition has a separate storage and client upgrade
 boundary for pre-cell deployments. SQLite now initializes retained-job format
-16; formats 11–15 require [manual conversion](docs/MIGRATION-IMMUTABLE-GOALS.md).
+15; formats 11–14 require [manual conversion](docs/MIGRATION-IMMUTABLE-GOALS.md).
 Explicitly create cells against the **JobDB API URL** before submitting jobs:
 
 ```bash
@@ -246,7 +245,7 @@ storage, CLI administration, and lease-scoped secret resolution.
 SQLite and toy runtimes record lease events automatically with existing constructors
 and CLI invocations. Legacy implementations retain the same base interfaces;
 use `jobdb.ListLeaseEvents(ctx, runtime, req)` to query optional support and handle
-`ErrLeaseEventsUnsupported`. SQLite format 16 includes event and resource storage. Legacy formats 11–15 require explicit
+`ErrLeaseEventsUnsupported`. SQLite format 15 includes event and resource storage. Legacy formats 11–14 require explicit
 manual conversion, which preserves retained events. Pre-upgrade activity and
 historical writers leave partial history; no backfill is fabricated.
 See [lease event compatibility and upgrades](docs/GUIDE-LEASE-EVENTS.md).

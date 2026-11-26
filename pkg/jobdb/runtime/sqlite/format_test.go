@@ -65,7 +65,9 @@ func TestRetainedFormatFreshAndLegacyConstructorRefusal(t *testing.T) {
 	for range 3 {
 		var version, n int
 		require.NoError(t, r.db.QueryRow("PRAGMA user_version").Scan(&version))
-		require.Equal(t, 16, version)
+		require.Equal(t, 15, version)
+		require.NoError(t, r.db.QueryRow(`SELECT count(*) FROM pragma_table_info('jobdb_cells') WHERE name='archived_at'`).Scan(&n))
+		require.Zero(t, n)
 		require.NoError(t, r.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name IN ('jobdb_goals','jobdb_goal_candidates')`).Scan(&n))
 		require.Zero(t, n)
 		require.NoError(t, r.Close(ctx))
@@ -73,4 +75,32 @@ func TestRetainedFormatFreshAndLegacyConstructorRefusal(t *testing.T) {
 		require.NoError(t, err)
 	}
 	require.NoError(t, r.Close(ctx))
+}
+
+func TestRetainedFormatConstructorBoundary(t *testing.T) {
+	ctx := context.Background()
+	cfg := Config{DBPath: filepath.Join(t.TempDir(), "boundary.db")}
+	runtime, err := NewFromConfig(ctx, cfg)
+	require.NoError(t, err)
+	require.NoError(t, runtime.Close(ctx))
+	db, err := sql.Open(sqliteDriverName, cfg.DBPath)
+	require.NoError(t, err)
+	runtime, err = New(db)
+	require.NoError(t, err)
+	require.NoError(t, runtime.Close(ctx))
+
+	db, err = sql.Open(sqliteDriverName, cfg.DBPath)
+	require.NoError(t, err)
+	defer db.Close()
+	_, err = db.Exec(`ALTER TABLE jobdb_cells ADD COLUMN archived_at INTEGER; PRAGMA user_version=16`)
+	require.NoError(t, err)
+	before, err := os.ReadFile(cfg.DBPath)
+	require.NoError(t, err)
+	_, err = New(db)
+	require.ErrorContains(t, err, "unsupported database format 16")
+	_, err = NewFromConfig(ctx, cfg)
+	require.ErrorContains(t, err, "unsupported database format 16")
+	after, err := os.ReadFile(cfg.DBPath)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
 }

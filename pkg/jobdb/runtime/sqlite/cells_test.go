@@ -37,7 +37,6 @@ func TestCells(t *testing.T) {
 				rt = client
 			}
 			runtimetest.RunCellConformance(t, rt)
-			t.Run("archive", func(t *testing.T) { runtimetest.RunCellArchiveConformance(t, rt) })
 		})
 	}
 }
@@ -84,48 +83,6 @@ func TestCellTransactionsAcrossSQLiteConnections(t *testing.T) {
 	got, err := second.GetCell(ctx, jobdb.CellKey{TenantID: "t", CellID: root.ID})
 	require.NoError(t, err)
 	require.Equal(t, root, got)
-}
-
-func TestCellArchiveAcrossSQLiteConnections(t *testing.T) {
-	ctx := celltest.Context(context.Background())
-	cfg := sqlite.Config{Projects: celltest.UnrestrictedProjects{}, DBPath: t.TempDir() + "/cells.db"}
-	first, err := sqlite.NewFromConfig(ctx, cfg)
-	require.NoError(t, err)
-	defer first.Close(ctx)
-	second, err := sqlite.NewFromConfig(ctx, cfg)
-	require.NoError(t, err)
-	defer second.Close(ctx)
-	cell, err := first.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "tenant", Name: "example", Repo: "example.test/org/example"})
-	require.NoError(t, err)
-	key := jobdb.CellKey{TenantID: cell.TenantID, CellID: cell.ID}
-	ifMatch := fmt.Sprintf("%q", cell.Revision)
-	description := "competing edit"
-	start := make(chan struct{})
-	archiveResult, editResult := make(chan error, 1), make(chan error, 1)
-	go func() {
-		<-start
-		_, err := first.ArchiveCell(ctx, jobdb.ArchiveCellRequest{CellKey: key, IfMatch: ifMatch})
-		archiveResult <- err
-	}()
-	go func() {
-		<-start
-		_, err := second.UpdateCell(ctx, jobdb.UpdateCellRequest{CellKey: key, IfMatch: ifMatch, Description: &description})
-		editResult <- err
-	}()
-	close(start)
-	archiveErr, editErr := <-archiveResult, <-editResult
-	stored, err := second.GetCell(ctx, key)
-	require.NoError(t, err)
-	if archiveErr == nil {
-		require.ErrorIs(t, editErr, jobdb.ErrCellPrecondition)
-		require.NotNil(t, stored.ArchivedAt)
-		require.Equal(t, cell.Description, stored.Description)
-	} else {
-		require.NoError(t, editErr)
-		require.ErrorIs(t, archiveErr, jobdb.ErrCellPrecondition)
-		require.Nil(t, stored.ArchivedAt)
-		require.Equal(t, description, stored.Description)
-	}
 }
 
 func TestCellSelectorsRestrictDiscoveryAndAcquisition(t *testing.T) {

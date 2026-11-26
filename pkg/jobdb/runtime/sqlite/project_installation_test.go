@@ -38,6 +38,7 @@ func TestProjectRuntimeExplicitInstallation(t *testing.T) {
 	participants := projectcatalog.InstallationDigest([]byte("isolated test: default secrets empty; blobfs empty; no external writers"))
 	inv, e := InspectProjectInstallation(ctx, r.db, participants)
 	require.NoError(t, e)
+	require.Equal(t, 15, inv.Format)
 	require.NoError(t, InstallProjectCatalog(ctx, r.db, inv, []projectcatalog.Seed{{ID: "c2", Name: "c2"}}))
 	require.NoError(t, InstallProjectCatalog(ctx, r.db, inv, []projectcatalog.Seed{{ID: "c2", Name: "c2"}}))
 	after, e := InspectProjectInstallation(ctx, r.db, participants)
@@ -83,6 +84,25 @@ func TestProjectInstallerRejectsChangedAndUnknownInventory(t *testing.T) {
 	require.NoError(t, e)
 	_, e = InspectProjectInstallation(ctx, r.db, participants)
 	require.ErrorContains(t, e, "unapproved legacy project")
+}
+
+func TestProjectInstallerRejectsFormat16(t *testing.T) {
+	ctx := projectAdminContext()
+	runtime, err := NewFromConfig(ctx, Config{DBPath: filepath.Join(t.TempDir(), "runtime.db")})
+	require.NoError(t, err)
+	defer runtime.Close(ctx)
+	participants := projectcatalog.InstallationDigest([]byte("synthetic participant inventory"))
+	inventory, err := InspectProjectInstallation(ctx, runtime.db, participants)
+	require.NoError(t, err)
+	_, err = runtime.db.Exec(`ALTER TABLE jobdb_cells ADD COLUMN archived_at INTEGER; PRAGMA user_version=16`)
+	require.NoError(t, err)
+	_, err = InspectProjectInstallation(ctx, runtime.db, participants)
+	require.ErrorContains(t, err, "requires current SQLite format 15, got 16")
+	err = InstallProjectCatalog(ctx, runtime.db, inventory, []projectcatalog.Seed{{ID: "c2", Name: "c2"}})
+	require.ErrorContains(t, err, "requires current SQLite format 15, got 16")
+	var entries int
+	require.NoError(t, runtime.db.QueryRow("SELECT count(*) FROM sqlite_schema WHERE name='jobdb_project_catalog'").Scan(&entries))
+	require.Zero(t, entries)
 }
 func TestProjectHTTPHistoryOnReopenedInstalledSQLite(t *testing.T) {
 	ctx := projectAdminContext()
@@ -157,8 +177,8 @@ func TestProjectInstallationAfterExplicitGoalMigration(t *testing.T) {
 		require.NoError(t, err)
 		before, schema := compatibilitySnapshot(t, db), schemaSnapshot(t, db)
 		inv, err := InspectProjectInstallation(ctx, db, participants)
-		require.ErrorContains(t, err, "requires current SQLite format 16")
-		require.ErrorContains(t, InstallProjectCatalog(ctx, db, inv, []projectcatalog.Seed{{ID: "c2", Name: "c2"}}), "requires current SQLite format 16")
+		require.ErrorContains(t, err, "requires current SQLite format 15")
+		require.ErrorContains(t, InstallProjectCatalog(ctx, db, inv, []projectcatalog.Seed{{ID: "c2", Name: "c2"}}), "requires current SQLite format 15")
 		require.Equal(t, before, compatibilitySnapshot(t, db))
 		require.Equal(t, schema, schemaSnapshot(t, db))
 	}
@@ -169,7 +189,7 @@ func TestProjectInstallationAfterExplicitGoalMigration(t *testing.T) {
 	before := compatibilitySnapshot(t, db)
 	inv, err := InspectProjectInstallation(ctx, db, participants)
 	require.NoError(t, err)
-	require.Equal(t, 16, inv.Format)
+	require.Equal(t, 15, inv.Format)
 	require.Len(t, inv.Tables, 17)
 	require.NoError(t, InstallProjectCatalog(ctx, db, inv, []projectcatalog.Seed{{ID: "c2", Name: "c2"}}))
 	after := compatibilitySnapshot(t, db)

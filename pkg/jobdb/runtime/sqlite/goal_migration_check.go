@@ -198,7 +198,7 @@ func inspectGoalMigration(ctx context.Context, tx *sql.Tx, report *GoalMigration
 		return nil
 	}
 	if report.SourceFormat != 11 && report.SourceFormat != 12 {
-		report.issue("unsupported_format", "", "", "", "", fmt.Sprintf("format %d is not a supported format (11–16)", report.SourceFormat))
+		report.issue("unsupported_format", "", "", "", "", fmt.Sprintf("format %d is not a supported format (11–15)", report.SourceFormat))
 		return report.finish()
 	}
 	if err := validateLeaseEventBaseSchema(ctx, tx, report.SourceFormat == 12); err != nil {

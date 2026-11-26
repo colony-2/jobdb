@@ -8,10 +8,9 @@ import (
 	"strings"
 )
 
-const currentFormat = 16
+const currentFormat = 15
 
 const leaseUpdateSchemaSQL = `ALTER TABLE jobdb_jobs ADD COLUMN last_lease_updated_at_ns INTEGER;`
-const cellArchiveSchemaSQL = `ALTER TABLE jobdb_cells ADD COLUMN archived_at_ns INTEGER;`
 
 // ErrMigrationRequired identifies the manual-upgrade prerequisite independently
 // of the source format and selected database path.
@@ -63,7 +62,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	switch version {
-	case 11, 12, 13, 14, 15:
+	case 11, 12, 13, 14:
 		return legacyMigrationRequired(ctx, tx, version)
 	case 0:
 		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tables); err != nil {
@@ -79,9 +78,6 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			return err
 		}
 		if err = addLeaseUpdateSchema(ctx, tx); err != nil {
-			return err
-		}
-		if err = addCellArchiveSchema(ctx, tx); err != nil {
 			return err
 		}
 		if err = markCurrentFormat(ctx, tx); err != nil {
@@ -102,11 +98,6 @@ func migrate(ctx context.Context, db *sql.DB) error {
 
 func addLeaseUpdateSchema(ctx context.Context, tx *sql.Tx) error {
 	_, err := tx.ExecContext(ctx, leaseUpdateSchemaSQL)
-	return err
-}
-
-func addCellArchiveSchema(ctx context.Context, tx *sql.Tx) error {
-	_, err := tx.ExecContext(ctx, cellArchiveSchemaSQL)
 	return err
 }
 

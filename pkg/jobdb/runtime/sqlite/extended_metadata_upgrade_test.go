@@ -28,9 +28,12 @@ func TestJobExtendedMetadataSQLiteUpgradeFromMain(t *testing.T) {
 	db, err := sql.Open(sqliteDriverName, path)
 	require.NoError(t, err)
 	defer db.Close()
-	before := compatibilitySnapshot(t, db)
-	require.NotContains(t, before, jobMetadataTable)
-	require.NotContains(t, before, jobMetadataEventsTable)
+	before, err := InspectProjectInstallation(ctx, db, manifest)
+	require.NoError(t, err)
+	require.Equal(t, 15, before.Format)
+	for _, table := range before.Tables {
+		require.NotContains(t, table.Name, "extended_job_metadata")
+	}
 	goalStates := map[string]jobdb.GoalState{"ready": jobdb.GoalOpen, "retained": jobdb.GoalSucceeded}
 	assertExisting := func(reader jobdb.ConsumerRuntime, runtime *Runtime, states map[string]jobdb.GoalState) {
 		t.Helper()
@@ -58,22 +61,22 @@ func TestJobExtendedMetadataSQLiteUpgradeFromMain(t *testing.T) {
 			}
 		}
 	}
-	_, err = MigrateGoals(ctx, path)
-	require.NoError(t, err)
 	runtime, err := NewFromConfig(ctx, Config{DBPath: path})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = runtime.Close(ctx) })
 	after, err := InspectProjectInstallation(ctx, db, manifest)
 	require.NoError(t, err)
-	require.Equal(t, currentFormat, after.Format)
-	upgraded := compatibilitySnapshot(t, db)
-	require.Contains(t, upgraded, jobMetadataTable)
-	require.Contains(t, upgraded, jobMetadataEventsTable)
-	require.Empty(t, upgraded[jobMetadataTable])
-	require.Empty(t, upgraded[jobMetadataEventsTable])
-	for table, rows := range before {
-		require.Equal(t, rows, upgraded[table], table)
+	var originalTables []ProjectTableInventory
+	for _, table := range after.Tables {
+		if table.Name == jobMetadataTable || table.Name == jobMetadataEventsTable {
+			require.Zero(t, table.Rows)
+		} else {
+			originalTables = append(originalTables, table)
+		}
 	}
+	require.Len(t, after.Tables, len(before.Tables)+2)
+	require.Equal(t, before.Tables, originalTables)
+	require.Equal(t, before.Scopes, after.Scopes)
 	assertExisting(runtime, runtime, goalStates)
 	key := jobdb.JobKey{TenantId: "c2", JobId: "retained"}
 	var version jobdb.MetadataVersion

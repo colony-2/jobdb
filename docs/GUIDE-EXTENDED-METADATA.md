@@ -17,4 +17,4 @@ Lease-free calls use the runtime's existing project admission and the deployment
 
 On HTTP, send `PATCH /v1/tenants/{tenantId}/jobs/{jobId}/extended-metadata` or `PATCH /v1/projects/{projectId}/jobs/{jobId}/extended-metadata`. For a lease edit, insert `/leases/{leaseId}` after the job ID and send `X-JobDB-Lease-Token`. Use only the path to select the job. A request body is `{"key":"annotation","expectedVersion":"0","set":null}` or `{"key":"annotation","expectedVersion":"1","remove":true}`. Versions are decimal strings to avoid precision loss. The response and existing detail/list endpoints use the same entry shape, for example `{"version":"1","present":true,"value":null}`.
 
-SQLite opens format-16 databases and installs any missing job metadata tables together, without rewriting jobs, goals, or chapters. Formats 11–15 first require the [explicit offline migration](MIGRATION-IMMUTABLE-GOALS.md).
+SQLite opens existing format-15 databases and installs the job metadata tables together, without rewriting jobs, goals, or chapters. Prior formats still use the existing explicit migration process.

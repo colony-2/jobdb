@@ -32,7 +32,6 @@ type Cell struct {
 	CreatedAt   time.Time                  `json:"createdAt"`
 	UpdatedAt   time.Time                  `json:"updatedAt"`
 	RetiredAt   *time.Time                 `json:"retiredAt,omitempty"`
-	ArchivedAt  *time.Time                 `json:"archivedAt,omitempty"`
 }
 type CellKey struct {
 	TenantID string
@@ -58,14 +57,9 @@ type RetireCellRequest struct {
 	CellKey
 	IfMatch string
 }
-type ArchiveCellRequest struct {
-	CellKey
-	IfMatch string
-}
 type ListCellsRequest struct {
 	TenantID, Name, State, PageToken string
 	PageSize                         int
-	Archived                         *bool
 }
 type ListCellsResponse struct {
 	Cells         []Cell `json:"cells"`
@@ -90,12 +84,6 @@ type CellRuntime interface {
 	ListCells(context.Context, ListCellsRequest) (ListCellsResponse, error)
 	UpdateCell(context.Context, UpdateCellRequest) (Cell, error)
 	RetireCell(context.Context, RetireCellRequest) (Cell, error)
-}
-
-// CellArchiveRuntime is the optional reversible cell archive capability.
-type CellArchiveRuntime interface {
-	ArchiveCell(context.Context, ArchiveCellRequest) (Cell, error)
-	UnarchiveCell(context.Context, ArchiveCellRequest) (Cell, error)
 }
 
 // CellAuthority is supplied only by trusted embedding code or HTTP authentication
@@ -164,7 +152,6 @@ var (
 	ErrCellConflict             = &CellError{"cell_conflict", 409}
 	ErrCellRepoMismatch         = &CellError{"cell_repo_mismatch", 409}
 	ErrCellRetired              = &CellError{"cell_retired", 409}
-	ErrCellArchiveUnsupported   = &CellError{"cell_archive_unsupported", 501}
 	ErrCellBusy                 = &CellError{"cell_busy", 409}
 	ErrCellRequestConflict      = &CellError{"request_conflict", 409}
 	ErrCellPrecondition         = &CellError{"precondition_failed", 412}
@@ -268,11 +255,6 @@ func CheckCellRevision(header, revision string) error {
 	}
 	if len(header) < 3 || header[0] != '"' || header[len(header)-1] != '"' || strings.ContainsAny(header[1:len(header)-1], "\"\\,\r\n") {
 		return ErrInvalidCell
-	}
-	for _, char := range []byte(header[1 : len(header)-1]) {
-		if char < 0x21 || char == 0x7f {
-			return ErrInvalidCell
-		}
 	}
 	if header != fmt.Sprintf("%q", revision) {
 		return ErrCellPrecondition

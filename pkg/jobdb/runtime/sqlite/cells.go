@@ -15,7 +15,7 @@ import (
 
 func loadCells(ctx context.Context, q queryer, tenant string) (*cellstate.State, error) {
 	s := cellstate.New()
-	rows, err := q.QueryContext(ctx, `SELECT cell_id,name,repo,description,metadata,state,revision,created_at_ns,updated_at_ns,retired_at_ns,archived_at_ns FROM jobdb_cells WHERE tenant_id=?`, tenant)
+	rows, err := q.QueryContext(ctx, `SELECT cell_id,name,repo,description,metadata,state,revision,created_at_ns,updated_at_ns,retired_at_ns FROM jobdb_cells WHERE tenant_id=?`, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -23,8 +23,8 @@ func loadCells(ctx context.Context, q queryer, tenant string) (*cellstate.State,
 		c := jobdb.Cell{TenantID: tenant, Aliases: []string{}}
 		var metadata []byte
 		var created, updated int64
-		var retired, archived sql.NullInt64
-		if err = rows.Scan(&c.ID, &c.Name, &c.Repo, &c.Description, &metadata, &c.State, &c.Revision, &created, &updated, &retired, &archived); err == nil {
+		var retired sql.NullInt64
+		if err = rows.Scan(&c.ID, &c.Name, &c.Repo, &c.Description, &metadata, &c.State, &c.Revision, &created, &updated, &retired); err == nil {
 			err = json.Unmarshal(metadata, &c.Metadata)
 		}
 		if err != nil {
@@ -36,10 +36,6 @@ func loadCells(ctx context.Context, q queryer, tenant string) (*cellstate.State,
 		if retired.Valid {
 			t := timeFromNS(retired.Int64)
 			c.RetiredAt = &t
-		}
-		if archived.Valid {
-			stamp := timeFromNS(archived.Int64)
-			c.ArchivedAt = &stamp
 		}
 		s.Cells[c.ID] = c
 	}
@@ -107,14 +103,11 @@ func saveCells(ctx context.Context, tx *sql.Tx, tenant string, before, after *ce
 		if err != nil {
 			return err
 		}
-		var retired, archived any
+		var retired any
 		if c.RetiredAt != nil {
 			retired = timeToNS(*c.RetiredAt)
 		}
-		if c.ArchivedAt != nil {
-			archived = timeToNS(*c.ArchivedAt)
-		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO jobdb_cells(tenant_id,cell_id,name,repo,description,metadata,state,revision,created_at_ns,updated_at_ns,retired_at_ns,archived_at_ns) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(tenant_id,cell_id) DO UPDATE SET name=excluded.name,repo=excluded.repo,description=excluded.description,metadata=excluded.metadata,state=excluded.state,revision=excluded.revision,updated_at_ns=excluded.updated_at_ns,retired_at_ns=excluded.retired_at_ns,archived_at_ns=excluded.archived_at_ns`, tenant, id, c.Name, c.Repo, c.Description, raw, c.State, c.Revision, timeToNS(c.CreatedAt), timeToNS(c.UpdatedAt), retired, archived)
+		_, err = tx.ExecContext(ctx, `INSERT INTO jobdb_cells(tenant_id,cell_id,name,repo,description,metadata,state,revision,created_at_ns,updated_at_ns,retired_at_ns) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(tenant_id,cell_id) DO UPDATE SET name=excluded.name,repo=excluded.repo,description=excluded.description,metadata=excluded.metadata,state=excluded.state,revision=excluded.revision,updated_at_ns=excluded.updated_at_ns,retired_at_ns=excluded.retired_at_ns`, tenant, id, c.Name, c.Repo, c.Description, raw, c.State, c.Revision, timeToNS(c.CreatedAt), timeToNS(c.UpdatedAt), retired)
 		if err != nil {
 			return err
 		}
@@ -199,30 +192,6 @@ func (r *Runtime) UpdateCell(ctx context.Context, req jobdb.UpdateCellRequest) (
 	})
 	return
 }
-func (r *Runtime) ArchiveCell(ctx context.Context, req jobdb.ArchiveCellRequest) (jobdb.Cell, error) {
-	return r.setCellArchived(ctx, req, true)
-}
-
-func (r *Runtime) UnarchiveCell(ctx context.Context, req jobdb.ArchiveCellRequest) (jobdb.Cell, error) {
-	return r.setCellArchived(ctx, req, false)
-}
-
-func (r *Runtime) setCellArchived(ctx context.Context, req jobdb.ArchiveCellRequest, archived bool) (jobdb.Cell, error) {
-	if err := cellstate.AuthorizeArchive(ctx, req.CellKey); err != nil {
-		return jobdb.Cell{}, err
-	}
-	if err := jobdb.RequireProjectWrite(ctx, r.projects, req.TenantID); err != nil {
-		return jobdb.Cell{}, err
-	}
-	var out jobdb.Cell
-	err := r.cellMutation(ctx, req.TenantID, func(_ *sql.Tx, state *cellstate.State) error {
-		var err error
-		out, err = state.SetArchived(ctx, req, archived)
-		return err
-	})
-	return out, err
-}
-
 func (r *Runtime) RetireCell(ctx context.Context, req jobdb.RetireCellRequest) (out jobdb.Cell, err error) {
 	current, validationErr := r.GetCell(ctx, req.CellKey)
 	if validationErr != nil {

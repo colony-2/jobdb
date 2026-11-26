@@ -1673,9 +1673,6 @@ type UpdateCellRequest struct {
 	Repo *CellRepo `json:"repo,omitempty"`
 }
 
-// ArchivedFilter defines model for ArchivedFilter.
-type ArchivedFilter = bool
-
 // ArtifactName defines model for ArtifactName.
 type ArtifactName = string
 
@@ -1723,9 +1720,6 @@ type StateFilter string
 
 // TenantId defines model for TenantId.
 type TenantId = string
-
-// ArchiveConflict defines model for ArchiveConflict.
-type ArchiveConflict = ErrorResponse
 
 // BadRequest defines model for BadRequest.
 type BadRequest = ErrorResponse
@@ -1780,9 +1774,6 @@ type ProjectlistCellsParams struct {
 	// State Lifecycle filter. ALL includes retired cells for history and name lookup.
 	State *ProjectlistCellsParamsState `form:"state,omitempty" json:"state,omitempty"`
 
-	// Archived True selects marked cells, false selects unmarked cells, and omission does not filter by archive marker. Combines with the lifecycle filter.
-	Archived *ArchivedFilter `form:"archived,omitempty" json:"archived,omitempty"`
-
 	// PageSize Maximum visible records; may change between pages.
 	PageSize *PageSize `form:"pageSize,omitempty" json:"pageSize,omitempty"`
 
@@ -1802,20 +1793,8 @@ type ProjectupdateCellParams struct {
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
-// ProjectarchiveCellParams defines parameters for ProjectarchiveCell.
-type ProjectarchiveCellParams struct {
-	// IfMatch Exactly one strong ETag from a cell response. Missing: 428; stale: 412; weak, wildcard, or list: 400.
-	IfMatch *IfMatch `json:"If-Match,omitempty"`
-}
-
 // ProjectretireCellParams defines parameters for ProjectretireCell.
 type ProjectretireCellParams struct {
-	// IfMatch Exactly one strong ETag from a cell response. Missing: 428; stale: 412; weak, wildcard, or list: 400.
-	IfMatch *IfMatch `json:"If-Match,omitempty"`
-}
-
-// ProjectunarchiveCellParams defines parameters for ProjectunarchiveCell.
-type ProjectunarchiveCellParams struct {
 	// IfMatch Exactly one strong ETag from a cell response. Missing: 428; stale: 412; weak, wildcard, or list: 400.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
@@ -2762,14 +2741,8 @@ type ClientInterface interface {
 
 	ProjectupdateCell(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectupdateCellParams, body ProjectupdateCellJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ProjectarchiveCell request
-	ProjectarchiveCell(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectarchiveCellParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// ProjectretireCell request
 	ProjectretireCell(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectretireCellParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// ProjectunarchiveCell request
-	ProjectunarchiveCell(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectunarchiveCellParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ProjectgetTenantConfiguration request
 	ProjectgetTenantConfiguration(ctx context.Context, projectId ProjectId, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -3129,32 +3102,8 @@ func (c *Client) ProjectupdateCell(ctx context.Context, projectId ProjectId, cel
 	return c.Client.Do(req)
 }
 
-func (c *Client) ProjectarchiveCell(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectarchiveCellParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewProjectarchiveCellRequest(c.Server, projectId, cellId, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 func (c *Client) ProjectretireCell(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectretireCellParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewProjectretireCellRequest(c.Server, projectId, cellId, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ProjectunarchiveCell(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectunarchiveCellParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewProjectunarchiveCellRequest(c.Server, projectId, cellId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -4472,22 +4421,6 @@ func NewProjectlistCellsRequest(server string, projectId ProjectId, params *Proj
 
 		}
 
-		if params.Archived != nil {
-
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "archived", runtime.ParamLocationQuery, *params.Archived); err != nil {
-				return nil, err
-			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
-				return nil, err
-			} else {
-				for k, v := range parsed {
-					for _, v2 := range v {
-						queryValues.Add(k, v2)
-					}
-				}
-			}
-
-		}
-
 		if params.PageSize != nil {
 
 			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "pageSize", runtime.ParamLocationQuery, *params.PageSize); err != nil {
@@ -4688,62 +4621,6 @@ func NewProjectupdateCellRequestWithBody(server string, projectId ProjectId, cel
 	return req, nil
 }
 
-// NewProjectarchiveCellRequest generates requests for ProjectarchiveCell
-func NewProjectarchiveCellRequest(server string, projectId ProjectId, cellId CellId, params *ProjectarchiveCellParams) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "projectId", runtime.ParamLocationPath, projectId)
-	if err != nil {
-		return nil, err
-	}
-
-	var pathParam1 string
-
-	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "cellId", runtime.ParamLocationPath, cellId)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v1/projects/%s/cells/%s/archive", pathParam0, pathParam1)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("POST", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-
-		if params.IfMatch != nil {
-			var headerParam0 string
-
-			headerParam0, err = runtime.StyleParamWithLocation("simple", false, "If-Match", runtime.ParamLocationHeader, *params.IfMatch)
-			if err != nil {
-				return nil, err
-			}
-
-			req.Header.Set("If-Match", headerParam0)
-		}
-
-	}
-
-	return req, nil
-}
-
 // NewProjectretireCellRequest generates requests for ProjectretireCell
 func NewProjectretireCellRequest(server string, projectId ProjectId, cellId CellId, params *ProjectretireCellParams) (*http.Request, error) {
 	var err error
@@ -4768,62 +4645,6 @@ func NewProjectretireCellRequest(server string, projectId ProjectId, cellId Cell
 	}
 
 	operationPath := fmt.Sprintf("/v1/projects/%s/cells/%s/retire", pathParam0, pathParam1)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("POST", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-
-		if params.IfMatch != nil {
-			var headerParam0 string
-
-			headerParam0, err = runtime.StyleParamWithLocation("simple", false, "If-Match", runtime.ParamLocationHeader, *params.IfMatch)
-			if err != nil {
-				return nil, err
-			}
-
-			req.Header.Set("If-Match", headerParam0)
-		}
-
-	}
-
-	return req, nil
-}
-
-// NewProjectunarchiveCellRequest generates requests for ProjectunarchiveCell
-func NewProjectunarchiveCellRequest(server string, projectId ProjectId, cellId CellId, params *ProjectunarchiveCellParams) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "projectId", runtime.ParamLocationPath, projectId)
-	if err != nil {
-		return nil, err
-	}
-
-	var pathParam1 string
-
-	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "cellId", runtime.ParamLocationPath, cellId)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v1/projects/%s/cells/%s/unarchive", pathParam0, pathParam1)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -7966,14 +7787,8 @@ type ClientWithResponsesInterface interface {
 
 	ProjectupdateCellWithResponse(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectupdateCellParams, body ProjectupdateCellJSONRequestBody, reqEditors ...RequestEditorFn) (*ProjectupdateCellHTTPResponse, error)
 
-	// ProjectarchiveCellWithResponse request
-	ProjectarchiveCellWithResponse(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectarchiveCellParams, reqEditors ...RequestEditorFn) (*ProjectarchiveCellHTTPResponse, error)
-
 	// ProjectretireCellWithResponse request
 	ProjectretireCellWithResponse(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectretireCellParams, reqEditors ...RequestEditorFn) (*ProjectretireCellHTTPResponse, error)
-
-	// ProjectunarchiveCellWithResponse request
-	ProjectunarchiveCellWithResponse(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectunarchiveCellParams, reqEditors ...RequestEditorFn) (*ProjectunarchiveCellHTTPResponse, error)
 
 	// ProjectgetTenantConfigurationWithResponse request
 	ProjectgetTenantConfigurationWithResponse(ctx context.Context, projectId ProjectId, reqEditors ...RequestEditorFn) (*ProjectgetTenantConfigurationHTTPResponse, error)
@@ -8410,36 +8225,6 @@ func (r ProjectupdateCellHTTPResponse) StatusCode() int {
 	return 0
 }
 
-type ProjectarchiveCellHTTPResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *ProjectCellResult
-	JSON400      *BadRequest
-	JSON401      *Unauthorized
-	JSON403      *Forbidden
-	JSON404      *NotFound
-	JSON409      *ArchiveConflict
-	JSON412      *PreconditionFailed
-	JSON428      *PreconditionRequired
-	JSON500      *InternalError
-}
-
-// Status returns HTTPResponse.Status
-func (r ProjectarchiveCellHTTPResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ProjectarchiveCellHTTPResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
 type ProjectretireCellHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -8464,36 +8249,6 @@ func (r ProjectretireCellHTTPResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r ProjectretireCellHTTPResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type ProjectunarchiveCellHTTPResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *ProjectCellResult
-	JSON400      *BadRequest
-	JSON401      *Unauthorized
-	JSON403      *Forbidden
-	JSON404      *NotFound
-	JSON409      *ArchiveConflict
-	JSON412      *PreconditionFailed
-	JSON428      *PreconditionRequired
-	JSON500      *InternalError
-}
-
-// Status returns HTTPResponse.Status
-func (r ProjectunarchiveCellHTTPResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ProjectunarchiveCellHTTPResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -9794,15 +9549,6 @@ func (c *ClientWithResponses) ProjectupdateCellWithResponse(ctx context.Context,
 	return ParseProjectupdateCellHTTPResponse(rsp)
 }
 
-// ProjectarchiveCellWithResponse request returning *ProjectarchiveCellHTTPResponse
-func (c *ClientWithResponses) ProjectarchiveCellWithResponse(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectarchiveCellParams, reqEditors ...RequestEditorFn) (*ProjectarchiveCellHTTPResponse, error) {
-	rsp, err := c.ProjectarchiveCell(ctx, projectId, cellId, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseProjectarchiveCellHTTPResponse(rsp)
-}
-
 // ProjectretireCellWithResponse request returning *ProjectretireCellHTTPResponse
 func (c *ClientWithResponses) ProjectretireCellWithResponse(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectretireCellParams, reqEditors ...RequestEditorFn) (*ProjectretireCellHTTPResponse, error) {
 	rsp, err := c.ProjectretireCell(ctx, projectId, cellId, params, reqEditors...)
@@ -9810,15 +9556,6 @@ func (c *ClientWithResponses) ProjectretireCellWithResponse(ctx context.Context,
 		return nil, err
 	}
 	return ParseProjectretireCellHTTPResponse(rsp)
-}
-
-// ProjectunarchiveCellWithResponse request returning *ProjectunarchiveCellHTTPResponse
-func (c *ClientWithResponses) ProjectunarchiveCellWithResponse(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectunarchiveCellParams, reqEditors ...RequestEditorFn) (*ProjectunarchiveCellHTTPResponse, error) {
-	rsp, err := c.ProjectunarchiveCell(ctx, projectId, cellId, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseProjectunarchiveCellHTTPResponse(rsp)
 }
 
 // ProjectgetTenantConfigurationWithResponse request returning *ProjectgetTenantConfigurationHTTPResponse
@@ -11007,88 +10744,6 @@ func ParseProjectupdateCellHTTPResponse(rsp *http.Response) (*ProjectupdateCellH
 	return response, nil
 }
 
-// ParseProjectarchiveCellHTTPResponse parses an HTTP response from a ProjectarchiveCellWithResponse call
-func ParseProjectarchiveCellHTTPResponse(rsp *http.Response) (*ProjectarchiveCellHTTPResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ProjectarchiveCellHTTPResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest ProjectCellResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest ArchiveConflict
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON409 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 412:
-		var dest PreconditionFailed
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON412 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 428:
-		var dest PreconditionRequired
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON428 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
-		var dest InternalError
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON500 = &dest
-
-	}
-
-	return response, nil
-}
-
 // ParseProjectretireCellHTTPResponse parses an HTTP response from a ProjectretireCellWithResponse call
 func ParseProjectretireCellHTTPResponse(rsp *http.Response) (*ProjectretireCellHTTPResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -11140,88 +10795,6 @@ func ParseProjectretireCellHTTPResponse(rsp *http.Response) (*ProjectretireCellH
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
 		var dest RetirementConflict
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON409 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 412:
-		var dest PreconditionFailed
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON412 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 428:
-		var dest PreconditionRequired
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON428 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
-		var dest InternalError
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON500 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseProjectunarchiveCellHTTPResponse parses an HTTP response from a ProjectunarchiveCellWithResponse call
-func ParseProjectunarchiveCellHTTPResponse(rsp *http.Response) (*ProjectunarchiveCellHTTPResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ProjectunarchiveCellHTTPResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest ProjectCellResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest BadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest NotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest ArchiveConflict
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

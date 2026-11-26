@@ -31,7 +31,11 @@ func newCellCmd() *cobra.Command {
 		if e != nil {
 			return fmt.Errorf("--repo must be a hosted Git repository locator: %w", e)
 		}
-		rt, e := newCellProjectClient(baseURL)
+		u, e := url.Parse(baseURL)
+		if e != nil || u.Host == "" || u.Scheme != "http" && u.Scheme != "https" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return fmt.Errorf("--url must be the JobDB HTTP(S) API server base URL")
+		}
+		rt, e := remote.NewProjectRuntime(strings.TrimRight(u.String(), "/"), &http.Client{Transport: configurationAuthTransport{token: os.Getenv("JOBDB_BEARER_TOKEN")}})
 		if e != nil {
 			return e
 		}
@@ -62,57 +66,7 @@ func newCellCmd() *cobra.Command {
 	create.Flags().StringVar(&repo, "repo", "", "cell Git repository (required)")
 	create.Flags().StringVar(&name, "name", "", "cell name (required; use root to bootstrap root)")
 	root.AddCommand(create)
-	root.AddCommand(newCellArchiveCmd(&tenant, &baseURL, true), newCellArchiveCmd(&tenant, &baseURL, false))
 	return root
-}
-
-func newCellProjectClient(baseURL string) (*remote.Runtime, error) {
-	parsed, err := url.Parse(baseURL)
-	if err != nil || parsed.Host == "" || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return nil, fmt.Errorf("--url must be the JobDB HTTP(S) API server base URL")
-	}
-	return remote.NewProjectRuntime(strings.TrimRight(parsed.String(), "/"), &http.Client{Transport: configurationAuthTransport{token: os.Getenv("JOBDB_BEARER_TOKEN")}})
-}
-
-func newCellArchiveCmd(tenant, baseURL *string, archive bool) *cobra.Command {
-	action, short := "archive", "Archive a project cell"
-	if !archive {
-		action, short = "unarchive", "Unarchive a project cell"
-	}
-	var revision string
-	command := &cobra.Command{Use: action + " CELL_ID", Short: short, Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		if *tenant == "" {
-			return fmt.Errorf("--project is required")
-		}
-		runtime, err := newCellProjectClient(*baseURL)
-		if err != nil {
-			return err
-		}
-		ctx := cmd.Context()
-		key := jobdb.CellKey{TenantID: *tenant, CellID: args[0]}
-		observed := revision
-		if !cmd.Flags().Changed("revision") {
-			cell, err := runtime.GetCell(ctx, key)
-			if err != nil {
-				return err
-			}
-			observed = cell.Revision
-		}
-		apply := runtime.UnarchiveCell
-		if archive {
-			apply = runtime.ArchiveCell
-		}
-		cell, err := apply(ctx, jobdb.ArchiveCellRequest{CellKey: key, IfMatch: fmt.Sprintf("%q", observed)})
-		if errors.Is(err, jobdb.ErrCellPrecondition) {
-			return fmt.Errorf("cannot %s cell %q: stale revision: %w", action, key.CellID, err)
-		}
-		if err != nil {
-			return err
-		}
-		return projectwire.Encode(cmd.OutOrStdout(), "Cell", cell)
-	}}
-	command.Flags().StringVar(&revision, "revision", "", "previously observed opaque revision (otherwise read the cell once)")
-	return command
 }
 
 // The bundled development server exposes its existing administrative ingress.
