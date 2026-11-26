@@ -158,6 +158,44 @@ func (s *Store) CreateStory(ctx context.Context, key storage.StoryKey, now time.
 	if err := s.Health(ctx); err != nil {
 		return storage.StoryRecord{}, err
 	}
+	return insertStory(ctx, s.db, key, now)
+}
+
+// CreateStoryWithInitialChapter claims the story key before preparing the chapter
+// and commits all SQL rows together. External blobs are not part of the transaction.
+func (s *Store) CreateStoryWithInitialChapter(ctx context.Context, key storage.StoryKey, now time.Time, prepare func() (storage.ChapterRecord, error)) (storage.StoryRecord, error) {
+	if err := s.Health(ctx); err != nil {
+		return storage.StoryRecord{}, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return storage.StoryRecord{}, fmt.Errorf("postgres chapterstore: begin create initial story: %w", err)
+	}
+	defer rollback(tx)
+
+	meta, err := insertStory(ctx, tx, key, now)
+	if err != nil {
+		return storage.StoryRecord{}, err
+	}
+	rec, err := prepare()
+	if err != nil {
+		return storage.StoryRecord{}, err
+	}
+	meta, err = writeChapter(ctx, tx, meta, rec, now)
+	if err != nil {
+		return storage.StoryRecord{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return storage.StoryRecord{}, fmt.Errorf("postgres chapterstore: commit create initial story: %w", err)
+	}
+	return meta, nil
+}
+
+type storyInserter interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func insertStory(ctx context.Context, db storyInserter, key storage.StoryKey, now time.Time) (storage.StoryRecord, error) {
 	rec := storage.StoryRecord{
 		Key:           key,
 		CreatedAt:     now.UTC(),
@@ -167,7 +205,7 @@ func (s *Store) CreateStory(ctx context.Context, key storage.StoryKey, now time.
 	if err := storage.ValidateStoryRecord(rec); err != nil {
 		return storage.StoryRecord{}, err
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := db.ExecContext(ctx, `
 INSERT INTO jobdb_chapter_stories (
 	anthology_id, story_id, created_at_ns, updated_at_ns, finalized, deleted, deleted_at_ns,
 	base_anthology_id, base_story_id, base_fork_ordinal, chapter_count, latest_ordinal
@@ -394,6 +432,17 @@ WHERE anthology_id = $1 AND story_id = $2 AND ordinal = $3`,
 	if !errors.Is(err, sql.ErrNoRows) {
 		return storage.StoryRecord{}, fmt.Errorf("postgres chapterstore: check chapter: %w", err)
 	}
+	meta, err = writeChapter(ctx, tx, meta, rec, now)
+	if err != nil {
+		return storage.StoryRecord{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return storage.StoryRecord{}, fmt.Errorf("postgres chapterstore: commit append: %w", err)
+	}
+	return meta, nil
+}
+
+func writeChapter(ctx context.Context, tx *sql.Tx, meta storage.StoryRecord, rec storage.ChapterRecord, now time.Time) (storage.StoryRecord, error) {
 	if err := storage.ValidateChapterAppend(meta, rec); err != nil {
 		return storage.StoryRecord{}, err
 	}
@@ -443,10 +492,6 @@ WHERE anthology_id = $4 AND story_id = $5 AND deleted = false`,
 		timeToNS(meta.UpdatedAt), meta.ChapterCount, meta.LatestOrdinal, rec.Key.AnthologyID, rec.Key.StoryID,
 	); err != nil {
 		return storage.StoryRecord{}, fmt.Errorf("postgres chapterstore: update story after append: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return storage.StoryRecord{}, fmt.Errorf("postgres chapterstore: commit append: %w", err)
 	}
 	return meta, nil
 }

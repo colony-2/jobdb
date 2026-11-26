@@ -158,6 +158,10 @@ state:
           test -s pkg/jobdb/cli/goal_candidates_test.go
           printf '%s\n' "Command: go test -count=1 -p=1 -timeout=3m -v ./pkg/jobdb/cli -run '^TestGoalCandidatesPreservesTerminalFailure$'"
           go test -count=1 -p=1 -timeout=3m -v ./pkg/jobdb/cli -run '^TestGoalCandidatesPreservesTerminalFailure$'
+          printf '%s\n' 'Command: go test -count=1 -p=2 -timeout=5m -v -tags=integration -exec <non-root launcher> <PostgreSQL chapter stores>'
+          go test -count=1 -p=2 -timeout=5m -v -tags=integration -exec "python3 $PWD/scripts/verify-test-exec.py" ./pkg/jobdb/chapterstore/postgres ./pkg/jobdb/internal/chapterstore/postgres
+          printf '%s\n' "Command: go test -count=1 -p=2 -timeout=5m -v ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/remote -run '^(TestAppendRecoversWinningChapter|TestAppendRejectsCompetingStarts|TestAppendRejectsMismatchedStartFacts|TestPublishedLastLeaseUpdateLists)$'"
+          go test -count=1 -p=2 -timeout=5m -v ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/remote -run '^(TestAppendRecoversWinningChapter|TestAppendRejectsCompetingStarts|TestAppendRejectsMismatchedStartFacts|TestPublishedLastLeaseUpdateLists)$'
           # The complete HTTP transport matrix can exceed Go's 10m default.
           printf '%s\n' 'Command: go test -count=1 -p=2 -timeout=20m -v -tags=integration -exec <python3 absolute-native-launcher> ./...'
           go test -count=1 -p=2 -timeout=20m -v -tags=integration -exec "python3 $PWD/scripts/verify-test-exec.py" ./...
@@ -303,6 +307,8 @@ state:
           # Scoped Git transport credentials remain available for module downloads.
           # Bound Go tool and test runtime threads independently of package parallelism.
           printf 'Go runtime parallelism: %s\n' "$GOMAXPROCS"
+          printf '%s\n' 'Command: go test -race -count=3 -p=1 -timeout=5m -v -tags=integration -exec <non-root launcher> ./pkg/jobdb/chapterstore/postgres -run ^TestChapterLogInitialCreate'
+          time go test -race -count=3 -p=1 -timeout=5m -v -tags=integration -exec "python3 $PWD/scripts/verify-test-exec.py" ./pkg/jobdb/chapterstore/postgres -run '^TestChapterLogInitialCreate'
           # Check route eligibility and the exact injected-clock boundary before
           # the long sweep; retain every route/claim assertion in the matrix.
           printf '%s\n' "Command: go test -json -race -count=3 -p=1 -parallel=2 -timeout=5m ./pkg/jobdb/runtime/remote ./pkg/jobdb/runtime/sqlite -run '^(TestAvailableRoutesConformance|TestResourceBackoffAvailabilityClockBoundaryB09b)$'"

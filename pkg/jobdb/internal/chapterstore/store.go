@@ -37,6 +37,10 @@ type Store struct {
 	logger    *slog.Logger
 }
 
+type initialStoryCreator interface {
+	CreateStoryWithInitialChapter(context.Context, storage.StoryKey, time.Time, func() (storage.ChapterRecord, error)) (storage.StoryRecord, error)
+}
+
 func New(rows storage.RowStore, blobs storage.BlobStore, cfg Config) (*Store, error) {
 	if rows == nil {
 		return nil, fmt.Errorf("chapterstore: rowstore is required")
@@ -74,6 +78,15 @@ func (s *Store) CreateStory(ctx context.Context, key story.Key, opts story.Creat
 		return nil, err
 	}
 	now := time.Now().UTC()
+	if creator, ok := s.rows.(initialStoryCreator); ok && opts.InitialChapter != nil {
+		rec, err := creator.CreateStoryWithInitialChapter(ctx, storageKey(key), now, func() (storage.ChapterRecord, error) {
+			return s.chapterRecordFromStoryChapter(ctx, key, 0, opts.InitialChapter)
+		})
+		if err != nil {
+			return nil, translateRowError(err)
+		}
+		return s.storyFromRecord(rec), nil
+	}
 	rec, err := s.rows.CreateStory(ctx, storageKey(key), now)
 	if err != nil {
 		return nil, translateRowError(err)
