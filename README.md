@@ -234,6 +234,7 @@ Useful references:
 - [pkg/workflow/README.md](pkg/workflow/README.md): workflow SDK, workers, and engines.
 - [docs/MIGRATION-SWF-GO-TO-JOBDB.md](docs/MIGRATION-SWF-GO-TO-JOBDB.md): concise import migration from `swf-go`.
 - [docs/API-SURFACE.md](docs/API-SURFACE.md): supported public packages.
+- [docs/GUIDE-EXTENDED-METADATA.md](docs/GUIDE-EXTENDED-METADATA.md): independently edit versioned job metadata.
 - [docs/SPEC-OpenAPI-Runtime-Contract.md](docs/SPEC-OpenAPI-Runtime-Contract.md): runtime REST contract notes.
 
 See [SQLite development secrets](docs/GUIDE-SQLITE-SECRETS.md) for tenant secret

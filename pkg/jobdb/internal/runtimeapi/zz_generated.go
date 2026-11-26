@@ -733,10 +733,11 @@ type JobInfo struct {
 	// Data Terminal task data when materialized. A `null` value should be
 	// treated as a lazily unavailable `TaskData`, for example when the job
 	// has not completed yet.
-	Data           *StoredTaskData `json:"data"`
-	ExecutionState ExecutionState  `json:"executionState"`
-	GoalId         string          `json:"goalId"`
-	NextRoute      *Route          `json:"nextRoute,omitempty"`
+	Data             *StoredTaskData             `json:"data"`
+	ExecutionState   ExecutionState              `json:"executionState"`
+	ExtendedMetadata map[string]JobMetadataEntry `json:"extendedMetadata,omitempty"`
+	GoalId           string                      `json:"goalId"`
+	NextRoute        *Route                      `json:"nextRoute,omitempty"`
 
 	// OtherGoalIds Deprecated; always empty. Jobs have only their immutable primary goal.
 	// Deprecated: Membership is the immutable primary goal.
@@ -753,6 +754,15 @@ type JobKey struct {
 	JobId    string `json:"jobId"`
 	TenantId string `json:"tenantId"`
 }
+
+// JobMetadataEdit defines model for JobMetadataEdit.
+type JobMetadataEdit = jobdb.JobMetadataEdit
+
+// JobMetadataEntry defines model for JobMetadataEntry.
+type JobMetadataEntry = jobdb.JobMetadataEntry
+
+// JobMetadataVersion defines model for JobMetadataVersion.
+type JobMetadataVersion = jobdb.MetadataVersion
 
 // JobPrerequisite defines model for JobPrerequisite.
 type JobPrerequisite struct {
@@ -858,13 +868,14 @@ type JobSummary struct {
 	CompletionDetail *string `json:"completionDetail,omitempty"`
 
 	// CompletionStatus Persisted terminal outcome, independent of scheduler status. Absent or empty means unavailable. Unfamiliar values are preserved.
-	CompletionStatus *string        `json:"completionStatus,omitempty"`
-	CreatedAt        time.Time      `json:"createdAt"`
-	ExecutionState   ExecutionState `json:"executionState"`
-	ExpiresAt        *time.Time     `json:"expiresAt,omitempty"`
-	GoalId           string         `json:"goalId"`
-	JobKey           JobKey         `json:"jobKey"`
-	JobType          string         `json:"jobType"`
+	CompletionStatus *string                     `json:"completionStatus,omitempty"`
+	CreatedAt        time.Time                   `json:"createdAt"`
+	ExecutionState   ExecutionState              `json:"executionState"`
+	ExpiresAt        *time.Time                  `json:"expiresAt,omitempty"`
+	ExtendedMetadata map[string]JobMetadataEntry `json:"extendedMetadata,omitempty"`
+	GoalId           string                      `json:"goalId"`
+	JobKey           JobKey                      `json:"jobKey"`
+	JobType          string                      `json:"jobType"`
 
 	// LastLeaseUpdatedAt Occurrence time of the most recent successful lease acquisition or renewal, when known.
 	LastLeaseUpdatedAt *time.Time `json:"lastLeaseUpdatedAt,omitempty"`
@@ -1671,6 +1682,11 @@ type CreateLeaseDelegationParams struct {
 	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
 }
 
+// EditJobMetadataWithLeaseParams defines parameters for EditJobMetadataWithLease.
+type EditJobMetadataWithLeaseParams struct {
+	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
+}
+
 // KeepAliveLeaseParams defines parameters for KeepAliveLease.
 type KeepAliveLeaseParams struct {
 	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
@@ -1787,6 +1803,9 @@ type CommitChapterIfWaitingJSONRequestBody = CommitChapterIfWaitingRequest
 // ClearCrashConcernJSONRequestBody defines body for ClearCrashConcern for application/json ContentType.
 type ClearCrashConcernJSONRequestBody = ClearCrashConcernRequest
 
+// EditJobMetadataJSONRequestBody defines body for EditJobMetadata for application/json ContentType.
+type EditJobMetadataJSONRequestBody = JobMetadataEdit
+
 // GetJobLeaseJSONRequestBody defines body for GetJobLease for application/json ContentType.
 type GetJobLeaseJSONRequestBody = GetJobLeaseRequest
 
@@ -1798,6 +1817,9 @@ type CompleteJobWithLeaseJSONRequestBody = CompleteExecutionRequest
 
 // CreateLeaseDelegationJSONRequestBody defines body for CreateLeaseDelegation for application/json ContentType.
 type CreateLeaseDelegationJSONRequestBody = CreateDelegationRequest
+
+// EditJobMetadataWithLeaseJSONRequestBody defines body for EditJobMetadataWithLease for application/json ContentType.
+type EditJobMetadataWithLeaseJSONRequestBody = JobMetadataEdit
 
 // RescheduleJobWithLeaseJSONRequestBody defines body for RescheduleJobWithLease for application/json ContentType.
 type RescheduleJobWithLeaseJSONRequestBody = RescheduleExecutionRequest
@@ -2635,6 +2657,11 @@ type ClientInterface interface {
 	// GetDependencyWait request
 	GetDependencyWait(ctx context.Context, tenantId string, jobId string, waitId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// EditJobMetadataWithBody request with any body
+	EditJobMetadataWithBody(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	EditJobMetadata(ctx context.Context, tenantId TenantId, jobId JobId, body EditJobMetadataJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetJobLeaseWithBody request with any body
 	GetJobLeaseWithBody(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -2666,6 +2693,11 @@ type ClientInterface interface {
 	CreateLeaseDelegationWithBody(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *CreateLeaseDelegationParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	CreateLeaseDelegation(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *CreateLeaseDelegationParams, body CreateLeaseDelegationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// EditJobMetadataWithLeaseWithBody request with any body
+	EditJobMetadataWithLeaseWithBody(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *EditJobMetadataWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	EditJobMetadataWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *EditJobMetadataWithLeaseParams, body EditJobMetadataWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// KeepAliveLease request
 	KeepAliveLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *KeepAliveLeaseParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -3307,6 +3339,30 @@ func (c *Client) GetDependencyWait(ctx context.Context, tenantId string, jobId s
 	return c.Client.Do(req)
 }
 
+func (c *Client) EditJobMetadataWithBody(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEditJobMetadataRequestWithBody(c.Server, tenantId, jobId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) EditJobMetadata(ctx context.Context, tenantId TenantId, jobId JobId, body EditJobMetadataJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEditJobMetadataRequest(c.Server, tenantId, jobId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) GetJobLeaseWithBody(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetJobLeaseRequestWithBody(c.Server, tenantId, jobId, contentType, body)
 	if err != nil {
@@ -3441,6 +3497,30 @@ func (c *Client) CreateLeaseDelegationWithBody(ctx context.Context, tenantId Ten
 
 func (c *Client) CreateLeaseDelegation(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *CreateLeaseDelegationParams, body CreateLeaseDelegationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateLeaseDelegationRequest(c.Server, tenantId, jobId, leaseId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) EditJobMetadataWithLeaseWithBody(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *EditJobMetadataWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEditJobMetadataWithLeaseRequestWithBody(c.Server, tenantId, jobId, leaseId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) EditJobMetadataWithLease(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *EditJobMetadataWithLeaseParams, body EditJobMetadataWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEditJobMetadataWithLeaseRequest(c.Server, tenantId, jobId, leaseId, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -5342,6 +5422,60 @@ func NewGetDependencyWaitRequest(server string, tenantId string, jobId string, w
 	return req, nil
 }
 
+// NewEditJobMetadataRequest calls the generic EditJobMetadata builder with application/json body
+func NewEditJobMetadataRequest(server string, tenantId TenantId, jobId JobId, body EditJobMetadataJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewEditJobMetadataRequestWithBody(server, tenantId, jobId, "application/json", bodyReader)
+}
+
+// NewEditJobMetadataRequestWithBody generates requests for EditJobMetadata with any type of body
+func NewEditJobMetadataRequestWithBody(server string, tenantId TenantId, jobId JobId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "jobId", runtime.ParamLocationPath, jobId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs/%s/extended-metadata", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PATCH", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetJobLeaseRequest calls the generic GetJobLease builder with application/json body
 func NewGetJobLeaseRequest(server string, tenantId TenantId, jobId JobId, body GetJobLeaseJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -5881,6 +6015,80 @@ func NewCreateLeaseDelegationRequestWithBody(server string, tenantId TenantId, j
 	}
 
 	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithLocation("simple", false, "X-JobDB-Lease-Token", runtime.ParamLocationHeader, params.XJobDBLeaseToken)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-JobDB-Lease-Token", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewEditJobMetadataWithLeaseRequest calls the generic EditJobMetadataWithLease builder with application/json body
+func NewEditJobMetadataWithLeaseRequest(server string, tenantId TenantId, jobId JobId, leaseId LeaseId, params *EditJobMetadataWithLeaseParams, body EditJobMetadataWithLeaseJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewEditJobMetadataWithLeaseRequestWithBody(server, tenantId, jobId, leaseId, params, "application/json", bodyReader)
+}
+
+// NewEditJobMetadataWithLeaseRequestWithBody generates requests for EditJobMetadataWithLease with any type of body
+func NewEditJobMetadataWithLeaseRequestWithBody(server string, tenantId TenantId, jobId JobId, leaseId LeaseId, params *EditJobMetadataWithLeaseParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "jobId", runtime.ParamLocationPath, jobId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithLocation("simple", false, "leaseId", runtime.ParamLocationPath, leaseId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/jobs/%s/leases/%s/extended-metadata", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PATCH", queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -7296,6 +7504,11 @@ type ClientWithResponsesInterface interface {
 	// GetDependencyWaitWithResponse request
 	GetDependencyWaitWithResponse(ctx context.Context, tenantId string, jobId string, waitId string, reqEditors ...RequestEditorFn) (*GetDependencyWaitHTTPResponse, error)
 
+	// EditJobMetadataWithBodyWithResponse request with any body
+	EditJobMetadataWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EditJobMetadataHTTPResponse, error)
+
+	EditJobMetadataWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, body EditJobMetadataJSONRequestBody, reqEditors ...RequestEditorFn) (*EditJobMetadataHTTPResponse, error)
+
 	// GetJobLeaseWithBodyWithResponse request with any body
 	GetJobLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*GetJobLeaseHTTPResponse, error)
 
@@ -7327,6 +7540,11 @@ type ClientWithResponsesInterface interface {
 	CreateLeaseDelegationWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *CreateLeaseDelegationParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateLeaseDelegationHTTPResponse, error)
 
 	CreateLeaseDelegationWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *CreateLeaseDelegationParams, body CreateLeaseDelegationJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateLeaseDelegationHTTPResponse, error)
+
+	// EditJobMetadataWithLeaseWithBodyWithResponse request with any body
+	EditJobMetadataWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *EditJobMetadataWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EditJobMetadataWithLeaseHTTPResponse, error)
+
+	EditJobMetadataWithLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *EditJobMetadataWithLeaseParams, body EditJobMetadataWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*EditJobMetadataWithLeaseHTTPResponse, error)
 
 	// KeepAliveLeaseWithResponse request
 	KeepAliveLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *KeepAliveLeaseParams, reqEditors ...RequestEditorFn) (*KeepAliveLeaseHTTPResponse, error)
@@ -8111,6 +8329,28 @@ func (r GetDependencyWaitHTTPResponse) StatusCode() int {
 	return 0
 }
 
+type EditJobMetadataHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *JobMetadataEntry
+}
+
+// Status returns HTTPResponse.Status
+func (r EditJobMetadataHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r EditJobMetadataHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type GetJobLeaseHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -8292,6 +8532,28 @@ func (r CreateLeaseDelegationHTTPResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r CreateLeaseDelegationHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type EditJobMetadataWithLeaseHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *JobMetadataEntry
+}
+
+// Status returns HTTPResponse.Status
+func (r EditJobMetadataWithLeaseHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r EditJobMetadataWithLeaseHTTPResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -9152,6 +9414,23 @@ func (c *ClientWithResponses) GetDependencyWaitWithResponse(ctx context.Context,
 	return ParseGetDependencyWaitHTTPResponse(rsp)
 }
 
+// EditJobMetadataWithBodyWithResponse request with arbitrary body returning *EditJobMetadataHTTPResponse
+func (c *ClientWithResponses) EditJobMetadataWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EditJobMetadataHTTPResponse, error) {
+	rsp, err := c.EditJobMetadataWithBody(ctx, tenantId, jobId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEditJobMetadataHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) EditJobMetadataWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, body EditJobMetadataJSONRequestBody, reqEditors ...RequestEditorFn) (*EditJobMetadataHTTPResponse, error) {
+	rsp, err := c.EditJobMetadata(ctx, tenantId, jobId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEditJobMetadataHTTPResponse(rsp)
+}
+
 // GetJobLeaseWithBodyWithResponse request with arbitrary body returning *GetJobLeaseHTTPResponse
 func (c *ClientWithResponses) GetJobLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*GetJobLeaseHTTPResponse, error) {
 	rsp, err := c.GetJobLeaseWithBody(ctx, tenantId, jobId, contentType, body, reqEditors...)
@@ -9254,6 +9533,23 @@ func (c *ClientWithResponses) CreateLeaseDelegationWithResponse(ctx context.Cont
 		return nil, err
 	}
 	return ParseCreateLeaseDelegationHTTPResponse(rsp)
+}
+
+// EditJobMetadataWithLeaseWithBodyWithResponse request with arbitrary body returning *EditJobMetadataWithLeaseHTTPResponse
+func (c *ClientWithResponses) EditJobMetadataWithLeaseWithBodyWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *EditJobMetadataWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EditJobMetadataWithLeaseHTTPResponse, error) {
+	rsp, err := c.EditJobMetadataWithLeaseWithBody(ctx, tenantId, jobId, leaseId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEditJobMetadataWithLeaseHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) EditJobMetadataWithLeaseWithResponse(ctx context.Context, tenantId TenantId, jobId JobId, leaseId LeaseId, params *EditJobMetadataWithLeaseParams, body EditJobMetadataWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*EditJobMetadataWithLeaseHTTPResponse, error) {
+	rsp, err := c.EditJobMetadataWithLease(ctx, tenantId, jobId, leaseId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEditJobMetadataWithLeaseHTTPResponse(rsp)
 }
 
 // KeepAliveLeaseWithResponse request returning *KeepAliveLeaseHTTPResponse
@@ -10679,6 +10975,32 @@ func ParseGetDependencyWaitHTTPResponse(rsp *http.Response) (*GetDependencyWaitH
 	return response, nil
 }
 
+// ParseEditJobMetadataHTTPResponse parses an HTTP response from a EditJobMetadataWithResponse call
+func ParseEditJobMetadataHTTPResponse(rsp *http.Response) (*EditJobMetadataHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &EditJobMetadataHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest JobMetadataEntry
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetJobLeaseHTTPResponse parses an HTTP response from a GetJobLeaseWithResponse call
 func ParseGetJobLeaseHTTPResponse(rsp *http.Response) (*GetJobLeaseHTTPResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -10958,6 +11280,32 @@ func ParseCreateLeaseDelegationHTTPResponse(rsp *http.Response) (*CreateLeaseDel
 			return nil, err
 		}
 		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseEditJobMetadataWithLeaseHTTPResponse parses an HTTP response from a EditJobMetadataWithLeaseWithResponse call
+func ParseEditJobMetadataWithLeaseHTTPResponse(rsp *http.Response) (*EditJobMetadataWithLeaseHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &EditJobMetadataWithLeaseHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest JobMetadataEntry
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	}
 
@@ -11817,6 +12165,9 @@ type ServerInterface interface {
 
 	// (GET /v1/tenants/{tenantId}/jobs/{jobId}/dependency-waits/{waitId})
 	GetDependencyWait(w http.ResponseWriter, r *http.Request, tenantId string, jobId string, waitId string)
+	// Compare and set or remove one job metadata key
+	// (PATCH /v1/tenants/{tenantId}/jobs/{jobId}/extended-metadata)
+	EditJobMetadata(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId)
 	// Get job lease
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/lease)
 	GetJobLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId)
@@ -11841,6 +12192,9 @@ type ServerInterface interface {
 	// Create a restricted lease from an owner lease
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/delegations)
 	CreateLeaseDelegation(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params CreateLeaseDelegationParams)
+	// Compare and set or remove one job metadata key
+	// (PATCH /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/extended-metadata)
+	EditJobMetadataWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params EditJobMetadataWithLeaseParams)
 	// Keep lease alive
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/keepalive)
 	KeepAliveLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params KeepAliveLeaseParams)
@@ -12073,6 +12427,12 @@ func (_ Unimplemented) GetDependencyWait(w http.ResponseWriter, r *http.Request,
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Compare and set or remove one job metadata key
+// (PATCH /v1/tenants/{tenantId}/jobs/{jobId}/extended-metadata)
+func (_ Unimplemented) EditJobMetadata(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Get job lease
 // (POST /v1/tenants/{tenantId}/jobs/{jobId}/lease)
 func (_ Unimplemented) GetJobLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId) {
@@ -12118,6 +12478,12 @@ func (_ Unimplemented) GetConfigurationWithLease(w http.ResponseWriter, r *http.
 // Create a restricted lease from an owner lease
 // (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/delegations)
 func (_ Unimplemented) CreateLeaseDelegation(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params CreateLeaseDelegationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Compare and set or remove one job metadata key
+// (PATCH /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/extended-metadata)
+func (_ Unimplemented) EditJobMetadataWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params EditJobMetadataWithLeaseParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -13437,6 +13803,46 @@ func (siw *ServerInterfaceWrapper) GetDependencyWait(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
+// EditJobMetadata operation middleware
+func (siw *ServerInterfaceWrapper) EditJobMetadata(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "jobId" -------------
+	var jobId JobId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobId", chi.URLParam(r, "jobId"), &jobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EditJobMetadata(w, r, tenantId, jobId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetJobLease operation middleware
 func (siw *ServerInterfaceWrapper) GetJobLease(w http.ResponseWriter, r *http.Request) {
 
@@ -14039,6 +14445,83 @@ func (siw *ServerInterfaceWrapper) CreateLeaseDelegation(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateLeaseDelegation(w, r, tenantId, jobId, leaseId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EditJobMetadataWithLease operation middleware
+func (siw *ServerInterfaceWrapper) EditJobMetadataWithLease(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "jobId" -------------
+	var jobId JobId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobId", chi.URLParam(r, "jobId"), &jobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "leaseId" -------------
+	var leaseId LeaseId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "leaseId", chi.URLParam(r, "leaseId"), &leaseId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "leaseId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params EditJobMetadataWithLeaseParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-JobDB-Lease-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-JobDB-Lease-Token")]; found {
+		var XJobDBLeaseToken LeaseTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-JobDB-Lease-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-JobDB-Lease-Token", valueList[0], &XJobDBLeaseToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-JobDB-Lease-Token", Err: err})
+			return
+		}
+
+		params.XJobDBLeaseToken = XJobDBLeaseToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-JobDB-Lease-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-JobDB-Lease-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EditJobMetadataWithLease(w, r, tenantId, jobId, leaseId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -15459,6 +15942,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/dependency-waits/{waitId}", wrapper.GetDependencyWait)
 	})
 	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/extended-metadata", wrapper.EditJobMetadata)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/lease", wrapper.GetJobLease)
 	})
 	r.Group(func(r chi.Router) {
@@ -15481,6 +15967,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/delegations", wrapper.CreateLeaseDelegation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/extended-metadata", wrapper.EditJobMetadataWithLease)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/keepalive", wrapper.KeepAliveLease)
@@ -17033,6 +17522,65 @@ func (response GetDependencyWait200JSONResponse) VisitGetDependencyWaitResponse(
 	return json.NewEncoder(w).Encode(response)
 }
 
+type EditJobMetadataRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	JobId    JobId    `json:"jobId"`
+	Body     *EditJobMetadataJSONRequestBody
+}
+
+type EditJobMetadataResponseObject interface {
+	VisitEditJobMetadataResponse(w http.ResponseWriter) error
+}
+
+type EditJobMetadata200JSONResponse JobMetadataEntry
+
+func (response EditJobMetadata200JSONResponse) VisitEditJobMetadataResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type EditJobMetadata400Response struct {
+}
+
+func (response EditJobMetadata400Response) VisitEditJobMetadataResponse(w http.ResponseWriter) error {
+	w.WriteHeader(400)
+	return nil
+}
+
+type EditJobMetadata403Response struct {
+}
+
+func (response EditJobMetadata403Response) VisitEditJobMetadataResponse(w http.ResponseWriter) error {
+	w.WriteHeader(403)
+	return nil
+}
+
+type EditJobMetadata404Response struct {
+}
+
+func (response EditJobMetadata404Response) VisitEditJobMetadataResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
+type EditJobMetadata409Response struct {
+}
+
+func (response EditJobMetadata409Response) VisitEditJobMetadataResponse(w http.ResponseWriter) error {
+	w.WriteHeader(409)
+	return nil
+}
+
+type EditJobMetadata501Response struct {
+}
+
+func (response EditJobMetadata501Response) VisitEditJobMetadataResponse(w http.ResponseWriter) error {
+	w.WriteHeader(501)
+	return nil
+}
+
 type GetJobLeaseRequestObject struct {
 	TenantId TenantId `json:"tenantId"`
 	JobId    JobId    `json:"jobId"`
@@ -17395,6 +17943,67 @@ func (response CreateLeaseDelegationdefaultJSONResponse) VisitCreateLeaseDelegat
 	w.WriteHeader(response.StatusCode)
 
 	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type EditJobMetadataWithLeaseRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	JobId    JobId    `json:"jobId"`
+	LeaseId  LeaseId  `json:"leaseId"`
+	Params   EditJobMetadataWithLeaseParams
+	Body     *EditJobMetadataWithLeaseJSONRequestBody
+}
+
+type EditJobMetadataWithLeaseResponseObject interface {
+	VisitEditJobMetadataWithLeaseResponse(w http.ResponseWriter) error
+}
+
+type EditJobMetadataWithLease200JSONResponse JobMetadataEntry
+
+func (response EditJobMetadataWithLease200JSONResponse) VisitEditJobMetadataWithLeaseResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type EditJobMetadataWithLease400Response struct {
+}
+
+func (response EditJobMetadataWithLease400Response) VisitEditJobMetadataWithLeaseResponse(w http.ResponseWriter) error {
+	w.WriteHeader(400)
+	return nil
+}
+
+type EditJobMetadataWithLease403Response struct {
+}
+
+func (response EditJobMetadataWithLease403Response) VisitEditJobMetadataWithLeaseResponse(w http.ResponseWriter) error {
+	w.WriteHeader(403)
+	return nil
+}
+
+type EditJobMetadataWithLease404Response struct {
+}
+
+func (response EditJobMetadataWithLease404Response) VisitEditJobMetadataWithLeaseResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
+type EditJobMetadataWithLease409Response struct {
+}
+
+func (response EditJobMetadataWithLease409Response) VisitEditJobMetadataWithLeaseResponse(w http.ResponseWriter) error {
+	w.WriteHeader(409)
+	return nil
+}
+
+type EditJobMetadataWithLease501Response struct {
+}
+
+func (response EditJobMetadataWithLease501Response) VisitEditJobMetadataWithLeaseResponse(w http.ResponseWriter) error {
+	w.WriteHeader(501)
+	return nil
 }
 
 type KeepAliveLeaseRequestObject struct {
@@ -18321,6 +18930,9 @@ type StrictServerInterface interface {
 
 	// (GET /v1/tenants/{tenantId}/jobs/{jobId}/dependency-waits/{waitId})
 	GetDependencyWait(ctx context.Context, request GetDependencyWaitRequestObject) (GetDependencyWaitResponseObject, error)
+	// Compare and set or remove one job metadata key
+	// (PATCH /v1/tenants/{tenantId}/jobs/{jobId}/extended-metadata)
+	EditJobMetadata(ctx context.Context, request EditJobMetadataRequestObject) (EditJobMetadataResponseObject, error)
 	// Get job lease
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/lease)
 	GetJobLease(ctx context.Context, request GetJobLeaseRequestObject) (GetJobLeaseResponseObject, error)
@@ -18345,6 +18957,9 @@ type StrictServerInterface interface {
 	// Create a restricted lease from an owner lease
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/delegations)
 	CreateLeaseDelegation(ctx context.Context, request CreateLeaseDelegationRequestObject) (CreateLeaseDelegationResponseObject, error)
+	// Compare and set or remove one job metadata key
+	// (PATCH /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/extended-metadata)
+	EditJobMetadataWithLease(ctx context.Context, request EditJobMetadataWithLeaseRequestObject) (EditJobMetadataWithLeaseResponseObject, error)
 	// Keep lease alive
 	// (POST /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/keepalive)
 	KeepAliveLease(ctx context.Context, request KeepAliveLeaseRequestObject) (KeepAliveLeaseResponseObject, error)
@@ -19325,6 +19940,40 @@ func (sh *strictHandler) GetDependencyWait(w http.ResponseWriter, r *http.Reques
 	}
 }
 
+// EditJobMetadata operation middleware
+func (sh *strictHandler) EditJobMetadata(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId) {
+	var request EditJobMetadataRequestObject
+
+	request.TenantId = tenantId
+	request.JobId = jobId
+
+	var body EditJobMetadataJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.EditJobMetadata(ctx, request.(EditJobMetadataRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "EditJobMetadata")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(EditJobMetadataResponseObject); ok {
+		if err := validResponse.VisitEditJobMetadataResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetJobLease operation middleware
 func (sh *strictHandler) GetJobLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId) {
 	var request GetJobLeaseRequestObject
@@ -19577,6 +20226,42 @@ func (sh *strictHandler) CreateLeaseDelegation(w http.ResponseWriter, r *http.Re
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateLeaseDelegationResponseObject); ok {
 		if err := validResponse.VisitCreateLeaseDelegationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// EditJobMetadataWithLease operation middleware
+func (sh *strictHandler) EditJobMetadataWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params EditJobMetadataWithLeaseParams) {
+	var request EditJobMetadataWithLeaseRequestObject
+
+	request.TenantId = tenantId
+	request.JobId = jobId
+	request.LeaseId = leaseId
+	request.Params = params
+
+	var body EditJobMetadataWithLeaseJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.EditJobMetadataWithLease(ctx, request.(EditJobMetadataWithLeaseRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "EditJobMetadataWithLease")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(EditJobMetadataWithLeaseResponseObject); ok {
+		if err := validResponse.VisitEditJobMetadataWithLeaseResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

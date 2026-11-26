@@ -69,6 +69,8 @@ type ConsumerServerInterface interface {
 
 	GetDependencyWait(w http.ResponseWriter, r *http.Request, tenantId string, jobId string, waitId string)
 
+	EditJobMetadata(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId)
+
 	GetJobLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId)
 
 	InspectLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params InspectLeaseParams)
@@ -84,6 +86,8 @@ type ConsumerServerInterface interface {
 	GetConfigurationWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params GetConfigurationWithLeaseParams)
 
 	CreateLeaseDelegation(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params CreateLeaseDelegationParams)
+
+	EditJobMetadataWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params EditJobMetadataWithLeaseParams)
 
 	KeepAliveLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params KeepAliveLeaseParams)
 
@@ -1228,6 +1232,43 @@ func (siw *ConsumerServerInterfaceWrapper) GetDependencyWait(w http.ResponseWrit
 	handler.ServeHTTP(w, r)
 }
 
+func (siw *ConsumerServerInterfaceWrapper) EditJobMetadata(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	var jobId JobId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobId", chi.URLParam(r, "jobId"), &jobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EditJobMetadata(w, r, tenantId, jobId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 func (siw *ConsumerServerInterfaceWrapper) GetJobLease(w http.ResponseWriter, r *http.Request) {
 
 	var err error
@@ -1780,6 +1821,77 @@ func (siw *ConsumerServerInterfaceWrapper) CreateLeaseDelegation(w http.Response
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateLeaseDelegation(w, r, tenantId, jobId, leaseId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+func (siw *ConsumerServerInterfaceWrapper) EditJobMetadataWithLease(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	var jobId JobId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobId", chi.URLParam(r, "jobId"), &jobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobId", Err: err})
+		return
+	}
+
+	var leaseId LeaseId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "leaseId", chi.URLParam(r, "leaseId"), &leaseId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "leaseId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	var params EditJobMetadataWithLeaseParams
+
+	headers := r.Header
+
+	if valueList, found := headers[http.CanonicalHeaderKey("X-JobDB-Lease-Token")]; found {
+		var XJobDBLeaseToken LeaseTokenHeader
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-JobDB-Lease-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-JobDB-Lease-Token", valueList[0], &XJobDBLeaseToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-JobDB-Lease-Token", Err: err})
+			return
+		}
+
+		params.XJobDBLeaseToken = XJobDBLeaseToken
+
+	} else {
+		err := fmt.Errorf("Header parameter X-JobDB-Lease-Token is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-JobDB-Lease-Token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EditJobMetadataWithLease(w, r, tenantId, jobId, leaseId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3026,6 +3138,9 @@ func ConsumerHandlerWithOptions(si ConsumerServerInterface, options ChiServerOpt
 		r.Get(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/dependency-waits/{waitId}", wrapper.GetDependencyWait)
 	})
 	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/extended-metadata", wrapper.EditJobMetadata)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/lease", wrapper.GetJobLease)
 	})
 	r.Group(func(r chi.Router) {
@@ -3048,6 +3163,9 @@ func ConsumerHandlerWithOptions(si ConsumerServerInterface, options ChiServerOpt
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/delegations", wrapper.CreateLeaseDelegation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/extended-metadata", wrapper.EditJobMetadataWithLease)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/keepalive", wrapper.KeepAliveLease)
@@ -3169,6 +3287,8 @@ type ConsumerStrictServerInterface interface {
 
 	GetDependencyWait(ctx context.Context, request GetDependencyWaitRequestObject) (GetDependencyWaitResponseObject, error)
 
+	EditJobMetadata(ctx context.Context, request EditJobMetadataRequestObject) (EditJobMetadataResponseObject, error)
+
 	GetJobLease(ctx context.Context, request GetJobLeaseRequestObject) (GetJobLeaseResponseObject, error)
 
 	InspectLease(ctx context.Context, request InspectLeaseRequestObject) (InspectLeaseResponseObject, error)
@@ -3184,6 +3304,8 @@ type ConsumerStrictServerInterface interface {
 	GetConfigurationWithLease(ctx context.Context, request GetConfigurationWithLeaseRequestObject) (GetConfigurationWithLeaseResponseObject, error)
 
 	CreateLeaseDelegation(ctx context.Context, request CreateLeaseDelegationRequestObject) (CreateLeaseDelegationResponseObject, error)
+
+	EditJobMetadataWithLease(ctx context.Context, request EditJobMetadataWithLeaseRequestObject) (EditJobMetadataWithLeaseResponseObject, error)
 
 	KeepAliveLease(ctx context.Context, request KeepAliveLeaseRequestObject) (KeepAliveLeaseResponseObject, error)
 
@@ -4108,6 +4230,39 @@ func (sh *consumerStrictHandler) GetDependencyWait(w http.ResponseWriter, r *htt
 	}
 }
 
+func (sh *consumerStrictHandler) EditJobMetadata(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId) {
+	var request EditJobMetadataRequestObject
+
+	request.TenantId = tenantId
+	request.JobId = jobId
+
+	var body EditJobMetadataJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.EditJobMetadata(ctx, request.(EditJobMetadataRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "EditJobMetadata")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(EditJobMetadataResponseObject); ok {
+		if err := validResponse.VisitEditJobMetadataResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 func (sh *consumerStrictHandler) GetJobLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId) {
 	var request GetJobLeaseRequestObject
 
@@ -4352,6 +4507,41 @@ func (sh *consumerStrictHandler) CreateLeaseDelegation(w http.ResponseWriter, r 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateLeaseDelegationResponseObject); ok {
 		if err := validResponse.VisitCreateLeaseDelegationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+func (sh *consumerStrictHandler) EditJobMetadataWithLease(w http.ResponseWriter, r *http.Request, tenantId TenantId, jobId JobId, leaseId LeaseId, params EditJobMetadataWithLeaseParams) {
+	var request EditJobMetadataWithLeaseRequestObject
+
+	request.TenantId = tenantId
+	request.JobId = jobId
+	request.LeaseId = leaseId
+	request.Params = params
+
+	var body EditJobMetadataWithLeaseJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.EditJobMetadataWithLease(ctx, request.(EditJobMetadataWithLeaseRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "EditJobMetadataWithLease")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(EditJobMetadataWithLeaseResponseObject); ok {
+		if err := validResponse.VisitEditJobMetadataWithLeaseResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

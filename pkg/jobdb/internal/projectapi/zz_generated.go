@@ -679,6 +679,15 @@ type JobKey struct {
 	TenantId string `json:"tenantId"`
 }
 
+// JobMetadataEdit defines model for JobMetadataEdit.
+type JobMetadataEdit = jobdb.JobMetadataEdit
+
+// JobMetadataEntry defines model for JobMetadataEntry.
+type JobMetadataEntry = jobdb.JobMetadataEntry
+
+// JobMetadataVersion defines model for JobMetadataVersion.
+type JobMetadataVersion = jobdb.MetadataVersion
+
 // JobPrerequisite defines model for JobPrerequisite.
 type JobPrerequisite struct {
 	Condition JobPrerequisiteCondition `json:"condition"`
@@ -1055,10 +1064,11 @@ type ProjectJobInfo struct {
 	// Data Terminal task data when materialized. A `null` value should be
 	// treated as a lazily unavailable `TaskData`, for example when the job
 	// has not completed yet.
-	Data           *StoredTaskData `json:"data"`
-	ExecutionState ExecutionState  `json:"executionState"`
-	GoalId         string          `json:"goalId"`
-	NextRoute      *Route          `json:"nextRoute,omitempty"`
+	Data             *StoredTaskData             `json:"data"`
+	ExecutionState   ExecutionState              `json:"executionState"`
+	ExtendedMetadata map[string]JobMetadataEntry `json:"extendedMetadata,omitempty"`
+	GoalId           string                      `json:"goalId"`
+	NextRoute        *Route                      `json:"nextRoute,omitempty"`
 
 	// OtherGoalIds Deprecated; always empty. Jobs have only their immutable primary goal.
 	// Deprecated: Membership is the immutable primary goal.
@@ -1123,13 +1133,14 @@ type ProjectJobSummary struct {
 	CompletionDetail *string `json:"completionDetail,omitempty"`
 
 	// CompletionStatus Persisted terminal outcome, independent of scheduler status. Absent or empty means unavailable. Unfamiliar values are preserved.
-	CompletionStatus *string        `json:"completionStatus,omitempty"`
-	CreatedAt        time.Time      `json:"createdAt"`
-	ExecutionState   ExecutionState `json:"executionState"`
-	ExpiresAt        *time.Time     `json:"expiresAt,omitempty"`
-	GoalId           string         `json:"goalId"`
-	JobKey           ProjectJobKey  `json:"jobKey"`
-	JobType          string         `json:"jobType"`
+	CompletionStatus *string                     `json:"completionStatus,omitempty"`
+	CreatedAt        time.Time                   `json:"createdAt"`
+	ExecutionState   ExecutionState              `json:"executionState"`
+	ExpiresAt        *time.Time                  `json:"expiresAt,omitempty"`
+	ExtendedMetadata map[string]JobMetadataEntry `json:"extendedMetadata,omitempty"`
+	GoalId           string                      `json:"goalId"`
+	JobKey           ProjectJobKey               `json:"jobKey"`
+	JobType          string                      `json:"jobType"`
 
 	// LastLeaseUpdatedAt Occurrence time of the most recent successful lease acquisition or renewal, when known.
 	LastLeaseUpdatedAt *time.Time `json:"lastLeaseUpdatedAt,omitempty"`
@@ -1843,6 +1854,11 @@ type ProjectcreateLeaseDelegationParams struct {
 	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
 }
 
+// EditProjectJobMetadataWithLeaseParams defines parameters for EditProjectJobMetadataWithLease.
+type EditProjectJobMetadataWithLeaseParams struct {
+	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
+}
+
 // ProjectkeepAliveLeaseParams defines parameters for ProjectkeepAliveLease.
 type ProjectkeepAliveLeaseParams struct {
 	XJobDBLeaseToken LeaseTokenHeader `json:"X-JobDB-Lease-Token"`
@@ -1962,6 +1978,9 @@ type ProjectcommitChapterIfWaitingJSONRequestBody = CommitChapterIfWaitingReques
 // ProjectclearCrashConcernJSONRequestBody defines body for ProjectclearCrashConcern for application/json ContentType.
 type ProjectclearCrashConcernJSONRequestBody = ClearCrashConcernRequest
 
+// EditProjectJobMetadataJSONRequestBody defines body for EditProjectJobMetadata for application/json ContentType.
+type EditProjectJobMetadataJSONRequestBody = JobMetadataEdit
+
 // ProjectgetJobLeaseJSONRequestBody defines body for ProjectgetJobLease for application/json ContentType.
 type ProjectgetJobLeaseJSONRequestBody = GetJobLeaseRequest
 
@@ -1973,6 +1992,9 @@ type ProjectcompleteJobWithLeaseJSONRequestBody = CompleteExecutionRequest
 
 // ProjectcreateLeaseDelegationJSONRequestBody defines body for ProjectcreateLeaseDelegation for application/json ContentType.
 type ProjectcreateLeaseDelegationJSONRequestBody = CreateDelegationRequest
+
+// EditProjectJobMetadataWithLeaseJSONRequestBody defines body for EditProjectJobMetadataWithLease for application/json ContentType.
+type EditProjectJobMetadataWithLeaseJSONRequestBody = JobMetadataEdit
 
 // ProjectrescheduleJobWithLeaseJSONRequestBody defines body for ProjectrescheduleJobWithLease for application/json ContentType.
 type ProjectrescheduleJobWithLeaseJSONRequestBody = RescheduleExecutionRequest
@@ -2818,6 +2840,11 @@ type ClientInterface interface {
 	// ProjectgetDependencyWait request
 	ProjectgetDependencyWait(ctx context.Context, projectId string, jobId string, waitId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// EditProjectJobMetadataWithBody request with any body
+	EditProjectJobMetadataWithBody(ctx context.Context, projectId ProjectId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	EditProjectJobMetadata(ctx context.Context, projectId ProjectId, jobId JobId, body EditProjectJobMetadataJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ProjectgetJobLeaseWithBody request with any body
 	ProjectgetJobLeaseWithBody(ctx context.Context, projectId ProjectId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -2849,6 +2876,11 @@ type ClientInterface interface {
 	ProjectcreateLeaseDelegationWithBody(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectcreateLeaseDelegationParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	ProjectcreateLeaseDelegation(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectcreateLeaseDelegationParams, body ProjectcreateLeaseDelegationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// EditProjectJobMetadataWithLeaseWithBody request with any body
+	EditProjectJobMetadataWithLeaseWithBody(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *EditProjectJobMetadataWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	EditProjectJobMetadataWithLease(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *EditProjectJobMetadataWithLeaseParams, body EditProjectJobMetadataWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ProjectkeepAliveLease request
 	ProjectkeepAliveLease(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectkeepAliveLeaseParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -3526,6 +3558,30 @@ func (c *Client) ProjectgetDependencyWait(ctx context.Context, projectId string,
 	return c.Client.Do(req)
 }
 
+func (c *Client) EditProjectJobMetadataWithBody(ctx context.Context, projectId ProjectId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEditProjectJobMetadataRequestWithBody(c.Server, projectId, jobId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) EditProjectJobMetadata(ctx context.Context, projectId ProjectId, jobId JobId, body EditProjectJobMetadataJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEditProjectJobMetadataRequest(c.Server, projectId, jobId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) ProjectgetJobLeaseWithBody(ctx context.Context, projectId ProjectId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewProjectgetJobLeaseRequestWithBody(c.Server, projectId, jobId, contentType, body)
 	if err != nil {
@@ -3660,6 +3716,30 @@ func (c *Client) ProjectcreateLeaseDelegationWithBody(ctx context.Context, proje
 
 func (c *Client) ProjectcreateLeaseDelegation(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectcreateLeaseDelegationParams, body ProjectcreateLeaseDelegationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewProjectcreateLeaseDelegationRequest(c.Server, projectId, jobId, leaseId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) EditProjectJobMetadataWithLeaseWithBody(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *EditProjectJobMetadataWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEditProjectJobMetadataWithLeaseRequestWithBody(c.Server, projectId, jobId, leaseId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) EditProjectJobMetadataWithLease(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *EditProjectJobMetadataWithLeaseParams, body EditProjectJobMetadataWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEditProjectJobMetadataWithLeaseRequest(c.Server, projectId, jobId, leaseId, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -5716,6 +5796,60 @@ func NewProjectgetDependencyWaitRequest(server string, projectId string, jobId s
 	return req, nil
 }
 
+// NewEditProjectJobMetadataRequest calls the generic EditProjectJobMetadata builder with application/json body
+func NewEditProjectJobMetadataRequest(server string, projectId ProjectId, jobId JobId, body EditProjectJobMetadataJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewEditProjectJobMetadataRequestWithBody(server, projectId, jobId, "application/json", bodyReader)
+}
+
+// NewEditProjectJobMetadataRequestWithBody generates requests for EditProjectJobMetadata with any type of body
+func NewEditProjectJobMetadataRequestWithBody(server string, projectId ProjectId, jobId JobId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "projectId", runtime.ParamLocationPath, projectId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "jobId", runtime.ParamLocationPath, jobId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/projects/%s/jobs/%s/extended-metadata", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PATCH", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewProjectgetJobLeaseRequest calls the generic ProjectgetJobLease builder with application/json body
 func NewProjectgetJobLeaseRequest(server string, projectId ProjectId, jobId JobId, body ProjectgetJobLeaseJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -6255,6 +6389,80 @@ func NewProjectcreateLeaseDelegationRequestWithBody(server string, projectId Pro
 	}
 
 	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithLocation("simple", false, "X-JobDB-Lease-Token", runtime.ParamLocationHeader, params.XJobDBLeaseToken)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-JobDB-Lease-Token", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewEditProjectJobMetadataWithLeaseRequest calls the generic EditProjectJobMetadataWithLease builder with application/json body
+func NewEditProjectJobMetadataWithLeaseRequest(server string, projectId ProjectId, jobId JobId, leaseId LeaseId, params *EditProjectJobMetadataWithLeaseParams, body EditProjectJobMetadataWithLeaseJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewEditProjectJobMetadataWithLeaseRequestWithBody(server, projectId, jobId, leaseId, params, "application/json", bodyReader)
+}
+
+// NewEditProjectJobMetadataWithLeaseRequestWithBody generates requests for EditProjectJobMetadataWithLease with any type of body
+func NewEditProjectJobMetadataWithLeaseRequestWithBody(server string, projectId ProjectId, jobId JobId, leaseId LeaseId, params *EditProjectJobMetadataWithLeaseParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "projectId", runtime.ParamLocationPath, projectId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "jobId", runtime.ParamLocationPath, jobId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithLocation("simple", false, "leaseId", runtime.ParamLocationPath, leaseId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/projects/%s/jobs/%s/leases/%s/extended-metadata", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PATCH", queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -7678,6 +7886,11 @@ type ClientWithResponsesInterface interface {
 	// ProjectgetDependencyWaitWithResponse request
 	ProjectgetDependencyWaitWithResponse(ctx context.Context, projectId string, jobId string, waitId string, reqEditors ...RequestEditorFn) (*ProjectgetDependencyWaitHTTPResponse, error)
 
+	// EditProjectJobMetadataWithBodyWithResponse request with any body
+	EditProjectJobMetadataWithBodyWithResponse(ctx context.Context, projectId ProjectId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EditProjectJobMetadataHTTPResponse, error)
+
+	EditProjectJobMetadataWithResponse(ctx context.Context, projectId ProjectId, jobId JobId, body EditProjectJobMetadataJSONRequestBody, reqEditors ...RequestEditorFn) (*EditProjectJobMetadataHTTPResponse, error)
+
 	// ProjectgetJobLeaseWithBodyWithResponse request with any body
 	ProjectgetJobLeaseWithBodyWithResponse(ctx context.Context, projectId ProjectId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ProjectgetJobLeaseHTTPResponse, error)
 
@@ -7709,6 +7922,11 @@ type ClientWithResponsesInterface interface {
 	ProjectcreateLeaseDelegationWithBodyWithResponse(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectcreateLeaseDelegationParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ProjectcreateLeaseDelegationHTTPResponse, error)
 
 	ProjectcreateLeaseDelegationWithResponse(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectcreateLeaseDelegationParams, body ProjectcreateLeaseDelegationJSONRequestBody, reqEditors ...RequestEditorFn) (*ProjectcreateLeaseDelegationHTTPResponse, error)
+
+	// EditProjectJobMetadataWithLeaseWithBodyWithResponse request with any body
+	EditProjectJobMetadataWithLeaseWithBodyWithResponse(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *EditProjectJobMetadataWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EditProjectJobMetadataWithLeaseHTTPResponse, error)
+
+	EditProjectJobMetadataWithLeaseWithResponse(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *EditProjectJobMetadataWithLeaseParams, body EditProjectJobMetadataWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*EditProjectJobMetadataWithLeaseHTTPResponse, error)
 
 	// ProjectkeepAliveLeaseWithResponse request
 	ProjectkeepAliveLeaseWithResponse(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *ProjectkeepAliveLeaseParams, reqEditors ...RequestEditorFn) (*ProjectkeepAliveLeaseHTTPResponse, error)
@@ -8547,6 +8765,28 @@ func (r ProjectgetDependencyWaitHTTPResponse) StatusCode() int {
 	return 0
 }
 
+type EditProjectJobMetadataHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *JobMetadataEntry
+}
+
+// Status returns HTTPResponse.Status
+func (r EditProjectJobMetadataHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r EditProjectJobMetadataHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type ProjectgetJobLeaseHTTPResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -8728,6 +8968,28 @@ func (r ProjectcreateLeaseDelegationHTTPResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r ProjectcreateLeaseDelegationHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type EditProjectJobMetadataWithLeaseHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *JobMetadataEntry
+}
+
+// Status returns HTTPResponse.Status
+func (r EditProjectJobMetadataWithLeaseHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r EditProjectJobMetadataWithLeaseHTTPResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -9614,6 +9876,23 @@ func (c *ClientWithResponses) ProjectgetDependencyWaitWithResponse(ctx context.C
 	return ParseProjectgetDependencyWaitHTTPResponse(rsp)
 }
 
+// EditProjectJobMetadataWithBodyWithResponse request with arbitrary body returning *EditProjectJobMetadataHTTPResponse
+func (c *ClientWithResponses) EditProjectJobMetadataWithBodyWithResponse(ctx context.Context, projectId ProjectId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EditProjectJobMetadataHTTPResponse, error) {
+	rsp, err := c.EditProjectJobMetadataWithBody(ctx, projectId, jobId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEditProjectJobMetadataHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) EditProjectJobMetadataWithResponse(ctx context.Context, projectId ProjectId, jobId JobId, body EditProjectJobMetadataJSONRequestBody, reqEditors ...RequestEditorFn) (*EditProjectJobMetadataHTTPResponse, error) {
+	rsp, err := c.EditProjectJobMetadata(ctx, projectId, jobId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEditProjectJobMetadataHTTPResponse(rsp)
+}
+
 // ProjectgetJobLeaseWithBodyWithResponse request with arbitrary body returning *ProjectgetJobLeaseHTTPResponse
 func (c *ClientWithResponses) ProjectgetJobLeaseWithBodyWithResponse(ctx context.Context, projectId ProjectId, jobId JobId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ProjectgetJobLeaseHTTPResponse, error) {
 	rsp, err := c.ProjectgetJobLeaseWithBody(ctx, projectId, jobId, contentType, body, reqEditors...)
@@ -9716,6 +9995,23 @@ func (c *ClientWithResponses) ProjectcreateLeaseDelegationWithResponse(ctx conte
 		return nil, err
 	}
 	return ParseProjectcreateLeaseDelegationHTTPResponse(rsp)
+}
+
+// EditProjectJobMetadataWithLeaseWithBodyWithResponse request with arbitrary body returning *EditProjectJobMetadataWithLeaseHTTPResponse
+func (c *ClientWithResponses) EditProjectJobMetadataWithLeaseWithBodyWithResponse(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *EditProjectJobMetadataWithLeaseParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EditProjectJobMetadataWithLeaseHTTPResponse, error) {
+	rsp, err := c.EditProjectJobMetadataWithLeaseWithBody(ctx, projectId, jobId, leaseId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEditProjectJobMetadataWithLeaseHTTPResponse(rsp)
+}
+
+func (c *ClientWithResponses) EditProjectJobMetadataWithLeaseWithResponse(ctx context.Context, projectId ProjectId, jobId JobId, leaseId LeaseId, params *EditProjectJobMetadataWithLeaseParams, body EditProjectJobMetadataWithLeaseJSONRequestBody, reqEditors ...RequestEditorFn) (*EditProjectJobMetadataWithLeaseHTTPResponse, error) {
+	rsp, err := c.EditProjectJobMetadataWithLease(ctx, projectId, jobId, leaseId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEditProjectJobMetadataWithLeaseHTTPResponse(rsp)
 }
 
 // ProjectkeepAliveLeaseWithResponse request returning *ProjectkeepAliveLeaseHTTPResponse
@@ -11263,6 +11559,32 @@ func ParseProjectgetDependencyWaitHTTPResponse(rsp *http.Response) (*ProjectgetD
 	return response, nil
 }
 
+// ParseEditProjectJobMetadataHTTPResponse parses an HTTP response from a EditProjectJobMetadataWithResponse call
+func ParseEditProjectJobMetadataHTTPResponse(rsp *http.Response) (*EditProjectJobMetadataHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &EditProjectJobMetadataHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest JobMetadataEntry
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseProjectgetJobLeaseHTTPResponse parses an HTTP response from a ProjectgetJobLeaseWithResponse call
 func ParseProjectgetJobLeaseHTTPResponse(rsp *http.Response) (*ProjectgetJobLeaseHTTPResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -11542,6 +11864,32 @@ func ParseProjectcreateLeaseDelegationHTTPResponse(rsp *http.Response) (*Project
 			return nil, err
 		}
 		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseEditProjectJobMetadataWithLeaseHTTPResponse parses an HTTP response from a EditProjectJobMetadataWithLeaseWithResponse call
+func ParseEditProjectJobMetadataWithLeaseHTTPResponse(rsp *http.Response) (*EditProjectJobMetadataWithLeaseHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &EditProjectJobMetadataWithLeaseHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest JobMetadataEntry
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	}
 

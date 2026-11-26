@@ -1452,8 +1452,9 @@ func jobInfoToAPI(ctx context.Context, info jobdb.JobInfo) (runtimeapi.JobInfo, 
 	waitFor := nonNilStrings(info.WaitFor)
 	out := runtimeapi.JobInfo{AppendKey: stringPtrOrNil(info.AppendKey), RecordKind: info.RecordKind, TerminalFailure: jobdb.CloneGoalFailure(info.TerminalFailure), Cell: info.Cell, CellId: info.CellID, CellRepo: info.CellRepo, NextRoute: routePtrToAPI(info.NextRoute), CompletionStatus: stringPtrOrNil(info.CompletionStatus), CompletionDetail: stringPtrOrNil(info.CompletionDetail), WaitFor: &waitFor, BlockingWait: info.BlockingWait, GoalId: info.GoalID, OtherGoalIds: nonNilStrings(info.OtherGoalIDs),
 		ExecutionState: state, ClientPayload: cloneRawMessage(info.ClientPayload), ClientPayloadRevision: strconv.FormatInt(info.ClientPayloadRevision, 10),
-		SchemaHash: schemaHashPtr(info.SchemaHash),
-		Status:     runtimeapi.JobStatus(info.Status),
+		SchemaHash:       schemaHashPtr(info.SchemaHash),
+		Status:           runtimeapi.JobStatus(info.Status),
+		ExtendedMetadata: info.ExtendedMetadata,
 	}
 	if info.RecordKind.IsTerminalRecord() {
 		return out, nil
@@ -1485,9 +1486,10 @@ func jobInfoFromAPI(runtime *Runtime, jobKey jobdb.JobKey, info runtimeapi.JobIn
 	}
 	out := jobdb.JobInfo{AppendKey: stringValue(info.AppendKey), RecordKind: info.RecordKind, TerminalFailure: jobdb.CloneGoalFailure(info.TerminalFailure), Cell: info.Cell, CellID: info.CellId, CellRepo: info.CellRepo, NextRoute: routePtrFromAPI(info.NextRoute), CompletionStatus: stringValue(info.CompletionStatus), CompletionDetail: stringValue(info.CompletionDetail), WaitFor: cloneStringSlice(info.WaitFor), BlockingWait: info.BlockingWait, GoalID: info.GoalId, OtherGoalIDs: info.OtherGoalIds,
 		ExecutionState: state, ClientPayload: cloneRawMessage(info.ClientPayload), ClientPayloadRevision: revision,
-		Status:     jobdb.JobStatus(info.Status),
-		Data:       &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
-		SchemaHash: stringValue(info.SchemaHash),
+		Status:           jobdb.JobStatus(info.Status),
+		Data:             &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
+		SchemaHash:       stringValue(info.SchemaHash),
+		ExtendedMetadata: info.ExtendedMetadata,
 	}
 	if err := out.ValidateRecord(); err != nil {
 		return jobdb.JobInfo{}, err
@@ -1524,6 +1526,7 @@ func jobSummaryToAPI(summary jobdb.JobSummary) (runtimeapi.JobSummary, error) {
 	}
 	out := runtimeapi.JobSummary{AppendKey: stringPtrOrNil(summary.AppendKey), RecordKind: summary.RecordKind, TerminalFailure: jobdb.CloneGoalFailure(summary.TerminalFailure), Cell: summary.Cell, CellId: summary.CellID, CellRepo: summary.CellRepo, BlockingWaitSummary: summary.BlockingWaitSummary, BlockingWait: summary.BlockingWait, GoalId: summary.GoalID, OtherGoalIds: nonNilStrings(summary.OtherGoalIDs),
 		CompletionStatus:      stringPtrOrNil(summary.CompletionStatus),
+		ExtendedMetadata:      summary.ExtendedMetadata,
 		CompletionDetail:      stringPtrOrNil(summary.CompletionDetail),
 		ArchivedAt:            summary.ArchivedAt,
 		AvailableAt:           summary.AvailableAt,
@@ -1565,6 +1568,7 @@ func jobSummaryFromAPI(summary runtimeapi.JobSummary) (jobdb.JobSummary, error) 
 	}
 	out := jobdb.JobSummary{AppendKey: stringValue(summary.AppendKey), RecordKind: summary.RecordKind, TerminalFailure: jobdb.CloneGoalFailure(summary.TerminalFailure), Cell: summary.Cell, CellID: summary.CellId, CellRepo: summary.CellRepo, BlockingWaitSummary: summary.BlockingWaitSummary, BlockingWait: summary.BlockingWait, GoalID: summary.GoalId, OtherGoalIDs: summary.OtherGoalIds,
 		CompletionStatus:      stringValue(summary.CompletionStatus),
+		ExtendedMetadata:      summary.ExtendedMetadata,
 		CompletionDetail:      stringValue(summary.CompletionDetail),
 		JobKey:                fromAPIJobKey(summary.JobKey),
 		Status:                jobdb.JobStatus(summary.Status),

@@ -863,6 +863,9 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 		Data:       &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
 		SchemaHash: jobmetadata.SchemaHashFromStoredMetadata(record.metadata),
 	}
+	if jobdb.AuthorizeCell(ctx, jobKey.TenantId, record.cell.CellID, "jobs.list") == nil {
+		job.ExtendedMetadata = record.currentJobMetadata()
+	}
 	if record.recordKind.IsTerminalRecord() {
 		if err := validateProtectedToyRecord(record); err != nil {
 			return jobdb.JobInfo{}, err

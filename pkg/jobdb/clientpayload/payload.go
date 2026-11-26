@@ -269,7 +269,17 @@ func parse(raw []byte) (any, error) {
 	return parseWithLimit(raw, MaxBytes, false)
 }
 
+// ValidateJSONWithLimits checks one complete, lossless JSON value.
+func ValidateJSONWithLimits(raw []byte, maxBytes, maxDepth int) error {
+	_, err := parseWithDepth(raw, maxBytes, true, maxDepth)
+	return err
+}
+
 func parseWithLimit(raw []byte, maxBytes int, allowZero bool) (any, error) {
+	return parseWithDepth(raw, maxBytes, allowZero, MaxDepth)
+}
+
+func parseWithDepth(raw []byte, maxBytes int, allowZero bool, maxDepth int) (any, error) {
 	if len(raw) > maxBytes {
 		return nil, ErrTooLarge
 	}
@@ -310,7 +320,7 @@ func parseWithLimit(raw []byte, maxBytes int, allowZero bool) (any, error) {
 	}
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.UseNumber()
-	v, err := readValue(d, 0)
+	v, err := readValueWithDepth(d, 0, maxDepth)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
@@ -321,6 +331,10 @@ func parseWithLimit(raw []byte, maxBytes int, allowZero bool) (any, error) {
 }
 
 func readValue(d *json.Decoder, depth int) (any, error) {
+	return readValueWithDepth(d, depth, MaxDepth)
+}
+
+func readValueWithDepth(d *json.Decoder, depth, maxDepth int) (any, error) {
 	t, err := d.Token()
 	if err != nil {
 		return nil, err
@@ -329,8 +343,8 @@ func readValue(d *json.Decoder, depth int) (any, error) {
 	if !ok {
 		return t, nil
 	}
-	if depth >= MaxDepth {
-		return nil, fmt.Errorf("nesting exceeds %d", MaxDepth)
+	if depth >= maxDepth {
+		return nil, fmt.Errorf("nesting exceeds %d", maxDepth)
 	}
 	switch delim {
 	case '{':
@@ -344,7 +358,7 @@ func readValue(d *json.Decoder, depth int) (any, error) {
 			if _, ok := out[k]; ok {
 				return nil, fmt.Errorf("duplicate object name %q", k)
 			}
-			v, err := readValue(d, depth+1)
+			v, err := readValueWithDepth(d, depth+1, maxDepth)
 			if err != nil {
 				return nil, err
 			}
@@ -355,7 +369,7 @@ func readValue(d *json.Decoder, depth int) (any, error) {
 	case '[':
 		out := []any{}
 		for d.More() {
-			v, err := readValue(d, depth+1)
+			v, err := readValueWithDepth(d, depth+1, maxDepth)
 			if err != nil {
 				return nil, err
 			}

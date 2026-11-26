@@ -804,6 +804,16 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 		Data:       &jobInfoTaskData{err: jobdb.ErrJobNotComplete},
 		SchemaHash: jobmetadata.SchemaHashFromStoredMetadata(row.metadata),
 	}
+	if !row.recordKind.IsTerminalRecord() && jobdb.AuthorizeCell(ctx, jobKey.TenantId, row.cell.CellID, "jobs.list") == nil {
+		var raw []byte
+		err = r.db.QueryRowContext(ctx, `SELECT `+currentJobMetadataSQL+` FROM jobdb_jobs p WHERE tenant_id=? AND job_id=? AND cell_id=?`, jobKey.TenantId, jobKey.JobId, row.cell.CellID).Scan(&raw)
+		if err == nil {
+			job.ExtendedMetadata, err = decodeCurrentJobMetadata(raw)
+		}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return jobdb.JobInfo{}, err
+		}
+	}
 	if row.recordKind.IsTerminalRecord() {
 		job.NextRoute = nil
 		job.ExecutionState = jobdb.ExecutionState{}

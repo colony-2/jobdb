@@ -37,8 +37,21 @@ class ResourceInventoryTest(unittest.TestCase):
         self.assertTrue(self.run_check(self.complete()))
 
     def test_empty_failed_skipped_or_missing_rejected(self):
-        for events in [[], self.complete()[1:], self.complete() + [{"Action": "fail", "Package": "unit"}], self.complete() + [{"Action": "skip", "Package": "unit", "Test": "required"}], self.complete()[:-1]]:
-            with self.assertRaises(ValueError):
+        complete = self.complete()
+        missing_id = [event for event in complete if event["Test"] != "TestResourceBackoffControlB01"]
+        missing_deadline = [event for event in complete if not (
+            event["Package"].endswith("runtime/sqlite") and
+            event["Test"] == "TestResourceBackoffConformance/B09b_deadline_keeps_resource_gate"
+        )]
+        cases = {
+            "empty": [],
+            "missing_id": missing_id,
+            "failed": complete + [{"Action": "fail", "Package": "unit"}],
+            "skipped": complete + [{"Action": "skip", "Package": "unit", "Test": "required"}],
+            "missing_deadline": missing_deadline,
+        }
+        for reason, events in cases.items():
+            with self.subTest(reason=reason), self.assertRaises(ValueError):
                 self.run_check(events)
 
     def test_only_empty_public_toy_package_may_have_no_tests(self):

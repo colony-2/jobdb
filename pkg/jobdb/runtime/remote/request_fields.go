@@ -19,6 +19,9 @@ type requestBodyKey struct{}
 func strictRequestFields(next runtimeapi.StrictHandlerFunc, _ string) runtimeapi.StrictHandlerFunc {
 	return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		raw, _ := ctx.Value(requestBodyKey{}).([]byte)
+		if edit, _ := metadataEditPath(r); edit && !json.Valid(raw) {
+			return nil, jobdb.ErrInvalidJobMetadata
+		}
 		if strings.HasSuffix(r.URL.Path, "/resource-backoff") {
 			if err := validateResourceJSON(raw); err != nil {
 				return nil, badRequest(err.Error())

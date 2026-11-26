@@ -109,6 +109,10 @@ func snapshotInfo() jobdb.JobInfo {
 			Deadline: &deadline, FailedDependencyIndex: &index, Failure: failure, Dependencies: []jobdb.DependencyResolution{{Target: jobdb.DependencyTarget{JobID: "job", GoalID: "goal"}, Condition: jobdb.JobPrereqSuccess,
 				State: jobdb.DependencyFailed, SatisfiedByJobID: "other", BlockedReason: "blocked", Failure: failure}}},
 		GoalID: "goal", OtherGoalIDs: []string{"other"}, ClientPayload: json.RawMessage(`{"client":1}`), ClientPayloadRevision: 2,
+		ExtendedMetadata: map[string]jobdb.JobMetadataEntry{
+			"annotation": {Version: 2, Present: true, Value: json.RawMessage(`{"n":9007199254740993}`)},
+			"removed":    {Version: 3},
+		},
 		ExecutionState: jobdb.ExecutionState{RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{InitialInterval: 1, BackoffCoefficient: 2, MaximumInterval: 3, MaximumAttempts: 4,
 			NonRetryableErrorTypes: []string{"type"}}, InvocationTimeout: &invocation, TotalTimeout: &total}, TaskWait: &jobdb.TaskWait{InputOrdinal: 1, OutputOrdinal: 2, InputHash: "hash", ResumeJobType: "resume"}},
 		Status: jobdb.JobStatusCompleted, SchemaHash: "schema"}
@@ -191,7 +195,7 @@ func TestRestartSourceSnapshotPublicFields(t *testing.T) {
 	for i := 0; i < typ.NumField(); i++ {
 		fields = append(fields, typ.Field(i).Name)
 	}
-	require.Equal(t, []string{"AppendKey", "RecordKind", "TerminalFailure", "Cell", "CellID", "CellRepo", "NextRoute", "CompletionStatus", "CompletionDetail", "WaitFor", "BlockingWait", "GoalID", "OtherGoalIDs", "ClientPayload", "ClientPayloadRevision", "ExecutionState", "Status", "Data", "SchemaHash"}, fields)
+	require.Equal(t, []string{"ExtendedMetadata", "AppendKey", "RecordKind", "TerminalFailure", "Cell", "CellID", "CellRepo", "NextRoute", "CompletionStatus", "CompletionDetail", "WaitFor", "BlockingWait", "GoalID", "OtherGoalIDs", "ClientPayload", "ClientPayloadRevision", "ExecutionState", "Status", "Data", "SchemaHash"}, fields)
 	fixture := snapshotInfo()
 	changes := snapshotChanges(reflect.ValueOf(&fixture).Elem(), "JobInfo", func() {})
 	covered := map[string]bool{"Data": true} // Data's independent matrix follows below.

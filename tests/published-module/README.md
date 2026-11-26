@@ -58,3 +58,46 @@ Current main cannot reopen the baseline format-11 database without conversion.
 The report explicitly marks that compatibility failed, while checking unchanged
 baseline files and baseline-reader recovery. Passing HTTP/client acceptance does
 not establish full baseline API or storage compatibility. No conversion is run.
+
+## Job metadata consumer
+
+After managed publication, set `FULL_PUBLISHED_HASH` from the native merge
+receipt and run from a checkout at that commit:
+
+```sh
+set -eu
+python3 -B scripts/verify-published-module.py "$FULL_PUBLISHED_HASH" module-consumption.md
+
+test "$(git rev-parse HEAD)" = "$FULL_PUBLISHED_HASH"
+consumer=$(mktemp -d)
+cp tests/published-module/job_metadata_publication_test.go "$consumer/"
+(
+  cd "$consumer"
+  export GOENV=off GOWORK=off GOFLAGS='' GOTOOLCHAIN=local
+  export GOMODCACHE="$consumer/module-cache" GOCACHE="$consumer/build-cache"
+  export GOPRIVATE='github.com/colony-2/*' GOPROXY=direct
+  test ! -e "$GOMODCACHE"
+  module=github.com/colony-2/jobdb
+  go mod init example.invalid/jobdb-metadata-consumer
+  go list -m -json "$module@$FULL_PUBLISHED_HASH" > module-resolution.json
+  version=$(jq -er --arg module "$module" --arg hash "$FULL_PUBLISHED_HASH" '
+    select(.Path == $module and .Origin.VCS == "git" and .Origin.Hash == $hash
+      and (.Origin.URL | length > 0) and .Replace == null) | .Version' module-resolution.json)
+  go mod download -json "$module@$version" > module-download.json
+  jq -e --arg module "$module" --arg hash "$FULL_PUBLISHED_HASH" --arg version "$version" '
+    .Path == $module and .Version == $version and .Origin.VCS == "git"
+    and .Origin.Hash == $hash and (.Origin.URL | length > 0) and .Replace == null and .Error == null
+    and (.Sum | startswith("h1:")) and (.GoModSum | startswith("h1:"))' module-download.json
+  go mod edit -require="$module@$version"
+  go mod tidy
+  go list -m -json "$module" > module-selected.json
+  jq -e --arg version "$version" '.Version == $version and .Replace == null' module-selected.json
+  go test -mod=readonly -count=1 -v -run '^TestPublishedJobMetadata$' > smoke.log 2>&1
+  cat smoke.log
+  rg -q '^--- PASS: TestPublishedJobMetadata ' smoke.log
+)
+```
+
+Keep `module-consumption.md`, the resolution, download and selected module
+records, `go.mod`, `go.sum`, and `smoke.log` together as release evidence. A test
+run from this repository only checks local code, not the published dependency.

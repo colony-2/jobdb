@@ -84,6 +84,7 @@ const (
 )
 
 type JobInfo struct {
+	ExtendedMetadata map[string]JobMetadataEntry `json:"extendedMetadata,omitempty"`
 	AppendKey        string
 	RecordKind       JobRecordKind
 	TerminalFailure  *GoalFailure

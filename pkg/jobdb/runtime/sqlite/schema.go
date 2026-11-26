@@ -90,6 +90,9 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	default:
 		return fmt.Errorf("sqlite runtime: unsupported database format %d", version)
 	}
+	if err = ensureJobMetadataSchema(ctx, tx); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 

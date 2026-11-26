@@ -84,6 +84,8 @@ type toyGoalClosure struct {
 }
 
 type jobRecord struct {
+	extendedMetadata      map[string]jobdb.JobMetadataEntry
+	jobMetadataEvents     []jobMetadataEvent
 	appendKey             string
 	appendGeneration      int64
 	goalOrigin            bool
@@ -1008,6 +1010,7 @@ func (e *ToyEngine) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 			ArchivedAt:            rec.archived,
 			ClientPayloadRevision: rec.clientPayloadRevision,
 			Metadata:              metadataCopy,
+			ExtendedMetadata:      rec.currentJobMetadata(),
 			SchemaHash:            jobmetadata.SchemaHashFromStoredMetadata(rec.metadata),
 			ParentJobID:           parentJobID, AppendKey: rec.appendKey,
 		}

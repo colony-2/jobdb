@@ -21,6 +21,7 @@ type DependencyWaitSummary struct {
 // or evaluated dependency explanations. Client payloads and execution state are
 // returned in full from the same listing snapshot.
 type JobSummary struct {
+	ExtendedMetadata    map[string]JobMetadataEntry `json:"extendedMetadata,omitempty"`
 	AppendKey           string
 	RecordKind          JobRecordKind
 	TerminalFailure     *GoalFailure

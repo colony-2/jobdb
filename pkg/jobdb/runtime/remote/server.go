@@ -189,9 +189,9 @@ func newRuntimeServer(runtime jobdb.ConsumerRuntime, tokens *leaseTokenSigner) (
 					status = http.StatusNotImplemented
 				case errors.Is(err, jobdb.ErrInvalidResourceBackoff):
 					status = http.StatusBadRequest
-				case errors.Is(err, jobdb.ErrInvalidJobDeletion):
+				case errors.Is(err, jobdb.ErrInvalidJobDeletion), errors.Is(err, jobdb.ErrInvalidJobMetadata):
 					status = http.StatusBadRequest
-				case errors.Is(err, jobdb.ErrJobDeletionUnsupported):
+				case errors.Is(err, jobdb.ErrJobDeletionUnsupported), errors.Is(err, jobdb.ErrJobMetadataUnsupported):
 					status = http.StatusNotImplemented
 				case errors.Is(err, jobdb.ErrJobNotFound), errors.Is(err, jobdb.ErrChapterNotFound):
 					status = http.StatusNotFound

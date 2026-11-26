@@ -395,6 +395,7 @@ var ErrInvalidCrashConcernRequest error
 var ErrInvalidDependency error
 var ErrInvalidExecutionProvenanceRequest error
 var ErrInvalidJobDeletion error
+var ErrInvalidJobMetadata error
 var ErrInvalidJobRecord error
 var ErrInvalidLeaseEventPageToken *CellError
 var ErrInvalidLeaseEventRequest *CellError
@@ -405,6 +406,7 @@ var ErrJobCancelled error
 var ErrJobDeletionUnsupported error
 var ErrJobFailed error
 var ErrJobGoalSemanticsUnsupported error
+var ErrJobMetadataUnsupported error
 var ErrJobNotComplete error
 var ErrJobNotFound error
 var ErrJobRecordOperationUnsupported error
@@ -731,6 +733,7 @@ type JobHandle struct
   field GoalID string
   field JobKey JobKey
 type JobInfo struct
+  field ExtendedMetadata map[string]JobMetadataEntry `json:"extendedMetadata,omitempty"`
   field AppendKey string
   field RecordKind JobRecordKind
   field TerminalFailure *GoalFailure
@@ -758,9 +761,24 @@ type JobKey struct
 method JobKey.IsZero func() bool
 method JobKey.String func() string
 method JobKey.Validate func() error
+type JobMetadataEdit struct
+  field Key string `json:"key"`
+  field ExpectedVersion *MetadataVersion `json:"expectedVersion"`
+  field Set encoding/json.RawMessage `json:"set,omitempty"`
+  field Remove bool `json:"remove,omitempty"`
+method JobMetadataEdit.UnmarshalJSON func(raw []byte) error
+method JobMetadataEdit.Validate func() error
+type JobMetadataEntry struct
+  field Version MetadataVersion `json:"version"`
+  field Present bool `json:"present"`
+  field Value encoding/json.RawMessage `json:"value,omitempty"`
 type JobMetadataEnvelope struct
   field App encoding/json.RawMessage `json:"app,omitempty"`
   field Internal *RuntimeJobMetadata `json:"internal,omitempty"`
+type JobMetadataLease interface
+  method EditJobMetadata func(context.Context, JobMetadataEdit) (JobMetadataEntry, error)
+type JobMetadataRuntime interface
+  method EditJobMetadata func(context.Context, JobKey, JobMetadataEdit) (JobMetadataEntry, error)
 const JobPrereqComplete JobPrereqCondition = "complete"
 type JobPrereqCondition string
 const JobPrereqSuccess JobPrereqCondition = "success"
@@ -845,6 +863,7 @@ type JobStore string
 const JobStoreActive JobStore = "ACTIVE"
 const JobStoreArchived JobStore = "ARCHIVED"
 type JobSummary struct
+  field ExtendedMetadata map[string]JobMetadataEntry `json:"extendedMetadata,omitempty"`
   field AppendKey string
   field RecordKind JobRecordKind
   field TerminalFailure *GoalFailure
@@ -1028,6 +1047,9 @@ type MetadataPredicate struct
   field Path []string `json:"path"`
   field Values []any `json:"values"`
 func MetadataPredicates func(filter MetadataFilter) ([]MetadataPredicate, error)
+type MetadataVersion int64
+method MetadataVersion.MarshalJSON func() ([]byte, error)
+method MetadataVersion.UnmarshalJSON func(raw []byte) error
 type ModuleBuildInfo struct
   field Path string
   field Version string
@@ -2570,6 +2592,7 @@ method Runtime.CreateDelegation func(ctx context.Context, parent github.com/colo
 method Runtime.CreateProject func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.CreateProjectRequest) (github.com/colony-2/jobdb/pkg/jobdb.ProjectCreation, error)
 method Runtime.DeleteJobs func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.DeleteJobsRequest) (github.com/colony-2/jobdb/pkg/jobdb.DeleteJobsResponse, error)
 method Runtime.DeleteProject func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.DeleteProjectRequest) error
+method Runtime.EditJobMetadata func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, edit github.com/colony-2/jobdb/pkg/jobdb.JobMetadataEdit) (github.com/colony-2/jobdb/pkg/jobdb.JobMetadataEntry, error)
 method Runtime.FailGoal func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.FailGoalRequest) (github.com/colony-2/jobdb/pkg/jobdb.GoalInfo, error)
 method Runtime.GetCell func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.CellKey) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method Runtime.GetChapter func(ctx context.Context, ref github.com/colony-2/jobdb/pkg/jobdb.ChapterRef) (github.com/colony-2/jobdb/pkg/jobdb.Chapter, error)
@@ -2711,6 +2734,8 @@ method Runtime.CreateCell func(ctx context.Context, req github.com/colony-2/jobd
 method Runtime.CreateCellWithLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.CreateCellRequest) (out github.com/colony-2/jobdb/pkg/jobdb.Cell, err error)
 method Runtime.DeleteJobs func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.DeleteJobsRequest) (github.com/colony-2/jobdb/pkg/jobdb.DeleteJobsResponse, error)
 method Runtime.DiscardJobPreparation func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey) error
+method Runtime.EditJobMetadata func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, edit github.com/colony-2/jobdb/pkg/jobdb.JobMetadataEdit) (github.com/colony-2/jobdb/pkg/jobdb.JobMetadataEntry, error)
+method Runtime.EditJobMetadataWithVerifiedLease func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, edit github.com/colony-2/jobdb/pkg/jobdb.JobMetadataEdit) (github.com/colony-2/jobdb/pkg/jobdb.JobMetadataEntry, error)
 method Runtime.FailGoal func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.FailGoalRequest) (out github.com/colony-2/jobdb/pkg/jobdb.GoalInfo, err error)
 method Runtime.GetCell func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.CellKey) (out github.com/colony-2/jobdb/pkg/jobdb.Cell, err error)
 method Runtime.GetChapter func(ctx context.Context, ref github.com/colony-2/jobdb/pkg/jobdb.ChapterRef) (result github.com/colony-2/jobdb/pkg/jobdb.Chapter, failure error)
@@ -2796,6 +2821,7 @@ type Update struct
   field Value encoding/json.RawMessage `json:"value,omitempty"`
   field ExpectedRevision *int64 `json:"expectedRevision,omitempty,string"`
 method Update.UnmarshalJSON func(raw []byte) error
+func ValidateJSONWithLimits func(raw []byte, maxBytes int, maxDepth int) error
 func ValidateUpdate func(u *Update, initial bool) error
 
 package github.com/colony-2/jobdb/pkg/jobdb/secrets/sqlite

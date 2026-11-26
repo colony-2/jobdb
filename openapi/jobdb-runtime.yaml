@@ -848,6 +848,66 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JobInfo'
+  /v1/tenants/{tenantId}/jobs/{jobId}/extended-metadata:
+    patch:
+      tags: [jobs]
+      operationId: editJobMetadata
+      summary: Compare and set or remove one job metadata key
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/JobMetadataEdit'}
+      responses:
+        '200':
+          description: Current entry after the edit
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/JobMetadataEntry'}
+        '400':
+          description: Invalid edit
+        '403':
+          description: Edit not authorized
+        '404':
+          description: Job not found
+        '409':
+          description: Version conflict or lost lease
+        '501':
+          description: Job metadata editing unavailable
+  /v1/tenants/{tenantId}/jobs/{jobId}/leases/{leaseId}/extended-metadata:
+    patch:
+      tags: [jobs]
+      operationId: editJobMetadataWithLease
+      summary: Compare and set or remove one job metadata key
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/JobMetadataEdit'}
+      responses:
+        '200':
+          description: Current entry after the edit
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/JobMetadataEntry'}
+        '400':
+          description: Invalid edit
+        '403':
+          description: Edit not authorized
+        '404':
+          description: Job not found
+        '409':
+          description: Version conflict or lost lease
+        '501':
+          description: Job metadata editing unavailable
   /v1/tenants/{tenantId}/jobs/restarts:
     post:
       tags: [jobs]
@@ -2842,6 +2902,66 @@ paths:
       summary: Submit job with explicit job ID
       tags:
         - projects
+  /v1/projects/{projectId}/jobs/{jobId}/extended-metadata:
+    patch:
+      tags: [projects]
+      operationId: editProjectJobMetadata
+      summary: Compare and set or remove one job metadata key
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/JobMetadataEdit'}
+      responses:
+        '200':
+          description: Current entry after the edit
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/JobMetadataEntry'}
+        '400':
+          description: Invalid edit
+        '403':
+          description: Edit not authorized
+        '404':
+          description: Job not found
+        '409':
+          description: Version conflict or lost lease
+        '501':
+          description: Job metadata editing unavailable
+  /v1/projects/{projectId}/jobs/{jobId}/leases/{leaseId}/extended-metadata:
+    patch:
+      tags: [projects]
+      operationId: editProjectJobMetadataWithLease
+      summary: Compare and set or remove one job metadata key
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseId'
+        - $ref: '#/components/parameters/LeaseTokenHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/JobMetadataEdit'}
+      responses:
+        '200':
+          description: Current entry after the edit
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/JobMetadataEntry'}
+        '400':
+          description: Invalid edit
+        '403':
+          description: Edit not authorized
+        '404':
+          description: Job not found
+        '409':
+          description: Version conflict or lost lease
+        '501':
+          description: Job metadata editing unavailable
   /v1/projects/{projectId}/jobs/{jobId}/cancel:
     post:
       operationId: ProjectcancelJob
@@ -6119,6 +6239,41 @@ components:
       x-go-type-import:
         name: jobdb
         path: github.com/colony-2/jobdb/pkg/jobdb
+    JobMetadataVersion:
+      type: string
+      pattern: '^(0|[1-9][0-9]*)$'
+      x-go-type: jobdb.MetadataVersion
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
+    JobMetadataEdit:
+      type: object
+      required: [key, expectedVersion]
+      additionalProperties: false
+      x-go-type: jobdb.JobMetadataEdit
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
+      properties:
+        key: {type: string}
+        expectedVersion: {$ref: '#/components/schemas/JobMetadataVersion'}
+        set: {description: Exact JSON value; null stores a present null value.}
+        remove: {type: boolean, enum: [true]}
+      oneOf:
+        - required: [set]
+        - required: [remove]
+    JobMetadataEntry:
+      type: object
+      required: [version, present]
+      additionalProperties: false
+      x-go-type: jobdb.JobMetadataEntry
+      x-go-type-import:
+        name: jobdb
+        path: github.com/colony-2/jobdb/pkg/jobdb
+      properties:
+        version: {$ref: '#/components/schemas/JobMetadataVersion'}
+        present: {type: boolean}
+        value: {description: Current JSON value. Omitted on removal.}
     JobInfo:
       type: object
       required:
@@ -6133,6 +6288,10 @@ components:
         - cellRepo
       additionalProperties: false
       properties:
+        extendedMetadata:
+          type: object
+          additionalProperties: {$ref: '#/components/schemas/JobMetadataEntry'}
+          x-go-type-skip-optional-pointer: true
         appendKey:
           type: string
         recordKind:
@@ -6337,6 +6496,10 @@ components:
       description: List responses include stored completion detail, full opaque client payload and revision, execution state, prerequisites, and application metadata. Only additional memberships and evaluated dependency explanations require detail APIs.
       additionalProperties: false
       properties:
+        extendedMetadata:
+          type: object
+          additionalProperties: {$ref: '#/components/schemas/JobMetadataEntry'}
+          x-go-type-skip-optional-pointer: true
         appendKey:
           type: string
         recordKind:
@@ -6942,6 +7105,10 @@ components:
         - cellRepo
       additionalProperties: false
       properties:
+        extendedMetadata:
+          type: object
+          additionalProperties: {$ref: '#/components/schemas/JobMetadataEntry'}
+          x-go-type-skip-optional-pointer: true
         appendKey:
           type: string
         recordKind:
@@ -7049,6 +7216,10 @@ components:
       description: List responses include stored completion detail, full opaque client payload and revision, execution state, prerequisites, and application metadata. Only additional memberships and evaluated dependency explanations require detail APIs.
       additionalProperties: false
       properties:
+        extendedMetadata:
+          type: object
+          additionalProperties: {$ref: '#/components/schemas/JobMetadataEntry'}
+          x-go-type-skip-optional-pointer: true
         appendKey:
           type: string
         recordKind:

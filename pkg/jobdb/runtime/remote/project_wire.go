@@ -93,6 +93,18 @@ func readWireBody(r *http.Request) ([]byte, error) {
 // envelope conversion. It never retries, redirects or sends a second mutation.
 func projectResourceHandler(legacy http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if edit, leaseBound := metadataEditPath(r); edit {
+			w.Header().Set("Cache-Control", "no-store")
+			tokens := r.Header.Values("X-JobDB-Lease-Token")
+			bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if (!leaseBound && len(tokens) != 0) || len(tokens) > 1 || isDelegationToken(bearer) || strings.HasPrefix(bearer, ownerTokenPrefix) {
+				writeDelegationError(w, delegationDenied())
+				return
+			}
+			if r.Body != nil {
+				r.Body = http.MaxBytesReader(w, r.Body, 300<<10)
+			}
+		}
 		escaped := r.URL.EscapedPath()
 		if !strings.HasPrefix(escaped, "/v1/projects/") {
 			legacy.ServeHTTP(w, r)

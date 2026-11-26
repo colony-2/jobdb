@@ -35,6 +35,7 @@ type ProjectTableInventory struct {
 }
 
 var projectInventoryTables = map[string]string{
+	jobMetadataTable: "tenant_id", jobMetadataEventsTable: "tenant_id",
 	"jobdb_resource_sequences": "tenant_id",
 	"jobdb_resource_receipts":  "tenant_id",
 	"jobdb_jobs":               "tenant_id", "jobdb_schemas": "tenant_id", "jobdb_cells": "tenant_id", "jobdb_cell_names": "tenant_id", "jobdb_cell_catalog": "tenant_id", "jobdb_cell_requests": "tenant_id",
@@ -62,6 +63,7 @@ func inspectProjects(ctx context.Context, conn *sql.Conn, participants string) (
 		return out, e
 	}
 	var tables [][2]string
+	metadataTables := 0
 	for rows.Next() {
 		var name, definition string
 		if e = rows.Scan(&name, &definition); e != nil {
@@ -72,6 +74,17 @@ func inspectProjects(ctx context.Context, conn *sql.Conn, participants string) (
 			rows.Close()
 			return out, fmt.Errorf("unrecognized participant table %s", name)
 		}
+		if name == jobMetadataTable || name == jobMetadataEventsTable {
+			expected := jobMetadataSchemaSQL
+			if name == jobMetadataEventsTable {
+				expected = jobMetadataEventsSchemaSQL
+			}
+			if !validateJobMetadataSchema(definition, expected) {
+				rows.Close()
+				return out, fmt.Errorf("inconsistent participant schema %s", name)
+			}
+			metadataTables++
+		}
 		tables = append(tables, [2]string{name, definition})
 	}
 	e = rows.Err()
@@ -79,7 +92,7 @@ func inspectProjects(ctx context.Context, conn *sql.Conn, participants string) (
 	if e != nil {
 		return out, e
 	}
-	if len(tables) != len(projectInventoryTables) {
+	if metadataTables == 1 || len(tables)-metadataTables != len(projectInventoryTables)-2 {
 		return out, fmt.Errorf("incomplete SQLite participant schema")
 	}
 	scopes := map[string]bool{}
