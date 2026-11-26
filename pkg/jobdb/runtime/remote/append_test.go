@@ -347,3 +347,16 @@ func TestGroupedGenerationExhaustionHTTP(t *testing.T) {
 	require.NoError(t, json.Unmarshal(body, &response))
 	require.Equal(t, "invalid_append_request", response.Code)
 }
+
+func TestGroupedAppendBusyHTTP(test *testing.T) {
+	recorder := httptest.NewRecorder()
+	require.True(test, writeAppendError(recorder, jobdb.ErrAppendBusy))
+	require.Equal(test, http.StatusConflict, recorder.Code)
+	require.Equal(test, "application/json", recorder.Header().Get("Content-Type"))
+	var response struct {
+		Code string `json:"code"`
+	}
+	require.NoError(test, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Equal(test, "append_busy", response.Code)
+	require.ErrorIs(test, appendResponseError(recorder.Body.Bytes()), jobdb.ErrAppendBusy)
+}

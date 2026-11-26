@@ -9,8 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/internal/runtimecodec"
@@ -475,4 +478,412 @@ func TestAppendConcurrentEmptyContainer(t *testing.T) {
 		}
 	}
 	require.Equal(t, map[string]bool{"0": true, "1": true}, seen)
+}
+
+type appendWaitScheduler struct {
+	AppendScheduler
+	getTail func(context.Context, AppendChain) (StoredJob, bool, error)
+	claim   func(context.Context, ClaimAppendRequest) (LeaseIdentity, error)
+}
+
+func (scheduler appendWaitScheduler) GetAppendTail(ctx context.Context, chain AppendChain) (StoredJob, bool, error) {
+	return scheduler.getTail(ctx, chain)
+}
+
+func (scheduler appendWaitScheduler) ClaimAppend(ctx context.Context, request ClaimAppendRequest) (LeaseIdentity, error) {
+	if scheduler.claim != nil {
+		return scheduler.claim(ctx, request)
+	}
+	return scheduler.AppendScheduler.ClaimAppend(ctx, request)
+}
+
+type appendWaitChapters struct {
+	AppendChapterLog
+	beforeAppend func()
+}
+
+func (chapters appendWaitChapters) Append(ctx context.Context, key ChapterLogKey, chapter EncodedChapter) error {
+	chapters.beforeAppend()
+	return chapters.AppendChapterLog.Append(ctx, key, chapter)
+}
+
+func TestAppendLiveClaimConcurrentFirstCreator(test *testing.T) {
+	synctest.Test(test, func(test *testing.T) {
+		const callers = 24
+		fixture, service, request := newAppendFixture()
+		request.Job.MaxInputs = 100
+		type callerKey struct{}
+		var firstAppend, holding atomic.Bool
+		var observedMu sync.Mutex
+		observed := map[int]bool{}
+		service.Chapters = appendWaitChapters{fixture, func() {
+			if firstAppend.CompareAndSwap(false, true) {
+				holding.Store(true)
+				time.Sleep(4 * time.Second)
+				holding.Store(false)
+			}
+		}}
+		service.Scheduler = appendWaitScheduler{AppendScheduler: fixture, getTail: func(ctx context.Context, chain AppendChain) (StoredJob, bool, error) {
+			tail, found, err := fixture.GetAppendTail(ctx, chain)
+			if holding.Load() && found && IsAppendWorker(tail.LeaseWorkerID) && tail.LeaseExpiresAt.After(time.Now()) {
+				observedMu.Lock()
+				observed[ctx.Value(callerKey{}).(int)] = true
+				observedMu.Unlock()
+			}
+			return tail, found, err
+		}}
+		var group sync.WaitGroup
+		var handles [callers]jobdb.JobHandle
+		var errs [callers]error
+		start := make(chan struct{})
+		for index := range callers {
+			group.Go(func() {
+				<-start
+				input := request
+				input.Job.Append = json.RawMessage(fmt.Sprint(index))
+				input.Job.Job.Data = jobdb.NewTaskDataOrPanic(index)
+				handles[index], errs[index] = service.StartOrAppendJob(context.WithValue(test.Context(), callerKey{}, index), input)
+			})
+		}
+		close(start)
+		group.Wait()
+		require.Len(test, observed, callers-2, "every caller except the creator and holder must see the held claim")
+		busy := 0
+		for _, err := range errs {
+			if errors.Is(err, jobdb.ErrAppendBusy) {
+				busy++
+			}
+		}
+		test.Logf("callers=%d observed live hold=%d append busy=%d", callers, len(observed), busy)
+		for index, handle := range handles {
+			require.NoError(test, errs[index], "caller %d", index)
+			require.Equal(test, handles[0], handle)
+			require.Regexp(test, `^C2[0-9A-Za-z]{27}$`, handle.JobKey.JobId)
+			_, err := ksuid.Parse(strings.TrimPrefix(handle.JobKey.JobId, "C2"))
+			require.NoError(test, err)
+		}
+		require.Len(test, fixture.facts, 1)
+		require.Len(test, fixture.logs, 1)
+		require.EqualValues(test, 1, fixture.tail.AppendGeneration)
+		chapters := fixture.logs[handles[0].JobKey]
+		require.Len(test, chapters, callers)
+		seen := map[string]bool{}
+		for index, encoded := range chapters {
+			chapter, err := DecodeChapter(encoded)
+			require.NoError(test, err)
+			require.EqualValues(test, index, chapter.Ordinal)
+			if index == 0 {
+				seen[string(chapter.Body.(jobdb.JobStartChapter).Append.Data)] = true
+			} else {
+				seen[string(chapter.Body.(jobdb.AdditionalInputChapter).Input.Data)] = true
+			}
+		}
+		require.Len(test, seen, callers)
+		for index := range callers {
+			require.Contains(test, seen, fmt.Sprint(index))
+		}
+	})
+}
+
+func liveAppendTail(tail StoredJob, holder string, expires time.Time) StoredJob {
+	tail.LeaseWorkerID = AppendWorkerPrefix + holder
+	tail.LeaseExpiresAt = &expires
+	return tail
+}
+
+func TestAppendLiveClaimWindowStartsAtObservation(test *testing.T) {
+	synctest.Test(test, func(test *testing.T) {
+		fixture, service, request := newAppendFixture()
+		fixture.seedTail(1, true)
+		schedulerTime := time.Now().Add(-time.Hour)
+		service.Now = func() time.Time { return schedulerTime }
+		start := time.Now()
+		deadline := start.Add(13 * time.Second)
+		reads := 0
+		changed := false
+		claims := 0
+		service.Scheduler = appendWaitScheduler{AppendScheduler: fixture, getTail: func(ctx context.Context, _ AppendChain) (StoredJob, bool, error) {
+			reads++
+			tail := fixture.tail
+			if reads == 1 {
+				if _, ok := ctx.Deadline(); ok {
+					test.Error("initial lookup has a wait deadline")
+				}
+				time.Sleep(3 * time.Second)
+			} else if got, ok := ctx.Deadline(); !ok || !got.Equal(deadline) || !time.Now().Before(deadline) {
+				test.Errorf("poll at %s has deadline %s, want %s and a poll strictly before it", time.Now(), got, deadline)
+			}
+			holder := "first"
+			if time.Since(start) >= 8*time.Second {
+				changed = true
+				holder = "second"
+			}
+			return liveAppendTail(tail, holder, schedulerTime.Add(time.Minute)), true, nil
+		}, claim: func(context.Context, ClaimAppendRequest) (LeaseIdentity, error) {
+			claims++
+			return LeaseIdentity{}, jobdb.ErrConflict
+		}}
+		_, err := service.StartOrAppendJob(test.Context(), request)
+		require.ErrorIs(test, err, jobdb.ErrAppendBusy)
+		require.Equal(test, deadline, time.Now())
+		require.True(test, changed)
+		require.Zero(test, claims)
+		require.Zero(test, fixture.creates)
+		require.Len(test, fixture.logs[fixture.tail.JobKey], 1)
+	})
+}
+
+func TestAppendLiveClaimWindowSurvivesOrdinaryRetry(test *testing.T) {
+	synctest.Test(test, func(test *testing.T) {
+		fixture, service, request := newAppendFixture()
+		fixture.seedTail(1, true)
+		start := time.Now()
+		reads, claims := 0, 0
+		service.Scheduler = appendWaitScheduler{AppendScheduler: fixture, getTail: func(ctx context.Context, _ AppendChain) (StoredJob, bool, error) {
+			reads++
+			if reads == 1 || claims == 1 && reads == 3 {
+				if ctx != test.Context() {
+					test.Error("ordinary lookup did not use the caller context")
+				}
+			} else if deadline, ok := ctx.Deadline(); !ok || !deadline.Equal(start.Add(10*time.Second)) {
+				test.Errorf("wait deadline reset after ordinary retry: %s", deadline)
+			}
+			if reads == 2 {
+				return fixture.tail, true, nil
+			}
+			return liveAppendTail(fixture.tail, fmt.Sprint(claims), start.Add(time.Minute)), true, nil
+		}, claim: func(ctx context.Context, _ ClaimAppendRequest) (LeaseIdentity, error) {
+			claims++
+			require.Equal(test, test.Context(), ctx)
+			time.Sleep(7 * time.Second)
+			return LeaseIdentity{}, jobdb.ErrConflict
+		}}
+		_, err := service.StartOrAppendJob(test.Context(), request)
+		require.ErrorIs(test, err, jobdb.ErrAppendBusy)
+		require.Equal(test, 10*time.Second, time.Since(start))
+		require.Equal(test, 1, claims)
+		require.Zero(test, fixture.creates)
+		require.Len(test, fixture.logs[fixture.tail.JobKey], 1)
+	})
+}
+
+func TestAppendLiveClaimCancelsBetweenPolls(test *testing.T) {
+	synctest.Test(test, func(test *testing.T) {
+		fixture, service, request := newAppendFixture()
+		fixture.seedTail(1, true)
+		tail := liveAppendTail(fixture.tail, "held", time.Now().Add(time.Minute))
+		reads := 0
+		service.Scheduler = appendWaitScheduler{AppendScheduler: fixture, getTail: func(context.Context, AppendChain) (StoredJob, bool, error) {
+			reads++
+			return tail, true, nil
+		}}
+		ctx, cancel := context.WithCancel(test.Context())
+		defer cancel()
+		result := make(chan error, 1)
+		go func() {
+			_, err := service.StartOrAppendJob(ctx, request)
+			result <- err
+		}()
+		time.Sleep(time.Millisecond)
+		synctest.Wait()
+		require.Equal(test, 2, reads)
+		canceledAt := time.Now()
+		cancel()
+		require.ErrorIs(test, <-result, context.Canceled)
+		require.Equal(test, canceledAt, time.Now())
+		synctest.Wait()
+		require.Equal(test, 2, reads)
+		require.Zero(test, fixture.creates)
+		require.Len(test, fixture.logs[fixture.tail.JobKey], 1)
+	})
+}
+
+func TestAppendLiveClaimBlockedRecheck(test *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		elapsed     time.Duration
+		want        error
+		wantReadErr error
+	}{
+		{"wait cutoff", 10 * time.Second, jobdb.ErrAppendBusy, context.DeadlineExceeded},
+		{"caller cancellation", 2 * time.Second, context.Canceled, context.Canceled},
+		{"caller deadline", 3 * time.Second, context.DeadlineExceeded, context.DeadlineExceeded},
+	} {
+		test.Run(tc.name, func(test *testing.T) {
+			synctest.Test(test, func(test *testing.T) {
+				fixture, service, request := newAppendFixture()
+				fixture.seedTail(1, true)
+				start := time.Now()
+				ctx, cancel := context.WithCancel(test.Context())
+				defer cancel()
+				deadline := start.Add(10 * time.Second)
+				if tc.want == context.DeadlineExceeded {
+					deadline = start.Add(tc.elapsed)
+					var cancelDeadline context.CancelFunc
+					ctx, cancelDeadline = context.WithDeadline(ctx, deadline)
+					defer cancelDeadline()
+				}
+				rechecks := make(chan context.Context, 1)
+				unblock := make(chan struct{})
+				defer func() { close(unblock) }()
+				var reads atomic.Int32
+				service.Scheduler = appendWaitScheduler{AppendScheduler: fixture, getTail: func(readCtx context.Context, _ AppendChain) (StoredJob, bool, error) {
+					switch reads.Add(1) {
+					case 1:
+						if readCtx != ctx {
+							test.Error("initial lookup did not use the caller context")
+						}
+						return liveAppendTail(fixture.tail, "held", start.Add(time.Minute)), true, nil
+					case 2:
+						rechecks <- readCtx
+						<-unblock
+						return fixture.tail, true, nil
+					default:
+						return StoredJob{}, false, errors.New("unexpected extra recheck")
+					}
+				}}
+				result := make(chan error, 1)
+				go func() {
+					_, err := service.StartOrAppendJob(ctx, request)
+					result <- err
+				}()
+				readCtx := <-rechecks
+				readDeadline, ok := readCtx.Deadline()
+				require.True(test, ok)
+				require.Equal(test, deadline, readDeadline)
+				if tc.want == context.Canceled {
+					time.Sleep(tc.elapsed - time.Since(start))
+					cancel()
+				}
+				require.ErrorIs(test, <-result, tc.want)
+				require.Equal(test, tc.elapsed, time.Since(start))
+				require.ErrorIs(test, readCtx.Err(), tc.wantReadErr)
+				unblock <- struct{}{}
+				synctest.Wait()
+				require.EqualValues(test, 2, reads.Load())
+				require.Zero(test, fixture.creates)
+				require.Len(test, fixture.logs[fixture.tail.JobKey], 1)
+			})
+		})
+	}
+}
+
+func TestAppendLiveClaimRecheckResult(test *testing.T) {
+	storageError := errors.New("storage backend failed")
+	storageTimeout := fmt.Errorf("storage timeout: %w", context.DeadlineExceeded)
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{"released", nil},
+		{"expired", nil},
+		{"storage failure", storageError},
+		{"storage timeout before cutoff", storageTimeout},
+	} {
+		test.Run(tc.name, func(test *testing.T) {
+			synctest.Test(test, func(test *testing.T) {
+				fixture, service, request := newAppendFixture()
+				fixture.seedTail(1, true)
+				start := time.Now()
+				reads := 0
+				service.Scheduler = appendWaitScheduler{AppendScheduler: fixture, getTail: func(context.Context, AppendChain) (StoredJob, bool, error) {
+					reads++
+					live := liveAppendTail(fixture.tail, "held", start.Add(time.Millisecond))
+					if reads == 1 || tc.name == "expired" {
+						return live, true, nil
+					}
+					return fixture.tail, true, tc.err
+				}, claim: func(ctx context.Context, req ClaimAppendRequest) (LeaseIdentity, error) {
+					require.Equal(test, test.Context(), ctx)
+					return fixture.ClaimAppend(ctx, req)
+				}}
+				handle, err := service.StartOrAppendJob(test.Context(), request)
+				require.Equal(test, 2, reads)
+				require.Equal(test, time.Millisecond, time.Since(start))
+				require.Zero(test, fixture.creates)
+				if tc.err != nil {
+					require.ErrorIs(test, err, tc.err)
+					require.NotErrorIs(test, err, jobdb.ErrAppendBusy)
+					require.Len(test, fixture.logs[fixture.tail.JobKey], 1)
+					if tc.err == storageError {
+						var classified *jobdb.ExecutionInfrastructureError
+						require.ErrorAs(test, err, &classified)
+						require.Equal(test, "get_append_tail", classified.Operation)
+					}
+					return
+				}
+				require.NoError(test, err)
+				require.Equal(test, fixture.tail.JobKey, handle.JobKey)
+				require.Len(test, fixture.logs[handle.JobKey], 2)
+			})
+		})
+	}
+}
+
+func TestAppendLiveClaimKeepsOrdinaryAttemptBudget(test *testing.T) {
+	for _, tc := range []struct {
+		name string
+		held time.Duration
+	}{
+		{"ordinary conflicts", 0},
+		{"live polls then ordinary conflicts", 2 * time.Second},
+	} {
+		test.Run(tc.name, func(test *testing.T) {
+			synctest.Test(test, func(test *testing.T) {
+				fixture, service, request := newAppendFixture()
+				fixture.seedTail(1, true)
+				start := time.Now()
+				claims, ordinaryReads, polls := 0, 0, 0
+				service.Scheduler = appendWaitScheduler{AppendScheduler: fixture, getTail: func(ctx context.Context, _ AppendChain) (StoredJob, bool, error) {
+					if ctx == test.Context() {
+						ordinaryReads++
+					} else {
+						polls++
+					}
+					if time.Since(start) < tc.held {
+						return liveAppendTail(fixture.tail, "held", start.Add(time.Minute)), true, nil
+					}
+					return fixture.tail, true, nil
+				}, claim: func(ctx context.Context, _ ClaimAppendRequest) (LeaseIdentity, error) {
+					require.Equal(test, test.Context(), ctx)
+					claims++
+					return LeaseIdentity{}, jobdb.ErrConflict
+				}}
+				_, err := service.StartOrAppendJob(test.Context(), request)
+				require.ErrorIs(test, err, jobdb.ErrAppendBusy)
+				require.Equal(test, 200, claims)
+				require.Equal(test, 200, ordinaryReads)
+				if tc.held > 0 {
+					require.Greater(test, polls, 200)
+					require.GreaterOrEqual(test, time.Since(start), tc.held+1100*time.Millisecond)
+				} else {
+					require.Zero(test, polls)
+					require.Equal(test, 1100*time.Millisecond, time.Since(start))
+				}
+				require.Zero(test, fixture.creates)
+				require.Len(test, fixture.logs[fixture.tail.JobKey], 1)
+			})
+		})
+	}
+}
+
+func TestAppendLiveClaimCrashConcernIsImmediate(test *testing.T) {
+	synctest.Test(test, func(test *testing.T) {
+		fixture, service, request := newAppendFixture()
+		fixture.seedTail(1, true)
+		start := time.Now()
+		tail := liveAppendTail(fixture.tail, "held", start.Add(time.Minute))
+		tail.Status = jobdb.JobStatusCrashConcern
+		reads := 0
+		service.Scheduler = appendWaitScheduler{AppendScheduler: fixture, getTail: func(context.Context, AppendChain) (StoredJob, bool, error) {
+			reads++
+			return tail, true, nil
+		}}
+		_, err := service.StartOrAppendJob(test.Context(), request)
+		require.ErrorIs(test, err, jobdb.ErrAppendBusy)
+		require.Equal(test, start, time.Now())
+		require.Equal(test, 1, reads)
+		require.Zero(test, fixture.creates)
+		require.Len(test, fixture.logs[fixture.tail.JobKey], 1)
+	})
 }

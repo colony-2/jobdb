@@ -116,27 +116,40 @@ func (s AppendService) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAp
 	chain := AppendChain{in.Job.TenantId, cell.CellID, in.Job.JobType, in.AppendKey}
 	now := nowFunc(s.Now)
 	worker := AppendWorkerPrefix + ksuid.New().String()
-	// A bounded, context-aware wait avoids turning an appender burst into a chain.
+	var waitDeadline time.Time
+	var waitCtx context.Context
+	poll := 0
 	for attempt := 0; attempt < 200; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return jobdb.JobHandle{}, err
 		}
 		tail, found, err := s.Scheduler.GetAppendTail(ctx, chain)
-		err = jobdb.ClassifyRuntimeIO(err, "get_append_tail", nil, nil)
-		if err != nil {
-			return jobdb.JobHandle{}, err
-		}
-		if found && tail.Status == jobdb.JobStatusCrashConcern {
-			return jobdb.JobHandle{}, jobdb.ErrAppendBusy
+		var live bool
+		for {
+			err = jobdb.ClassifyRuntimeIO(err, "get_append_tail", nil, nil)
+			if err != nil {
+				return jobdb.JobHandle{}, err
+			}
+			if found && tail.Status == jobdb.JobStatusCrashConcern {
+				return jobdb.JobHandle{}, jobdb.ErrAppendBusy
+			}
+			if !found || tail.ArchivedAt != nil || tail.CancelRequested {
+				break
+			}
+			live = tail.LeaseExpiresAt != nil && tail.LeaseExpiresAt.After(now())
+			if !live || !IsAppendWorker(tail.LeaseWorkerID) {
+				break
+			}
+			if waitCtx == nil {
+				waitDeadline = time.Now().Add(10 * time.Second)
+				var cancel context.CancelFunc
+				waitCtx, cancel = context.WithDeadline(ctx, waitDeadline)
+				defer cancel()
+			}
+			tail, found, err = s.pollAppendTail(ctx, waitCtx, waitDeadline, chain, poll)
+			poll++
 		}
 		if found && tail.ArchivedAt == nil && !tail.CancelRequested {
-			live := tail.LeaseExpiresAt != nil && tail.LeaseExpiresAt.After(now())
-			if live && IsAppendWorker(tail.LeaseWorkerID) {
-				if err := appendBackoff(ctx, attempt); err != nil {
-					return jobdb.JobHandle{}, err
-				}
-				continue
-			}
 			if !live {
 				count, open, err := s.appendable(ctx, tail.JobKey, in.MaxInputs)
 				if err != nil {
@@ -219,6 +232,48 @@ func (s AppendService) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAp
 		}
 	}
 	return jobdb.JobHandle{}, jobdb.ErrAppendBusy
+}
+
+func (service AppendService) pollAppendTail(ctx, waitCtx context.Context, deadline time.Time, chain AppendChain, poll int) (StoredJob, bool, error) {
+	waitErr := func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if waitCtx.Err() != nil || !time.Now().Before(deadline) {
+			return jobdb.ErrAppendBusy
+		}
+		return nil
+	}
+	if err := waitErr(); err != nil {
+		return StoredJob{}, false, err
+	}
+	_ = appendBackoff(waitCtx, poll)
+	if err := waitErr(); err != nil {
+		return StoredJob{}, false, err
+	}
+	type tailResult struct {
+		tail  StoredJob
+		found bool
+		err   error
+	}
+	result := make(chan tailResult, 1)
+	go func() {
+		if err := waitErr(); err != nil {
+			result <- tailResult{err: err}
+			return
+		}
+		tail, found, err := service.Scheduler.GetAppendTail(waitCtx, chain)
+		result <- tailResult{tail, found, err}
+	}()
+	select {
+	case <-waitCtx.Done():
+		return StoredJob{}, false, waitErr()
+	case reply := <-result:
+		if err := waitErr(); err != nil {
+			return StoredJob{}, false, err
+		}
+		return reply.tail, reply.found, reply.err
+	}
 }
 
 func (service AppendService) findAppendStart(ctx context.Context, tenant string, ids ...string) (jobdb.JobKey, EncodedChapter, error) {
