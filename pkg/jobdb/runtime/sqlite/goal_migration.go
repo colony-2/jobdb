@@ -93,19 +93,27 @@ func migrateGoals(ctx context.Context, path string, hook func(string) error) (re
 		if err = checkpoint("verified"); err != nil {
 			return report, err
 		}
-	case 13, 14:
+	case 13, 14, 15:
 	default:
-		return report, fmt.Errorf("SQLite migration requires a supported legacy format (11–14)")
+		return report, fmt.Errorf("SQLite migration requires a supported legacy format (11–15)")
 	}
 	if report.SourceFormat <= 13 {
 		if err = convertResourceSchema(ctx, tx); err != nil {
 			return report, err
 		}
 	}
-	if err = addLeaseUpdateSchema(ctx, tx); err != nil {
+	if report.SourceFormat < 15 {
+		if err = addLeaseUpdateSchema(ctx, tx); err != nil {
+			return report, err
+		}
+		if err = checkpoint("lease_update_added"); err != nil {
+			return report, err
+		}
+	}
+	if err = addCellArchiveSchema(ctx, tx); err != nil {
 		return report, err
 	}
-	if err = checkpoint("lease_update_added"); err != nil {
+	if err = checkpoint("cell_archive_added"); err != nil {
 		return report, err
 	}
 	if err = markCurrentFormat(ctx, tx); err != nil {

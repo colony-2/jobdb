@@ -69,7 +69,7 @@ func TestGoalMigrationConvertsPreservingRetainedState(t *testing.T) {
 			require.Equal(t, "MIGRATED", report.Verdict)
 			var version, n int
 			require.NoError(t, db.QueryRow("PRAGMA user_version").Scan(&version))
-			require.Equal(t, 15, version)
+			require.Equal(t, 16, version)
 			require.NoError(t, db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name IN ('jobdb_goals','jobdb_goal_candidates')`).Scan(&n))
 			require.Zero(t, n)
 			require.Equal(t, legacyJobs, storedQuery(t, db, `SELECT rowid,`+strings.Join(columns, ",")+` FROM jobdb_jobs WHERE record_kind='EXECUTION' ORDER BY tenant_id,job_id`))

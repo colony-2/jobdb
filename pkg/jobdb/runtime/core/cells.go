@@ -65,6 +65,31 @@ func (r *Runtime) UpdateCell(ctx context.Context, q jobdb.UpdateCellRequest) (jo
 
 	return r.scheduler.UpdateCell(ctx, q)
 }
+func (r *Runtime) ArchiveCell(ctx context.Context, req jobdb.ArchiveCellRequest) (jobdb.Cell, error) {
+	return r.setCellArchived(ctx, req, true)
+}
+
+func (r *Runtime) UnarchiveCell(ctx context.Context, req jobdb.ArchiveCellRequest) (jobdb.Cell, error) {
+	return r.setCellArchived(ctx, req, false)
+}
+
+func (r *Runtime) setCellArchived(ctx context.Context, req jobdb.ArchiveCellRequest, archived bool) (jobdb.Cell, error) {
+	if err := cellstate.AuthorizeArchive(ctx, req.CellKey); err != nil {
+		return jobdb.Cell{}, err
+	}
+	if err := jobdb.RequireProjectWrite(ctx, r.projects, req.TenantID); err != nil {
+		return jobdb.Cell{}, err
+	}
+	backend, ok := r.scheduler.(jobdb.CellArchiveRuntime)
+	if !ok {
+		return jobdb.Cell{}, jobdb.ErrCellArchiveUnsupported
+	}
+	if archived {
+		return backend.ArchiveCell(ctx, req)
+	}
+	return backend.UnarchiveCell(ctx, req)
+}
+
 func (r *Runtime) RetireCell(ctx context.Context, q jobdb.RetireCellRequest) (jobdb.Cell, error) {
 	current, validationErr := r.GetCell(ctx, q.CellKey)
 	if validationErr != nil {

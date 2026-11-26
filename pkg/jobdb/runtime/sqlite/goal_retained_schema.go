@@ -55,8 +55,13 @@ func validateRetainedSchemaForFormat(ctx context.Context, tx *sql.Tx, version in
 			return err
 		}
 	}
-	if version >= currentFormat {
+	if version >= 15 {
 		if _, err = expected.ExecContext(ctx, leaseUpdateSchemaSQL); err != nil {
+			return err
+		}
+	}
+	if version >= 16 {
+		if _, err = expected.ExecContext(ctx, cellArchiveSchemaSQL); err != nil {
 			return err
 		}
 	}

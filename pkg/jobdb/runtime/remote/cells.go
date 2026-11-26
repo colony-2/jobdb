@@ -13,6 +13,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/runtimeapi"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/cellstate"
 )
 
 func convertCellJSON[A, B any](v A) (B, error) {
@@ -57,10 +58,12 @@ func (r cellResponse) VisitCreateCellResponse(w http.ResponseWriter) error { ret
 func (r cellResponse) VisitCreateCellWithLeaseResponse(w http.ResponseWriter) error {
 	return r.write(w)
 }
-func (r cellResponse) VisitGetCellResponse(w http.ResponseWriter) error    { return r.write(w) }
-func (r cellResponse) VisitListCellsResponse(w http.ResponseWriter) error  { return r.write(w) }
-func (r cellResponse) VisitUpdateCellResponse(w http.ResponseWriter) error { return r.write(w) }
-func (r cellResponse) VisitRetireCellResponse(w http.ResponseWriter) error { return r.write(w) }
+func (r cellResponse) VisitGetCellResponse(w http.ResponseWriter) error       { return r.write(w) }
+func (r cellResponse) VisitListCellsResponse(w http.ResponseWriter) error     { return r.write(w) }
+func (r cellResponse) VisitUpdateCellResponse(w http.ResponseWriter) error    { return r.write(w) }
+func (r cellResponse) VisitArchiveCellResponse(w http.ResponseWriter) error   { return r.write(w) }
+func (r cellResponse) VisitUnarchiveCellResponse(w http.ResponseWriter) error { return r.write(w) }
+func (r cellResponse) VisitRetireCellResponse(w http.ResponseWriter) error    { return r.write(w) }
 func (r cellResponse) VisitResolveCellWithLeaseResponse(w http.ResponseWriter) error {
 	return r.write(w)
 }
@@ -95,7 +98,7 @@ func (s *proxyServer) GetCell(ctx context.Context, q runtimeapi.GetCellRequestOb
 	return cellResponse{body: c, err: e, revision: c.Revision}, nil
 }
 func (s *proxyServer) ListCells(ctx context.Context, q runtimeapi.ListCellsRequestObject) (runtimeapi.ListCellsResponseObject, error) {
-	r := jobdb.ListCellsRequest{TenantID: q.TenantId}
+	r := jobdb.ListCellsRequest{TenantID: q.TenantId, Archived: q.Params.Archived}
 	if q.Params.Name != nil {
 		r.Name = *q.Params.Name
 	}
@@ -129,6 +132,28 @@ func (s *proxyServer) UpdateCell(ctx context.Context, q runtimeapi.UpdateCellReq
 func (s *proxyServer) RetireCell(ctx context.Context, q runtimeapi.RetireCellRequestObject) (runtimeapi.RetireCellResponseObject, error) {
 	c, e := s.runtime.RetireCell(ctx, jobdb.RetireCellRequest{CellKey: jobdb.CellKey{TenantID: q.TenantId, CellID: q.CellId}, IfMatch: cellIfMatch(q.Params.IfMatch)})
 	return cellResponse{body: c, err: e, revision: c.Revision}, nil
+}
+func (s *proxyServer) ArchiveCell(ctx context.Context, req runtimeapi.ArchiveCellRequestObject) (runtimeapi.ArchiveCellResponseObject, error) {
+	return s.setCellArchived(ctx, req.TenantId, req.CellId, cellIfMatch(req.Params.IfMatch), true), nil
+}
+func (s *proxyServer) UnarchiveCell(ctx context.Context, req runtimeapi.UnarchiveCellRequestObject) (runtimeapi.UnarchiveCellResponseObject, error) {
+	return s.setCellArchived(ctx, req.TenantId, req.CellId, cellIfMatch(req.Params.IfMatch), false), nil
+}
+func (s *proxyServer) setCellArchived(ctx context.Context, tenant, id, ifMatch string, archived bool) cellResponse {
+	key := jobdb.CellKey{TenantID: tenant, CellID: id}
+	if err := cellstate.AuthorizeArchive(ctx, key); err != nil {
+		return cellResponse{err: err}
+	}
+	backend, ok := s.runtime.(jobdb.CellArchiveRuntime)
+	if !ok {
+		return cellResponse{err: jobdb.ErrCellArchiveUnsupported}
+	}
+	apply := backend.UnarchiveCell
+	if archived {
+		apply = backend.ArchiveCell
+	}
+	cell, err := apply(ctx, jobdb.ArchiveCellRequest{CellKey: key, IfMatch: ifMatch})
+	return cellResponse{body: cell, err: err, revision: cell.Revision}
 }
 func (s *proxyServer) ResolveCellWithLease(ctx context.Context, q runtimeapi.ResolveCellWithLeaseRequestObject) (runtimeapi.ResolveCellWithLeaseResponseObject, error) {
 	if q.Body == nil {
@@ -197,6 +222,9 @@ func decodeCellResponse[T any](resp *http.Response, err error) (T, error) {
 		return out, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusPreconditionFailed {
+		return out, jobdb.ErrCellPrecondition
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var body struct{ Code string }
 		_ = json.NewDecoder(resp.Body).Decode(&body)
@@ -219,7 +247,7 @@ func (r *Runtime) GetCell(ctx context.Context, q jobdb.CellKey) (jobdb.Cell, err
 	return decodeCellResponse[jobdb.Cell](r.raw.GetCell(ctx, q.TenantID, q.CellID))
 }
 func (r *Runtime) ListCells(ctx context.Context, q jobdb.ListCellsRequest) (jobdb.ListCellsResponse, error) {
-	params := runtimeapi.ListCellsParams{}
+	params := runtimeapi.ListCellsParams{Archived: q.Archived}
 	if q.Name != "" {
 		params.Name = &q.Name
 	}
@@ -245,6 +273,12 @@ func (r *Runtime) UpdateCell(ctx context.Context, q jobdb.UpdateCellRequest) (jo
 }
 func (r *Runtime) RetireCell(ctx context.Context, q jobdb.RetireCellRequest) (jobdb.Cell, error) {
 	return decodeCellResponse[jobdb.Cell](r.raw.RetireCell(ctx, q.TenantID, q.CellID, &runtimeapi.RetireCellParams{IfMatch: &q.IfMatch}))
+}
+func (r *Runtime) ArchiveCell(ctx context.Context, req jobdb.ArchiveCellRequest) (jobdb.Cell, error) {
+	return decodeCellResponse[jobdb.Cell](r.raw.ArchiveCell(ctx, req.TenantID, req.CellID, &runtimeapi.ArchiveCellParams{IfMatch: optionalCellIfMatch(req.IfMatch)}))
+}
+func (r *Runtime) UnarchiveCell(ctx context.Context, req jobdb.ArchiveCellRequest) (jobdb.Cell, error) {
+	return decodeCellResponse[jobdb.Cell](r.raw.UnarchiveCell(ctx, req.TenantID, req.CellID, &runtimeapi.UnarchiveCellParams{IfMatch: optionalCellIfMatch(req.IfMatch)}))
 }
 func (l *remoteExecutionLease) ResolveCell(ctx context.Context, name string) (jobdb.ResolvedCell, error) {
 	return decodeCellResponse[jobdb.ResolvedCell](l.runtime.raw.ResolveCellWithLease(ctx, l.jobKey.TenantId, l.jobKey.JobId, l.leaseID, &runtimeapi.ResolveCellWithLeaseParams{XJobDBLeaseToken: l.LeaseToken()}, runtimeapi.ResolveCellWithLeaseJSONRequestBody{Cell: name}))
@@ -285,9 +319,13 @@ func isCellPath(path string) bool {
 		return false
 	}
 	if p[4] == "cells" {
-		return len(p) == 5 || len(p) == 6 || len(p) == 7 && p[6] == "retire"
+		return len(p) == 5 || len(p) == 6 || len(p) == 7 && isBodylessCellAction(p[6])
 	}
 	return (len(p) == 9 || len(p) == 10 && (p[9] == "resolve" || p[9] == "lookup")) && p[4] == "jobs" && p[6] == "leases" && p[8] == "cells"
+}
+
+func isBodylessCellAction(action string) bool {
+	return action == "retire" || action == "archive" || action == "unarchive"
 }
 
 // Validate the raw cell envelope before decoding optional pointers, preserving
@@ -298,14 +336,24 @@ func prepareCellRequest(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 	fail := func(e error) bool { writeCellError(w, e); return false }
-	if len(r.Header.Values("If-Match")) > 1 {
+	ifMatch := r.Header.Values("If-Match")
+	if len(ifMatch) > 1 {
 		return fail(jobdb.ErrInvalidCell)
+	}
+	parts := strings.Split(r.URL.EscapedPath(), "/")
+	if r.Method == http.MethodGet && len(parts) == 5 {
+		if values, ok := r.URL.Query()["archived"]; ok && (len(values) != 1 || values[0] != "true" && values[0] != "false") {
+			return fail(jobdb.ErrInvalidCell)
+		}
 	}
 
 	if r.Method != http.MethodPost && r.Method != http.MethodPatch {
 		return true
 	}
-	if strings.HasSuffix(r.URL.Path, "/retire") {
+	if len(parts) == 7 && isBodylessCellAction(parts[6]) {
+		if r.Method == http.MethodPost && parts[6] != "retire" && len(ifMatch) == 1 && strings.TrimSpace(ifMatch[0]) == "" {
+			return fail(jobdb.ErrInvalidCell)
+		}
 		return true
 	}
 	if r.Body == nil {
@@ -323,6 +371,13 @@ func prepareCellRequest(w http.ResponseWriter, r *http.Request) bool {
 	raw, _ := json.Marshal(fields)
 	r.Body = io.NopCloser(bytes.NewReader(raw))
 	return true
+}
+
+func optionalCellIfMatch(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func cellIfMatch(v *string) string {

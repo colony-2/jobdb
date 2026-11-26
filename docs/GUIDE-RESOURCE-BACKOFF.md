@@ -126,7 +126,7 @@ narrow delegates retain hidden coordinates. Attenuation cannot expand authority.
 
 ## SQLite upgrade
 
-Fresh stores use format 15. Constructors refuse formats 11–14 without mutation.
+Fresh stores use format 16. Constructors refuse formats 11–15 without mutation.
 Stop every incompatible writer, back up the database, then use the supported
 exclusive offline path:
 
@@ -136,7 +136,7 @@ jobdb sqlite migrate --db /absolute/path/jobdb.db
 ```
 
 Format-13 conversion atomically assigns `max(5-oldCount,0)` to the explicitly
-named countdown column before advancing the marker to 15. Negative/noninteger counts
+named countdown column before advancing the marker to 16. Negative/noninteger counts
 and unsupported/malformed schemas reject. It never debits expiry, renews a lease,
 or refills balances. Live zero-credit leases and all existing scheduler/history
 state remain. Repeating migration/reopen cannot reconvert custom balances.

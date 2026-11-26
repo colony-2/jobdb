@@ -23,6 +23,9 @@ type ApplicationOutputBytes struct
   field Data []byte
 type ApplicationOutputOutcome struct
   field Output ApplicationOutputBytes
+type ArchiveCellRequest struct
+  embedded CellKey CellKey
+  field IfMatch string
 type Artifact interface
   method ArtifactKey func() (ArtifactKey, error)
   method Bytes func(ctx context.Context) ([]byte, error)
@@ -90,8 +93,12 @@ type Cell struct
   field CreatedAt time.Time `json:"createdAt"`
   field UpdatedAt time.Time `json:"updatedAt"`
   field RetiredAt *time.Time `json:"retiredAt,omitempty"`
+  field ArchivedAt *time.Time `json:"archivedAt,omitempty"`
 method Cell.Resolved func() ResolvedCell
 const CellActive CellState = "ACTIVE"
+type CellArchiveRuntime interface
+  method ArchiveCell func(context.Context, ArchiveCellRequest) (Cell, error)
+  method UnarchiveCell func(context.Context, ArchiveCellRequest) (Cell, error)
 type CellAuthority struct
   field Principal string
   field TenantID string
@@ -360,6 +367,7 @@ type EnvelopedTaskData struct
   field Kind string
 var ErrAppendBusy error
 var ErrArtifactKeyUnavailable error
+var ErrCellArchiveUnsupported *CellError
 var ErrCellBusy *CellError
 var ErrCellConflict *CellError
 var ErrCellForbidden *CellError
@@ -945,6 +953,7 @@ type ListCellsRequest struct
   field State string
   field PageToken string
   field PageSize int
+  field Archived *bool
 type ListCellsResponse struct
   field Cells []Cell `json:"cells"`
   field NextPageToken string `json:"nextPageToken,omitempty"`
@@ -1555,6 +1564,7 @@ type ResourceBackoffHarness struct
   field Durable bool
   field New func(testing.TB) ResourceBackoffFixture
 func RunAvailableRoutesConformance func(t *testing.T, harnesses ...Harness)
+func RunCellArchiveConformance func(t *testing.T, runtime github.com/colony-2/jobdb/pkg/jobdb.ConsumerRuntime)
 func RunCellConformance func(t *testing.T, rt github.com/colony-2/jobdb/pkg/jobdb.ConsumerRuntime)
 func RunClientPayloadConformance func(t *testing.T, harnesses ...Harness)
 func RunCompactListConformance func(t *testing.T, harnesses ...Harness)
@@ -1824,6 +1834,7 @@ type Runtime struct
   embedded ProjectCatalog github.com/colony-2/jobdb/pkg/jobdb.ProjectCatalog
   embedded Service *github.com/colony-2/jobdb/pkg/jobdb/configuration.Service
 method Runtime.AdmitWrite func(ctx context.Context, id string) error
+method Runtime.ArchiveCell func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ArchiveCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method Runtime.CancelJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CancelJobRequest) error
 method Runtime.ChapterApplicationPayloadLimit func() int64
 method Runtime.CheckProject func(ctx context.Context, id string) error
@@ -1870,6 +1881,7 @@ method Runtime.SubmitJobWithLeaseByID func(ctx context.Context, parent github.co
 method Runtime.SubmitRestartJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.SubmitRestartJobWithLeaseByID func(ctx context.Context, parent github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.SupportsPrimaryGoalSelection func() bool
+method Runtime.UnarchiveCell func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ArchiveCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method Runtime.UpdateCell func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.UpdateCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method Runtime.ValidateExecutionLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string) (github.com/colony-2/jobdb/pkg/jobdb.LeaseValidity, error)
 type Scheduler interface
@@ -2583,6 +2595,7 @@ func NewServer func(runtime github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime)
 func NewServerWithOptions func(runtime github.com/colony-2/jobdb/pkg/jobdb.WorkflowRuntime, opts ServerOptions) (net/http.Handler, error)
 type Option func(*Runtime)
 type Runtime struct
+method Runtime.ArchiveCell func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ArchiveCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method Runtime.ArchiveJobSchema func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey) (github.com/colony-2/jobdb/pkg/jobdb.JobSchemaInfo, error)
 method Runtime.CancelJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CancelJobRequest) error
 method Runtime.ClearCrashConcern func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ClearCrashConcernRequest) error
@@ -2626,6 +2639,7 @@ method Runtime.SetTenantConfigurationValue func(ctx context.Context, in github.c
 method Runtime.StartOrAppendJob func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.StartOrAppendJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.SubmitJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SubmitJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.SubmitRestartJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
+method Runtime.UnarchiveCell func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ArchiveCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method Runtime.UpdateCell func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.UpdateCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 type ServerOptions struct
   field LeaseTokenSigningKey []byte
@@ -2722,6 +2736,7 @@ type Runtime struct
   embedded ProjectCatalog github.com/colony-2/jobdb/pkg/jobdb.ProjectCatalog
   embedded Service *github.com/colony-2/jobdb/pkg/jobdb/configuration.Service
 method Runtime.AdmitWrite func(ctx context.Context, id string) error
+method Runtime.ArchiveCell func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ArchiveCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method Runtime.ArchiveJobSchema func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobSchemaKey) (github.com/colony-2/jobdb/pkg/jobdb.JobSchemaInfo, error)
 method Runtime.CancelJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CancelJobRequest) error
 method Runtime.ChapterApplicationPayloadLimit func() int64
@@ -2779,6 +2794,7 @@ method Runtime.SubmitJobWithLeaseByID func(ctx context.Context, parentJobKey git
 method Runtime.SubmitRestartJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.SubmitRestartJobWithLeaseByID func(ctx context.Context, parentJobKey github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.SubmitRestartJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
 method Runtime.SupportsPrimaryGoalSelection func() bool
+method Runtime.UnarchiveCell func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ArchiveCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method Runtime.UpdateCell func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.UpdateCellRequest) (out github.com/colony-2/jobdb/pkg/jobdb.Cell, err error)
 method Runtime.ValidateExecutionLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string) (github.com/colony-2/jobdb/pkg/jobdb.LeaseValidity, error)
 func StartEmbeddedRuntime func(ctx context.Context, opts ...Option) (*EmbeddedRuntime, error)
@@ -2834,6 +2850,7 @@ method Store.Set func(ctx context.Context, tenant string, name string, value str
 method Store.String func() string
 
 package github.com/colony-2/jobdb/pkg/jobdb/runtime/cellstate
+func AuthorizeArchive func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.CellKey) error
 func Clone func[T any](v T) T
 type Creation struct
   field Principal string
@@ -2869,6 +2886,7 @@ method State.Lookup func(name string) (github.com/colony-2/jobdb/pkg/jobdb.Resol
 method State.Resolve func(ctx context.Context, tenant string, name string, repo string, parent *github.com/colony-2/jobdb/pkg/jobdb.Cell, existing *github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, confirmation bool) (github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, error)
 method State.Retire func(ctx context.Context, r github.com/colony-2/jobdb/pkg/jobdb.RetireCellRequest, busy func(string) (bool, error)) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method State.Select func(ctx context.Context, tenant string, names []string, permission string) (map[string]bool, error)
+method State.SetArchived func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ArchiveCellRequest, archived bool) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method State.Update func(ctx context.Context, r github.com/colony-2/jobdb/pkg/jobdb.UpdateCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 func UnwrapJobCursor func(token string, binding string) (string, error)
 func ValidateCreate func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.CreateCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.CreateCellRequest, error)

@@ -24,7 +24,7 @@ func TestLeaseEventsDefaultLegacyMutations(t *testing.T) {
 	defer r.Close(ctx)
 	var n, version int
 	require.NoError(t, r.db.QueryRow("PRAGMA user_version").Scan(&version))
-	require.Equal(t, 15, version)
+	require.Equal(t, 16, version)
 	require.NoError(t, r.db.QueryRow("SELECT count(*) FROM sqlite_master WHERE name='jobdb_lease_events'").Scan(&n))
 	require.Equal(t, 1, n)
 	for _, targeted := range []bool{false, true} {
@@ -71,6 +71,9 @@ func compatibilitySnapshot(t *testing.T, db *sql.DB, jobColumns ...string) map[s
 		if name == "jobdb_jobs" && len(jobColumns) > 0 {
 			projection = strings.Join(jobColumns, ",")
 		}
+		if name == "jobdb_cells" {
+			projection = "tenant_id,cell_id,name,repo,description,metadata,state,revision,created_at_ns,updated_at_ns,retired_at_ns"
+		}
 		rows, e = db.Query(fmt.Sprintf(`SELECT %s FROM %q ORDER BY rowid`, projection, name))
 		require.NoError(t, e)
 		cols, e := rows.Columns()
@@ -105,7 +108,7 @@ func TestLeaseEventExtensionTransitions(t *testing.T) {
 	require.Equal(t, before, compatibilitySnapshot(t, r.db))
 	var version int
 	require.NoError(t, r.db.QueryRow("PRAGMA user_version").Scan(&version))
-	require.Equal(t, 15, version)
+	require.Equal(t, 16, version)
 	require.NoError(t, r.Close(ctx))
 	r, e = NewFromConfig(ctx, cfg)
 	require.NoError(t, e)
@@ -155,7 +158,7 @@ func TestLeaseEventSchemaRejectsWithoutPartialMigration(t *testing.T) {
 		require.Equal(t, schemaBefore, schemaAfter)
 		var version int
 		require.NoError(t, raw.QueryRow("PRAGMA user_version").Scan(&version))
-		require.Equal(t, 15, version)
+		require.Equal(t, 16, version)
 		_, e = raw.Exec("DROP INDEX jobdb_lease_events_time_idx;" + leaseEventSchemaSQL)
 		require.NoError(t, e)
 		require.NoError(t, raw.Close())

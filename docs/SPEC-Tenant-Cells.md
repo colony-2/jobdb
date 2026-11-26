@@ -39,14 +39,20 @@ rename or a new identity.
   `repo`, optional `description`, `metadata`, and `requestId`. Generates an ID
   and ACTIVE record atomically. No Git API call occurs.
 - `GET /v1/tenants/{tenantId}/cells`: requires `cells.list`; filters by `name`
-  (current or alias) and `state` (ACTIVE by default, RETIRED, or ALL), and pages
-  with `pageSize`/`pageToken`. Only authorized cells are included.
+  (current or alias), `state` (ACTIVE by default, RETIRED, or ALL), and optional
+  `archived=true|false`, and pages with `pageSize`/`pageToken`. Only authorized
+  cells are included; omission of `archived` includes both marked and unmarked cells.
 - `GET /v1/tenants/{tenantId}/cells/{cellId}`: requires `cells.get`.
 - `PATCH /v1/tenants/{tenantId}/cells/{cellId}`: requires `cells.get`,
   `cells.update`, and a current strong `If-Match`. Changes name, repo,
   description, or metadata atomically.
-- `POST /v1/tenants/{tenantId}/cells/{cellId}:retire`: requires `cells.get`,
+- `POST /v1/tenants/{tenantId}/cells/{cellId}/retire`: requires `cells.get`,
   `cells.retire`, and a current strong `If-Match`.
+- `POST /v1/tenants/{tenantId}/cells/{cellId}/archive` and `/unarchive` require
+  `cells.get`, `cells.update`, the existing project write checks, and a current
+  strong `If-Match`. These bodyless actions return the cell and its ETag, and
+  are also available under `/v1/projects/{projectId}/cells/{cellId}`. Both
+  tenant and project list routes support the optional archive filter.
 
 ```sh
 jobdb cell create --name payments --tenant acme \
@@ -57,6 +63,32 @@ jobdb cell create --name payments --tenant acme \
 `JOBDB_BEARER_TOKEN`. The command works against any conforming backend. Retrying
 the command may confirm an existing ACTIVE cell with matching name/repository;
 it does not update properties or change the POST idempotency contract.
+
+## Reversible archive marker
+
+Archiving sets `archivedAt` to the server's UTC time; unarchiving clears it
+(the field is omitted). This is independent of lifecycle. It does not change
+identity, name or aliases, repository, metadata, history, or execution. Archived
+active cells still accept submissions and are available to workers through the
+same name, alias, lease, and scheduling paths. Neither action works on retired
+cells. Retirement still requires no unfinished work and clears the marker on
+success. An archive or unarchive that changes the marker advances the revision
+and `updatedAt`. A repeat at the current revision is unchanged; a stale revision
+fails even on a repeat. List cursors distinguish an omitted, true, or false filter.
+
+```sh
+jobdb cell archive CELL_ID --project PROJECT_ID --revision OBSERVED_REVISION
+jobdb cell unarchive CELL_ID --project PROJECT_ID
+```
+
+Without `--revision`, the CLI reads the cell once by ID, then submits the action
+with that revision. A 412 reports staleness and exits unsuccessfully without
+retrying. The equivalent optional Go capability is `jobdb.CellArchiveRuntime`;
+unsupported backends report `cell_archive_unsupported` rather than falling back
+to another write. SQLite stores the marker in format 16; see the
+[offline upgrade instructions](MIGRATION-IMMUTABLE-GOALS.md).
+
+## Creation and update details
 
 Creation `requestId` is scoped to tenant and authenticated principal. Store a
 hash of normalized creation properties and the original creation result for

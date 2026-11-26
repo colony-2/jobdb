@@ -21,4 +21,5 @@ type Cell struct {
 	CreatedAt   time.Time                  `json:"createdAt"`
 	UpdatedAt   time.Time                  `json:"updatedAt"`
 	RetiredAt   *time.Time                 `json:"retiredAt,omitempty"`
+	ArchivedAt  *time.Time                 `json:"archivedAt,omitempty"`
 }
