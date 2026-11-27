@@ -43,6 +43,7 @@ const (
 // Defines values for ErrorCode.
 const (
 	ErrorCodeAppendBusy                        ErrorCode = "append_busy"
+	ErrorCodeCellRestoreUnsupported            ErrorCode = "cell_restore_unsupported"
 	ErrorCodeChapterApplicationPayloadTooLarge ErrorCode = "chapter_application_payload_too_large"
 	ErrorCodeChapterNotFound                   ErrorCode = "chapter_not_found"
 	ErrorCodeConfigurationFailed               ErrorCode = "configuration_failed"
@@ -1564,6 +1565,9 @@ type TenantId = string
 // BadRequest defines model for BadRequest.
 type BadRequest = ErrorResponse
 
+// CellRestoreUnsupported defines model for CellRestoreUnsupported.
+type CellRestoreUnsupported = ErrorResponse
+
 // CellResult defines model for CellResult.
 type CellResult = Cell
 
@@ -1617,6 +1621,12 @@ type ListCellsParamsState string
 
 // UpdateCellParams defines parameters for UpdateCell.
 type UpdateCellParams struct {
+	// IfMatch Exactly one strong ETag from a cell response. Missing: 428; stale: 412; weak, wildcard, or list: 400.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// RestoreCellParams defines parameters for RestoreCell.
+type RestoreCellParams struct {
 	// IfMatch Exactly one strong ETag from a cell response. Missing: 428; stale: 412; weak, wildcard, or list: 400.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
@@ -2563,6 +2573,9 @@ type ClientInterface interface {
 
 	UpdateCell(ctx context.Context, tenantId TenantId, cellId CellId, params *UpdateCellParams, body UpdateCellJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// RestoreCell request
+	RestoreCell(ctx context.Context, tenantId TenantId, cellId CellId, params *RestoreCellParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// RetireCell request
 	RetireCell(ctx context.Context, tenantId TenantId, cellId CellId, params *RetireCellParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -2897,6 +2910,18 @@ func (c *Client) UpdateCellWithBody(ctx context.Context, tenantId TenantId, cell
 
 func (c *Client) UpdateCell(ctx context.Context, tenantId TenantId, cellId CellId, params *UpdateCellParams, body UpdateCellJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateCellRequest(c.Server, tenantId, cellId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RestoreCell(ctx context.Context, tenantId TenantId, cellId CellId, params *RestoreCellParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRestoreCellRequest(c.Server, tenantId, cellId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -4275,6 +4300,62 @@ func NewUpdateCellRequestWithBody(server string, tenantId TenantId, cellId CellI
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.IfMatch != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithLocation("simple", false, "If-Match", runtime.ParamLocationHeader, *params.IfMatch)
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("If-Match", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewRestoreCellRequest generates requests for RestoreCell
+func NewRestoreCellRequest(server string, tenantId TenantId, cellId CellId, params *RestoreCellParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "tenantId", runtime.ParamLocationPath, tenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "cellId", runtime.ParamLocationPath, cellId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/cells/%s/restore", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	if params != nil {
 
@@ -7410,6 +7491,9 @@ type ClientWithResponsesInterface interface {
 
 	UpdateCellWithResponse(ctx context.Context, tenantId TenantId, cellId CellId, params *UpdateCellParams, body UpdateCellJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateCellHTTPResponse, error)
 
+	// RestoreCellWithResponse request
+	RestoreCellWithResponse(ctx context.Context, tenantId TenantId, cellId CellId, params *RestoreCellParams, reqEditors ...RequestEditorFn) (*RestoreCellHTTPResponse, error)
+
 	// RetireCellWithResponse request
 	RetireCellWithResponse(ctx context.Context, tenantId TenantId, cellId CellId, params *RetireCellParams, reqEditors ...RequestEditorFn) (*RetireCellHTTPResponse, error)
 
@@ -7807,6 +7891,36 @@ func (r UpdateCellHTTPResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r UpdateCellHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type RestoreCellHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *CellResult
+	JSON400      *BadRequest
+	JSON401      *Unauthorized
+	JSON403      *Forbidden
+	JSON404      *NotFound
+	JSON412      *PreconditionFailed
+	JSON428      *PreconditionRequired
+	JSON500      *InternalError
+	JSON501      *CellRestoreUnsupported
+}
+
+// Status returns HTTPResponse.Status
+func (r RestoreCellHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RestoreCellHTTPResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -9104,6 +9218,15 @@ func (c *ClientWithResponses) UpdateCellWithResponse(ctx context.Context, tenant
 	return ParseUpdateCellHTTPResponse(rsp)
 }
 
+// RestoreCellWithResponse request returning *RestoreCellHTTPResponse
+func (c *ClientWithResponses) RestoreCellWithResponse(ctx context.Context, tenantId TenantId, cellId CellId, params *RestoreCellParams, reqEditors ...RequestEditorFn) (*RestoreCellHTTPResponse, error) {
+	rsp, err := c.RestoreCell(ctx, tenantId, cellId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRestoreCellHTTPResponse(rsp)
+}
+
 // RetireCellWithResponse request returning *RetireCellHTTPResponse
 func (c *ClientWithResponses) RetireCellWithResponse(ctx context.Context, tenantId TenantId, cellId CellId, params *RetireCellParams, reqEditors ...RequestEditorFn) (*RetireCellHTTPResponse, error) {
 	rsp, err := c.RetireCell(ctx, tenantId, cellId, params, reqEditors...)
@@ -10182,6 +10305,88 @@ func ParseUpdateCellHTTPResponse(rsp *http.Response) (*UpdateCellHTTPResponse, e
 			return nil, err
 		}
 		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRestoreCellHTTPResponse parses an HTTP response from a RestoreCellWithResponse call
+func ParseRestoreCellHTTPResponse(rsp *http.Response) (*RestoreCellHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RestoreCellHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CellResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 412:
+		var dest PreconditionFailed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON412 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 428:
+		var dest PreconditionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON428 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 501:
+		var dest CellRestoreUnsupported
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON501 = &dest
 
 	}
 
@@ -12099,6 +12304,9 @@ type ServerInterface interface {
 	// Change cell name, repo, description, or metadata
 	// (PATCH /v1/tenants/{tenantId}/cells/{cellId})
 	UpdateCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params UpdateCellParams)
+	// Reactivate a retired cell in place
+	// (POST /v1/tenants/{tenantId}/cells/{cellId}/restore)
+	RestoreCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params RestoreCellParams)
 	// Retire an idle cell while retaining its identity and history
 	// (POST /v1/tenants/{tenantId}/cells/{cellId}/retire)
 	RetireCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params RetireCellParams)
@@ -12297,6 +12505,12 @@ func (_ Unimplemented) GetCell(w http.ResponseWriter, r *http.Request, tenantId 
 // Change cell name, repo, description, or metadata
 // (PATCH /v1/tenants/{tenantId}/cells/{cellId})
 func (_ Unimplemented) UpdateCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params UpdateCellParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Reactivate a retired cell in place
+// (POST /v1/tenants/{tenantId}/cells/{cellId}/restore)
+func (_ Unimplemented) RestoreCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params RestoreCellParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -12861,6 +13075,70 @@ func (siw *ServerInterfaceWrapper) UpdateCell(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateCell(w, r, tenantId, cellId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RestoreCell operation middleware
+func (siw *ServerInterfaceWrapper) RestoreCell(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "cellId" -------------
+	var cellId CellId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "cellId", chi.URLParam(r, "cellId"), &cellId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cellId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RestoreCellParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RestoreCell(w, r, tenantId, cellId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -15876,6 +16154,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/v1/tenants/{tenantId}/cells/{cellId}", wrapper.UpdateCell)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/cells/{cellId}/restore", wrapper.RestoreCell)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/cells/{cellId}/retire", wrapper.RetireCell)
 	})
 	r.Group(func(r chi.Router) {
@@ -16040,6 +16321,8 @@ type BadRequestJSONResponse struct {
 
 	Headers BadRequestResponseHeaders
 }
+
+type CellRestoreUnsupportedJSONResponse ErrorResponse
 
 type CellResultResponseHeaders struct {
 	CacheControl string
@@ -16509,6 +16792,111 @@ func (response UpdateCell500JSONResponse) VisitUpdateCellResponse(w http.Respons
 	w.WriteHeader(500)
 
 	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RestoreCellRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	CellId   CellId   `json:"cellId"`
+	Params   RestoreCellParams
+}
+
+type RestoreCellResponseObject interface {
+	VisitRestoreCellResponse(w http.ResponseWriter) error
+}
+
+type RestoreCell200JSONResponse struct{ CellResultJSONResponse }
+
+func (response RestoreCell200JSONResponse) VisitRestoreCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RestoreCell400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response RestoreCell400JSONResponse) VisitRestoreCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RestoreCell401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RestoreCell401JSONResponse) VisitRestoreCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("WWW-Authenticate", fmt.Sprint(response.Headers.WWWAuthenticate))
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RestoreCell403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RestoreCell403JSONResponse) VisitRestoreCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RestoreCell404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RestoreCell404JSONResponse) VisitRestoreCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RestoreCell412JSONResponse struct{ PreconditionFailedJSONResponse }
+
+func (response RestoreCell412JSONResponse) VisitRestoreCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(412)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RestoreCell428JSONResponse struct {
+	PreconditionRequiredJSONResponse
+}
+
+func (response RestoreCell428JSONResponse) VisitRestoreCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(428)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RestoreCell500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RestoreCell500JSONResponse) VisitRestoreCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response.Body)
+}
+
+type RestoreCell501JSONResponse struct {
+	CellRestoreUnsupportedJSONResponse
+}
+
+func (response RestoreCell501JSONResponse) VisitRestoreCellResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(501)
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type RetireCellRequestObject struct {
@@ -18864,6 +19252,9 @@ type StrictServerInterface interface {
 	// Change cell name, repo, description, or metadata
 	// (PATCH /v1/tenants/{tenantId}/cells/{cellId})
 	UpdateCell(ctx context.Context, request UpdateCellRequestObject) (UpdateCellResponseObject, error)
+	// Reactivate a retired cell in place
+	// (POST /v1/tenants/{tenantId}/cells/{cellId}/restore)
+	RestoreCell(ctx context.Context, request RestoreCellRequestObject) (RestoreCellResponseObject, error)
 	// Retire an idle cell while retaining its identity and history
 	// (POST /v1/tenants/{tenantId}/cells/{cellId}/retire)
 	RetireCell(ctx context.Context, request RetireCellRequestObject) (RetireCellResponseObject, error)
@@ -19242,6 +19633,34 @@ func (sh *strictHandler) UpdateCell(w http.ResponseWriter, r *http.Request, tena
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateCellResponseObject); ok {
 		if err := validResponse.VisitUpdateCellResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RestoreCell operation middleware
+func (sh *strictHandler) RestoreCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params RestoreCellParams) {
+	var request RestoreCellRequestObject
+
+	request.TenantId = tenantId
+	request.CellId = cellId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RestoreCell(ctx, request.(RestoreCellRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RestoreCell")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RestoreCellResponseObject); ok {
+		if err := validResponse.VisitRestoreCellResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

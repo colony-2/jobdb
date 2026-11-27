@@ -13,6 +13,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/configuration"
 	"github.com/colony-2/jobdb/pkg/jobdb/internal/runtimeapi"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/cellstate"
 )
 
 func convertCellJSON[A, B any](v A) (B, error) {
@@ -61,6 +62,9 @@ func (r cellResponse) VisitGetCellResponse(w http.ResponseWriter) error    { ret
 func (r cellResponse) VisitListCellsResponse(w http.ResponseWriter) error  { return r.write(w) }
 func (r cellResponse) VisitUpdateCellResponse(w http.ResponseWriter) error { return r.write(w) }
 func (r cellResponse) VisitRetireCellResponse(w http.ResponseWriter) error { return r.write(w) }
+func (response cellResponse) VisitRestoreCellResponse(writer http.ResponseWriter) error {
+	return response.write(writer)
+}
 func (r cellResponse) VisitResolveCellWithLeaseResponse(w http.ResponseWriter) error {
 	return r.write(w)
 }
@@ -129,6 +133,25 @@ func (s *proxyServer) UpdateCell(ctx context.Context, q runtimeapi.UpdateCellReq
 func (s *proxyServer) RetireCell(ctx context.Context, q runtimeapi.RetireCellRequestObject) (runtimeapi.RetireCellResponseObject, error) {
 	c, e := s.runtime.RetireCell(ctx, jobdb.RetireCellRequest{CellKey: jobdb.CellKey{TenantID: q.TenantId, CellID: q.CellId}, IfMatch: cellIfMatch(q.Params.IfMatch)})
 	return cellResponse{body: c, err: e, revision: c.Revision}, nil
+}
+func (server *proxyServer) RestoreCell(ctx context.Context, request runtimeapi.RestoreCellRequestObject) (runtimeapi.RestoreCellResponseObject, error) {
+	req := jobdb.RestoreCellRequest{CellKey: jobdb.CellKey{TenantID: request.TenantId, CellID: request.CellId}, IfMatch: cellIfMatch(request.Params.IfMatch)}
+	if err := jobdb.AuthorizeCell(ctx, req.TenantID, req.CellID, "cells.get"); err != nil {
+		return nil, err
+	}
+	ops, supported := server.runtime.(jobdb.CellRestoreRuntime)
+	if err := jobdb.AuthorizeCell(ctx, req.TenantID, req.CellID, "cells.restore"); err != nil || !supported {
+		cell, getErr := server.runtime.GetCell(ctx, req.CellKey)
+		if getErr != nil {
+			return nil, getErr
+		}
+		if err := cellstate.CheckRestore(ctx, req, cell); err != nil {
+			return nil, err
+		}
+		return nil, jobdb.ErrCellRestoreUnsupported
+	}
+	cell, err := ops.RestoreCell(ctx, req)
+	return cellResponse{body: cell, err: err, revision: cell.Revision}, nil
 }
 func (s *proxyServer) ResolveCellWithLease(ctx context.Context, q runtimeapi.ResolveCellWithLeaseRequestObject) (runtimeapi.ResolveCellWithLeaseResponseObject, error) {
 	if q.Body == nil {
@@ -246,6 +269,13 @@ func (r *Runtime) UpdateCell(ctx context.Context, q jobdb.UpdateCellRequest) (jo
 func (r *Runtime) RetireCell(ctx context.Context, q jobdb.RetireCellRequest) (jobdb.Cell, error) {
 	return decodeCellResponse[jobdb.Cell](r.raw.RetireCell(ctx, q.TenantID, q.CellID, &runtimeapi.RetireCellParams{IfMatch: &q.IfMatch}))
 }
+func (runtime *Runtime) RestoreCell(ctx context.Context, req jobdb.RestoreCellRequest) (jobdb.Cell, error) {
+	params := runtimeapi.RestoreCellParams{}
+	if req.IfMatch != "" {
+		params.IfMatch = &req.IfMatch
+	}
+	return decodeCellResponse[jobdb.Cell](runtime.raw.RestoreCell(ctx, req.TenantID, req.CellID, &params))
+}
 func (l *remoteExecutionLease) ResolveCell(ctx context.Context, name string) (jobdb.ResolvedCell, error) {
 	return decodeCellResponse[jobdb.ResolvedCell](l.runtime.raw.ResolveCellWithLease(ctx, l.jobKey.TenantId, l.jobKey.JobId, l.leaseID, &runtimeapi.ResolveCellWithLeaseParams{XJobDBLeaseToken: l.LeaseToken()}, runtimeapi.ResolveCellWithLeaseJSONRequestBody{Cell: name}))
 }
@@ -285,9 +315,14 @@ func isCellPath(path string) bool {
 		return false
 	}
 	if p[4] == "cells" {
-		return len(p) == 5 || len(p) == 6 || len(p) == 7 && p[6] == "retire"
+		return len(p) == 5 || len(p) == 6 || len(p) == 7 && (p[6] == "retire" || p[6] == "restore")
 	}
 	return (len(p) == 9 || len(p) == 10 && (p[9] == "resolve" || p[9] == "lookup")) && p[4] == "jobs" && p[6] == "leases" && p[8] == "cells"
+}
+
+func isCellRestorePath(path string) bool {
+	parts := strings.Split(path, "/")
+	return len(parts) == 7 && parts[1] == "v1" && parts[2] == "tenants" && parts[4] == "cells" && parts[6] == "restore"
 }
 
 // Validate the raw cell envelope before decoding optional pointers, preserving
@@ -306,6 +341,18 @@ func prepareCellRequest(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 	if strings.HasSuffix(r.URL.Path, "/retire") {
+		return true
+	}
+	if r.Method == http.MethodPost && isCellRestorePath(r.URL.EscapedPath()) {
+		if values := r.Header.Values("If-Match"); len(values) != 0 && values[0] == "" {
+			return fail(jobdb.ErrInvalidCell)
+		}
+		if r.Body != nil {
+			var data [1]byte
+			if _, err := io.ReadFull(r.Body, data[:]); err != io.EOF {
+				return fail(jobdb.ErrInvalidCell)
+			}
+		}
 		return true
 	}
 	if r.Body == nil {

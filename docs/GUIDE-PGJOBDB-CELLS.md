@@ -52,3 +52,11 @@ Pin the tested JobDB revision after committing its implementation. Run shared
 runtime conformance directly and over HTTP, native integration tests, transaction
 rollback/race tests, installer format checks, and static checks. Keep broader
 normalization of old non-cell structured JSON in a separate change.
+
+Restore is a separate, optional addition, not a new storage-format boundary.
+A pgjobdb deployment can opt in after it implements `CellRestoreScheduler`,
+rechecks the strong validator under the retirement and admission lock, and
+passes `runtimetest.RunCellRestoreConformance` directly and through both HTTP
+route families. Also verify a retired row written before upgrade: restore the
+same identity without changing retained history, then submit and acquire fresh
+work. JobDB's toy and SQLite support does not imply pgjobdb support.

@@ -7,6 +7,7 @@ var projectWireRoutes = []projectWireRoute{
 	{method: "POST", path: "/v1/tenants/{tenantId}/cells", request: "", responses: map[int]string{201: "Cell"}},
 	{method: "GET", path: "/v1/tenants/{tenantId}/cells/{cellId}", request: "", responses: map[int]string{200: "Cell"}},
 	{method: "PATCH", path: "/v1/tenants/{tenantId}/cells/{cellId}", request: "", responses: map[int]string{200: "Cell"}},
+	{method: "POST", path: "/v1/tenants/{tenantId}/cells/{cellId}/restore", request: "", responses: map[int]string{200: "Cell"}},
 	{method: "POST", path: "/v1/tenants/{tenantId}/cells/{cellId}/retire", request: "", responses: map[int]string{200: "Cell"}},
 	{method: "GET", path: "/v1/tenants/{tenantId}/configuration", request: "", responses: map[int]string{}},
 	{method: "POST", path: "/v1/tenants/{tenantId}/configuration/remove", request: "", responses: map[int]string{}},

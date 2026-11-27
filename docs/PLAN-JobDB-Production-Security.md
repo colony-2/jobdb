@@ -107,6 +107,7 @@ not a claim that these checks already exist.
 | Current operation IDs / surface | Required permissions | Scope and additional requirements |
 | --- | --- | --- |
 | `createCell`, `getCell`, `listCells`, `updateCell`, `retireCell` | Existing `cells.create`, `cells.get`, `cells.list`, `cells.update`, `cells.retire` | Preserve item visibility on lists and existing get requirements for update/retire. Creation may be name-scoped; it grants no workload access. |
+| `restoreCell` | `cells.get`, `cells.restore` | Target project and cell, existing project-write admission, and current strong `If-Match`. Retirement and lease credentials alone do not authorize restore. |
 | `submitJob`, `putJob` | `jobs.submit` | Target cell, job type, and optional job ID constraints. Both generated-ID and caller-chosen-ID submission obey the same policy. |
 | `submitRestartJob`, `putRestartJob` | `jobs.restart` on source; `jobs.submit` on destination | Also require access to retained source history and artifacts. Restarts cannot copy inaccessible data, move it across tenant boundaries, or bypass goal/schema authorization. |
 | `getJob`, `listJobs` | `jobs.get`, `jobs.list` | Direct reads and every returned list item must be authorized. Define the data each permission reveals, including payloads, completion details, execution state, and related IDs. |

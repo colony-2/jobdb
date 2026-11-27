@@ -3,7 +3,7 @@
 This is the JobDB implementation contract. Integrations are described separately
 in [C2J](GUIDE-C2J-CELLS.md), [pgjobdb](GUIDE-PGJOBDB-CELLS.md), and
 [recipes](GUIDE-RECIPES-CELLS.md). The authoritative HTTP schema is
-[OpenAPI](../openapi/jobdb-runtime.yaml); the cell-focused proposal is
+[OpenAPI](../openapi/jobdb-runtime.yaml); the historical cell-focused proposal is
 [jobdb-cells.proposed.yaml](../openapi/jobdb-cells.proposed.yaml).
 
 ## Identity and explicit creation
@@ -45,8 +45,13 @@ rename or a new identity.
 - `PATCH /v1/tenants/{tenantId}/cells/{cellId}`: requires `cells.get`,
   `cells.update`, and a current strong `If-Match`. Changes name, repo,
   description, or metadata atomically.
-- `POST /v1/tenants/{tenantId}/cells/{cellId}:retire`: requires `cells.get`,
+- `POST /v1/tenants/{tenantId}/cells/{cellId}/retire`: requires `cells.get`,
   `cells.retire`, and a current strong `If-Match`.
+- Bodyless `POST /v1/projects/{projectId}/cells/{cellId}/restore` (or
+  `/v1/tenants/{tenantId}/cells/{cellId}/restore`): requires trusted `cells.get`
+  and `cells.restore` scoped to the target project and cell, project-write
+  admission, and the current strong `If-Match`. An execution lease or
+  `cells.retire` grant does not confer restore authority.
 
 ```sh
 jobdb cell create --name payments --tenant acme \
@@ -152,7 +157,7 @@ but never cell identities; its cell foreign key must already exist. Failed
 publication leaves no visible job/goal/history and discards an unpublished
 preparation when the runtime can do so safely.
 
-## Updates and retirement
+## Updates, retirement, and restore
 
 Repo PATCH affects fresh submissions. Existing jobs retain their recorded repo
 for execution, retries, and restarts.
@@ -164,8 +169,28 @@ preparations block retirement by cell ID, including after rename.
 
 Retirement preserves ID, name/aliases, repo, metadata, and historical data.
 Authorized reads remain available; new work and updates are denied. There is
-no delete, restore, or implicit resurrection. Repeating retirement with the
-current ETag returns the retired record.
+no delete or implicit resurrection. Repeating retirement with the current ETag
+returns the retired record.
+
+Restore checks the validator under the same transaction or lock as retirement
+and new-work admission. Missing `If-Match` returns 428, malformed or weak returns
+400, and stale returns 412, even for an active cell. A successful restore returns
+200 with the same cell and a strong ETag. It sets the state to ACTIVE, omits
+`retiredAt`, advances the revision, and sets `updatedAt` to the server transition
+time; the creation time and all properties and history are preserved. A repeat
+with the current ETag on an active cell returns the unchanged record and ETag.
+The cell reappears in the active list and can accept new work. Restore does not
+restart old jobs, grant job permissions, or act on Git.
+
+Go implementations can opt in with `jobdb.CellRestoreRuntime`. A core scheduler
+can implement `runtimecore.CellRestoreScheduler`. Neither is part of the required
+cell, workflow, or scheduler interfaces. A new server with no restore support
+returns structured HTTP 501 (`cell_restore_unsupported`), which the Go client
+exposes as `ErrCellRestoreUnsupported`. An old server may return a routing 404,
+which does not prove the cell is missing. A remote Go type assertion does not
+establish server or backend support. Confirm support and caller authorization
+before offering restore; do not test support with a mutation or fall back to
+create, PATCH, or a different route.
 
 ## Persistence and authorization boundary
 
@@ -187,20 +212,22 @@ tenant admission lock before row locks. Cell existence, current authority,
 state, repository assertions, and idempotency are rechecked at publication.
 No independent implicit registration transaction exists.
 
-Embedding servers must install verified `CellAuthority` context. The standalone
-CLI server installs its explicit administrative ingress. This implementation
+Embedding servers must install verified `CellAuthority` context. The bundled
+`jobdb toy` and `jobdb sqlite` servers include `cells.restore` in their existing
+local-development administrative ingress. Restore adds no CLI subcommand and
+does not change the listen defaults or authentication policy. This implementation
 covers registry administration, submission, discovery, and acquisition. It is
 not a complete authorization retrofit for every history, artifact, goal, secret,
 or mutation endpoint. Those surfaces retain their existing access contracts.
 Lease/delegation v2 binds ownership; older token profiles are rejected.
 
-## Hard break and validation
+## Storage compatibility and validation
 
-SQLite uses fresh format 11. No old jobs, migration path, compatibility commands,
-or old lease decoders are retained. Stop old services, reset storage, explicitly
-register configured cells, and start compatible clients/workers. Do not scan old
-job metadata to recover cells. c2j `.c2/config` supplies deployment inputs, not
-an alternative identity authority.
+Cells retired before restore was introduced remain restorable in SQLite. This
+feature changes neither the SQLite format nor its migration requirements and
+does not backfill existing records. The earlier pre-cell upgrade is separate;
+do not scan old job metadata to recover cells. c2j `.c2/config` supplies deployment
+inputs, not an alternative identity authority.
 
 Conformance covers direct and HTTP runtimes: explicit creation, missing-cell
 rejection, ordinary root rename/retirement, lease ceilings, aliases, property
@@ -208,3 +235,12 @@ updates, idempotency, repo snapshots, tenant-wide IDs,
 authorized pagination/acquisition, retirement versus pending admission, and
 concurrent mutations. Storage tests check that cell ownership is relational and
 is not duplicated inside legacy JSON snapshots.
+
+The optional `runtimetest.RunCellRestoreConformance` suite covers identity and
+history preservation, validators, grant and project-write denials, a retirement
+that wins after restore preflight, active retries, and fresh work. JobDB exercises
+it on toy and SQLite directly and through both HTTP route families, plus a
+SQLite reopen after retirement. A separate CLI test uses the installed local
+administration in both bundled serving commands. Other backends should pass
+the shared direct and HTTP checks and a pre-upgrade retired-row drill before
+their deployments enable restore.

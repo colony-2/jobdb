@@ -57,6 +57,10 @@ type RetireCellRequest struct {
 	CellKey
 	IfMatch string
 }
+type RestoreCellRequest struct {
+	CellKey
+	IfMatch string
+}
 type ListCellsRequest struct {
 	TenantID, Name, State, PageToken string
 	PageSize                         int
@@ -84,6 +88,12 @@ type CellRuntime interface {
 	ListCells(context.Context, ListCellsRequest) (ListCellsResponse, error)
 	UpdateCell(context.Context, UpdateCellRequest) (Cell, error)
 	RetireCell(context.Context, RetireCellRequest) (Cell, error)
+}
+
+// CellRestoreRuntime optionally reactivates a registered cell in place.
+// A remote implementation of this interface does not imply server support.
+type CellRestoreRuntime interface {
+	RestoreCell(context.Context, RestoreCellRequest) (Cell, error)
 }
 
 // CellAuthority is supplied only by trusted embedding code or HTTP authentication
@@ -156,6 +166,7 @@ var (
 	ErrCellRequestConflict      = &CellError{"request_conflict", 409}
 	ErrCellPrecondition         = &CellError{"precondition_failed", 412}
 	ErrCellPreconditionRequired = &CellError{"precondition_required", 428}
+	ErrCellRestoreUnsupported   = &CellError{"cell_restore_unsupported", 501}
 )
 
 func CellErrorStatus(err error) (int, string, bool) {

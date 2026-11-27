@@ -50,7 +50,17 @@ New jobs use the current repo, while existing jobs and restarts keep their repo
 snapshot. Arbitrary cell metadata is application-owned and can be replaced
 through conditional PATCH.
 
-This is a hard break: reset old execution state, explicitly register configured
-cells, and use compatible JobDB clients and workers. Test missing-cell rejection,
+For lifecycle controls, archive maps to `RetireCell`; unarchive maps to the
+optional `CellRestoreRuntime.RestoreCell`. Both use the current strong ETag.
+Restore requires the caller's separate `cells.restore` grant along with
+`cells.get` and project-write admission. The bundled JobDB servers provide
+restore through their existing local-development policy. Elsewhere, confirm
+deployment support and caller grants before offering restore. Do not treat a
+Go type assertion or an old server's routing 404 as proof of support or cell
+absence, and never fall back to create or PATCH.
+
+The earlier pre-cell rollout was a hard break: reset old execution state,
+explicitly register configured cells, and use compatible JobDB clients and
+workers. Test missing-cell rejection,
 explicit-create retries, name-only submission, aliases, repo mismatch, ordinary
 root names, lease/delegation ceilings, and snapshot-preserving restart behavior.

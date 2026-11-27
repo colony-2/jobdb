@@ -1986,6 +1986,44 @@ paths:
           $ref: '#/components/responses/PreconditionRequired'
         '500':
           $ref: '#/components/responses/InternalError'
+  /v1/tenants/{tenantId}/cells/{cellId}/restore:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+      - $ref: '#/components/parameters/CellId'
+    post:
+      operationId: restoreCell
+      tags: [cells]
+      summary: Reactivate a retired cell in place
+      description: &restoreCellDescription >-
+        Requires trusted cells.get and cells.restore for the target cell, project-write
+        admission, and exactly one current strong If-Match. Atomically set ACTIVE,
+        clear retiredAt, advance the revision, and set updatedAt to the server
+        transition time. Preserve identity, properties and history. An active cell
+        with a current validator is returned unchanged. No old work is restarted.
+      x-jobdb-authorization: &restoreCellAuthorization
+        permissions: [cells.get, cells.restore]
+        resource: cell
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          $ref: '#/components/responses/CellResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '501':
+          $ref: '#/components/responses/CellRestoreUnsupported'
   /v1/tenants/{tenantId}/jobs/{parentJobId}/leases/{leaseId}/cells:
     parameters:
       - $ref: '#/components/parameters/TenantId'
@@ -2376,6 +2414,37 @@ paths:
           - cells.get
           - cells.retire
         resource: cell
+  /v1/projects/{projectId}/cells/{cellId}/restore:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/CellId'
+    post:
+      operationId: ProjectrestoreCell
+      tags: [projects]
+      summary: Reactivate a retired cell in place
+      description: *restoreCellDescription
+      x-jobdb-authorization: *restoreCellAuthorization
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          $ref: '#/components/responses/ProjectCellResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '501':
+          $ref: '#/components/responses/CellRestoreUnsupported'
   /v1/projects/{projectId}/configuration:
     get:
       description: |
@@ -5062,6 +5131,7 @@ components:
         - configuration_unavailable
         - configuration_failed
         - invalid_request
+        - cell_restore_unsupported
         - invalid_append_request
         - append_busy
         - not_found
@@ -7751,6 +7821,12 @@ components:
       headers:
         Cache-Control:
           $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    CellRestoreUnsupported:
+      description: cell_restore_unsupported; the server or backend does not implement optional cell restore.
       content:
         application/json:
           schema:

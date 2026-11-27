@@ -25,6 +25,8 @@ type ConsumerServerInterface interface {
 
 	UpdateCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params UpdateCellParams)
 
+	RestoreCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params RestoreCellParams)
+
 	RetireCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params RetireCellParams)
 
 	GetTenantConfiguration(w http.ResponseWriter, r *http.Request, tenantId TenantId)
@@ -362,6 +364,65 @@ func (siw *ConsumerServerInterfaceWrapper) UpdateCell(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateCell(w, r, tenantId, cellId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+func (siw *ConsumerServerInterfaceWrapper) RestoreCell(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", chi.URLParam(r, "tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	var cellId CellId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "cellId", chi.URLParam(r, "cellId"), &cellId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cellId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	var params RestoreCellParams
+
+	headers := r.Header
+
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RestoreCell(w, r, tenantId, cellId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3072,6 +3133,9 @@ func ConsumerHandlerWithOptions(si ConsumerServerInterface, options ChiServerOpt
 		r.Patch(options.BaseURL+"/v1/tenants/{tenantId}/cells/{cellId}", wrapper.UpdateCell)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/cells/{cellId}/restore", wrapper.RestoreCell)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/tenants/{tenantId}/cells/{cellId}/retire", wrapper.RetireCell)
 	})
 	r.Group(func(r chi.Router) {
@@ -3242,6 +3306,8 @@ type ConsumerStrictServerInterface interface {
 	GetCell(ctx context.Context, request GetCellRequestObject) (GetCellResponseObject, error)
 
 	UpdateCell(ctx context.Context, request UpdateCellRequestObject) (UpdateCellResponseObject, error)
+
+	RestoreCell(ctx context.Context, request RestoreCellRequestObject) (RestoreCellResponseObject, error)
 
 	RetireCell(ctx context.Context, request RetireCellRequestObject) (RetireCellResponseObject, error)
 
@@ -3554,6 +3620,33 @@ func (sh *consumerStrictHandler) UpdateCell(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateCellResponseObject); ok {
 		if err := validResponse.VisitUpdateCellResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+func (sh *consumerStrictHandler) RestoreCell(w http.ResponseWriter, r *http.Request, tenantId TenantId, cellId CellId, params RestoreCellParams) {
+	var request RestoreCellRequestObject
+
+	request.TenantId = tenantId
+	request.CellId = cellId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RestoreCell(ctx, request.(RestoreCellRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RestoreCell")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RestoreCellResponseObject); ok {
+		if err := validResponse.VisitRestoreCellResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

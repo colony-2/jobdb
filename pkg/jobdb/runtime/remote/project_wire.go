@@ -135,7 +135,7 @@ func projectResourceHandler(legacy http.Handler) http.Handler {
 			http.Error(w, "invalid project route", 400)
 			return
 		}
-		if r.Body != nil {
+		if r.Body != nil && !isCellRestorePath(path) {
 			raw, e := readWireBody(r)
 			if e == nil && poll {
 				var body map[string]json.RawMessage

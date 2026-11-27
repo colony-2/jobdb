@@ -231,6 +231,25 @@ func (r *Runtime) RetireCell(ctx context.Context, req jobdb.RetireCellRequest) (
 	})
 	return
 }
+func (runtime *Runtime) RestoreCell(ctx context.Context, req jobdb.RestoreCellRequest) (out jobdb.Cell, err error) {
+	current, err := runtime.GetCell(ctx, req.CellKey)
+	if err != nil {
+		return jobdb.Cell{}, err
+	}
+	if err := cellstate.CheckRestore(ctx, req, current); err != nil {
+		return jobdb.Cell{}, err
+	}
+	if err := jobdb.RequireProjectWrite(ctx, runtime.projects, req.TenantID); err != nil {
+		return jobdb.Cell{}, err
+	}
+	err = runtime.cellMutation(ctx, req.TenantID, func(_ *sql.Tx, state *cellstate.State) error {
+		var restoreErr error
+		out, restoreErr = state.Restore(ctx, req)
+		return restoreErr
+	})
+	return
+}
+
 func (r *Runtime) cellParent(ctx context.Context, tx *sql.Tx, s *cellstate.State, tenant string) (*jobdb.Cell, error) {
 	p, ok := cellstate.Lease(ctx)
 	if !ok {

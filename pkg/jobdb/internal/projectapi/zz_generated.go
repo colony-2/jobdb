@@ -41,6 +41,7 @@ const (
 // Defines values for ErrorCode.
 const (
 	ErrorCodeAppendBusy                        ErrorCode = "append_busy"
+	ErrorCodeCellRestoreUnsupported            ErrorCode = "cell_restore_unsupported"
 	ErrorCodeChapterApplicationPayloadTooLarge ErrorCode = "chapter_application_payload_too_large"
 	ErrorCodeChapterNotFound                   ErrorCode = "chapter_not_found"
 	ErrorCodeConfigurationFailed               ErrorCode = "configuration_failed"
@@ -1724,6 +1725,9 @@ type TenantId = string
 // BadRequest defines model for BadRequest.
 type BadRequest = ErrorResponse
 
+// CellRestoreUnsupported defines model for CellRestoreUnsupported.
+type CellRestoreUnsupported = ErrorResponse
+
 // Conflict defines model for Conflict.
 type Conflict = ErrorResponse
 
@@ -1789,6 +1793,12 @@ type ProjectlistCellsParamsState string
 
 // ProjectupdateCellParams defines parameters for ProjectupdateCell.
 type ProjectupdateCellParams struct {
+	// IfMatch Exactly one strong ETag from a cell response. Missing: 428; stale: 412; weak, wildcard, or list: 400.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// ProjectrestoreCellParams defines parameters for ProjectrestoreCell.
+type ProjectrestoreCellParams struct {
 	// IfMatch Exactly one strong ETag from a cell response. Missing: 428; stale: 412; weak, wildcard, or list: 400.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
@@ -2741,6 +2751,9 @@ type ClientInterface interface {
 
 	ProjectupdateCell(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectupdateCellParams, body ProjectupdateCellJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ProjectrestoreCell request
+	ProjectrestoreCell(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectrestoreCellParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ProjectretireCell request
 	ProjectretireCell(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectretireCellParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -3092,6 +3105,18 @@ func (c *Client) ProjectupdateCellWithBody(ctx context.Context, projectId Projec
 
 func (c *Client) ProjectupdateCell(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectupdateCellParams, body ProjectupdateCellJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewProjectupdateCellRequest(c.Server, projectId, cellId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ProjectrestoreCell(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectrestoreCellParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewProjectrestoreCellRequest(c.Server, projectId, cellId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -4602,6 +4627,62 @@ func NewProjectupdateCellRequestWithBody(server string, projectId ProjectId, cel
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.IfMatch != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithLocation("simple", false, "If-Match", runtime.ParamLocationHeader, *params.IfMatch)
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("If-Match", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewProjectrestoreCellRequest generates requests for ProjectrestoreCell
+func NewProjectrestoreCellRequest(server string, projectId ProjectId, cellId CellId, params *ProjectrestoreCellParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "projectId", runtime.ParamLocationPath, projectId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "cellId", runtime.ParamLocationPath, cellId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/projects/%s/cells/%s/restore", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	if params != nil {
 
@@ -7787,6 +7868,9 @@ type ClientWithResponsesInterface interface {
 
 	ProjectupdateCellWithResponse(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectupdateCellParams, body ProjectupdateCellJSONRequestBody, reqEditors ...RequestEditorFn) (*ProjectupdateCellHTTPResponse, error)
 
+	// ProjectrestoreCellWithResponse request
+	ProjectrestoreCellWithResponse(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectrestoreCellParams, reqEditors ...RequestEditorFn) (*ProjectrestoreCellHTTPResponse, error)
+
 	// ProjectretireCellWithResponse request
 	ProjectretireCellWithResponse(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectretireCellParams, reqEditors ...RequestEditorFn) (*ProjectretireCellHTTPResponse, error)
 
@@ -8219,6 +8303,36 @@ func (r ProjectupdateCellHTTPResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r ProjectupdateCellHTTPResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ProjectrestoreCellHTTPResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ProjectCellResult
+	JSON400      *BadRequest
+	JSON401      *Unauthorized
+	JSON403      *Forbidden
+	JSON404      *NotFound
+	JSON412      *PreconditionFailed
+	JSON428      *PreconditionRequired
+	JSON500      *InternalError
+	JSON501      *CellRestoreUnsupported
+}
+
+// Status returns HTTPResponse.Status
+func (r ProjectrestoreCellHTTPResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ProjectrestoreCellHTTPResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -9549,6 +9663,15 @@ func (c *ClientWithResponses) ProjectupdateCellWithResponse(ctx context.Context,
 	return ParseProjectupdateCellHTTPResponse(rsp)
 }
 
+// ProjectrestoreCellWithResponse request returning *ProjectrestoreCellHTTPResponse
+func (c *ClientWithResponses) ProjectrestoreCellWithResponse(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectrestoreCellParams, reqEditors ...RequestEditorFn) (*ProjectrestoreCellHTTPResponse, error) {
+	rsp, err := c.ProjectrestoreCell(ctx, projectId, cellId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseProjectrestoreCellHTTPResponse(rsp)
+}
+
 // ProjectretireCellWithResponse request returning *ProjectretireCellHTTPResponse
 func (c *ClientWithResponses) ProjectretireCellWithResponse(ctx context.Context, projectId ProjectId, cellId CellId, params *ProjectretireCellParams, reqEditors ...RequestEditorFn) (*ProjectretireCellHTTPResponse, error) {
 	rsp, err := c.ProjectretireCell(ctx, projectId, cellId, params, reqEditors...)
@@ -10738,6 +10861,88 @@ func ParseProjectupdateCellHTTPResponse(rsp *http.Response) (*ProjectupdateCellH
 			return nil, err
 		}
 		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseProjectrestoreCellHTTPResponse parses an HTTP response from a ProjectrestoreCellWithResponse call
+func ParseProjectrestoreCellHTTPResponse(rsp *http.Response) (*ProjectrestoreCellHTTPResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ProjectrestoreCellHTTPResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ProjectCellResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 412:
+		var dest PreconditionFailed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON412 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 428:
+		var dest PreconditionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON428 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 501:
+		var dest CellRestoreUnsupported
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON501 = &dest
 
 	}
 

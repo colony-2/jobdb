@@ -31,7 +31,12 @@ system are outside this change.
 Jobs require a cell name. A cell has a stable generated ID, a unique tenant-local
 name, a Git repository, description, and arbitrary JSON metadata. All
 names can change; old names remain aliases. Repo and metadata updates use PATCH
-with an ETag. Cells are retired, never deleted.
+with an ETag. Cells are retired, never deleted. On a restore-capable server,
+an authorized caller can reactivate the same cell with a bodyless
+`POST /v1/projects/{projectId}/cells/{cellId}/restore` and its current strong
+`If-Match`. Restore retains job and artifact history and does not restart jobs.
+Both bundled servers support it through their existing local administration
+policy; there is no standalone restore command.
 
 The earlier named-cell transition has a separate storage and client upgrade
 boundary for pre-cell deployments. SQLite now initializes retained-job format

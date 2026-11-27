@@ -107,6 +107,8 @@ func CellErrorStatus func(err error) (int, string, bool)
 type CellKey struct
   field TenantID string
   field CellID string
+type CellRestoreRuntime interface
+  method RestoreCell func(context.Context, RestoreCellRequest) (Cell, error)
 const CellRetired CellState = "RETIRED"
 type CellRuntime interface
   method CreateCell func(context.Context, CreateCellRequest) (Cell, error)
@@ -368,6 +370,7 @@ var ErrCellPrecondition *CellError
 var ErrCellPreconditionRequired *CellError
 var ErrCellRepoMismatch *CellError
 var ErrCellRequestConflict *CellError
+var ErrCellRestoreUnsupported *CellError
 var ErrCellRetired *CellError
 var ErrChapterApplicationPayloadTooLarge error
 var ErrChapterNotFound error
@@ -1248,6 +1251,9 @@ type ResourceResume struct
 method ResourceResume.Validate func() error
 type RestartExtraChapter struct
   field Output ApplicationOutputBytes
+type RestoreCellRequest struct
+  embedded CellKey CellKey
+  field IfMatch string
 type RetireCellRequest struct
   embedded CellKey CellKey
   field IfMatch string
@@ -1523,6 +1529,11 @@ type Capabilities struct
   field SchemaRegistry bool
   field RuntimeStorage bool
   field LongPoll bool
+type CellRestoreFixture struct
+  field Runtime github.com/colony-2/jobdb/pkg/jobdb.ConsumerRuntime
+  field WithAuthority func(context.Context, github.com/colony-2/jobdb/pkg/jobdb.CellAuthority) context.Context
+  field SetProjectAdmission func(func(context.Context, string) error)
+  field Reopen func() github.com/colony-2/jobdb/pkg/jobdb.ConsumerRuntime
 const DoubleTaskName untyped string = "double"
 const FailingJobName untyped string = "failing"
 type Fixture struct
@@ -1556,6 +1567,7 @@ type ResourceBackoffHarness struct
   field New func(testing.TB) ResourceBackoffFixture
 func RunAvailableRoutesConformance func(t *testing.T, harnesses ...Harness)
 func RunCellConformance func(t *testing.T, rt github.com/colony-2/jobdb/pkg/jobdb.ConsumerRuntime)
+func RunCellRestoreConformance func(test *testing.T, fixture CellRestoreFixture)
 func RunClientPayloadConformance func(t *testing.T, harnesses ...Harness)
 func RunCompactListConformance func(t *testing.T, harnesses ...Harness)
 func RunConfigurationConformance func(t *testing.T, rt github.com/colony-2/jobdb/pkg/jobdb.ConsumerRuntime)
@@ -1617,6 +1629,8 @@ type CancelJobMutation struct
   field Reason string
   field WorkerID string
   field Now time.Time
+type CellRestoreScheduler interface
+  embedded github.com/colony-2/jobdb/pkg/jobdb.CellRestoreRuntime
 type ChapterLog interface
   method Append func(ctx context.Context, key ChapterLogKey, chapter EncodedChapter) error
   method ClonePrefix func(ctx context.Context, req ClonePrefixRequest) error
@@ -1861,6 +1875,7 @@ method Runtime.RescheduleJobWithLeaseByID func(ctx context.Context, key github.c
 method Runtime.RescheduleResourceBackoffByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, lease string, worker string, req github.com/colony-2/jobdb/pkg/jobdb.ResourceBackoffRequest) (github.com/colony-2/jobdb/pkg/jobdb.ResourceBackoffReceipt, error)
 method Runtime.ResolveCellWithLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, name string) (github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, error)
 method Runtime.ResolveSecrets func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ResolveSecretsRequest) (github.com/colony-2/jobdb/pkg/jobdb.SecretResolveResult, error)
+method Runtime.RestoreCell func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.RestoreCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method Runtime.RetireCell func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.RetireCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method Runtime.SecretResolutionLimits func() github.com/colony-2/jobdb/pkg/jobdb.SecretLimits
 method Runtime.StartOrAppendJob func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.StartOrAppendJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
@@ -2621,6 +2636,7 @@ method Runtime.ReadExecutionProvenance func(ctx context.Context, q github.com/co
 method Runtime.RegisterJobSchema func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.RegisterJobSchemaRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobSchemaInfo, error)
 method Runtime.RemoveTenantConfigurationValue func(ctx context.Context, in github.com/colony-2/jobdb/pkg/jobdb.RemoveTenantConfigurationValueRequest) (string, error)
 method Runtime.ResolveSecrets func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ResolveSecretsRequest) (github.com/colony-2/jobdb/pkg/jobdb.SecretResolveResult, error)
+method Runtime.RestoreCell func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.RestoreCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method Runtime.RetireCell func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.RetireCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method Runtime.SetTenantConfigurationValue func(ctx context.Context, in github.com/colony-2/jobdb/pkg/jobdb.SetTenantConfigurationValueRequest) (string, error)
 method Runtime.StartOrAppendJob func(ctx context.Context, q github.com/colony-2/jobdb/pkg/jobdb.StartOrAppendJobRequest) (github.com/colony-2/jobdb/pkg/jobdb.JobHandle, error)
@@ -2769,6 +2785,7 @@ method Runtime.RescheduleJobWithLeaseByID func(ctx context.Context, jobKey githu
 method Runtime.RescheduleResourceBackoffByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, req github.com/colony-2/jobdb/pkg/jobdb.ResourceBackoffRequest) (receipt github.com/colony-2/jobdb/pkg/jobdb.ResourceBackoffReceipt, err error)
 method Runtime.ResolveCellWithLeaseByID func(ctx context.Context, key github.com/colony-2/jobdb/pkg/jobdb.JobKey, leaseID string, workerID string, name string) (out github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, err error)
 method Runtime.ResolveSecrets func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.ResolveSecretsRequest) (github.com/colony-2/jobdb/pkg/jobdb.SecretResolveResult, error)
+method Runtime.RestoreCell func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.RestoreCellRequest) (out github.com/colony-2/jobdb/pkg/jobdb.Cell, err error)
 method Runtime.RetireCell func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.RetireCellRequest) (out github.com/colony-2/jobdb/pkg/jobdb.Cell, err error)
 method Runtime.SecretResolutionLimits func() github.com/colony-2/jobdb/pkg/jobdb.SecretLimits
 method Runtime.SetDevSecret func(ctx context.Context, tenant string, name string, value string) error
@@ -2834,6 +2851,7 @@ method Store.Set func(ctx context.Context, tenant string, name string, value str
 method Store.String func() string
 
 package github.com/colony-2/jobdb/pkg/jobdb/runtime/cellstate
+func CheckRestore func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.RestoreCellRequest, current github.com/colony-2/jobdb/pkg/jobdb.Cell) error
 func Clone func[T any](v T) T
 type Creation struct
   field Principal string
@@ -2867,6 +2885,7 @@ method State.LeaseEventScope func(ctx context.Context, req github.com/colony-2/j
 method State.List func(ctx context.Context, r github.com/colony-2/jobdb/pkg/jobdb.ListCellsRequest) (github.com/colony-2/jobdb/pkg/jobdb.ListCellsResponse, error)
 method State.Lookup func(name string) (github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, error)
 method State.Resolve func(ctx context.Context, tenant string, name string, repo string, parent *github.com/colony-2/jobdb/pkg/jobdb.Cell, existing *github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, confirmation bool) (github.com/colony-2/jobdb/pkg/jobdb.ResolvedCell, error)
+method State.Restore func(ctx context.Context, req github.com/colony-2/jobdb/pkg/jobdb.RestoreCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method State.Retire func(ctx context.Context, r github.com/colony-2/jobdb/pkg/jobdb.RetireCellRequest, busy func(string) (bool, error)) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)
 method State.Select func(ctx context.Context, tenant string, names []string, permission string) (map[string]bool, error)
 method State.Update func(ctx context.Context, r github.com/colony-2/jobdb/pkg/jobdb.UpdateCellRequest) (github.com/colony-2/jobdb/pkg/jobdb.Cell, error)

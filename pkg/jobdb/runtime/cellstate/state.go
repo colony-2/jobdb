@@ -217,6 +217,40 @@ func (s *State) Retire(ctx context.Context, r jobdb.RetireCellRequest, busy func
 	return Clone(c), nil
 }
 
+// CheckRestore checks restore authority and the validator against a cell read
+// with cells.get. Restore repeats it under the backend's write lock.
+func CheckRestore(ctx context.Context, req jobdb.RestoreCellRequest, current jobdb.Cell) error {
+	if err := jobdb.AuthorizeCell(ctx, req.TenantID, current.ID, "cells.restore"); err != nil {
+		return err
+	}
+	for _, ch := range []byte(req.IfMatch) {
+		if ch <= ' ' || ch == 0x7f {
+			return jobdb.ErrInvalidCell
+		}
+	}
+	return jobdb.CheckCellRevision(req.IfMatch, current.Revision)
+}
+
+// Restore must run under the same lock or transaction as Retire and admission.
+func (state *State) Restore(ctx context.Context, req jobdb.RestoreCellRequest) (jobdb.Cell, error) {
+	current, err := state.Get(ctx, req.CellKey)
+	if err != nil {
+		return jobdb.Cell{}, err
+	}
+	if err := CheckRestore(ctx, req, current); err != nil {
+		return jobdb.Cell{}, err
+	}
+	if current.State == jobdb.CellActive {
+		return current, nil
+	}
+	current.State = jobdb.CellActive
+	current.RetiredAt = nil
+	current.UpdatedAt = time.Now().UTC()
+	current.Revision = ksuid.New().String()
+	state.Cells[current.ID] = current
+	return Clone(current), nil
+}
+
 type cursor struct {
 	Tenant, Principal, Name, State, After string
 	ExpiresAt                             int64

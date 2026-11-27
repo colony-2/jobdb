@@ -68,6 +68,22 @@ func (r *Runtime) UpdateCell(ctx context.Context, req jobdb.UpdateCellRequest) (
 	c, err := state.Update(ctx, req)
 	return c, err
 }
+func (runtime *Runtime) RestoreCell(ctx context.Context, req jobdb.RestoreCellRequest) (jobdb.Cell, error) {
+	current, err := runtime.GetCell(ctx, req.CellKey)
+	if err != nil {
+		return jobdb.Cell{}, err
+	}
+	if err := cellstate.CheckRestore(ctx, req, current); err != nil {
+		return jobdb.Cell{}, err
+	}
+	if err := jobdb.RequireProjectWrite(ctx, runtime.projects, req.TenantID); err != nil {
+		return jobdb.Cell{}, err
+	}
+	runtime.engine.mu.Lock()
+	defer runtime.engine.mu.Unlock()
+	return runtime.engine.cellsLocked(req.TenantID).Restore(ctx, req)
+}
+
 func (r *Runtime) RetireCell(ctx context.Context, req jobdb.RetireCellRequest) (jobdb.Cell, error) {
 	current, validationErr := r.GetCell(ctx, req.CellKey)
 	if validationErr != nil {

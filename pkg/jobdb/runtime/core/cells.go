@@ -83,6 +83,32 @@ func (r *Runtime) RetireCell(ctx context.Context, q jobdb.RetireCellRequest) (jo
 
 	return r.scheduler.RetireCell(ctx, q)
 }
+
+// CellRestoreScheduler optionally restores cells. Implementations must check
+// IfMatch again in the transaction or lock that serializes retirement and work
+// admission, even when the cell is already active.
+type CellRestoreScheduler interface {
+	jobdb.CellRestoreRuntime
+}
+
+func (runtime *Runtime) RestoreCell(ctx context.Context, req jobdb.RestoreCellRequest) (jobdb.Cell, error) {
+	current, err := runtime.GetCell(ctx, req.CellKey)
+	if err != nil {
+		return jobdb.Cell{}, err
+	}
+	if err := cellstate.CheckRestore(ctx, req, current); err != nil {
+		return jobdb.Cell{}, err
+	}
+	if err := jobdb.RequireProjectWrite(ctx, runtime.projects, req.TenantID); err != nil {
+		return jobdb.Cell{}, err
+	}
+	scheduler, ok := runtime.scheduler.(CellRestoreScheduler)
+	if !ok {
+		return jobdb.Cell{}, jobdb.ErrCellRestoreUnsupported
+	}
+	return scheduler.RestoreCell(ctx, req)
+}
+
 func (r *Runtime) ResolveCellWithLeaseByID(ctx context.Context, key jobdb.JobKey, leaseID, workerID, name string) (jobdb.ResolvedCell, error) {
 	return r.scheduler.ResolveCellWithLeaseByID(ctx, key, leaseID, workerID, name)
 }
