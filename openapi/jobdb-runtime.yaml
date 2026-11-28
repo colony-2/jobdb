@@ -6332,6 +6332,14 @@ components:
       oneOf:
         - required: [set]
         - required: [remove]
+    ExtendedMetadataComplete:
+      type: boolean
+      x-go-type-skip-optional-pointer: true
+      description: >-
+        True only when the backend attests that the accompanying extendedMetadata object
+        contains all current entries, including tombstones, for this job and read scope.
+        Only true together with a present object allows an absent key to use expectedVersion "0".
+        An omitted or null object, or a false or omitted attestation, does not confirm absence.
     JobMetadataEntry:
       type: object
       required: [version, present]
@@ -6361,7 +6369,8 @@ components:
         extendedMetadata:
           type: object
           additionalProperties: {$ref: '#/components/schemas/JobMetadataEntry'}
-          x-go-type-skip-optional-pointer: true
+        extendedMetadataComplete:
+          $ref: '#/components/schemas/ExtendedMetadataComplete'
         appendKey:
           type: string
         recordKind:
@@ -6569,7 +6578,8 @@ components:
         extendedMetadata:
           type: object
           additionalProperties: {$ref: '#/components/schemas/JobMetadataEntry'}
-          x-go-type-skip-optional-pointer: true
+        extendedMetadataComplete:
+          $ref: '#/components/schemas/ExtendedMetadataComplete'
         appendKey:
           type: string
         recordKind:
@@ -7178,7 +7188,8 @@ components:
         extendedMetadata:
           type: object
           additionalProperties: {$ref: '#/components/schemas/JobMetadataEntry'}
-          x-go-type-skip-optional-pointer: true
+        extendedMetadataComplete:
+          $ref: '#/components/schemas/ExtendedMetadataComplete'
         appendKey:
           type: string
         recordKind:
@@ -7289,7 +7300,8 @@ components:
         extendedMetadata:
           type: object
           additionalProperties: {$ref: '#/components/schemas/JobMetadataEntry'}
-          x-go-type-skip-optional-pointer: true
+        extendedMetadataComplete:
+          $ref: '#/components/schemas/ExtendedMetadataComplete'
         appendKey:
           type: string
         recordKind:

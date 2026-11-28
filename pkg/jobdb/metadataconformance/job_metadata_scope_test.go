@@ -54,12 +54,15 @@ func TestJobExtendedMetadataReadScope(t *testing.T) {
 						require.Equal(t, legacy.Status, info.Status)
 						page, err := client.ListJobs(caller, jobdb.ListJobsRequest{TenantIds: []string{key.TenantId}})
 						if test.visible {
+							require.True(t, info.ExtendedMetadataComplete)
 							require.Equal(t, map[string]jobdb.JobMetadataEntry{"exact": entry, "removed": removed}, info.ExtendedMetadata)
 							require.NoError(t, err)
 							require.Len(t, page.Jobs, 1)
+							require.True(t, page.Jobs[0].ExtendedMetadataComplete)
 							require.Equal(t, info.ExtendedMetadata, page.Jobs[0].ExtendedMetadata)
 							return
 						}
+						require.False(t, info.ExtendedMetadataComplete)
 						require.Empty(t, info.ExtendedMetadata)
 						require.ErrorIs(t, err, test.listError)
 						require.Empty(t, page.Jobs)

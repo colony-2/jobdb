@@ -67,6 +67,19 @@ func metadataClient(t *testing.T, store metadataRuntime, surface string, default
 	if surface == "native-go" {
 		return store, nil, ""
 	}
+	server, prefix := metadataServer(t, store, surface, defaultAuthority)
+	if surface == "project-http" {
+		client, err := remote.NewProjectRuntime(server.URL, server.Client())
+		require.NoError(t, err)
+		return client, server, prefix
+	}
+	client, err := remote.New(server.URL, server.Client())
+	require.NoError(t, err)
+	return client, server, prefix
+}
+
+func metadataServer(t *testing.T, store jobdb.WorkflowRuntime, surface string, defaultAuthority *jobdb.CellAuthority) (*httptest.Server, string) {
+	t.Helper()
 	family := "tenants"
 	if surface == "project-http" {
 		family = "projects"
@@ -98,14 +111,7 @@ func metadataClient(t *testing.T, store metadataRuntime, surface string, default
 		handler.ServeHTTP(w, r.WithContext(ctx))
 	}))
 	t.Cleanup(server.Close)
-	if surface == "project-http" {
-		client, err := remote.NewProjectRuntime(server.URL, server.Client())
-		require.NoError(t, err)
-		return client, server, prefix
-	}
-	client, err := remote.New(server.URL, server.Client())
-	require.NoError(t, err)
-	return client, server, prefix
+	return server, prefix
 }
 
 func runMetadataChecks(t *testing.T, ctx context.Context, client, store metadataRuntime, server *httptest.Server, prefix string) {
@@ -281,10 +287,16 @@ func runMetadataChecks(t *testing.T, ctx context.Context, client, store metadata
 	}
 	_, err = client.EditJobMetadata(ctx, key, write("exact", 1, `true`))
 	require.ErrorIs(t, err, jobdb.ErrJobNotFound)
-	info, err = store.GetJob(ctx, key)
+	info, err = client.GetJob(ctx, key)
 	require.NoError(t, err)
 	require.Empty(t, info.ExtendedMetadata)
+	require.False(t, info.ExtendedMetadataComplete)
 	page, err = client.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"c2"}})
 	require.NoError(t, err)
 	require.Empty(t, page.Jobs)
+	page, err = client.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"c2"}, IncludeHidden: true})
+	require.NoError(t, err)
+	require.Len(t, page.Jobs, 1)
+	require.Empty(t, page.Jobs[0].ExtendedMetadata)
+	require.False(t, page.Jobs[0].ExtendedMetadataComplete)
 }

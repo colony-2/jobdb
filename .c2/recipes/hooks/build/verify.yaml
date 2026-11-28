@@ -150,6 +150,8 @@ state:
           go generate ./pkg/jobdb/internal/runtimeapi ./pkg/jobdb/internal/projectapi ./pkg/jobdb/runtime/remote
           sha256sum -c "$scratch/generated.sha256"
           go run ./cmd/jobdb-api-snapshot -packages api/packages.txt -check api/jobdb.public.txt
+          printf '%s\n' "Command: go test -count=1 -p=1 -timeout=3m -v ./pkg/jobdb/metadataconformance -run '^TestJobExtendedMetadata(HTTP(AttestedProjection|UnsupportedBackend|LegacyPeer)|ReadScope)\$'"
+          go test -count=1 -p=1 -timeout=3m -v ./pkg/jobdb/metadataconformance -run '^TestJobExtendedMetadata(HTTP(AttestedProjection|UnsupportedBackend|LegacyPeer)|ReadScope)$'
           printf '%s\n' "Command: go test -count=1 -p=2 -timeout=5m -v -tags=integration ./pkg/jobdb/jobid ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/remote ./pkg/jobdb/runtime/toy/... ./pkg/workflow -run '^(TestJobID.*|TestAppend.*|TestStartOrAppendConformance|TestGoalMigrationConvertsPreservingRetainedState|TestMigratedSQLiteFailureHTTPInspection)$'"
           go test -count=1 -p=2 -timeout=5m -v -tags=integration ./pkg/jobdb/jobid ./pkg/jobdb/runtime/core ./pkg/jobdb/runtime/sqlite ./pkg/jobdb/runtime/remote ./pkg/jobdb/runtime/toy/... ./pkg/workflow -run '^(TestJobID.*|TestAppend.*|TestStartOrAppendConformance|TestGoalMigrationConvertsPreservingRetainedState|TestMigratedSQLiteFailureHTTPInspection)$'
           # Check typed permission errors on both generated project append clients.

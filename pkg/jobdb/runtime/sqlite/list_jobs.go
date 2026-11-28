@@ -280,6 +280,7 @@ FROM page p ORDER BY created_at_ns DESC,list_key DESC`
 		if s.ExtendedMetadata, err = decodeCurrentJobMetadata(extendedMetadata); err != nil {
 			return jobdb.ListJobsResponse{}, err
 		}
+		s.ExtendedMetadataComplete = extendedMetadata != nil
 		s.NextRoute = &route
 		s.AvailableAt = availabilityFromNS(available)
 		s.CreatedAt = timeFromNS(created)

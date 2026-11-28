@@ -632,6 +632,9 @@ type ExecutionState struct {
 	TaskWait             *TaskWait                  `json:"taskWait,omitempty"`
 }
 
+// ExtendedMetadataComplete True only when the backend attests that the accompanying extendedMetadata object contains all current entries, including tombstones, for this job and read scope. Only true together with a present object allows an absent key to use expectedVersion "0". An omitted or null object, or a false or omitted attestation, does not confirm absence.
+type ExtendedMetadataComplete = bool
+
 // FailGoalRequest defines model for FailGoalRequest.
 type FailGoalRequest = jobdb.FailGoalRequest
 
@@ -1065,11 +1068,14 @@ type ProjectJobInfo struct {
 	// Data Terminal task data when materialized. A `null` value should be
 	// treated as a lazily unavailable `TaskData`, for example when the job
 	// has not completed yet.
-	Data             *StoredTaskData             `json:"data"`
-	ExecutionState   ExecutionState              `json:"executionState"`
-	ExtendedMetadata map[string]JobMetadataEntry `json:"extendedMetadata,omitempty"`
-	GoalId           string                      `json:"goalId"`
-	NextRoute        *Route                      `json:"nextRoute,omitempty"`
+	Data             *StoredTaskData              `json:"data"`
+	ExecutionState   ExecutionState               `json:"executionState"`
+	ExtendedMetadata *map[string]JobMetadataEntry `json:"extendedMetadata,omitempty"`
+
+	// ExtendedMetadataComplete True only when the backend attests that the accompanying extendedMetadata object contains all current entries, including tombstones, for this job and read scope. Only true together with a present object allows an absent key to use expectedVersion "0". An omitted or null object, or a false or omitted attestation, does not confirm absence.
+	ExtendedMetadataComplete ExtendedMetadataComplete `json:"extendedMetadataComplete,omitempty"`
+	GoalId                   string                   `json:"goalId"`
+	NextRoute                *Route                   `json:"nextRoute,omitempty"`
 
 	// OtherGoalIds Deprecated; always empty. Jobs have only their immutable primary goal.
 	// Deprecated: Membership is the immutable primary goal.
@@ -1134,14 +1140,17 @@ type ProjectJobSummary struct {
 	CompletionDetail *string `json:"completionDetail,omitempty"`
 
 	// CompletionStatus Persisted terminal outcome, independent of scheduler status. Absent or empty means unavailable. Unfamiliar values are preserved.
-	CompletionStatus *string                     `json:"completionStatus,omitempty"`
-	CreatedAt        time.Time                   `json:"createdAt"`
-	ExecutionState   ExecutionState              `json:"executionState"`
-	ExpiresAt        *time.Time                  `json:"expiresAt,omitempty"`
-	ExtendedMetadata map[string]JobMetadataEntry `json:"extendedMetadata,omitempty"`
-	GoalId           string                      `json:"goalId"`
-	JobKey           ProjectJobKey               `json:"jobKey"`
-	JobType          string                      `json:"jobType"`
+	CompletionStatus *string                      `json:"completionStatus,omitempty"`
+	CreatedAt        time.Time                    `json:"createdAt"`
+	ExecutionState   ExecutionState               `json:"executionState"`
+	ExpiresAt        *time.Time                   `json:"expiresAt,omitempty"`
+	ExtendedMetadata *map[string]JobMetadataEntry `json:"extendedMetadata,omitempty"`
+
+	// ExtendedMetadataComplete True only when the backend attests that the accompanying extendedMetadata object contains all current entries, including tombstones, for this job and read scope. Only true together with a present object allows an absent key to use expectedVersion "0". An omitted or null object, or a false or omitted attestation, does not confirm absence.
+	ExtendedMetadataComplete ExtendedMetadataComplete `json:"extendedMetadataComplete,omitempty"`
+	GoalId                   string                   `json:"goalId"`
+	JobKey                   ProjectJobKey            `json:"jobKey"`
+	JobType                  string                   `json:"jobType"`
 
 	// LastLeaseUpdatedAt Occurrence time of the most recent successful lease acquisition or renewal, when known.
 	LastLeaseUpdatedAt *time.Time `json:"lastLeaseUpdatedAt,omitempty"`

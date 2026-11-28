@@ -737,6 +737,7 @@ type JobHandle struct
   field JobKey JobKey
 type JobInfo struct
   field ExtendedMetadata map[string]JobMetadataEntry `json:"extendedMetadata,omitempty"`
+  field ExtendedMetadataComplete bool `json:"-"`
   field AppendKey string
   field RecordKind JobRecordKind
   field TerminalFailure *GoalFailure
@@ -867,6 +868,7 @@ const JobStoreActive JobStore = "ACTIVE"
 const JobStoreArchived JobStore = "ARCHIVED"
 type JobSummary struct
   field ExtendedMetadata map[string]JobMetadataEntry `json:"extendedMetadata,omitempty"`
+  field ExtendedMetadataComplete bool `json:"-"`
   field AppendKey string
   field RecordKind JobRecordKind
   field TerminalFailure *GoalFailure

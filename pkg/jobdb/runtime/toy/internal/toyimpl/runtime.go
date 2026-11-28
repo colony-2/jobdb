@@ -865,6 +865,7 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 	}
 	if jobdb.AuthorizeCell(ctx, jobKey.TenantId, record.cell.CellID, "jobs.list") == nil {
 		job.ExtendedMetadata = record.currentJobMetadata()
+		job.ExtendedMetadataComplete = record.jobMetadataComplete()
 	}
 	if record.recordKind.IsTerminalRecord() {
 		if err := validateProtectedToyRecord(record); err != nil {

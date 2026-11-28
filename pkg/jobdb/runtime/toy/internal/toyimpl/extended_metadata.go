@@ -104,8 +104,12 @@ func (r *Runtime) preflightJobMetadataScope(ctx context.Context, key jobdb.JobKe
 	return jobmetadataedit.CheckScope(ctx, key, record.cell.CellID)
 }
 
+func (record *jobRecord) jobMetadataComplete() bool {
+	return !record.hidden && !record.recordKind.IsTerminalRecord()
+}
+
 func (record *jobRecord) currentJobMetadata() map[string]jobdb.JobMetadataEntry {
-	if record.hidden || record.recordKind.IsTerminalRecord() || len(record.extendedMetadata) == 0 {
+	if !record.jobMetadataComplete() || len(record.extendedMetadata) == 0 {
 		return nil
 	}
 	entries := make(map[string]jobdb.JobMetadataEntry, len(record.extendedMetadata))

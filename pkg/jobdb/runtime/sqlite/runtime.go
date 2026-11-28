@@ -809,6 +809,7 @@ func (r *Runtime) GetJob(ctx context.Context, jobKey jobdb.JobKey) (jobdb.JobInf
 		err = r.db.QueryRowContext(ctx, `SELECT `+currentJobMetadataSQL+` FROM jobdb_jobs p WHERE tenant_id=? AND job_id=? AND cell_id=?`, jobKey.TenantId, jobKey.JobId, row.cell.CellID).Scan(&raw)
 		if err == nil {
 			job.ExtendedMetadata, err = decodeCurrentJobMetadata(raw)
+			job.ExtendedMetadataComplete = raw != nil
 		}
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return jobdb.JobInfo{}, err

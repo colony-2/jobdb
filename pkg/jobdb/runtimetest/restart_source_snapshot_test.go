@@ -195,7 +195,7 @@ func TestRestartSourceSnapshotPublicFields(t *testing.T) {
 	for i := 0; i < typ.NumField(); i++ {
 		fields = append(fields, typ.Field(i).Name)
 	}
-	require.Equal(t, []string{"ExtendedMetadata", "AppendKey", "RecordKind", "TerminalFailure", "Cell", "CellID", "CellRepo", "NextRoute", "CompletionStatus", "CompletionDetail", "WaitFor", "BlockingWait", "GoalID", "OtherGoalIDs", "ClientPayload", "ClientPayloadRevision", "ExecutionState", "Status", "Data", "SchemaHash"}, fields)
+	require.Equal(t, []string{"ExtendedMetadata", "ExtendedMetadataComplete", "AppendKey", "RecordKind", "TerminalFailure", "Cell", "CellID", "CellRepo", "NextRoute", "CompletionStatus", "CompletionDetail", "WaitFor", "BlockingWait", "GoalID", "OtherGoalIDs", "ClientPayload", "ClientPayloadRevision", "ExecutionState", "Status", "Data", "SchemaHash"}, fields)
 	fixture := snapshotInfo()
 	changes := snapshotChanges(reflect.ValueOf(&fixture).Elem(), "JobInfo", func() {})
 	covered := map[string]bool{"Data": true} // Data's independent matrix follows below.

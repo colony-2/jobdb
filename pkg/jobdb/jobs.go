@@ -85,18 +85,22 @@ const (
 
 type JobInfo struct {
 	ExtendedMetadata map[string]JobMetadataEntry `json:"extendedMetadata,omitempty"`
-	AppendKey        string
-	RecordKind       JobRecordKind
-	TerminalFailure  *GoalFailure
-	Cell             string
-	CellID           string
-	CellRepo         string
-	NextRoute        *Route
-	CompletionStatus string
-	CompletionDetail string
-	WaitFor          []string
-	BlockingWait     *DependencyWaitInfo
-	GoalID           string
+	// ExtendedMetadataComplete attests that the same read returned all entries,
+	// including tombstones, for this job and caller. Only then does a missing
+	// key imply version 0. HTTP uses its own wire representation.
+	ExtendedMetadataComplete bool `json:"-"`
+	AppendKey                string
+	RecordKind               JobRecordKind
+	TerminalFailure          *GoalFailure
+	Cell                     string
+	CellID                   string
+	CellRepo                 string
+	NextRoute                *Route
+	CompletionStatus         string
+	CompletionDetail         string
+	WaitFor                  []string
+	BlockingWait             *DependencyWaitInfo
+	GoalID                   string
 	// Deprecated: always empty; membership is the immutable primary GoalID.
 	OtherGoalIDs          []string
 	ClientPayload         json.RawMessage

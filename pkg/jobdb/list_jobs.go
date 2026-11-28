@@ -21,14 +21,16 @@ type DependencyWaitSummary struct {
 // or evaluated dependency explanations. Client payloads and execution state are
 // returned in full from the same listing snapshot.
 type JobSummary struct {
-	ExtendedMetadata    map[string]JobMetadataEntry `json:"extendedMetadata,omitempty"`
-	AppendKey           string
-	RecordKind          JobRecordKind
-	TerminalFailure     *GoalFailure
-	Cell                string
-	CellID              string
-	CellRepo            string
-	BlockingWaitSummary *DependencyWaitSummary
+	ExtendedMetadata map[string]JobMetadataEntry `json:"extendedMetadata,omitempty"`
+	// ExtendedMetadataComplete has the same meaning as on JobInfo.
+	ExtendedMetadataComplete bool `json:"-"`
+	AppendKey                string
+	RecordKind               JobRecordKind
+	TerminalFailure          *GoalFailure
+	Cell                     string
+	CellID                   string
+	CellRepo                 string
+	BlockingWaitSummary      *DependencyWaitSummary
 	// Deprecated: use GetJob or GetDependencyWait. Not populated by compact lists.
 	BlockingWait *DependencyWaitInfo
 	GoalID       string

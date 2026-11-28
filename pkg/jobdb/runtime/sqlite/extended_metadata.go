@@ -165,12 +165,16 @@ func (runtime *Runtime) editJobMetadata(ctx context.Context, key jobdb.JobKey, e
 	return result, nil
 }
 
-const currentJobMetadataSQL = `(SELECT json_group_object(m.key,json(CASE WHEN m.value IS NULL
+const currentJobMetadataSQL = `CASE WHEN p.hidden_at_ns IS NULL AND p.record_kind='EXECUTION' THEN
+ (SELECT json_group_object(m.key,json(CASE WHEN m.value IS NULL
  THEN json_object('version',CAST(m.version AS TEXT),'present',json('false'))
  ELSE json_object('version',CAST(m.version AS TEXT),'present',json('true'),'value',json(CAST(m.value AS TEXT))) END))
- FROM ` + jobMetadataTable + ` m WHERE m.tenant_id=p.tenant_id AND m.job_id=p.job_id AND p.hidden_at_ns IS NULL AND p.record_kind='EXECUTION')`
+ FROM ` + jobMetadataTable + ` m WHERE m.tenant_id=p.tenant_id AND m.job_id=p.job_id) END`
 
 func decodeCurrentJobMetadata(raw []byte) (map[string]jobdb.JobMetadataEntry, error) {
+	if raw == nil {
+		return nil, nil
+	}
 	var entries map[string]jobdb.JobMetadataEntry
 	if err := json.Unmarshal(raw, &entries); err != nil {
 		return nil, err
